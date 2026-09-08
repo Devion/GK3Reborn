@@ -3,22 +3,6 @@
 /// <summary>
 /// A key on the keyboard, named rather than numbered.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The game's own enumeration and not the windowing library's.</b> Plan/01-architecture
-/// section 2 keeps windowing behind <see cref="IGameWindow"/> so the backend can change,
-/// and a binding the player has saved is the one thing above the platform layer that has
-/// to name a key. Naming Silk.NET's would put a windowing type in the settings file and
-/// make the file unreadable the day the backend changed underneath it.
-/// </para>
-/// <para>
-/// <b>The names deliberately match Silk.NET's</b>, member for member, so the map between
-/// the two is a name lookup rather than a hundred-line switch that somebody has to keep in
-/// step. See <c>SilkGameWindow.SilkKeys</c>. A member here that the backend has no key for
-/// simply never fires, which is the right failure: a binding to a key the platform does not
-/// report is a binding that does nothing, not a crash at startup.
-/// </para>
-/// </remarks>
 public enum InputKey
 {
     /// <summary>No key at all: an action nobody has bound.</summary>
@@ -144,21 +128,6 @@ public enum InputKey
 /// <summary>
 /// A button or stick direction on a gamepad.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Named for where the control is rather than for what is printed on it. The same physical
-/// button is A on an Xbox pad, Cross on a PlayStation one and B on a Nintendo one, and a
-/// settings page that says "A" to somebody holding a DualSense is a settings page that is
-/// wrong about the hardware in their hands. <see cref="GamepadButtons.Describe"/> says
-/// "Bottom face" and nobody has to be told which one that is.
-/// </para>
-/// <para>
-/// <b>The sticks and triggers are in here as buttons.</b> A trigger is an axis and a stick
-/// is two of them, and both are perfectly good things to bind an action to — press a
-/// trigger far enough and it is a press. Keeping them out would mean the two largest
-/// controls on the pad were the two that could not be bound.
-/// </para>
-/// </remarks>
 public enum GamepadButton
 {
     /// <summary>No button at all: an action nobody has bound.</summary>
@@ -221,11 +190,6 @@ public static class InputKeys
     /// </summary>
     /// <param name="key">The key.</param>
     /// <returns>Its name, as somebody would say it out loud.</returns>
-    /// <remarks>
-    /// The punctuation keys are given as the character on the keycap rather than as the
-    /// name of the character: nobody looking for the key under Escape is looking for a row
-    /// that says "Grave accent", and everybody recognises the backtick itself.
-    /// </remarks>
     public static string Describe(InputKey key) => key switch
     {
         InputKey.None => "—",
@@ -285,11 +249,6 @@ public static class InputKeys
     /// <summary>Reads a key back from what was written in the settings file.</summary>
     /// <param name="text">The name, as <see cref="Enum.ToString()"/> gave it.</param>
     /// <returns>The key, or <see cref="InputKey.None"/> if it is not one.</returns>
-    /// <remarks>
-    /// Unknown is <see cref="InputKey.None"/> rather than an error. A settings file is a
-    /// text file somebody may edit and may have been written by a later version of the
-    /// game; a binding nobody recognises should cost that binding and not the startup.
-    /// </remarks>
     public static InputKey Parse(string? text) =>
         Enum.TryParse(text, ignoreCase: true, out InputKey key) ? key : InputKey.None;
 }

@@ -3,12 +3,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// A sequence parameter set: what every picture of a coded video sequence has in common.
 /// </summary>
-/// <remarks>
-/// Only progressive 8-bit video is accepted. The import never writes anything else, and
-/// interlaced coding (fields, MBAFF) would double the size of the macroblock layer for
-/// pictures no game will ever contain. What is refused is refused at parse time, with a
-/// message that names the feature, rather than by decoding garbage.
-/// </remarks>
 internal sealed class SequenceParameterSet
 {
     public int Id;

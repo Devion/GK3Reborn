@@ -5,21 +5,6 @@ namespace GK3Reborn.Formats.Video;
 /// <summary>
 /// Turns a decoded Y'CbCr picture into the RGBA a texture upload wants.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Limited-range BT.601 unless the stream's VUI says BT.709 or full range: the game's
-/// cinematics are standard-definition conversions of standard-definition sources, and
-/// nothing in the import tags them, which is the case BT.601 is the convention for. The
-/// same choice FFmpeg's scaler makes for untagged video, so a frame through this path
-/// looks the way it did through that one.
-/// </para>
-/// <para>
-/// Fixed point with lookup tables, one multiply per channel per sample. Chroma of a 4:2:0
-/// picture is used at its own resolution — each chroma sample covers a 2x2 block of luma —
-/// which is what a nearest upsampling is, and what looks right for material that was
-/// 320x240 to begin with.
-/// </para>
-/// </remarks>
 public static class YuvConverter
 {
     // 16.16 fixed-point coefficients for the two matrices, limited range then full.

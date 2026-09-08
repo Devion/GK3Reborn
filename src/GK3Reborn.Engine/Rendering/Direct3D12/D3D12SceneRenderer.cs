@@ -9,19 +9,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws a room into a texture with no window anywhere, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The twin of <c>SceneRenderer</c>, and what makes the two backends comparable: the same
-/// scene, the same camera and the same shaders on either, with a picture at the end that can
-/// be put beside the other one. Nothing about a renderer is proved by a pipeline that
-/// creates — only by a picture, and only by a picture somebody looked at.
-/// </para>
-/// <para>
-/// Almost all of it is <see cref="D3D12FramePipeline"/>, which the windowed renderer shares.
-/// What is left here is the two things a headless render does differently: the encode goes
-/// into a texture of its own rather than onto a swapchain, and that texture is read back.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
 {
     private readonly D3D12Context _context;
@@ -83,12 +70,6 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
     }
 
     /// <summary>What DLSS was asked to do, or null to draw at display resolution.</summary>
-    /// <remarks>
-    /// Setting this changes what <see cref="Render"/> means. The room is drawn at the render
-    /// size the plan chooses and the picture comes back at the size asked for, with the
-    /// upscale between them — which is the whole reason the two sizes are separate numbers
-    /// everywhere in this renderer rather than one and a multiplier.
-    /// </remarks>
     public UpscalePlan? Upscaling
     {
         get => _pipeline.Upscaling;
@@ -116,11 +97,6 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
     }
 
     /// <summary>What the picture is cleared to before anything is drawn.</summary>
-    /// <remarks>
-    /// Black for a real frame. Anything else is a diagnostic: a clear colour that survives to
-    /// the picture proves the output encode and the readback, and leaves only the mesh pass
-    /// to account for a room that did not appear.
-    /// </remarks>
     public (float R, float G, float B) ClearColour { get; set; }
 
     /// <summary>What the last frame actually issued, for when a room does not appear.</summary>

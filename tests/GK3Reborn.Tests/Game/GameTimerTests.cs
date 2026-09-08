@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for actions the story asks for later.
 /// </summary>
-/// <remarks>
-/// A timer holds a noun and a verb rather than a piece of work, so the rule that runs is
-/// the one that applies when the time comes rather than the one that applied when the
-/// timer was set. That is the property everything else depends on.
-/// </remarks>
 public sealed class GameTimerTests
 {
     [Fact]

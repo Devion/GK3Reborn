@@ -3,13 +3,6 @@ using System.Globalization;
 namespace GK3Reborn.Rendering;
 
 /// <summary>What one graphics adapter is and what it can do.</summary>
-/// <remarks>
-/// The fields both backends can honestly fill in. A Vulkan survey knows things a Direct3D
-/// one does not and the other way about — extension names against feature levels, a driver
-/// version encoded by the vendor against one encoded by the runtime — so anything that only
-/// one of them can answer goes in <see cref="Notes"/> as a line of prose rather than
-/// becoming a field the other has to invent a value for.
-/// </remarks>
 public sealed record AdapterInfo
 {
     /// <summary>Adapter name as the driver reports it.</summary>
@@ -41,10 +34,6 @@ public sealed record AdapterInfo
     /// <summary>
     /// Whether the content pipeline's block-compressed textures can be uploaded as they are.
     /// </summary>
-    /// <remarks>
-    /// False on Apple silicon, where they are expanded on the host instead. It is worth
-    /// reporting because it is invisible on screen and costs four times the video memory.
-    /// </remarks>
     public required bool BlockCompression { get; init; }
 
     /// <summary>Why the adapter did or did not reach each tier, and anything else notable.</summary>

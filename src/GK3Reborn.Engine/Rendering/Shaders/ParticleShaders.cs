@@ -16,12 +16,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <param name="Eye">
 /// xyz: where the camera is, in world space.
 /// </param>
-/// <remarks>
-/// The eye is here for the one sprite that is a volume rather than a picture. A flame is
-/// raymarched through its own quad, and a march needs the ray it is marching along: the
-/// corner's world position gives the far end of it and this gives the near end. Every
-/// other kind of sprite ignores it.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ParticleConstants(
     Matrix4x4 ViewProjection, Vector4 Right, Vector4 Up, Vector4 Eye);
@@ -29,29 +23,6 @@ public readonly record struct ParticleConstants(
 /// <summary>
 /// Smoke and embers, drawn over the finished room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The renderer is deferred and its material pass cannot blend: every surface in the game
-/// is opaque or cut out with a hard alpha test, which is what the 1999 art was drawn for.
-/// Smoke is the one thing in this project that genuinely needs a blend, so it is a forward
-/// pass of its own, drawn after the picture is composed and tested against the depth the
-/// room left behind.
-/// </para>
-/// <para>
-/// <b>One blend does both kinds.</b> Colours arrive premultiplied by their own alpha and
-/// the blend is <c>ONE, ONE_MINUS_SRC_ALPHA</c>, so what a fragment writes in the alpha
-/// channel decides what it does: an ember writes zero and is added to the wall behind it,
-/// smoke writes its coverage and hides it. Two blends would mean two pipelines and a sort
-/// that kept them apart, and embers would still have to be drawn after the smoke they are
-/// flying through.
-/// </para>
-/// <para>
-/// <b>There is no texture.</b> A sprite is a disc with a soft edge and, for smoke, a little
-/// noise cut out of it — three lines of arithmetic against a bitmap that would have to be
-/// authored, packed, shipped and looked up. It also means a particle is as sharp as the
-/// display is, at any size, which a 32-pixel puff from 1999 would not be.
-/// </para>
-/// </remarks>
 public static class ParticleShaders
 {
     /// <summary>Describes the camera for one frame's particles.</summary>
@@ -59,12 +30,6 @@ public static class ParticleShaders
     /// <param name="viewProjection">Its matrix, jitter and all.</param>
     /// <param name="emissiveGain">How far above white a self-lit thing may be drawn.</param>
     /// <returns>The block both stages read.</returns>
-    /// <remarks>
-    /// The basis is built the way the sky's is — see <see cref="SkyboxShaders.Describe"/> —
-    /// rather than read out of a view matrix, and for the same reason: the rows of a view
-    /// matrix are the basis of its inverse, and a sprite built from them faces the right way
-    /// until the camera turns.
-    /// </remarks>
     public static ParticleConstants Describe(
         Camera camera, Matrix4x4 viewProjection, float emissiveGain = 1f)
     {

@@ -17,56 +17,9 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// <summary>
 /// NVIDIA Streamline: the loader every NGX feature is reached through.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Why this exists before the renderer does.</b> Streamline's features ask for Vulkan
-/// device extensions and for queues of their own, and both have to be in the
-/// <c>vkCreateDevice</c> call. So it is started first, asked what it needs, and the
-/// renderer folds that into the instance and device it was going to create anyway. Getting
-/// this order wrong is not a subtle failure: DLSS simply reports that the device does not
-/// support it.
-/// </para>
-/// <para>
-/// <b>Manual hooking.</b> This engine creates its own instance, device and swapchain and
-/// tells Streamline about them afterwards through <c>slSetVulkanInfo</c>. That is the mode
-/// NVIDIA calls manual hooking, and it buys super resolution, which needs nothing but a
-/// command buffer.
-/// </para>
-/// <para>
-/// <b>What it does not buy, and why.</b> Streamline's own housekeeping runs inside the
-/// calls it intercepts — <c>vkQueuePresentKHR</c> above all — so an engine that presents
-/// through the loader is one Streamline never sees a frame end in. It says so
-/// (<c>presentCommon() was not observed</c>) and warns that what it hands out is never
-/// collected again. Frame generation is worse than incomplete: its hooks <i>are</i> the
-/// swapchain calls, so it cannot run at all.
-/// </para>
-/// <para>
-/// The documented cure is to load <c>sl.interposer.dll</c> in place of <c>vulkan-1.dll</c>
-/// and take <c>vkGetInstanceProcAddr</c> from it. <b>Redirecting the loader alone is not
-/// enough and must not be done on its own.</b> Once the interposer proxies device creation
-/// Streamline configures itself from what it saw, and the <c>slSetVulkanInfo</c> call below
-/// then arrives too late — it fails, and Streamline reports its plugins as already
-/// initialised against a device it may not have wanted. The window is a second, separate
-/// problem: frame generation learns the HWND from <c>vkCreateWin32SurfaceKHR</c>, and this
-/// engine's surface is made by GLFW through a loader of its own, so that hook is never
-/// seen and the swapchain is refused outright. Both have to be dealt with in the same
-/// change, and that change wants a machine to test on.
-/// </para>
-/// <para>
-/// <b>Nothing is linked.</b> Every entry point is resolved by name from a file the player
-/// supplied. A missing file, a wrong architecture, a runtime that declines to start: all of
-/// them come back as "DLSS is not available" and the game draws the frame anyway.
-/// </para>
-/// </remarks>
 public sealed unsafe class Streamline : IDisposable
 {
     /// <summary>Which graphics API a device is, from <c>sl::RenderAPI</c>.</summary>
-    /// <remarks>
-    /// Stated rather than inferred, and it matters before a device exists: it decides what
-    /// <c>slGetFeatureRequirements</c> answers with, so a Direct3D session that says Vulkan
-    /// is one that collects Vulkan extension names it will never use and asks for queues
-    /// nothing will create.
-    /// </remarks>
     internal const uint RenderApiDirect3D12 = 1;
     internal const uint RenderApiVulkan = 2;
 
@@ -75,48 +28,19 @@ public sealed unsafe class Streamline : IDisposable
     private const uint FeatureFrameGeneration = 1000;
 
     /// <summary>Latency reporting, which frame generation cannot run without.</summary>
-    /// <remarks>
-    /// <c>sl.dlss_g</c>'s manifest names <c>sl.reflex</c> among its required plugins, and a
-    /// required plugin is not loaded on the feature's behalf: a plugin is loaded because the
-    /// application asked for its feature, so frame generation without these two in the same
-    /// list is frame generation refused for a missing dependency. Reflex in turn reports
-    /// through the presented-frame counter, so both go in together.
-    /// </remarks>
     private const uint FeatureReflex = 3;
     private const uint FeaturePresentCounter = 4;
 
     /// <summary>Ray reconstruction, as the public headers number it.</summary>
-    /// <remarks>The plugin is <c>sl.dlss_d.dll</c> and its entry point is
-    /// <c>slDLSSDSetOptions</c>.</remarks>
     private const uint FeatureRayReconstruction = 1001;
 
     /// <summary>
     /// Neural rendering: ray reconstruction as the newer <c>sl.dlss_nr.dll</c> numbers
     /// itself.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The plugin's own manifest declares <c>"id": 1004</c>, <c>"rhi": ["d3d12", "vk"]</c>
-    /// and an entry point called <c>slDLSSNRSetOptions</c>, none of which appears in any
-    /// published Streamline header. Its options structure was read out of the plugin
-    /// instead; see <see cref="SlDlssnrOptions"/>, which records what the reading rests on.
-    /// </para>
-    /// <para>
-    /// It is a different feature from <see cref="FeatureRayReconstruction"/> rather than a
-    /// renaming of it. It wants far less: colour, depth and motion, tagged as buffers
-    /// seventy and seventy-one and the ordinary two, and none of the normals, roughness or
-    /// albedo that the documented feature needs. That is why it can run over a picture this
-    /// engine already draws.
-    /// </para>
-    /// </remarks>
     private const uint FeatureNeuralRendering = 1004;
 
     /// <summary>The version of the interface this was written against.</summary>
-    /// <remarks>
-    /// 2.12.0, plus the magic the headers append. Streamline accepts a caller older than
-    /// itself and refuses one newer, which is why this is the version of the headers the
-    /// structures here were copied from rather than the version of the DLL that was found.
-    /// </remarks>
     private const ulong SdkVersion = (2UL << 48) | (12UL << 32) | (0UL << 16) | 0xfedcUL;
 
     /// <summary>Preference flags, from <c>sl::PreferenceFlags</c>.</summary>
@@ -134,44 +58,7 @@ public sealed unsafe class Streamline : IDisposable
     private const uint TagNormalRoughness = 14;
 
     /// <summary>The three buffers <c>sl.dlss_nr.dll</c> reads.</summary>
-    /// <remarks>
-    /// <para>
-    /// The headers name seventy, seventy-one and seventy-two only as
-    /// <c>kBufferTypeReserved70</c> through <c>72</c>, but the runtime knows what they are:
-    /// <c>kBufferTypeUpliftInputColor</c>, <c>kBufferTypeUpliftOutputColor</c> and
-    /// <c>kBufferTypeUpliftControlMask</c>. It says the first, second and fourth of those out
-    /// loud the moment the plugin loads — "Registering required tag
-    /// 'kBufferTypeUpliftInputColor'" — and <c>sl.common.dll</c> carries a function that
-    /// turns a buffer number into its name, which is where the numbers here come from.
-    /// </para>
-    /// <para>
-    /// <b>Do not count them off the strings in the binary.</b> They appear there in the order
-    /// the compiler laid them down, which is not the order of the enumeration: counted that
-    /// way the uplift buffers land on twenty-five and twenty-six, which the runtime then
-    /// reports as "Tag of buffer kBufferTypeUpliftInputColor not set". The function that
-    /// switches on the number is the only thing worth believing.
-    /// </para>
-    /// <para>
-    /// The first two are required and the plugin refuses the frame without them; the third is
-    /// optional and left null when nothing tags it. Depth and motion it takes under their
-    /// ordinary names.
-    /// </para>
-    /// </remarks>
     /// <summary>The picture as it stood before the interface was drawn over it.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Frame generation will not run without it.</b> The runtime says so at startup and
-    /// only there — "Registering required tag 'kBufferTypeHUDLessColor'" — and a frame that
-    /// arrives without it is not refused, warned about, or reported as an error. It is
-    /// presented exactly once, which is a game that works and a feature that is quietly off.
-    /// </para>
-    /// <para>
-    /// Why it is needed at all: a generated frame is made by interpolating two drawn ones,
-    /// and an interface interpolated between two positions smears. Given the picture without
-    /// it, the runtime can take the difference against the back buffer, work out what the
-    /// interface was, and lay it over the generated frame rather than through it.
-    /// </para>
-    /// </remarks>
     private const uint TagHudLessColour = 2;
 
     private const uint TagNeuralInputColor = 70;
@@ -184,38 +71,14 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>
     /// The marker <c>slReflexSleep</c> sends, which is not a marker.
     /// </summary>
-    /// <remarks>
-    /// Recovered by decompiling <c>slReflexSleep</c>, which builds the same structure
-    /// <c>slReflexSetMarker</c> does and puts four thousand and ninety-six in it. It is how
-    /// the plugin tells its own sleep apart from anything an application could send: the
-    /// real markers are a short run from nought, and the handler takes this one first and
-    /// returns before any of them are considered.
-    /// </remarks>
     internal const uint MarkerSleep = 4096;
 
     /// <summary>
     /// How hard the neural-rendering network is asked to work, from nothing to one.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// One knob standing in for the five the network exposes, because nothing yet knows
-    /// what a GK3 room wants from them and five sliders over an unknown scale is worse than
-    /// one number in one place. Turn it down here to see what the network is contributing;
-    /// the difference between this and the picture DLSS alone produces is all of it.
-    /// </para>
-    /// <para>
-    /// The scale's top is the only end that is known. The plugin defaults the one control
-    /// it added later — skin structure — to one and leaves the four original ones to the
-    /// caller, so one is where a caller who set nothing would have landed.
-    /// </para>
-    /// </remarks>
     private const float NeuralStrength = 1f;
 
     /// <summary>Whether the network picks its own control mask. One for yes.</summary>
-    /// <remarks>
-    /// The mask says which pixels it may rework. Nought with no mask tagged is the other
-    /// half of the experiment <see cref="NeuralStrength"/> starts.
-    /// </remarks>
     private const byte NeuralAutoMask = 1;
 
     private readonly nint _library;
@@ -265,14 +128,6 @@ public sealed unsafe class Streamline : IDisposable
     private uint _renderApi = RenderApiVulkan;
 
     /// <summary>This frame's token, from <see cref="BeginFrame"/>.</summary>
-    /// <remarks>
-    /// Held rather than made where it is needed, because a marker, a tag and an evaluation
-    /// are only about the same frame if they carry the same token. Reflex measures the
-    /// distance between two markers and frame generation pairs a drawn frame with the one
-    /// before it; both read the number out of this. Two tokens in a frame is two frames as
-    /// far as either is concerned, and the symptom is latency figures that make no sense and
-    /// generated frames that pair the wrong inputs.
-    /// </remarks>
     private void* _token;
 
     private uint _latencyMode;
@@ -315,10 +170,6 @@ public sealed unsafe class Streamline : IDisposable
     public bool HasRayReconstruction => _denoiser != 0;
 
     /// <summary>Which of the two denoising plugins is the one that loaded.</summary>
-    /// <remarks>
-    /// For the settings page and the log. The two are not interchangeable — they want
-    /// different inputs — so a player looking at a picture wants to know which one drew it.
-    /// </remarks>
     public string RayReconstructionVariant => _denoiser switch
     {
         FeatureNeuralRendering => "DLSS neural rendering",
@@ -329,36 +180,12 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>
     /// Whether the loaded denoiser needs the inputs only a traced picture has.
     /// </summary>
-    /// <remarks>
-    /// True for the documented feature, which wants normals, roughness and albedo. False
-    /// for neural rendering, which asks for colour, depth and motion and nothing else, and
-    /// so has something to work with whether or not anything was traced.
-    /// </remarks>
     public bool RayReconstructionNeedsTracedInputs => _denoiser == FeatureRayReconstruction;
 
     /// <summary>Whether the denoiser that loaded is the neural rendering one.</summary>
-    /// <remarks>
-    /// Which of the two loaded decides which setting governs it, because they are not the
-    /// same offer. Ray reconstruction replaces the engine's denoiser over a traced picture;
-    /// neural rendering reworks any picture at all, and is the one the neural uplift settings
-    /// belong to.
-    /// </remarks>
     public bool NeuralRenderingLoaded => _denoiser == FeatureNeuralRendering;
 
     /// <summary>Whether the loaded denoiser has the rung the plan is asking for.</summary>
-    /// <remarks>
-    /// <para>
-    /// Neural rendering has no ultra-quality rung: it refuses that mode by number. Falling
-    /// back to the neighbouring rung inside the options would be worse than not running,
-    /// because the rung is not only a mode — it is the ratio the room was drawn at. The
-    /// plugin asks NGX to work the scaling ratio out from the mode it was given, so a mode
-    /// that disagrees with <see cref="UpscalePlan.Ratio"/> hands the network an input
-    /// smaller or larger than the one it computed for, and every pixel it reads is off.
-    /// </para>
-    /// <para>
-    /// So that rung gets plain super resolution instead, which does have it.
-    /// </para>
-    /// </remarks>
     /// <param name="quality">The rung the plan asks for.</param>
     /// <returns>True when the denoising feature can be used at that rung.</returns>
     public bool CanReconstruct(UpscalerQuality quality) =>
@@ -368,10 +195,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>
     /// Why ray reconstruction is not available, when it looked as though it should be.
     /// </summary>
-    /// <remarks>
-    /// Empty when there is nothing to say. It exists because "you have the files and it
-    /// still is not on" is the one state a player cannot diagnose for themselves.
-    /// </remarks>
     public string RayReconstructionNote { get; private set; } = string.Empty;
 
     /// <summary>Whether the frame-generation plugin was loaded and is supported.</summary>
@@ -400,12 +223,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="wantFrameGeneration">Whether to load the frame-generation plugin.</param>
     /// <param name="wantRayReconstruction">Whether to load the ray-reconstruction plugin.</param>
     /// <returns>A started Streamline, or null.</returns>
-    /// <remarks>
-    /// Which plugins to load is decided here and cannot change afterwards, so both are
-    /// loaded whenever their files are present rather than only when the setting is on:
-    /// loading a plugin costs a DLL and some address space, and not having loaded it costs
-    /// the player a restart when they change their mind.
-    /// </remarks>
     public static Streamline? TryStart(
         UpscalerRuntimes? runtimes,
         uint renderApi = RenderApiVulkan,
@@ -573,21 +390,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="device">The <c>ID3D12Device</c>.</param>
     /// <param name="luid">The adapter's locally unique identifier, eight bytes.</param>
     /// <returns>True when DLSS is usable on this device.</returns>
-    /// <remarks>
-    /// <para>
-    /// Markedly simpler than the Vulkan side, and the difference is much of why that backend
-    /// is the default on Windows. Vulkan's manual-hooking mode needs
-    /// <c>sl.interposer.dll</c> loaded in place of <c>vulkan-1.dll</c>, the surface created
-    /// through it, and <c>slSetVulkanInfo</c> then <em>not</em> called at all; getting one of
-    /// those three wrong costs frame generation silently, and getting them wrong together
-    /// costs the swapchain. Direct3D wants the device pointer and nothing else.
-    /// </para>
-    /// <para>
-    /// The adapter is named by its LUID rather than by a device handle, which is the one
-    /// place the two APIs disagree about identity. DXGI hands the same eight bytes out of
-    /// <c>DXGI_ADAPTER_DESC</c>, so there is nothing to derive.
-    /// </para>
-    /// </remarks>
     public bool AttachDirect3D(nint device, ReadOnlySpan<byte> luid)
     {
         if (_setD3DDevice is null)
@@ -629,10 +431,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>Asks the adapter what of DLSS it can actually do.</summary>
     /// <param name="adapter">Which adapter, named the way the attached API names one.</param>
     /// <returns>True when super resolution is usable.</returns>
-    /// <remarks>
-    /// The same questions whichever API was attached, which is why it is one method: what a
-    /// GeForce supports has nothing to do with how the renderer talks to it.
-    /// </remarks>
     private bool Examine(SlAdapterInfo* adapter)
     {
         uint answer = _isFeatureSupported(FeatureSuperResolution, adapter);
@@ -914,19 +712,6 @@ public sealed unsafe class Streamline : IDisposable
 
     /// <summary>Opens a frame, and hands back whether there is one to work with.</summary>
     /// <returns>True when a token was issued.</returns>
-    /// <remarks>
-    /// <para>
-    /// Called once at the top of a frame, before the first marker. Everything the rest of
-    /// the frame says to Streamline — a marker, a resource tag, the camera, the evaluation,
-    /// the present — carries the token this issued, which is what makes them one frame
-    /// rather than several.
-    /// </para>
-    /// <para>
-    /// The number is this engine's own counter and rises by one a frame. Streamline hands
-    /// back a token object for it; asking twice for the same number gives the same token,
-    /// which is why nothing here has to pass it around.
-    /// </para>
-    /// </remarks>
     public bool BeginFrame()
     {
         if (!_attached)
@@ -960,17 +745,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="mode">Nought off, one low latency, two low latency with boost.</param>
     /// <param name="frameLimitUs">A frame cap in microseconds, or nought for none.</param>
     /// <returns>True when the runtime took it.</returns>
-    /// <remarks>
-    /// <para>
-    /// Called when something changed rather than every frame, which is not an optimisation
-    /// for its own sake: the plugin copies the options into its context and asks the driver
-    /// to set the sleep mode each time, and the driver's call is not free.
-    /// </para>
-    /// <para>
-    /// On hardware that is not NVIDIA's the plugin says so once and collects statistics
-    /// without sleeping. That is not an error and is not reported as one.
-    /// </para>
-    /// </remarks>
     public bool SetLatencyMode(uint mode, uint frameLimitUs = 0)
     {
         if (!_attached || !HasLatencyControl)
@@ -1014,18 +788,6 @@ public sealed unsafe class Streamline : IDisposable
 
     /// <summary>Waits, if Reflex thinks this frame should start later than it wants to.</summary>
     /// <returns>True when it was asked.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The whole of what Reflex does for latency happens here.</b> The markers only tell
-    /// it where the frame's parts are; this is the call that returns later than it was made,
-    /// and it must be the first thing a frame does — before input is read, because the point
-    /// is to read input as late as possible and still make the present.
-    /// </para>
-    /// <para>
-    /// It blocks, and that is not a fault to be moved off the frame thread: the sleep is
-    /// calculated for the thread that is about to do the work.
-    /// </para>
-    /// </remarks>
     public bool Sleep()
     {
         if (!_attached || !HasLatencyControl || _token is null || _latencyMode == 0)
@@ -1044,11 +806,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>Says where in the frame the caller has reached.</summary>
     /// <param name="marker">Which point.</param>
     /// <returns>True when the runtime took it.</returns>
-    /// <remarks>
-    /// Silent about failure. A marker is a measurement rather than a step in drawing, and a
-    /// frame that could not be measured is still a frame; warning once a marker would be six
-    /// lines a frame.
-    /// </remarks>
     public bool Mark(StreamlineMarker marker)
     {
         if (!_attached || !HasLatencyControl || _token is null)
@@ -1065,11 +822,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>The largest number of frames this card will generate for each drawn one.</summary>
-    /// <remarks>
-    /// Nought until <see cref="RefreshFrameGeneration"/> has been able to ask. One is
-    /// two-times and three is four-times; a card that cannot generate at all reports nought,
-    /// and the setting is then not offered rather than offered and refused.
-    /// </remarks>
     public int FrameGenerationMaximum { get; private set; }
 
     /// <summary>Why frame generation is not running, or nought when it is.</summary>
@@ -1080,13 +832,6 @@ public sealed unsafe class Streamline : IDisposable
 
     /// <summary>Asks the runtime what it can do and what it is doing.</summary>
     /// <returns>True when it answered.</returns>
-    /// <remarks>
-    /// <b>The version in the header decides how much comes back.</b> The plugin fills the
-    /// maximum count only when asked at version two or above, the fence pair at three and
-    /// the last flag at four, so this asks at four and hands it a structure long enough for
-    /// all of them. Asking at one and then reading the maximum is reading the bytes this
-    /// side zeroed, which is a card that can generate three frames offering none.
-    /// </remarks>
     public bool RefreshFrameGeneration()
     {
         if (!_attached || !HasFrameGeneration)
@@ -1128,19 +873,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="render">The size the room is drawn at, which is what motion and depth are.</param>
     /// <param name="display">The size the picture is shown at, which is what colour is.</param>
     /// <returns>True when the runtime took it.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Off is a mode, not a count of nought.</b> The plugin refuses a count of nought
-    /// outright — "numFramesToGenerate must be greater than 0" — so turning it off is mode
-    /// nought with the count left at one.
-    /// </para>
-    /// <para>
-    /// The extents are not decoration: they are what the runtime works its memory out from,
-    /// and depth and motion are at the render size while the colour it interpolates is at
-    /// the display size. With no upscaler the two are equal, which is why getting it wrong
-    /// is invisible until somebody turns DLSS on.
-    /// </para>
-    /// </remarks>
     public bool SetFrameGeneration(
         int generated, (uint Width, uint Height) render, (uint Width, uint Height) display)
     {
@@ -1192,31 +924,6 @@ public sealed unsafe class Streamline : IDisposable
     /// The interface to replace. On success it points at the proxy instead.
     /// </param>
     /// <returns>True when it was replaced.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>This is what makes frame generation possible at all, and nothing else does.</b>
-    /// The generated frames are produced and presented inside the swapchain's own
-    /// <c>Present</c>, so a swapchain the runtime has never seen is one it cannot generate
-    /// for. Upgrading the DXGI factory before the swapchain is created is what makes the
-    /// swapchain that comes back one of Streamline's — everything else follows from that,
-    /// including the housekeeping the runtime does at each present and which it otherwise
-    /// complains it never observes.
-    /// </para>
-    /// <para>
-    /// It takes an <c>ID3D12Device</c>, an <c>IDXGIFactory</c> or an <c>IDXGISwapChain</c>
-    /// and refuses anything else. Only the factory is upgraded here: upgrading the device as
-    /// well buys the command-queue hook, which matters to an engine that makes queues after
-    /// the swapchain and not to this one, which makes its one queue first and hands it
-    /// straight to <c>CreateSwapChainForHwnd</c>.
-    /// </para>
-    /// <para>
-    /// <b>The proxy holds a reference of its own to what it wraps.</b> The caller's pointer
-    /// is overwritten, so the reference it used to name is no longer reachable through it;
-    /// releasing the proxy releases the proxy's reference and not that one. That is NVIDIA's
-    /// own documented usage, and what it costs is one DXGI factory that outlives the process
-    /// by a few microseconds.
-    /// </para>
-    /// </remarks>
     public bool UpgradeInterface(void** wrapped)
     {
         if (!_attached || wrapped is null || *wrapped is null)
@@ -1242,12 +949,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <param name="commandList">The frame's command list, for the barriers the runtime adds.</param>
     /// <param name="hudLess">The copy, at display size, in whatever state it was left in.</param>
     /// <returns>True when the runtime took it.</returns>
-    /// <remarks>
-    /// Separate from <see cref="Evaluate"/> and later in the frame, because it is a different
-    /// moment: upscaling happens while the room is still the only thing drawn, and this is
-    /// taken after the room, the film and everything else that is not the interface. Both
-    /// carry the frame's own token, which is what puts them in the same frame.
-    /// </remarks>
     public bool TagHudLess(nint commandList, UpscaleSurface hudLess)
     {
         if (!_attached || _token is null || !hudLess.Exists)
@@ -1299,11 +1000,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>Hands the runtime this frame's camera.</summary>
-    /// <remarks>
-    /// The matrices are row-major and carry no jitter, which Streamline's own header says
-    /// twice. The offset is given separately, and the previous frame's matrix is kept here
-    /// rather than asked of the renderer so that the pair is always consistent.
-    /// </remarks>
     private bool Constants(void* token, SlViewport* viewport, in StreamlineFrame frame)
     {
         // Once a frame, however many features are run in it. The runtime refuses a second
@@ -1468,12 +1164,6 @@ public sealed unsafe class Streamline : IDisposable
     };
 
     /// <summary>What one of Streamline's result codes means, in words.</summary>
-    /// <remarks>
-    /// From <c>sl_result.h</c>, in its order. Only the ones that can plausibly come back
-    /// from the calls made here are named; anything else is printed as its number, which is
-    /// still enough to look up. The point is that "DLSS is unavailable" and "your driver is
-    /// too old" are different sentences and only one of them tells the player what to do.
-    /// </remarks>
     private static string Reason(uint code) => code switch
     {
         0 => "no error",
@@ -1609,11 +1299,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>What Streamline and its plugins have to say, in this engine's log.</summary>
-    /// <remarks>
-    /// Called from Streamline's own threads, so it does nothing but copy a string and hand
-    /// it on. Information is dropped: at the log level set above it is the per-frame
-    /// commentary, and a line a frame is not a log, it is a leak.
-    /// </remarks>
     /// <param name="type">Nought for information, one for a warning, two for an error.</param>
     /// <param name="message">A null-terminated string owned by the caller.</param>
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
@@ -1644,13 +1329,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>
     /// Says that neither denoising plugin loaded, and what to do about it.
     /// </summary>
-    /// <remarks>
-    /// Reached when the files were found on disk and neither feature would state its
-    /// requirements, which is the one state a player cannot diagnose for themselves: the
-    /// files are plainly there and the setting is plainly off. The usual cause is a network
-    /// file that does not match its plugin, or a driver older than the plugin wants — the
-    /// neural-rendering plugin asks for 570.
-    /// </remarks>
     private void Note()
     {
         RayReconstructionNote =
@@ -1664,21 +1342,6 @@ public sealed unsafe class Streamline : IDisposable
     /// <summary>Whether a plugin actually loaded, rather than merely being on disk.</summary>
     /// <param name="feature">Which feature.</param>
     /// <returns>True when the runtime has it.</returns>
-    /// <remarks>
-    /// <para>
-    /// A different question from <see cref="Gather"/>, and the one that was missing. A
-    /// feature states its requirements from the manifest embedded in its plugin, which can
-    /// be read from a plugin the runtime then declines to load — so a feature can answer
-    /// what it wants of a device and still not be there. Ray reconstruction on this machine
-    /// does exactly that: it names a driver version it is satisfied by, and the plugin is
-    /// then dropped with "not supported on this platform", and the startup line said it was
-    /// available.
-    /// </para>
-    /// <para>
-    /// What made it worth finding: the two answers differ only in the log, and the setting
-    /// that turns the feature on is then a setting that appears to work.
-    /// </para>
-    /// </remarks>
     private bool Loaded(uint feature)
     {
         byte loaded = 0;
@@ -1693,11 +1356,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>Collects what a feature needs from the instance and the device.</summary>
-    /// <remarks>
-    /// Called once per loaded feature, before anything Vulkan exists. The strings come back
-    /// pointing into the runtime's own memory and are copied here, because nothing promises
-    /// they outlive the call.
-    /// </remarks>
     /// <param name="feature">Which feature to ask.</param>
     /// <returns>
     /// True when it answered. A feature that cannot state its requirements did not load,
@@ -1782,13 +1440,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>The same, for a function taking one structure.</summary>
-    /// <remarks>
-    /// Four shapes rather than one, because a plugin's own functions are not all shaped
-    /// alike: setting options takes one structure, a marker takes a number and a token, and
-    /// reading a feature's state takes a viewport, somewhere to put the answer and the
-    /// options it is to be read against. Casting one signature to another compiles and
-    /// passes rubbish.
-    /// </remarks>
     private bool Resolve(
         uint feature, string name, ref delegate* unmanaged[Cdecl]<void*, uint> into)
     {
@@ -1849,11 +1500,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>Looks one of a feature's functions up by name.</summary>
-    /// <remarks>
-    /// A plugin exports <c>slGetPluginFunction</c> and nothing else — every function it has
-    /// is behind that, found by the name it was compiled with. So a name that is wrong by a
-    /// letter is a null rather than a link error, which is why every caller checks.
-    /// </remarks>
     private void* Function(uint feature, string name)
     {
         byte[] bytes = System.Text.Encoding.ASCII.GetBytes(name + "\0");
@@ -1872,12 +1518,6 @@ public sealed unsafe class Streamline : IDisposable
     }
 
     /// <summary>One exported function, or a throw naming the one that was missing.</summary>
-    /// <remarks>
-    /// Thrown rather than returned, and caught by the one caller, because a Streamline that
-    /// is missing any of these is not a Streamline: the file is truncated, or is a build for
-    /// another architecture, and there is nothing to be gained by finding out again on the
-    /// next line. The name in the exception is what makes a bad download diagnosable.
-    /// </remarks>
     private void* Entry(string name)
     {
         if (!NativeLibrary.TryGetExport(_library, name, out nint address))

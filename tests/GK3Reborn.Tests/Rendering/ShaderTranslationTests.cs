@@ -6,36 +6,9 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The shaders are written once and compiled twice.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D backend does not have shaders of its own. Everything is authored in the
-/// language ADR 0008 chose, compiled to SPIR-V, translated back to HLSL by SPIRV-Cross and
-/// compiled to DXIL by DXC — see <see cref="ShaderCompiler"/>. That chain is three tools
-/// long and none of them is the engine's, so the thing worth testing is not that a
-/// particular pipeline draws but that every shader in the tree survives all three steps.
-/// </para>
-/// <para>
-/// These are the shaders that can fail. Ordinary raster shading translates because
-/// SPIRV-Cross has translated it for a decade; what is new here is inline ray tracing,
-/// bindless texture indexing and storage images, and all three are in the shaders below.
-/// A translation that silently drops one of them is a picture that comes out unlit on one
-/// backend and correct on the other, with nothing in either log to say so.
-/// </para>
-/// <para>
-/// The DXIL half needs Windows and skips elsewhere. The SPIR-V half runs everywhere,
-/// because a shader that stopped compiling at all is worth catching on any machine.
-/// </para>
-/// </remarks>
 public sealed class ShaderTranslationTests
 {
     /// <summary>Every shader the test drives, with the stage and language it is written for.</summary>
-    /// <remarks>
-    /// Named as they are named where they are built, so a failure here points at a call
-    /// site rather than at a string. The mesh shader appears four times because it is one
-    /// source with a ray-tracing half behind a define, and the half that is switched off is
-    /// not compiled at all — the combination that has never been through DXC is exactly the
-    /// one that would ship broken.
-    /// </remarks>
     public static TheoryData<string, ShaderStage> Shaders() => new()
     {
         { "mesh.vert", ShaderStage.Vertex },
@@ -184,11 +157,6 @@ public sealed class ShaderTranslationTests
     }
 
     /// <summary>The generated source with its first <c>cbuffer</c> declaration removed.</summary>
-    /// <remarks>
-    /// The frame's uniform buffer is legitimately at <c>b0, space0</c> and is declared
-    /// first. Anything else that claims the same register is the push constant block
-    /// having been placed by SPIRV-Cross rather than by us.
-    /// </remarks>
     private static string SecondCbufferOnwards(string hlsl)
     {
         int first = hlsl.IndexOf("cbuffer", StringComparison.Ordinal);

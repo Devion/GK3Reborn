@@ -25,23 +25,6 @@ public sealed record SearchPage(string Id, string Title, IReadOnlyList<SearchLin
 /// <summary>
 /// Sidney's search: 391 pages of encyclopedia and the words that reach them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Grace looks things up. <c>SIDSEARCH.TXT</c> lists 393 subjects, each naming a page and
-/// the spellings that should find it — "arcadia, et in arcadia, sheperds, shepherd" — and
-/// the pages themselves are small HTML documents in the archives, cross-linked to each
-/// other. Between them they are the game's own research material, and the puzzle that needs
-/// them is real: what the player types is checked against those spellings.
-/// </para>
-/// <para>
-/// <b>The markup is read rather than rendered.</b> These are 1998 HTML pages using perhaps
-/// eight tags between them, and what the interface needs from one is a sequence of
-/// headings, paragraphs, rules and links. Anything a browser would do beyond that — tables,
-/// images, styling — is not in these files. Unknown tags are dropped rather than shown,
-/// because a stray <c>&lt;FONT&gt;</c> in the middle of a sentence about Rennes-le-Château
-/// is worse than no formatting at all.
-/// </para>
-/// </remarks>
 public sealed class SidneySearch
 {
     private readonly Dictionary<string, string> _subjects;
@@ -83,12 +66,6 @@ public sealed class SidneySearch
     /// </summary>
     /// <param name="typed">What the player typed.</param>
     /// <returns>The page, or null when nothing matches.</returns>
-    /// <remarks>
-    /// Exact against the spellings the game lists, ignoring case and surrounding space, and
-    /// nothing cleverer. The index already carries the variations somebody thought of —
-    /// "sheperd" is in there beside "shepherd" — and guessing past it would let the player
-    /// find pages the puzzle means them to work for.
-    /// </remarks>
     public SearchPage? Look(string? typed)
     {
         if (typed is not { Length: > 0 })

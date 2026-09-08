@@ -6,24 +6,6 @@ namespace GK3Reborn.Formats.Lightmaps;
 /// <summary>
 /// Reader for GK3's baked lightmaps.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The tag reads <c>TLUM</c> on disk, being <c>MULT</c> stored little-endian. The layout
-/// is a count followed by that many bitmaps packed back to back in the ordinary texture
-/// format, with no offset table — so each one has to be measured to find the next.
-/// </para>
-/// <para>
-/// The count matches the corresponding scene's surface count, and so does the order:
-/// lightmap <c>i</c> lights surface <c>i</c>. That pairing is what makes stage C4b
-/// possible, since a surface knows its own geometry and its lightmap UV offset and
-/// scale, while the lightmap knows how much light landed on it (ADR 0002).
-/// </para>
-/// <para>
-/// These are the whole of the original game's lighting. There is nothing dynamic to
-/// recover, which is why the rigs C4b proposes have to be derived from this evidence and
-/// then reviewed by a human rather than simply read out.
-/// </para>
-/// </remarks>
 public sealed class MulFile
 {
     private MulFile(string name, IReadOnlyList<DecodedImage> lightmaps)
@@ -45,13 +27,6 @@ public sealed class MulFile
     /// <param name="name">Name for the produced set.</param>
     /// <param name="lightmaps">One lightmap per surface, in surface order.</param>
     /// <returns>The set.</returns>
-    /// <remarks>
-    /// For tests and for tools that synthesise a room, the counterpart of
-    /// <see cref="Formats.Scenes.BspFile.FromParts"/>. A bake is not a detail of such a
-    /// room: whether a surface carries one decides how the composite spends every shadow
-    /// it traces, so a test about shadows on lit ground has to be able to say that the
-    /// ground was lit.
-    /// </remarks>
     public static MulFile FromParts(string name, IReadOnlyList<DecodedImage> lightmaps) =>
         new(name, lightmaps);
 

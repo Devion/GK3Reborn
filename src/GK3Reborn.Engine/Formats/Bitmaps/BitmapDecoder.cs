@@ -20,40 +20,11 @@ public readonly record struct DecodedImage(
 /// <param name="Width">Width in pixels.</param>
 /// <param name="Height">Height in pixels.</param>
 /// <param name="Indices">One palette index per pixel, row-major from the top.</param>
-/// <remarks>
-/// Some of GK3's bitmaps are data rather than pictures, and the index <em>is</em> the
-/// datum. A walk boundary is the clearest case: index 0 to 7 is walkable ground, 255 is
-/// wall, and 128 upwards are regions a script can open and close. Resolving those through
-/// the palette to a colour throws the meaning away and leaves the caller guessing it back
-/// from an RGB triple.
-/// </remarks>
 public readonly record struct IndexedImage(int Width, int Height, byte[] Indices);
 
 /// <summary>
 /// Decodes GK3's texture formats to RGBA.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 stores textures three ways. Most are its own container - 6,330 of them - which
-/// despite G-Engine calling it "compressed" is a raw 16-bit RGB565 bitmap with a tiny
-/// header. Nothing outside the game can open those, which is the main reason to convert.
-/// The rest are ordinary Windows bitmaps (322 palettised, 6 truecolour) and a handful
-/// of PNGs that are already fine as they are.
-/// </para>
-/// <para>
-/// Layout of the GK3 container, from G-Engine's <c>Texture::LoadCompressedFormat</c>:
-/// two bytes <c>0x3136</c>, two bytes <c>0x4D6E</c>, then <b>height</b> and
-/// <b>width</b> as 16-bit values - in that order - followed by width x height RGB565
-/// pixels from the top-left. Rows of odd width are padded with two bytes.
-/// </para>
-/// <para>
-/// Magenta is the transparency key. G-Engine treats a texture as alpha-tested when its
-/// top-left pixel is magenta, and that convention is preserved here: such images decode
-/// with magenta made transparent, so a PNG viewer shows what the game shows. Images
-/// without the marker keep every pixel opaque, magenta included, because in those the
-/// colour is just a colour.
-/// </para>
-/// </remarks>
 public static class BitmapDecoder
 {
     /// <summary>Identifies whether a buffer is a bitmap this decoder handles.</summary>
@@ -127,10 +98,6 @@ public static class BitmapDecoder
     /// <param name="bytesConsumed">Receives the encoded length.</param>
     /// <param name="name">Name used in diagnostics.</param>
     /// <returns>The decoded image.</returns>
-    /// <remarks>
-    /// Lightmap files pack many bitmaps back to back with no offset table, so decoding
-    /// the second one requires knowing exactly where the first ended.
-    /// </remarks>
     public static DecodedImage Decode(ReadOnlySpan<byte> data, out int bytesConsumed, string name = "<memory>")
     {
         if (IsGk3(data))
@@ -308,11 +275,6 @@ public static class BitmapDecoder
     /// <summary>
     /// Makes magenta transparent when the image is marked as alpha-tested.
     /// </summary>
-    /// <remarks>
-    /// The marker is the top-left pixel being magenta, which is how G-Engine decides a
-    /// texture is alpha-tested. Applying the key only then avoids punching holes in
-    /// artwork that legitimately contains magenta.
-    /// </remarks>
     private static bool ApplyMagentaKey(byte[] pixels)
     {
         if (pixels.Length < 4 || !IsMagenta(pixels, 0))
@@ -334,11 +296,6 @@ public static class BitmapDecoder
     /// <summary>
     /// Reports the single colour of a flat texture, or null when it has real detail.
     /// </summary>
-    /// <remarks>
-    /// 280 of the game's textures are one or two colours - including character skin,
-    /// which is a solid tone rather than a painted map. Enlarging those produces a bigger
-    /// flat colour and nothing else, so they belong in a material as a base-colour factor.
-    /// </remarks>
     /// <param name="image">The decoded image.</param>
     /// <returns>The colour, or null.</returns>
     public static (byte R, byte G, byte B)? FlatColorOf(DecodedImage image)

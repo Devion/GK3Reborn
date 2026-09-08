@@ -27,11 +27,6 @@ internal static class NalType
 /// <summary>
 /// One NAL unit with its emulation-prevention bytes removed.
 /// </summary>
-/// <remarks>
-/// The payload buffer is reused between units, so a unit is valid only until the next is
-/// read. The parameter sets, which have to outlive the unit they arrived in, copy what
-/// they keep.
-/// </remarks>
 internal struct NalUnit
 {
     public int Type;
@@ -43,11 +38,6 @@ internal struct NalUnit
 /// <summary>
 /// Splits an access unit into NAL units, in either of the two framings.
 /// </summary>
-/// <remarks>
-/// MP4 samples carry each unit behind a length prefix whose width <c>avcC</c> declares;
-/// raw streams use Annex B start codes. Both are read so that a test can feed the decoder
-/// from an <c>.h264</c> file that FFmpeg wrote, which is the easiest reference to make.
-/// </remarks>
 internal sealed class NalReader
 {
     private byte[] _rbsp = new byte[64 * 1024];

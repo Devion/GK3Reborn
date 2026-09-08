@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the state the action files ask about beyond flags and counts.
 /// </summary>
-/// <remarks>
-/// These six functions were found by sweeping the corpus rather than by reading it: an
-/// unimplemented function returns zero and warns once, so a condition that depends on one
-/// silently reads as false and the action it guards leaves the game.
-/// </remarks>
 public sealed class SheepApiStateTests
 {
     private static int Eval(GameState state, string expression) =>

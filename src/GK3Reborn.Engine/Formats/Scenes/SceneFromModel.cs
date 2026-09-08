@@ -13,37 +13,9 @@ namespace GK3Reborn.Formats.Scenes;
 /// <summary>
 /// Builds a room out of a model, for rooms the game never had.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A room in GK3 is a <c>.BSP</c>, and there is no writer for one here — nor should there
-/// be. What the rest of the engine actually asks a room for is what
-/// <see cref="BspFile.FromParts"/> takes: named objects, surfaces that name a texture and
-/// belong to an object, and polygons over shared vertices. That is a shape glTF can carry,
-/// so a room can be built from a model without anybody writing 1999's file format.
-/// </para>
-/// <para>
-/// This exists because the temple's second room — the elemental puzzle, cut before release —
-/// still has its object list, its light rig, its textures and sixty-two lines of dialogue on
-/// the disc, and no geometry at all. Everything except the shape survived. See
-/// <c>docs/cut-content.md</c>.
-/// </para>
-/// <para>
-/// <b>A room built this way is lit by its light rig, not by a bake.</b> There are no
-/// lightmaps for a room that never shipped, and a surface that expects one and has none is
-/// drawn black. Every surface is therefore marked
-/// <see cref="BspSurface.IgnoreLightmapFlag"/>, which is the same thing the game's own
-/// self-lit surfaces say about themselves.
-/// </para>
-/// </remarks>
 public static class SceneFromModel
 {
     /// <summary>The most vertices a room built this way may have.</summary>
-    /// <remarks>
-    /// A BSP indexes its vertices with 16-bit indices, and that is not an accident of the
-    /// file format but the shape every consumer here expects. A model with more than this
-    /// is refused whole rather than silently truncated: half a room drawn and the other
-    /// half missing is the sort of failure nobody reports as a format problem.
-    /// </remarks>
     public const int MostVertices = ushort.MaxValue;
 
     /// <summary>Builds a room from a model.</summary>
@@ -51,13 +23,6 @@ public static class SceneFromModel
     /// <param name="name">What to call the room.</param>
     /// <param name="diagnostics">Receives the reason when a model cannot be one.</param>
     /// <returns>The room, or null when the model cannot make one.</returns>
-    /// <remarks>
-    /// One glTF node becomes one object, and one primitive becomes one surface. That is the
-    /// mapping the rest of the engine is written against: a scene file binds a noun to an
-    /// <em>object</em> by name, so the node names in the model are what decide what the
-    /// player can click on, and a room exported with everything joined into one node is a
-    /// room with exactly one clickable thing in it.
-    /// </remarks>
     public static BspFile? Build(ModFile model, string name, DiagnosticBag? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(model);

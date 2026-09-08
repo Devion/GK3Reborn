@@ -25,21 +25,5 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <param name="Emission">
 /// What colour it gives off and how strongly, as the material library has it.
 /// </param>
-/// <remarks>
-/// <para>
-/// <b>What this is for.</b> A self-lit surface is drawn at full brightness and lights
-/// nothing at all — the flag means "skip shading" and no more. So GK3's lamp shades, lit
-/// bulbs, stained glass and painted windows have always been bright objects standing in
-/// rooms they did not light. Turning them into lights is what
-/// <c>Game.EmissiveLighting</c> does, and this is the list it works from.
-/// </para>
-/// <para>
-/// <b>Found in the room rather than read from a manifest.</b> The content pipeline already
-/// writes <c>emissive-surfaces.json</c>, which has 459 of these — but it is keyed by room
-/// and covers the room's own geometry only, and what actually stands in a room at a given
-/// point in the story includes props, and depends on which of the two scene files applied.
-/// The geometry knows; a manifest written months ago is guessing.
-/// </para>
-/// </remarks>
 public readonly record struct EmissiveSurface(
     string Owner, string Texture, Vector3 Centre, float Radius, Vector3 Emission);

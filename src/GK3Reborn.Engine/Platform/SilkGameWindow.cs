@@ -8,12 +8,6 @@ namespace GK3Reborn.Platform;
 /// <summary>
 /// Supplies a Vulkan surface for a window.
 /// </summary>
-/// <remarks>
-/// Deliberately declared in terms of native handles rather than Vulkan types. The
-/// renderer needs a surface from the window, but the platform layer must not depend on
-/// the graphics backend — the layering tests forbid it, and the reason is that a window
-/// should not have to change when the renderer does.
-/// </remarks>
 public interface IVulkanSurfaceSource
 {
     /// <summary>Instance extensions the window needs enabled to present.</summary>
@@ -28,14 +22,6 @@ public interface IVulkanSurfaceSource
 /// <summary>
 /// Supplies the native window handle a Direct3D swapchain is made against.
 /// </summary>
-/// <remarks>
-/// The Direct3D counterpart of <see cref="IVulkanSurfaceSource"/>, and declared the same
-/// way and for the same reason: in terms of native handles, so that the platform layer
-/// does not depend on a graphics backend. The asymmetry between the two is not an
-/// oversight. Vulkan wants a surface *object*, which only the loader can make, so the
-/// window has to make one; Direct3D wants nothing but the window handle, and DXGI makes
-/// the swapchain itself.
-/// </remarks>
 public interface IWin32WindowSource
 {
     /// <summary>The window's <c>HWND</c>, or zero where there is no such thing.</summary>
@@ -43,13 +29,6 @@ public interface IWin32WindowSource
 }
 
 /// <summary>Which graphics API a window is opened for.</summary>
-/// <remarks>
-/// Not a rendering type, deliberately: a window should not have to know what a backend is.
-/// The only thing it changes is what the window asks the platform for when it is created —
-/// a Vulkan window and a Direct3D window are both windows with no client API, but Silk
-/// refuses to make the Vulkan one on a machine with no loader, and a Direct3D machine
-/// should not need one.
-/// </remarks>
 public enum WindowGraphics
 {
     /// <summary>No client API. What a Direct3D window wants.</summary>
@@ -62,46 +41,17 @@ public enum WindowGraphics
 /// <summary>
 /// A game window backed by Silk.NET.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Kept behind <see cref="IGameWindow"/> so the backend can change after the Windows and
-/// Linux proofs the plan requires, and so headless tests never need one.
-/// </para>
-/// <para>
-/// The window is created with no graphics API of its own: Vulkan owns presentation
-/// entirely, and letting Silk.NET set up an OpenGL context alongside it would be both
-/// wasteful and a source of driver confusion.
-/// </para>
-/// </remarks>
 public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput
 {
     /// <summary>
     /// This game's key names, resolved to Silk.NET's own.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="InputKey"/> is declared member for member against Silk's <see cref="Key"/>
-    /// precisely so that this is a name lookup and not a switch somebody has to keep in
-    /// step. Built once: <see cref="Enum.TryParse{TEnum}(string, bool, out TEnum)"/> is
-    /// reflection, and a key press is not the place for it.
-    /// </para>
-    /// <para>
-    /// A member with no Silk counterpart maps to nothing and simply never fires, which is
-    /// what a binding to a key this platform does not report should do.
-    /// </para>
-    /// </remarks>
     private static readonly Key[] SilkKeys = BuildKeyMap();
 
     /// <summary>And back the other way, for reporting which key was just pressed.</summary>
     private static readonly Dictionary<Key, InputKey> Ours = BuildKeyNames();
 
     /// <summary>Which of Silk's gamepad buttons is which of ours.</summary>
-    /// <remarks>
-    /// The face buttons are renamed on the way through. Silk calls them A, B, X and Y after
-    /// the Xbox pad; this game calls them by where they are, because the same physical
-    /// button is Cross on a PlayStation pad and B on a Nintendo one and a settings page has
-    /// to be right about the hardware in the player's hands.
-    /// </remarks>
     private static readonly Dictionary<ButtonName, GamepadButton> Pad = new()
     {
         [ButtonName.A] = GamepadButton.South,
@@ -124,12 +74,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>
     /// What the menu does with a pad, which is not a binding and is not meant to be.
     /// </summary>
-    /// <remarks>
-    /// A player who has rebound the inventory to the bottom face button has said something
-    /// about the game, not about the menu, and a menu whose Choose key moved when they did
-    /// would be a menu they could not get out of. Every console settings screen for twenty
-    /// years has had the same fixed set, and this is it.
-    /// </remarks>
     private static readonly (GamepadButton Button, EditKey Edit)[] Menu =
     [
         (GamepadButton.DPadUp, EditKey.Up),
@@ -173,27 +117,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>How far a trigger has to travel before it counts as a press.</summary>
-    /// <remarks>
-    /// Halfway. A trigger bound to an action is being used as a button, and a button that
-    /// fires on the first millimetre of travel is one nobody can rest a finger on.
-    /// </remarks>
     private const float TriggerPress = 0.5f;
 
     /// <summary>How far a stick has to travel before it counts as a press.</summary>
-    /// <remarks>
-    /// Further than the deadzone, and past the middle: this is only used for capturing a
-    /// binding and for stepping a menu, where an accidental nudge is worse than having to
-    /// push properly.
-    /// </remarks>
     private const float StickPress = 0.6f;
 
     /// <summary>Which key does which editing job.</summary>
-    /// <remarks>
-    /// Grave and Escape both appear here and in the camera bindings, which is deliberate:
-    /// the key is one key and what it means depends on whether the console has the
-    /// keyboard. Deciding that here would put a piece of the interface in the platform
-    /// layer.
-    /// </remarks>
     private static readonly (EditKey Edit, Key Which)[] Editing =
     [
         (EditKey.Backspace, Key.Backspace),
@@ -215,17 +144,9 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     private const float DragThreshold = 4f;
 
     /// <summary>How long a second click may take to arrive and still pair, in seconds.</summary>
-    /// <remarks>
-    /// Windows' own default. Worth matching rather than choosing, because a player's idea
-    /// of how fast a double-click is comes from the rest of their machine.
-    /// </remarks>
     private const double DoubleClickWindow = 0.5;
 
     /// <summary>How far apart two clicks may land and still pair, in pixels.</summary>
-    /// <remarks>
-    /// Two clicks at opposite ends of the room are two decisions, however quickly they were
-    /// made. Looser than <see cref="DragThreshold"/>: a hand that is hurrying wanders.
-    /// </remarks>
     private const float DoubleClickDistance = 8f;
 
     private readonly HashSet<CameraAction> _pressed = [];
@@ -246,12 +167,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     private bool _hasPointer;
 
     /// <summary>Where the mouse itself was, as against where the game thinks the pointer is.</summary>
-    /// <remarks>
-    /// The two part company the moment a stick moves the cursor, and come back together the
-    /// moment the mouse is touched. Keeping the mouse's own position separately is what
-    /// tells the difference between "the mouse moved" and "we moved the mouse", and without
-    /// it the stick and the mouse fight over the cursor every frame.
-    /// </remarks>
     private Vector2 _mouseAt;
 
     /// <summary>The key pressed this frame, for a page that is listening for one.</summary>
@@ -340,14 +255,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// away — see <see cref="Show"/>, which is what puts it up.
     /// </param>
     /// <returns>The window.</returns>
-    /// <remarks>
-    /// Both kinds of window are windows with no client API — the platform is never asked
-    /// to set up a context, because the backend owns presentation entirely and an OpenGL
-    /// context alongside it would be both wasteful and a source of driver confusion. The
-    /// difference is only that a Vulkan window is declared as one, so that Silk will give
-    /// it a surface, and that declaration fails on a machine with no loader. A Direct3D
-    /// machine should not need one.
-    /// </remarks>
     public static SilkGameWindow Open(
         string title,
         int width = 1280,
@@ -373,20 +280,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Puts a window opened hidden on screen.</summary>
-    /// <remarks>
-    /// <para>
-    /// For the one window that cannot be shown when it is made: the game's own. A window
-    /// exists before the renderer that draws into it does — the renderer needs a surface to
-    /// be created against — and between the two there is a device to bring up and a set of
-    /// shaders to compile, which on a cold start is seconds. A window shown through that is
-    /// a sheet of white with the game's name on it, because nothing has presented to it yet
-    /// and white is what the desktop paints an unpainted window.
-    /// </para>
-    /// <para>
-    /// So it is made hidden and shown by whoever draws the first frame into it. See
-    /// <c>UI.LoadingScreen</c>. Calling this on a window that is already up does nothing.
-    /// </para>
-    /// </remarks>
     public void Show() => _window.IsVisible = true;
 
     /// <inheritdoc/>
@@ -403,12 +296,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Zero anywhere but Windows, and zero on a Windows window Silk chose to back with
-    /// something other than Win32. A swapchain cannot be made against zero, so the caller
-    /// checks rather than assuming — the alternative is DXGI refusing with an invalid
-    /// argument and nothing to say which argument.
-    /// </remarks>
     public nint WindowHandle => _window.Native?.Win32?.Hwnd ?? 0;
 
     /// <inheritdoc/>
@@ -424,14 +311,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// Presses a pointer button for the frame that has just begun, as if a mouse had.
     /// </summary>
     /// <param name="button">Which button.</param>
-    /// <remarks>
-    /// For a run with no mouse. Half the game's interface is reached by clicking something
-    /// the interface itself drew — a place on the driving map, a sight through the
-    /// binoculars, a verb on a close-up — and none of it could be photographed or checked
-    /// without a person at the machine. Cleared by the next <see cref="PumpEvents"/> along
-    /// with every real press, so nothing downstream can tell the difference, which is the
-    /// point.
-    /// </remarks>
     public void Press(PointerButton button) => _clicked.Add(button);
 
     /// <inheritdoc />
@@ -517,11 +396,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public GamepadButton AnyButton => _anyButton;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Set from the settings, because the right speed depends on how large the window is
-    /// and on the person. The default crosses a 1080p screen in about a second and a half,
-    /// which is quick enough to reach a doorway and slow enough to land on a keyhole.
-    /// </remarks>
     public float PointerSpeed { get; set; } = 1200f;
 
     /// <inheritdoc/>
@@ -556,21 +430,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
     /// <inheritdoc/>
     /// <inheritdoc/>
-    /// <remarks>
-    /// <para>
-    /// Borderless is a hidden border plus the monitor's own size and position, not a
-    /// window state of its own: Silk.NET's <c>Fullscreen</c> is the exclusive kind, which
-    /// takes the display over and makes alt-tabbing a mode change. The borderless
-    /// arrangement is what most people mean by fullscreen now — it composites, it switches
-    /// away instantly, and it costs a frame of latency nobody in an adventure game will
-    /// notice.
-    /// </para>
-    /// <para>
-    /// Every branch checks what is already true before changing anything. This is called
-    /// whenever any setting changes, and setting a window state it is already in makes
-    /// some backends flash the window.
-    /// </para>
-    /// </remarks>
     public void Present(WindowMode mode, int width = 0, int height = 0)
     {
         IMonitor? monitor = _window.Monitor ?? Silk.NET.Windowing.Monitor.GetMainMonitor(_window);
@@ -720,19 +579,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Reads the pad, once a frame.</summary>
-    /// <remarks>
-    /// <para>
-    /// Polled rather than taken from the events, because two of the four things a pad
-    /// reports are not events at all: a stick that is being held over is not moving, and a
-    /// trigger at forty per cent has not been pressed. The buttons arrive as events too and
-    /// are read here anyway, so that everything about the pad is answered from one place at
-    /// one moment in the frame.
-    /// </para>
-    /// <para>
-    /// The first connected pad and no others. Two people cannot play this game at once, and
-    /// a second pad plugged in for something else should not be able to move the cursor.
-    /// </para>
-    /// </remarks>
     private void Poll()
     {
         IGamepad? pad = null;
@@ -840,11 +686,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Notes a pad button that has just gone down, and what it means.</summary>
-    /// <remarks>
-    /// Every meaning at once, in the same way the keyboard records a key as an editing key
-    /// and as an action both and lets whoever is listening this frame decide which it was.
-    /// A pad in a menu is stepping a list; the same pad in a room is opening the inventory.
-    /// </remarks>
     private void Fell(GamepadButton button)
     {
         _padPressed.Add(button);
@@ -883,10 +724,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Attaches the keyboard and mouse.</summary>
-    /// <remarks>
-    /// Done after the window exists rather than in the constructor, because creating the
-    /// input context requires an initialised window.
-    /// </remarks>
     private void AttachInput()
     {
         _input = _window.CreateInput();

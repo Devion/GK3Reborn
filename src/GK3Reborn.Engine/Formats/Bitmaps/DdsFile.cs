@@ -4,10 +4,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Formats.Bitmaps;
 
 /// <summary>Which block format a compressed texture is in.</summary>
-/// <remarks>
-/// Named rather than carried as a Vulkan enum so that the format layer stays free of the
-/// renderer, the way <see cref="DecodedImage"/> does.
-/// </remarks>
 public enum BlockFormat
 {
     /// <summary>Four-channel colour, sRGB. What the base colours are compressed to.</summary>
@@ -20,12 +16,6 @@ public enum BlockFormat
     Bc5Unorm,
 
     /// <summary>One channel, linear. What the height maps are compressed to.</summary>
-    /// <remarks>
-    /// Half the size of every other format here, because a BC4 block is eight bytes rather
-    /// than sixteen. Every height map the pipeline produces is grey — measured, not assumed
-    /// — so one channel is all of the information there was, and BC4 spends its whole block
-    /// on it instead of a seventh of one.
-    /// </remarks>
     Bc4Unorm,
 }
 
@@ -52,10 +42,6 @@ public readonly record struct CompressedImage(
     string Name)
 {
     /// <summary>How many bytes one 4×4 block takes in the common formats. Sixteen.</summary>
-    /// <remarks>
-    /// BC4 is the exception at eight. Use <see cref="BytesPerBlock(BlockFormat)"/> rather
-    /// than this wherever the format is not known to be one of the sixteen-byte ones.
-    /// </remarks>
     public const int BlockBytes = 16;
 
     /// <summary>How many bytes one 4×4 block of a format takes.</summary>
@@ -101,19 +87,6 @@ public readonly record struct CompressedImage(
 /// <summary>
 /// Reads DDS textures.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A block-compressed texture is the one image format that costs nothing to load: there is
-/// no decode, the mip chain is already built, and it takes a quarter of the video memory an
-/// <c>R8G8B8A8</c> copy would. `PbrLab` measures the pilot set at 13.71 GiB uncompressed
-/// against 3.43 GiB compressed, and 45.5–47.0 dB on colour, which is not visible.
-/// </para>
-/// <para>
-/// As narrow as the PNG reader, and for the same reason. Two-dimensional, no arrays, no
-/// cube maps, and only the three block formats the content pipeline emits. Anything else is
-/// refused by name so that a pipeline which starts producing something new hears about it.
-/// </para>
-/// </remarks>
 public static class DdsFile
 {
     private const uint Magic = 0x20534444; // "DDS ", little-endian

@@ -8,27 +8,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Every ReBarn pack beside the executable, searched as one.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The remake's own content — enhanced colour, normal, ORM and height maps, modernised
-/// models, imported video — in one or two files that ship with the game rather than in
-/// forty thousand loose ones. <see cref="GameArchives"/> is the equivalent for the
-/// original installation, and the two are separate on purpose: GK3's archives are read
-/// from wherever the player installed the game, and these are read from wherever the
-/// executable is.
-/// </para>
-/// <para>
-/// Packs are opened in file-name order and <strong>the last one wins</strong>, so a pack
-/// dropped in later overrides one shipped earlier: <c>Reborn.rebarn</c>, then
-/// <c>RebornMaterials.rebarn</c>, then a <c>RebornPatch.rebarn</c> somebody adds. That is
-/// the whole mod story, and it needs no support beyond a name that sorts last.
-/// </para>
-/// <para>
-/// A missing directory, or a directory with no packs in it, is not an error. The game runs
-/// from a legally obtained installation and all of this is an addition to it — exactly the
-/// rule <see cref="EnhancedTextures"/> follows.
-/// </para>
-/// </remarks>
 public sealed class RebarnContent : IDisposable
 {
     private readonly List<RebarnArchive> _packs = [];
@@ -43,13 +22,6 @@ public sealed class RebarnContent : IDisposable
     /// <summary>
     /// Files a player has dropped into <c>overrides/</c>, which outrank every pack.
     /// </summary>
-    /// <remarks>
-    /// Set here for the same reason <see cref="GameArchives.Overrides"/> is set there:
-    /// this is the one door the remake's own content comes through. The trees, the
-    /// improved room geometry, the video, the material library and every block-compressed
-    /// texture reach a pack through this class, so an override registered here reaches all
-    /// of them and none of those callers has to know the layer exists.
-    /// </remarks>
     public ContentOverrides? Overrides { get; set; }
 
     /// <summary>How many packs are open.</summary>
@@ -62,11 +34,6 @@ public sealed class RebarnContent : IDisposable
     public IReadOnlyList<RebarnArchive> Volumes => _packs;
 
     /// <summary>Every entry after overrides, each with the pack that holds it.</summary>
-    /// <remarks>
-    /// The effective set rather than the union: where two volumes hold the same key the
-    /// later one has already won, which is what a reader would get. A tool that wants to
-    /// see each volume as itself should open the files rather than ask this.
-    /// </remarks>
     public IReadOnlyCollection<(RebarnArchive Pack, RebarnEntry Entry)> Entries =>
         (IReadOnlyCollection<(RebarnArchive, RebarnEntry)>)_entries.Values;
 
@@ -74,11 +41,6 @@ public sealed class RebarnContent : IDisposable
     /// <param name="directory">Where to look; usually the directory the executable is in.</param>
     /// <param name="diagnostics">Receives a diagnostic for any pack that will not open.</param>
     /// <returns>The set, empty when there is nothing to open.</returns>
-    /// <remarks>
-    /// A pack that will not open costs that pack and nothing else. One damaged volume out
-    /// of two should leave the game running on what the other one holds, exactly as one
-    /// unreadable texture leaves the rest of a scene alone.
-    /// </remarks>
     public static RebarnContent Open(string directory, DiagnosticBag? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(directory);
@@ -210,12 +172,6 @@ public sealed class RebarnContent : IDisposable
     /// <param name="kind">What it is for.</param>
     /// <param name="name">Its name.</param>
     /// <returns>The stream, or null when nothing holds it.</returns>
-    /// <remarks>
-    /// For the things that are read as they play rather than loaded whole — a movie, whose
-    /// index may sit at either end of the container. A packed entry comes back as a window
-    /// onto the pack's own mapping, which stays valid because the pack is open for the life
-    /// of the process; an override comes back as an ordinary file handle.
-    /// </remarks>
     public Stream? OpenStream(RebarnKind kind, string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -253,12 +209,6 @@ public sealed class RebarnContent : IDisposable
     /// <param name="name">The colour texture's name, which every set is keyed by.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The texture, or null when no pack holds it or it is unreadable.</returns>
-    /// <remarks>
-    /// The blocks point into the memory-mapped pack, which is what makes this the cheapest
-    /// texture path there is: no decode, no copy, a mip chain already built. They are valid
-    /// while this <see cref="RebarnContent"/> is open, which for the game is the life of the
-    /// process — see <see cref="RebarnArchive.ReadMapped(RebarnEntry)"/>.
-    /// </remarks>
     public CompressedImage? ReadTexture(
         RebarnKind kind, string name, DiagnosticBag? diagnostics = null)
     {

@@ -6,11 +6,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// Scaling and inverse transforms, 8.5: from coefficient levels to residual samples
 /// added onto a prediction.
 /// </summary>
-/// <remarks>
-/// All integer, exactly as the standard specifies them, because a decoder that is off by
-/// one anywhere drifts further from the encoder's reconstruction with every predicted
-/// frame. The tests compare whole clips against FFmpeg sample for sample.
-/// </remarks>
 internal static class Transform
 {
     /// <summary>Scales a 4x4 block in place, 8.5.12.1; index 0 is skipped when its DC came from elsewhere.</summary>

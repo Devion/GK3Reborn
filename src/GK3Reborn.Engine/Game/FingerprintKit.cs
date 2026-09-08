@@ -15,21 +15,6 @@ public sealed record Fingerprint(string Item, string Flag, string Score);
 /// <summary>
 /// What the fingerprint kit finds on each thing it can be used on.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The one piece of the game's story that lives in neither the scripts nor the scene files:
-/// the original's fingerprint screen carries this table in its own code, the same way the
-/// executable carried the score table and the starting inventory. The scripts call
-/// <c>ShowFingerPrintInterface("HAND_MIRROR")</c> and everything after that — which prints
-/// are on the mirror, what lifting one gives, what it scores — was compiled in. Adapted
-/// from G-Engine's <c>FingerprintScreen.cpp</c>; see NOTICE.
-/// </para>
-/// <para>
-/// Thirteen of the game's score events are awarded from here and nowhere else, which is why
-/// <c>check-story</c> reported every fingerprint in the game as unreachable: no script names
-/// them, and none is missing.
-/// </para>
-/// </remarks>
 public static class FingerprintKit
 {
     private static readonly Dictionary<string, Fingerprint[]> Objects = new(StringComparer.OrdinalIgnoreCase)
@@ -101,11 +86,6 @@ public static class FingerprintKit
     /// <param name="noun">What the script asked to dust.</param>
     /// <param name="timeblock">Where the story is, for the things dusted more than once.</param>
     /// <returns>The prints, empty for a surface with nothing on it, or null for no entry.</returns>
-    /// <remarks>
-    /// The noun first and the noun with the timeblock after it, which is the reference's own
-    /// lookup: <c>BLOODLINE_MANUSCRIPT</c> is Larry's prints at 2am and three unknowns by
-    /// the afternoon of day three.
-    /// </remarks>
     public static IReadOnlyList<Fingerprint>? On(string noun, Timeblock timeblock)
     {
         ArgumentNullException.ThrowIfNull(noun);
@@ -127,11 +107,6 @@ public static class FingerprintKit
     /// <param name="state">The game.</param>
     /// <param name="scores">What each score event is worth.</param>
     /// <returns>The items gained, for the screen to say so.</returns>
-    /// <remarks>
-    /// Award, flag and pocket in one step per print. The original walks the player through
-    /// brushing and taping each one; what the story records at the end is exactly this, and
-    /// it is the part that was blocking six of the journal's objectives.
-    /// </remarks>
     public static IReadOnlyList<string> Lift(string noun, GameState state, ScoreEvents scores)
     {
         ArgumentNullException.ThrowIfNull(noun);

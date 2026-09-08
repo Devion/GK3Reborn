@@ -18,19 +18,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Rendering.Materials;
 
 /// <summary>How rough and how reflective each texture is, looked up by name.</summary>
-/// <remarks>
-/// <para>
-/// A <see cref="MaterialLibrary"/> read once and turned into something a renderer can ask
-/// six thousand times a frame. Three of its channels are read: how rough a surface is, how
-/// metallic it is, and how much light it throws back when looked at straight on. The first
-/// two feed the specular lobe; roughness also decides which pixels are worth tracing a
-/// reflection from and how tightly to gather one.
-/// </para>
-/// <para>
-/// A texture nobody has measured is matte, which costs nothing and reflects nothing — the
-/// renderer's behaviour before any of this existed.
-/// </para>
-/// </remarks>
 public sealed class SurfaceFinishes
 {
     /// <summary>What a surface nobody has measured is assumed to be.</summary>
@@ -38,29 +25,12 @@ public sealed class SurfaceFinishes
         new(1f, 0.5f, 0f, 1f, 0f, false, false, false, 0, 0f, 0f, false, 0f);
 
     /// <summary>The deepest relief a height field may claim, in world units.</summary>
-    /// <remarks>
-    /// Eight units is twenty centimetres, which is a kerb rather than a texture. Everything
-    /// in a generated height field is invented, and both things that read one degrade the
-    /// same way when it is pushed: the march starts to reveal that the surface has no
-    /// silhouette, and displaced geometry starts to lift off whatever it abuts.
-    /// </remarks>
     public const float MaximumRelief = 8f;
 
     /// <summary>The most shells a coat may ask for.</summary>
-    /// <remarks>
-    /// Each one is another draw of the whole batch, so this is a cost ceiling rather than
-    /// a judgement about fur. Past about sixteen the shells are closer together than a
-    /// pixel anyway and the coat stops getting denser.
-    /// </remarks>
     public const int MaximumShells = 24;
 
     /// <summary>How far fur may stand off the surface it grows on, in world units.</summary>
-    /// <remarks>
-    /// Four units is ten centimetres, which is a sheep rather than a texture. The shells
-    /// are pushed along a *stored* normal, and the models animate by having their vertex
-    /// positions rewritten with those normals left alone — so the deeper the coat, the
-    /// further the fur on a moving limb drifts from the limb.
-    /// </remarks>
     public const float MaximumFur = 4f;
 
     private readonly Dictionary<string, SurfaceFinish> _finishes;
@@ -75,11 +45,6 @@ public sealed class SurfaceFinishes
     public int Count => _finishes.Count;
 
     /// <summary>How many of those are metals.</summary>
-    /// <remarks>
-    /// Worth reporting on its own because it is the number that goes obviously wrong. A
-    /// classifier that calls half a room's stonework metal produces a picture nobody can
-    /// mistake for correct, and the count says so before the frame does.
-    /// </remarks>
     public int Metallic
     {
         get
@@ -118,13 +83,6 @@ public sealed class SurfaceFinishes
     }
 
     /// <summary>How many of those are mirrors.</summary>
-    /// <remarks>
-    /// Reported because it is a set of five names set by hand, and the whole of what makes
-    /// a mirror a mirror. A rename in the material library, a stale edits file, an edit
-    /// that landed on a texture the baseline no longer has — every one of those looks
-    /// exactly like the mirrors having been left alone, which is what they looked like
-    /// before any of this existed.
-    /// </remarks>
     public int Mirrors
     {
         get
@@ -144,11 +102,6 @@ public sealed class SurfaceFinishes
     }
 
     /// <summary>How many of those are lit CRT screens.</summary>
-    /// <remarks>
-    /// Reported for the same reason <see cref="Mirrors"/> is: it is a handful of names set
-    /// by hand, and a rename or a stale edits file looks exactly like the screens having
-    /// been left alone — which is what they looked like before any of this existed.
-    /// </remarks>
     public int Screens
     {
         get
@@ -168,10 +121,6 @@ public sealed class SurfaceFinishes
     }
 
     /// <summary>How many of the finishes a person corrected by hand.</summary>
-    /// <remarks>
-    /// Reported because a correction that silently failed to apply — a texture renamed, an
-    /// edits file in the wrong place — looks exactly like no correction at all.
-    /// </remarks>
     public int Corrected { get; private set; }
 
     /// <summary>Reads the library the workspace's material pass wrote, and its corrections.</summary>
@@ -179,21 +128,6 @@ public sealed class SurfaceFinishes
     /// <param name="packs">The shipped volumes, consulted where the loose file is absent.</param>
     /// <param name="diagnostics">Receives warnings about corrections that no longer apply.</param>
     /// <returns>The finishes, or empty ones if the file is missing or unreadable.</returns>
-    /// <remarks>
-    /// <para>
-    /// Missing is not an error. The file comes from a pass over the texture corpus that a
-    /// checkout need not have run.
-    /// </para>
-    /// <para>
-    /// <b>The corrections beside it are read too</b>, from
-    /// <c>material-library.materials.edits.json</c>, loose or from the pack. That layer is
-    /// the whole point of
-    /// ADR 0006 — a classifier guesses, and the person looking at the scene in-engine knows
-    /// better — and it was being written and never read, so every correction anybody made
-    /// to a material did nothing at all. A generated roughness of 0.44 on somebody's hair
-    /// is exactly what it exists to fix.
-    /// </para>
-    /// </remarks>
     public static SurfaceFinishes Load(
         string path, RebarnContent? packs = null, DiagnosticBag? diagnostics = null)
     {
@@ -237,28 +171,12 @@ public sealed class SurfaceFinishes
     }
 
     /// <summary>What the library is called inside a pack.</summary>
-    /// <remarks>
-    /// <b>With its extension, and that is not cosmetic.</b> A pack key is the file name with
-    /// its last extension removed, applied on the way in <em>and</em> on the way out — so a
-    /// name is only asked for correctly if it is asked for the way it was written.
-    /// <c>material-library.materials.edits.json</c> is stored under
-    /// <c>material-library.materials.edits</c>, and looking that up strips <c>.edits</c> and
-    /// finds nothing. The corrections were silently absent from a packed build for exactly
-    /// as long as it took to write a test for them.
-    /// </remarks>
     private const string LibraryKey = "material-library.json";
 
     /// <summary>And what the corrections beside it are called there.</summary>
     private const string EditsKey = "material-library.materials.edits.json";
 
     /// <summary>Reads one of the two files, from the workspace if it is there and the pack if not.</summary>
-    /// <remarks>
-    /// <b>The loose file wins</b>, which is how every other enhanced set here works and for
-    /// the same reason: a roughness corrected during a session has to reach the screen
-    /// without the packs being rebuilt first. A player has only the packs, and until
-    /// 2026-08-29 had no library at all — which left every surface in the game matte, with
-    /// no specular lobe anywhere, and nothing said so.
-    /// </remarks>
     private static byte[] Read(string path, RebarnContent? packs, string key)
     {
         string loose = key == LibraryKey ? path : Beside(path);
@@ -276,10 +194,6 @@ public sealed class SurfaceFinishes
         library.Materials.Count(m => m.Provenance != AuthoringProvenance.Derived);
 
     /// <summary>The corrections filed beside a library, if anybody has made any.</summary>
-    /// <remarks>
-    /// Named for the library rather than chosen: <c>&lt;library&gt;.materials.edits.json</c>
-    /// is what <c>MaterialEdits</c> documents and what the authoring store writes.
-    /// </remarks>
     private static MaterialEdits? Corrections(string path, RebarnContent? packs)
     {
         try
@@ -409,14 +323,6 @@ public sealed class SurfaceFinishes
 /// GK3's mirrors carry their ornate frames in the texture, so a reflection that covers the
 /// whole card paints over the frame. See <see cref="MaterialDefinition.MirrorInset"/>.
 /// </param>
-/// <remarks>
-/// <b>An authored finish beats a generated map.</b> Where a surface has an ORM map, the map
-/// is normally the answer — it is a measurement of that surface and the library's value is
-/// a classifier's guess at the same thing. But a correction somebody made after looking at
-/// the room in-engine outranks both, and if it did not the edit layer would be unable to
-/// fix the one class of thing it most obviously needs to: a generated roughness that is
-/// wrong for what the surface actually is.
-/// </remarks>
 public readonly record struct SurfaceFinish(
     float Roughness,
     float Specular,
@@ -435,12 +341,6 @@ public readonly record struct SurfaceFinish(
     /// <summary>
     /// What colour this surface gives off, and how much of it.
     /// </summary>
-    /// <remarks>
-    /// <b><see cref="Emits"/> says a surface is a light; this says what light.</b> The flag
-    /// alone was enough while the only thing it fed was <see cref="Occludes"/> — an emissive
-    /// surface does not stop a ray — but a room lit <em>by</em> its lamp shades needs the
-    /// colour and the strength as well. See <c>Game.EmissiveLighting</c>.
-    /// </remarks>
     public System.Numerics.Vector3 Emission { get; init; }
 
     /// <summary>Whether this texture is a lit CRT screen. See <see cref="MaterialDefinition.Screen"/>.</summary>
@@ -449,49 +349,18 @@ public readonly record struct SurfaceFinish(
     /// <summary>
     /// Where the lit glass is inside it: u and v of one corner, then the other.
     /// </summary>
-    /// <remarks>
-    /// A rectangle with no area for everything that is not a screen, which is what
-    /// <see cref="Lit"/> reads and what switches the raster off in the shader.
-    /// </remarks>
     public System.Numerics.Vector4 Glass { get; init; }
 
     /// <summary>Whether a phosphor raster is drawn over this surface.</summary>
-    /// <remarks>
-    /// <b>Both halves, and that is not belt and braces.</b> The flag says a person decided
-    /// this picture is a screen that is on; the rectangle says where its glass is. A flag
-    /// with no rectangle would draw scanlines over the whole monitor, case and all, which
-    /// is worse than drawing none — so a screen nobody has measured is not a screen.
-    /// </remarks>
     public bool Lit => Screen && Glass.Z > Glass.X && Glass.W > Glass.Y;
 
     /// <summary>Whether anything grows on this surface.</summary>
     public bool Furred => Shells > 0 && ShellDepth > 0f;
 
     /// <summary>Whether this surface should stop a ray.</summary>
-    /// <remarks>
-    /// A light fitting must not. The rig puts its emitters where the bulb is — inside the
-    /// shade, behind the pane — because the 1999 bake never traced a fitting against its
-    /// own light, and tracing it now seals every lamp inside its own shade. R25's floor
-    /// went black for exactly this reason: its lamps are placed models rather than room
-    /// geometry, and the flags the room's surfaces carry do not reach them.
-    /// </remarks>
     public bool Occludes => !Emits;
 
     /// <summary>Whether this is smooth enough for a reflection to be worth tracing.</summary>
-    /// <remarks>
-    /// <para>
-    /// Past this the cone a reflection would be gathered over is wide enough that what
-    /// comes back is the ambient term the surface already has, arrived at far more
-    /// expensively.
-    /// </para>
-    /// <para>
-    /// <b>A mirror is excluded however smooth it is</b>, which is the opposite of what the
-    /// roughness alone would say. The screen-space march can only return what is already on
-    /// screen, and a mirror on a wall facing the player shows what is behind the camera; the
-    /// march finds nothing and smears the little it does find over a texture that already
-    /// has a reflection painted on it. Those surfaces belong to the planar pass.
-    /// </para>
-    /// </remarks>
     public bool Reflects => Roughness <= Roughest && !Mirror;
 
     /// <summary>The roughest surface still worth tracing a reflection from.</summary>

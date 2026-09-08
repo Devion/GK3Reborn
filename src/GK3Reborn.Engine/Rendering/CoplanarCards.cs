@@ -7,41 +7,9 @@ namespace GK3Reborn.Rendering;
 /// Gives a room's zero-thickness cards a thickness, so a depth buffer can tell their two
 /// sides apart.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A great deal of GK3's scenery is a single quad with a different picture on each side:
-/// the Mt Cardou signpost at Blanchefort is one flat card with the lettering on the front
-/// and bare wood on the back, and the corpus holds 3,086 such pairs across 98 of its 110
-/// rooms — mostly foliage, whose two sides carry the same texture and so cannot show what
-/// is wrong with them.
-/// </para>
-/// <para>
-/// <b>Both faces are drawn and they are at exactly the same depth</b>, so which one a pixel
-/// shows is decided by the last bit of an interpolated float. The two faces are triangulated
-/// from different vertices, so that bit differs from pixel to pixel and the two pictures
-/// interleave in stripes. It is not a precision problem in the ordinary sense and no near
-/// plane, no far plane and no wider depth buffer moves it: the surfaces are coincident.
-/// </para>
-/// <para>
-/// <b>The original avoids this by culling back faces</b> — <c>Renderer::Render</c> sets
-/// <c>CullMode::Back</c> for opaque world geometry — so only the side facing the camera is
-/// ever drawn. That is not available here: GK3's winding is not consistent enough to cull
-/// on, and switching it on removes every foliage card in the game along with the backs of
-/// the signs. So the cards are given a thickness instead. Each face moves a twentieth of a
-/// unit along its own normal, which puts a tenth of a unit between them — half a millimetre
-/// at the game's scale, where a character is 72 units tall — and that is enough for the
-/// depth test to answer the same way over the whole surface.
-/// </para>
-/// </remarks>
 public static class CoplanarCards
 {
     /// <summary>How far each face of a card moves along its own normal, in scene units.</summary>
-    /// <remarks>
-    /// A tenth of a unit between the two, which is about half a millimetre of a real sign
-    /// and some four hundred depth quanta at the distance a sign is read from. Larger would
-    /// start to be a thickness somebody could see at a grazing angle; smaller stops
-    /// separating them across a room.
-    /// </remarks>
     public const float Separation = 0.05f;
 
     /// <summary>
@@ -151,20 +119,9 @@ public static class CoplanarCards
     }
 
     /// <summary>How far apart two planes may be and still count as the same one.</summary>
-    /// <remarks>
-    /// A hundredth of a unit. These are not surfaces that are nearly coincident — they are
-    /// the same quad exported twice — so the tolerance is for the arithmetic rather than for
-    /// the artists. A wall standing a tenth of a unit off another wall is two surfaces and
-    /// is left alone: it is already far enough apart to be drawn.
-    /// </remarks>
     private const float Tolerance = 0.01f;
 
     /// <summary>Whether two surfaces are the two sides of one card.</summary>
-    /// <remarks>
-    /// Facing opposite ways, on the same plane, and covering some of the same ground. The
-    /// last is what tells a card from two surfaces that merely lie in one plane — a floor
-    /// and the ceiling of the room below it, or the two halves of a wall.
-    /// </remarks>
     private static bool Coincide(Face a, Face b)
     {
         if (Vector3.Dot(a.Normal, b.Normal) > -0.9998f ||
@@ -185,12 +142,6 @@ public static class CoplanarCards
     }
 
     /// <summary>Whether two coplanar surfaces cover any of the same ground.</summary>
-    /// <remarks>
-    /// Measured as boxes in the plane's own two directions rather than as polygons. It
-    /// decides only whether to move a surface half a millimetre, so a box that is generous
-    /// at a corner costs nothing; a polygon test would cost a great deal more and buy
-    /// nothing that can be seen.
-    /// </remarks>
     private static bool Overlap(Face a, Face b)
     {
         Vector3 across = Vector3.Normalize(Vector3.Cross(

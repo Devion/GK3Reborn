@@ -13,23 +13,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <summary>
 /// What the fog pass binds, declared once for both backends.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The same four things the room's own shading reads, minus everything about a surface: the
-/// rig, the grid that says which of it reaches where, the list inside a cell, and the depth
-/// the room left behind. Fog is lit by the lamps in the room and by nothing else, so a pass
-/// that could not see the rig would have to be told a colour instead — see
-/// <see cref="FogVolume.Colour"/> for why that is the wrong answer.
-/// </para>
-/// <para>
-/// <b>The rig is bound directly rather than through the frame's own set.</b> The three
-/// buffers are one apiece for a whole scene — they are written when a room loads and not
-/// again — so there is nothing per-frame to keep apart here, and a set of this pass's own
-/// costs one allocation and saves matching a layout it does not otherwise share. What the
-/// frame's uniform block would have carried instead travels as push constants; the block is
-/// a hundred and ninety-two bytes, which fits both backends with room over.
-/// </para>
-/// </remarks>
 public static class FogLayout
 {
     /// <summary>The one set: the rig, the grid and the depth.</summary>
@@ -52,11 +35,6 @@ public static class FogLayout
 }
 
 /// <summary>What the fog pass is told, in a hundred and ninety-two bytes.</summary>
-/// <remarks>
-/// Shared between the backends because it is the shader's own block, and the shader is one
-/// source compiled two ways. A field reordered here and not there is a picture that is wrong
-/// in a way neither compiler can see.
-/// </remarks>
 /// <param name="ViewProjectionInverse">
 /// Clip space back to the world. It is inverted from the <em>jittered</em> projection the
 /// room was drawn with, because the depth it is unprojecting was written by that one; the
@@ -101,11 +79,6 @@ public readonly record struct FogConstants(
     /// <param name="width">Viewport width in pixels.</param>
     /// <param name="height">Its height.</param>
     /// <returns>The block.</returns>
-    /// <remarks>
-    /// Here rather than in either backend's pass, because both fill it from the same things
-    /// and the only way for two copies of this arithmetic to stay equal is for there to be
-    /// one of them.
-    /// </remarks>
     public static FogConstants For(
         FogVolume fog,
         SceneLightGrid? grid,

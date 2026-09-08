@@ -12,28 +12,6 @@ namespace GK3Reborn.Formats.Rebarn;
 /// <summary>
 /// Reads one ReBarn pack.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The whole volume is memory-mapped once and never read into the heap. A 2048-pixel BC7
-/// texture is 5.6 MB, a room wants dozens of them, and they are read on every core at
-/// once: copying each one out of the file into a byte array before uploading it doubles
-/// the high-water mark of a scene load to achieve nothing at all.
-/// <see cref="ReadMapped(RebarnEntry)"/>
-/// hands back a window onto the mapping instead.
-/// </para>
-/// <para>
-/// That window is only valid while the archive is open, which is the one sharp edge here
-/// and the reason <see cref="Read(RebarnEntry)"/> — which copies — is the default. The engine keeps its
-/// packs open for the life of the process, so the mapped path is safe there; a tool that
-/// opens a pack in a <c>using</c> and holds the bytes afterwards would read freed address
-/// space. <see cref="ReadMapped(RebarnEntry)"/> says so on its own summary.
-/// </para>
-/// <para>
-/// Mapping costs address space rather than memory. An eleven-gigabyte volume reserves
-/// eleven gigabytes of a 64-bit address space and pages in only what is touched, so a
-/// session that visits four rooms pays for four rooms.
-/// </para>
-/// </remarks>
 public sealed class RebarnArchive : IDisposable
 {
     private readonly MemoryMappedFile _file;
@@ -300,12 +278,6 @@ public sealed class RebarnArchive : IDisposable
     /// </summary>
     /// <param name="entry">The entry, from <see cref="Find"/>.</param>
     /// <returns>Its bytes.</returns>
-    /// <remarks>
-    /// A window onto the memory-mapped file for a stored entry, and a fresh array for a
-    /// compressed one. <strong>The window is only valid while this archive is open.</strong>
-    /// Use it for something that is consumed within the call — uploading a texture to the
-    /// device — and <see cref="Read(RebarnEntry)"/> for anything that outlives it.
-    /// </remarks>
     public ReadOnlyMemory<byte> ReadMapped(RebarnEntry entry)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -320,7 +292,6 @@ public sealed class RebarnArchive : IDisposable
     /// <param name="kind">What the entry is for.</param>
     /// <param name="name">The name.</param>
     /// <returns>Its bytes, or null when the pack does not hold it.</returns>
-    /// <remarks>See <see cref="ReadMapped(RebarnEntry)"/> for how long the result lives.</remarks>
     public ReadOnlyMemory<byte>? ReadMapped(RebarnKind kind, string name) =>
         Find(kind, name) is { } entry ? ReadMapped(entry) : null;
 

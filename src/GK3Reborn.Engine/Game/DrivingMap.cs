@@ -45,67 +45,16 @@ public sealed record DrivingNode(string Name, Vector2 At, IReadOnlyList<DrivingL
 /// <summary>
 /// The map the moped is ridden around.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A painting of the Rennes-le-Château countryside, 640 by 480, with sixteen places on it.
-/// Each place's marker is a <em>lit copy of that patch of the map</em> rather than a pin
-/// over it, which is why the markers look like part of the picture: <c>dm_rlc</c> is the
-/// village, painted brighter.
-/// </para>
-/// <para>
-/// <b>Where the positions come from.</b> The retail engine builds this list in the
-/// constructor of its driving layer, sixteen calls with the coordinates as immediates. They
-/// are recovered from there and written down here rather than read at runtime: nothing this
-/// engine ships may depend on the original executable, and sixteen pairs of integers about
-/// where a village sits on a painting are a fact about the map rather than a thing that can
-/// be derived. The pictures themselves come out of the player's own <c>.BRN</c> archives,
-/// like everything else.
-/// </para>
-/// <para>
-/// <b>The road network is data.</b> <c>PATHDATA.TXT</c> is in the archives and describes
-/// twenty junctions with their map positions and the roads between them, which is how the
-/// moped rides along the roads rather than flying between towns in a straight line.
-/// </para>
-/// <para>
-/// <b>What is open.</b> Five places are on the map from the first ride — Rennes-le-Château,
-/// Larry Chester's house, Blanchefort, Rennes-les-Bains and the Couiza train station — and
-/// the rest arrive as the story finds them. The original keeps a flag per marker and sets
-/// it from its own script hooks; here a place is on the map once the player has been there
-/// or a script has said so, which is the same set arrived at from state the save already
-/// keeps.
-/// </para>
-/// </remarks>
 public sealed class DrivingMap
 {
     /// <summary>
     /// What the map picture is called, without an extension.
     /// </summary>
-    /// <remarks>
-    /// Without one because that is how every other texture in the game is named and looked
-    /// up — the archives hold <c>DM_BASE.BMP</c> and the enhanced set holds
-    /// <c>DM_BASE.PNG</c>, and the name that means both is neither.
-    /// </remarks>
     public const string Background = "DM_BASE";
 
     /// <summary>
     /// What the map itself is called as a location.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The map is a room in the original, not a panel over one: the retail engine's
-    /// location table lists <c>map</c> alongside <c>lhe</c> and <c>mop</c>, and its driving
-    /// layer holds that entry's index as its own location. Riding the moped is therefore
-    /// leaving for the map and arriving from it, and that is what the game's own data
-    /// expects — <c>LHE.SIF</c> puts Gabriel's moped in the yard on
-    /// <c>WasLastLocation("Map")</c>, and ten of the compiled scene scripts ask the same
-    /// question to decide where the player is standing when they get there.
-    /// </para>
-    /// <para>
-    /// Written in capitals like every other location code this engine holds;
-    /// <c>WasLastLocation</c> compares without case, as does everything else that reads
-    /// one.
-    /// </para>
-    /// </remarks>
     public const string Location = "MAP";
 
     /// <summary>How wide the map picture is, in its own pixels.</summary>
@@ -117,11 +66,6 @@ public sealed class DrivingMap
     /// <summary>
     /// The sixteen places, as the retail engine lists them.
     /// </summary>
-    /// <remarks>
-    /// In its own order, which is the order they are drawn in and so which one wins where
-    /// two overlap. <c>dm_tre</c> — "The Site" — shares its destination with Blanchefort
-    /// and appears once the dig is there.
-    /// </remarks>
     private static readonly DrivingStop[] Stops =
     [
         new("dm_wod", "PL5", 44, 218, Known: false),
@@ -171,11 +115,6 @@ public sealed class DrivingMap
     /// <summary>
     /// The stretches of road between junctions, as the points they bend at.
     /// </summary>
-    /// <remarks>
-    /// In the map's own 640-by-480 pixels, and in the direction the segment's name reads:
-    /// <c>Mop_In2</c> runs from the village to the junction below it. A link says which way
-    /// round to take them.
-    /// </remarks>
     public IReadOnlyDictionary<string, IReadOnlyList<Vector2>> Segments { get; }
 
     /// <summary>One junction, by the name the road data gives it.</summary>
@@ -221,12 +160,6 @@ public sealed class DrivingMap
     /// <param name="story">The game.</param>
     /// <param name="here">The room they are in, which is not offered.</param>
     /// <returns>The places, in map order.</returns>
-    /// <remarks>
-    /// A place is on the map when the story has made it known: the five it opens with, plus
-    /// anywhere the player has already been, plus anywhere a script has named with
-    /// <c>EngineOpenOnMap</c>. All three are read out of the game's own state, so the map
-    /// after a load is the map before the save.
-    /// </remarks>
     public static IReadOnlyList<DrivingStop> Open(GameState story, string? here = null)
     {
         ArgumentNullException.ThrowIfNull(story);
@@ -253,32 +186,11 @@ public sealed class DrivingMap
     }
 
     /// <summary>The verb the game writes on somebody worth following.</summary>
-    /// <remarks>
-    /// Its count is how the story remembers a chase: the room's own action sets it to one
-    /// when the player gives chase, and the map counts it again when the chase arrives.
-    /// Two, therefore, means "followed them all the way", which is what puts their
-    /// destination on the map for good.
-    /// </remarks>
     public const string Follow = "FOLLOW";
 
     /// <summary>
     /// Whether the story itself has put a place on the map, without the player going there.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The retail driving layer decides this every time the map opens, from the point in
-    /// the story and from three chases the player may have finished. The table is recovered
-    /// from there. Without it, three of the sixteen places have no way onto the map at all:
-    /// L'Ermitage is behind following Wilkes, and Coume Sourde and L'Homme Mort are behind
-    /// following Madeleine, and the port had no chase to finish.
-    /// </para>
-    /// <para>
-    /// <b>It only ever adds.</b> The original also takes places back off the map — the two
-    /// arms of the hexagram are hidden again outside the block they matter in — and this
-    /// does not, because the port already shows anywhere the player has been and a place
-    /// that vanishes from a map the player has used is worse than one that lingers.
-    /// </para>
-    /// </remarks>
     private static bool Found(GameState story, DrivingStop stop)
     {
         int now = Story.TimeblockRules.Order(story.Timeblock);
@@ -311,10 +223,6 @@ public sealed class DrivingMap
     /// <summary>
     /// The game variable that says where the moped is parked.
     /// </summary>
-    /// <remarks>
-    /// Read by six of the game's scene files and three of its action files, and written by
-    /// two of its scripts. See <see cref="ParkedAt"/> for what the number in it means.
-    /// </remarks>
     public const string Parked = "BikeLocation";
 
     /// <summary>
@@ -322,31 +230,6 @@ public sealed class DrivingMap
     /// </summary>
     /// <param name="scene">The room the place loads.</param>
     /// <returns>The number, or null when the moped cannot be ridden there.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>It is the place's own position in this list.</b> The game's data gives six of the
-    /// sixteen a number and every one of them is its index here: Coume Sourde is 3,
-    /// L'Homme Mort 4, Chateau de Serras 9, Rennes-le-Château 10, Larry Chester's house 11
-    /// and Blanchefort 12. The list is the retail driving layer's own order, recovered from
-    /// its constructor, so the agreement is not a coincidence — it is the same table read
-    /// two ways, and it is why this can be a lookup rather than sixteen more constants.
-    /// </para>
-    /// <para>
-    /// <b>Why the port writes it and the original did not.</b> Nothing in the retail engine
-    /// touches this variable — its name is in a table with no code reference — and only
-    /// <c>LHE.SHP</c> and <c>MOP_ALL.SHP</c> set it, to 11 and 10, from their own arrival
-    /// scripts. The other four places read a number nothing ever writes, so their moped is
-    /// never drawn and, at three of them, the exit that asks whether the moped is here
-    /// answers no: riding to Blanchefort, Coume Sourde or L'Homme Mort strands the player
-    /// there. Writing it on arrival is what the six readers were plainly written against,
-    /// and it agrees with both scripts that do write it rather than fighting them.
-    /// </para>
-    /// <para>
-    /// <b>The first marker wins where two share a room.</b> "The Site" and Blanchefort both
-    /// load <c>PLO</c>, and <c>PLO.SIF</c> asks for 12, which is Blanchefort's. Riding to
-    /// either parks the moped at the one the room asks about.
-    /// </para>
-    /// </remarks>
     public static int? ParkedAt(string scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -381,19 +264,9 @@ public sealed class DrivingMap
     }
 
     /// <summary>The flag that says a script has put a place on the map.</summary>
-    /// <remarks>
-    /// On the story rather than in the map, so it survives a save without the map having to
-    /// be part of one.
-    /// </remarks>
     private static string FlagFor(DrivingStop stop) => $"MapKnows:{stop.Sprite}";
 
     /// <summary>The places' names, from the game's own string table.</summary>
-    /// <remarks>
-    /// Whichever table the language reads — <c>FSTRINGS.TXT</c> in French — because these
-    /// are the labels drawn on the map and reading the English one would put "Château de
-    /// Blanchefort" on a French map in English. <see cref="GameStrings.Open"/> owns the
-    /// choice of file; this asks it rather than repeating the rule.
-    /// </remarks>
     private static Dictionary<string, string> Names(GameArchives archives)
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -426,12 +299,6 @@ public sealed class DrivingMap
     /// <summary>
     /// The road network, from <c>PATHDATA.TXT</c>.
     /// </summary>
-    /// <remarks>
-    /// Junctions with a map position, and for each of them the roads out of it: which
-    /// junction the road reaches, which stretch of road it is, and whether that stretch's
-    /// points read forwards from here. The file names each stretch once, so exactly one of
-    /// its two ends reads it backwards.
-    /// </remarks>
     private static List<DrivingNode> ReadRoads(string? text)
     {
         if (text is not { Length: > 0 })
@@ -500,13 +367,6 @@ public sealed class DrivingMap
     /// <summary>
     /// The shape of each stretch of road, from the same file.
     /// </summary>
-    /// <remarks>
-    /// Four of the stretches the links name have no point list of their own — the two short
-    /// roads down to L'Homme Mort and Coume Sourde, and the two along the top of the map —
-    /// and one has a single point. A stretch with no shape is drawn as a straight line
-    /// between its junctions, which on a 640-pixel painting of a valley is what those four
-    /// look like anyway.
-    /// </remarks>
     private static Dictionary<string, IReadOnlyList<Vector2>> ReadSegments(string? text)
     {
         var segments = new Dictionary<string, IReadOnlyList<Vector2>>(StringComparer.OrdinalIgnoreCase);
@@ -571,21 +431,6 @@ public sealed class DrivingMap
     /// </summary>
     /// <param name="junctions">The junctions to pass, in order.</param>
     /// <returns>The polyline, empty when none of them are on the map.</returns>
-    /// <remarks>
-    /// <para>
-    /// The routes the game's own follow sequences are written as name junctions that are
-    /// not always neighbours — Madeleine's drive to Coume Sourde is written
-    /// <c>plo/pl3/rl1/in4/pl2</c>, and there is no road from <c>In4</c> to <c>Pl2</c>. So
-    /// each leg is resolved as the shortest way through the network rather than assumed to
-    /// be one road, which turns that leg into <c>In4, In3, Pl2</c> and puts the van on the
-    /// road it plainly takes.
-    /// </para>
-    /// <para>
-    /// A leg with no way through at all becomes a straight line to the next junction.
-    /// Nothing in the shipped routes needs that, but a route is a string and a mod may
-    /// write one this network cannot join up.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<Vector2> Route(IReadOnlyList<string> junctions)
     {
         ArgumentNullException.ThrowIfNull(junctions);
@@ -652,11 +497,6 @@ public sealed class DrivingMap
     }
 
     /// <summary>The junctions from one to another, not counting the first, by the shortest way.</summary>
-    /// <remarks>
-    /// Breadth-first over twenty junctions, which is small enough that the shape of the
-    /// search does not matter. Null when the two are not joined at all, and empty when they
-    /// are the same junction.
-    /// </remarks>
     private List<DrivingNode>? Between(DrivingNode from, DrivingNode to)
     {
         if (string.Equals(from.Name, to.Name, StringComparison.OrdinalIgnoreCase))

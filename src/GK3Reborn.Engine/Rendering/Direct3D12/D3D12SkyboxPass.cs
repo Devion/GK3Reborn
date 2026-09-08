@@ -16,22 +16,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws the sky behind everything the room left, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One triangle, a cube map, and the ray each pixel looks along worked out from the camera's
-/// own basis. There is no cube of geometry and no inverse projection: the direction is the
-/// same arithmetic the projection does, run forwards, because an inverse is a thing that can
-/// be ill-conditioned or wrong in a way that is invisible until every pixel comes back with
-/// the same answer.
-/// </para>
-/// <para>
-/// <b>It writes depth at the far plane and does not test against it — it tests, but never
-/// wins.</b> The sky is drawn after the room with the depth target still bound, so anything
-/// the room drew is nearer and keeps its pixel; the sky fills only what the room left empty.
-/// Drawing it first and letting the room overdraw it would work and would shade every sky
-/// pixel twice.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12SkyboxPass : IDisposable
 {
     private readonly D3D12Context _context;
@@ -150,10 +134,6 @@ public sealed unsafe class D3D12SkyboxPass : IDisposable
     /// <param name="camera">Where it is seen from.</param>
     /// <param name="width">Width of the target in pixels.</param>
     /// <param name="height">Its height.</param>
-    /// <remarks>
-    /// Records into whatever render targets are already bound, so the caller keeps the room's
-    /// own targets set. That is what lets the depth test do its work.
-    /// </remarks>
     public void Record(ID3D12GraphicsCommandList4* list, Camera camera, int width, int height)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

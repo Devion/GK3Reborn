@@ -58,14 +58,6 @@ public sealed class Mp4Track
     /// <summary>
     /// Ticks to subtract from every presentation time before it means anything.
     /// </summary>
-    /// <remarks>
-    /// The edit list. A file whose pictures are reordered, or whose sound has an encoder
-    /// delay, says so by declaring that the presentation starts some way into the media
-    /// rather than at its first sample; a player that ignores it shows the first few
-    /// frames late and the sound early. Only the simplest and by far most common form is
-    /// honoured — a single edit, possibly preceded by an empty one — which is what FFmpeg
-    /// writes and what the import produces.
-    /// </remarks>
     public long EditOffset { get; internal set; }
 
     /// <summary>Ticks of silence or blank the presentation starts with, from an empty edit.</summary>
@@ -105,18 +97,6 @@ public sealed class Mp4Track
 /// <summary>
 /// An ISO base media file — MP4, M4A, MOV — read far enough to hand out its samples.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Only what a player needs: the sample tables of the tracks, and each track's decoder
-/// configuration. Fragmented files (<c>moof</c>) are not read, because nothing produces
-/// them here; the import writes <c>+faststart</c> files whose <c>moov</c> precedes the
-/// data, and a file with <c>moov</c> at the end is read just as well by seeking.
-/// </para>
-/// <para>
-/// The stream stays open for as long as the file does, because a movie is read frame by
-/// frame from it rather than copied into memory first.
-/// </para>
-/// </remarks>
 public sealed class Mp4File : IDisposable
 {
     private readonly Stream _stream;

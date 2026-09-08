@@ -21,12 +21,6 @@ public enum BarnCompression
 }
 
 /// <summary>One entry in a Barn archive's directory.</summary>
-/// <remarks>
-/// An archive can hold entries that are *pointers* into another archive rather than
-/// data: the directory names the asset and the archive that really holds it. Those
-/// entries carry no bytes here, which is why <see cref="ReferencedArchive"/> has to be
-/// checked before extraction rather than after a confusing zero-length read.
-/// </remarks>
 public sealed record BarnEntry
 {
     /// <summary>The asset's name, as spelled in the archive.</summary>
@@ -54,17 +48,6 @@ public sealed record BarnEntry
 /// <summary>
 /// Reader for GK3's "Barn" asset archives.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Named for the animals: some asset types are called Sheep and Yak. The metaphor did
-/// not go much further.
-/// </para>
-/// <para>
-/// The reader opens the file, parses the table of contents and directories, and then
-/// extracts entries on demand. It never loads a whole archive into memory - the eight
-/// retail archives total 822 MB, and the importer walks all of them.
-/// </para>
-/// </remarks>
 public sealed class BarnArchive : IDisposable
 {
     private static readonly byte[] GameMagic = "GK3!"u8.ToArray();
@@ -323,13 +306,6 @@ public sealed class BarnArchive : IDisposable
     }
 
     /// <summary>Reads bytes from a fixed place in the file.</summary>
-    /// <remarks>
-    /// Positioned reads rather than seek-then-read. A scene decodes its textures on several
-    /// threads at once, and a stream's position is the one thing about a file handle that
-    /// cannot be shared: two extractions in flight would each seek out from under the other
-    /// and both come back with somebody else's bytes. The handle itself reads concurrently
-    /// quite happily.
-    /// </remarks>
     private byte[] ReadAt(long offset, int count, string assetName)
     {
         byte[] buffer = new byte[count];

@@ -15,22 +15,11 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for playing a clip against a head the clip has never seen.
 /// </summary>
-/// <remarks>
-/// The refinement replaces a character's head with a denser one and leaves the clips alone,
-/// so playback has to read a clip's vertices as a motion instead of writing them into a
-/// buffer. The question that decides whether any of it is allowed is not whether the code
-/// runs: it is whether the head still ends up exactly where the original animation puts it.
-/// That is what these compare — the same clip, the same frame, played both ways.
-/// </remarks>
 public sealed class HeadPlaybackTests
 {
     /// <summary>
     /// Records what the renderer was told to do, and measures nothing.
     /// </summary>
-    /// <remarks>
-    /// Wrapped around the headless sink rather than reimplemented, so that adding a member
-    /// to the contract does not silently give this one a different idea of what a scene is.
-    /// </remarks>
     private sealed class Sink : ISceneSink
     {
         private readonly HeadlessSceneSink _inner = new();
@@ -106,11 +95,6 @@ public sealed class HeadPlaybackTests
             _inner.Add(model, transform, meshTurns);
 
         /// <summary>Turns applied on top of a mesh's own transform.</summary>
-        /// <remarks>
-        /// Kept apart from <see cref="Poses"/> because they mean different things: a pose
-        /// replaces a mesh's transform and a turn is applied over it. A refined head takes
-        /// whichever of the two the clip left room for.
-        /// </remarks>
         public Dictionary<(int Placement, int Mesh), Matrix4x4> Turns { get; } = [];
 
         public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
@@ -195,11 +179,6 @@ public sealed class HeadPlaybackTests
     /// <summary>
     /// The three markers every mesh group in the game carries, at sixty units out.
     /// </summary>
-    /// <remarks>
-    /// Part of the fixture rather than a case of its own, because every real head has them
-    /// and the fit has to be right in their presence, not merely capable of being right
-    /// without them. They belong to no triangle and do not travel with the head.
-    /// </remarks>
     private static readonly Vector3[] Triad =
     [
         new(60f, 0f, 0f), new(0f, 60f, 0f), new(0f, 0f, 60f),
@@ -245,10 +224,6 @@ public sealed class HeadPlaybackTests
     /// <summary>
     /// The head, turned by this much, is what every frame of the synthetic clip records.
     /// </summary>
-    /// <remarks>
-    /// A rotation about all three axes rather than one, so a fit that recovered only part
-    /// of it — or recovered it transposed — could not pass by symmetry.
-    /// </remarks>
     private static Matrix4x4 Turned => Matrix4x4.CreateFromYawPitchRoll(0.6f, -0.35f, 0.2f);
 
     /// <summary>A clip that moves the mesh and records the head's vertices on every frame.</summary>
@@ -408,12 +383,6 @@ public sealed class HeadPlaybackTests
     /// <summary>
     /// The fit ignores the axis markers, and the head turns by exactly what the clip asked.
     /// </summary>
-    /// <remarks>
-    /// This is a regression test for a bug that measured well: including the triad made the
-    /// corpus survey report Mosely as deforming his head by 40% of its width on a tenth of
-    /// his frames, and the numbers were consistent enough to look like a finding about the
-    /// game rather than a mistake in the fit.
-    /// </remarks>
     [Fact]
     public void TheAxisMarkersDoNotDragTheFit()
     {

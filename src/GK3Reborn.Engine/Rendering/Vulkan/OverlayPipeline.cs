@@ -12,33 +12,8 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Draws the interface on top of the room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One pipeline, one texture, one vertex buffer, one draw. The interface is a few hundred
-/// rectangles at most and they all come from the same atlas, so batching them by anything
-/// would cost more than it saved.
-/// </para>
-/// <para>
-/// No depth test and no depth write, because the overlay is on top by definition and
-/// competing with the room for the depth buffer would only produce ways for it to be
-/// hidden. Alpha blending is straight rather than premultiplied, since the atlas holds
-/// letters cut out of a sheet rather than composited artwork.
-/// </para>
-/// <para>
-/// The display list is in pixels and the vertices are in clip space, converted while they
-/// are being written. Doing it there rather than in the shader costs one multiply per
-/// corner and keeps the pipeline down to a vertex buffer and one texture.
-/// </para>
-/// </remarks>
 public sealed unsafe class OverlayPipeline : IDisposable
 {
-    /// <remarks>
-    /// GLSL rather than the HLSL the raster shaders use. Two things this needs are
-    /// ambiguous through shaderc's HLSL front end — a combined image sampler, and a push
-    /// constant — and both fail by producing a shader that compiles and draws nothing,
-    /// which is the worst way for a bring-up to fail. In GLSL they are one declaration each
-    /// and mean exactly one thing.
-    /// </remarks>
     private readonly Vk _vk;
     private readonly VulkanContext _context;
     private readonly int _capacity;
@@ -55,12 +30,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
     private int _count;
 
     /// <summary>The screens' own pictures, and a descriptor set for each.</summary>
-    /// <remarks>
-    /// Indexed from one: zero is the sheet of letters, which every other quad uses. Loaded
-    /// once when a screen that needs art first opens, and kept — the driving map is a
-    /// 640-by-480 painting and reloading it every time somebody opens the map would be a
-    /// stall the player can feel.
-    /// </remarks>
     private readonly List<(VulkanTexture Texture, DescriptorSet Set)> _pictures = [];
 
     /// <summary>Which picture each run of six vertices belongs to.</summary>
@@ -74,21 +43,9 @@ public sealed unsafe class OverlayPipeline : IDisposable
     }
 
     /// <summary>How many of the screens' own pictures may be held at once.</summary>
-    /// <remarks>
-    /// The driving map's background and its sixteen markers, the save slots' thumbnails,
-    /// and one for each of the 133 things the game lets a player carry — which is what
-    /// this used to be too small for at 64. Each is a texture and a descriptor set, both
-    /// cheap, and none is made until something asks for it; what is not cheap is reloading
-    /// a 640-by-480 painting every time somebody opens the map, which is why they are kept.
-    /// </remarks>
     public const int MostPictures = 256;
 
     /// <summary>What the swapchain wants written into it.</summary>
-    /// <remarks>
-    /// Set by the renderer whenever the output chain changes, which in practice is when
-    /// somebody turns HDR on. Standard by default, which is the sRGB target the hardware
-    /// encodes and where this shader writes exactly what it always wrote.
-    /// </remarks>
     public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>How many rectangles have been prepared for this frame.</summary>
@@ -159,27 +116,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// Puts a different sheet of letters behind the same pipeline.
     /// </summary>
     /// <param name="atlas">The sheet to draw from now.</param>
-    /// <remarks>
-    /// <para>
-    /// The interface has more than one sheet — the room's captions and the menu are cut at
-    /// different sizes — and it swaps between them whenever the player opens the menu and
-    /// closes it again. Only the atlas texture and binding zero of its descriptor set
-    /// change; the shaders, the pipeline, the pool and <em>every picture already loaded</em>
-    /// stay exactly where they are.
-    /// </para>
-    /// <para>
-    /// <b>Which is the whole point.</b> This used to be done by disposing the pipeline and
-    /// building another, and a new pipeline has an empty descriptor pool: the driving map
-    /// and its sixteen markers, loaded once at startup, were thrown away the first time the
-    /// front end drew a frame. Nothing reloaded them, so the map the moped is ridden around
-    /// fell back to a list of place names for the rest of the session. Recompiling two
-    /// shaders every time somebody opens the menu was the smaller of the two costs.
-    /// </para>
-    /// <para>
-    /// The caller waits for the device to be idle first: the sheet being replaced may still
-    /// be read by a frame that has not finished.
-    /// </para>
-    /// </remarks>
     public void SetAtlas(OverlayAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(atlas);
@@ -265,11 +201,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
 
     /// <summary>Turns a display list into vertices, ready to draw.</summary>
     /// <param name="overlay">What to draw.</param>
-    /// <remarks>
-    /// Two triangles a rectangle, written straight into host-visible memory. Indexing them
-    /// would save a third of the space and cost a second buffer; at a few hundred
-    /// rectangles a frame that trade is not worth making.
-    /// </remarks>
     public void Prepare(Overlay overlay)
     {
         ArgumentNullException.ThrowIfNull(overlay);
@@ -495,17 +426,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// <summary>Rebuilds the pipeline for a different colour target.</summary>
     /// <param name="colorFormat">The new format.</param>
     /// <param name="depthFormat">Depth target format, unchanged in practice.</param>
-    /// <remarks>
-    /// For the swapchain changing format underneath, which happens exactly once in a
-    /// session: when the player turns HDR on and an 8-bit sRGB surface becomes a ten-bit
-    /// one. A pipeline carries the format it writes and the old one is then invalid.
-    /// <para>
-    /// Only the pipeline and its layout. Everything expensive the interface owns — the
-    /// sheet of letters, and every picture the screens have handed over — is kept, because
-    /// throwing those away would leave the menu drawing blank squares where the save
-    /// thumbnails were and nothing would know to put them back.
-    /// </para>
-    /// </remarks>
     public void Retarget(Format colorFormat, Format depthFormat)
     {
         if (_pipeline.Handle != 0)

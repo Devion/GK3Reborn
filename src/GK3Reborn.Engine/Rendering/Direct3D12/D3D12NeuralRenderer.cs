@@ -16,27 +16,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// The neural rendering network on Direct3D 12, driven straight through NGX.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This replaces the super-resolution pass rather than running after it. The network scales
-/// and reworks in one step from the same three pictures — colour, depth and motion — so
-/// putting it downstream of another temporal upscaler would be two histories filtering one
-/// frame, which is how a picture ends up smeared.
-/// </para>
-/// <para>
-/// <b>Streamline is not involved and need not even be present.</b> Everything here goes to
-/// <c>nvngx_dlssnr.dll</c> through <see cref="Ngx"/>. Streamline carries on beside it for
-/// frame generation and Reflex, which is why the two are started separately and neither is
-/// asked about the other.
-/// </para>
-/// <para>
-/// <b>The feature is built on the first frame that wants it, not when this object is made.</b>
-/// NGX records its setting-up work onto a command list, so there has to be an open one — and
-/// the only place this engine has one is where the frame is recorded. Everything up to that
-/// point is opening the library and making a parameter block, which is why a failure to build
-/// is reported once, from inside a frame, rather than at startup.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12NeuralRenderer : IDisposable
 {
     /// <summary>The colour, at the size the room was drawn.</summary>
@@ -74,32 +53,9 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     }
 
     /// <summary>Whether the camera's sample point should be moved a little each frame.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>False while the neural network is the thing running, and that is not a preference.</b>
-    /// Jitter is how a super-resolution network is given more samples than the frame holds:
-    /// the camera samples a different point inside each pixel every frame, the runtime is told
-    /// where, and it reconstructs from the spread. The neural network is told nothing —
-    /// <c>nvngx_dlssnr.dll</c> has no jitter parameter of any kind, and the plugin that drives
-    /// it sends none — and super resolution is not running underneath it, because only the one
-    /// feature is evaluated.
-    /// </para>
-    /// <para>
-    /// So a jittered frame reaches a network that accumulates across frames, using motion
-    /// vectors that say nothing moved, from a picture that shifted by a fraction of a pixel in
-    /// a pattern it cannot know. What that looks like is the whole image seething — worst on
-    /// small bright things and fine stonework, which is to say worst in a church.
-    /// </para>
-    /// </remarks>
     public static bool WantsJitter => false;
 
     /// <summary>Whether the network has given up, and the frame should go another way.</summary>
-    /// <remarks>
-    /// Set when the network would not build, or refused a frame. Both are permanent for this
-    /// feature — a network that refuses one frame refuses every frame for the same reason —
-    /// so the caller reads this and lets go, rather than asking again sixty times a second
-    /// and drawing the small picture stretched while it does.
-    /// </remarks>
     public bool Refused => _refused;
 
     /// <summary>What it is doing, for the startup report.</summary>
@@ -160,12 +116,6 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     /// <param name="render">The size the room is drawn at.</param>
     /// <param name="display">The size it is shown at.</param>
     /// <returns>True when nothing needs rebuilding.</returns>
-    /// <remarks>
-    /// The strengths are deliberately not part of this. They are read afresh every frame and
-    /// change nothing the network was built around, so a player dragging a slider should see
-    /// the picture change under their hand rather than watch the feature be torn down and
-    /// built again — which would drop the history and flash.
-    /// </remarks>
     public bool Serves(
         UpscalePlan plan,
         (uint Width, uint Height) render,
@@ -202,11 +152,6 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     /// <param name="output">Where to put the result, at display resolution.</param>
     /// <param name="frame">The rest of what the network is told about this frame.</param>
     /// <returns>True when the network did the work.</returns>
-    /// <remarks>
-    /// The four textures must already be in the states the caller put them in — the three
-    /// inputs readable by a compute shader and the output writable — and no barrier is issued
-    /// here. NGX believes what it is handed.
-    /// </remarks>
     public bool Record(
         ID3D12GraphicsCommandList4* list,
         D3D12Texture colour,
@@ -280,24 +225,6 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     /// </summary>
     /// <param name="parameters">The block being built, which already carries both sizes.</param>
     /// <returns>Success, always: there is nothing here that can fail.</returns>
-    /// <remarks>
-    /// <para>
-    /// The network keeps a hook for this so that a caller who has named a quality rung and no
-    /// sizes can be given both. This engine is the other way round — it has already decided
-    /// what to draw at, from the upscaler ladder the player set — so what is installed here
-    /// answers from the sizes in the block rather than from a rung.
-    /// </para>
-    /// <para>
-    /// <b>The ratio is the small size over the large one</b>, so it is one when nothing is
-    /// being scaled and a half at twice. That direction is not a guess: the add-in this was
-    /// checked against passes exactly one and exactly a half for those two cases.
-    /// </para>
-    /// <para>
-    /// Nothing is captured. It reads the block it is handed and writes back into it, so there
-    /// is no instance for it to belong to and no lifetime for it to outlive — which matters,
-    /// because the network holds the pointer for as long as the feature lives.
-    /// </para>
-    /// </remarks>
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static uint Ratio(void* parameters)
     {
@@ -385,12 +312,6 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     }
 
     /// <summary>The sizes and the ratio, which the network wants at build and at every frame.</summary>
-    /// <remarks>
-    /// Written twice on purpose. The names are not aliases of one another — the network reads
-    /// some of them when it is built and others when it is run, and which is which is not
-    /// documented anywhere — so both callers set all of them, which is what the plugin NVIDIA
-    /// ships does too.
-    /// </remarks>
     private void Describe(NgxParameters block)
     {
         block.Set("Width"u8, _render.Width);
@@ -425,11 +346,6 @@ public sealed unsafe class D3D12NeuralRenderer : IDisposable
     }
 
     /// <summary>This frame's four textures, and the whole of each that is to be used.</summary>
-    /// <remarks>
-    /// Every sub-rectangle is the whole texture. They are set rather than left out because
-    /// the network reads them unconditionally, and what is in a block it was handed last
-    /// frame is not something to rely on.
-    /// </remarks>
     private static void Textures(
         NgxParameters block,
         D3D12Texture colour,

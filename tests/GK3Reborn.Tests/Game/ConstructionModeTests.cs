@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for reading what a script builds into a room for itself.
 /// </summary>
-/// <remarks>
-/// <c>AddModel("model=discoball_pole,type=prop")</c> is GK3's construction mode. Six
-/// scripts in the game use it and every one of them is an easter egg — the disco ball over
-/// the bar, the monkey in the fridge, the propeller on Mosely's hat — so a specification
-/// read wrongly is a moment that quietly does not happen.
-/// </remarks>
 public sealed class ConstructionModeTests
 {
     [Theory]

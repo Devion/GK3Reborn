@@ -21,18 +21,6 @@ public readonly record struct SheepExecutionSummary(
 /// <summary>
 /// Runs every function of every script through the virtual machine.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The API host does nothing but record what was asked of it and return a zero. That is
-/// enough to exercise the whole instruction set against real bytecode: control flow,
-/// arithmetic, string resolution, the calling convention and wait handling all run, and
-/// anything the VM mishandles shows up as a fault or an unbalanced stack.
-/// </para>
-/// <para>
-/// This is the sweep that turns "the VM works on the tests I wrote" into "the VM survives
-/// 1,481 functions of code nobody wrote for it".
-/// </para>
-/// </remarks>
 public sealed class SheepExecuteStage
 {
     private readonly Action<string> _log;

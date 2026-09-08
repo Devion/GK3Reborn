@@ -11,20 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the music an animation changes under itself.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Seventy-nine of the corpus's 81 soundtrack nodes are inside a line of dialogue's own
-/// <c>.YAK</c>, on a frame chosen against the words rather than against the script that
-/// started the line: <c>E01KED3S4U6</c> — "But I'm afraid I have bad news" — cuts the
-/// lobby's music at frame 40 and brings the fight's up at 50, part-way through the
-/// sentence. So the line has to be the clock, which is what these check.
-/// </para>
-/// <para>
-/// They were all read past. A YAK reaches the audio layer, which had no per-frame schedule
-/// to hang anything on, so the music never changed and every fight in the game was scored
-/// with whatever the room had been playing beforehand.
-/// </para>
-/// </remarks>
 public sealed class AnimationSoundtrackTests
 {
     /// <summary>A device that plays nothing and keeps count.</summary>
@@ -126,9 +112,6 @@ public sealed class AnimationSoundtrackTests
     /// <summary>
     /// An audio layer with one line in it, carrying the <c>[GK3]</c> nodes given.
     /// </summary>
-    /// <remarks>
-    /// Fifteen frames a second, so a node's frame number is fifteenths of a second in.
-    /// </remarks>
     private static SceneAudio Audio(Recorder device, string nodes, int frames = 60)
     {
         byte[] wav = Wav();

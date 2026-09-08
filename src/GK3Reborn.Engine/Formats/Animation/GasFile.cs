@@ -13,28 +13,6 @@ using System.Text;
 namespace GK3Reborn.Formats.Animation;
 
 /// <summary>A <c>.GAS</c> script: what a thing does when nobody is asking it to.</summary>
-/// <remarks>
-/// <para>
-/// GK3 gives some models and every character a script of their own — named on a scene's
-/// model line as <c>type=gasprop, gas=lbyfan.gas</c>, or on an actor line as
-/// <c>idle=madrc1mapidle.gas, talk=madreltalk.gas, listen=madreltalk.gas</c> — and runs it
-/// for as long as the scene is loaded. The lobby's ceiling fans turn because of one, and so
-/// does everything a person does while they are not being told to do anything: breathing,
-/// shifting their weight, gesturing while they speak.
-/// </para>
-/// <para>
-/// The format is a line an instruction, a keyword and its arguments, with <c>//</c>
-/// comments. Arguments are separated by commas or by spaces and the content uses both,
-/// sometimes in the same file — <c>ANIM AbeHe1FightFidget, FALSE 50</c> — so both are
-/// separators here and neither is significant.
-/// </para>
-/// <para>
-/// The language has 25 keywords across 502 scripts. The half that matters most is the
-/// smallest: <c>ONEOF</c> is 1,559 of the corpus's 4,000-odd instructions, and a run of
-/// them is <em>one</em> choice, not several — which is what makes an idle read as a person
-/// rather than as a loop.
-/// </para>
-/// </remarks>
 public sealed record GasFile
 {
     private GasFile(IReadOnlyList<GasStep> steps, IReadOnlyList<string> unsupported)
@@ -71,12 +49,6 @@ public sealed record GasFile
     /// </summary>
     /// <param name="animation">The animation that was interrupted.</param>
     /// <returns>The one that puts the character back, or null.</returns>
-    /// <remarks>
-    /// <c>USE CLEANUP abebinocbreath, abebinocdown</c> — if the Abbé is interrupted while
-    /// breathing through his binoculars, he lowers them rather than snapping to standing
-    /// with them still raised. Declared at the top of a script rather than executed, which
-    /// is why these are looked up rather than stepped through.
-    /// </remarks>
     public string? CleanupFor(string animation)
     {
         ArgumentNullException.ThrowIfNull(animation);
@@ -99,14 +71,6 @@ public sealed record GasFile
     /// <summary>
     /// Whether the script is one animation that simply runs for ever.
     /// </summary>
-    /// <remarks>
-    /// <c>ANIM lbyfan_spin</c> and <c>loop</c>, which is the shape of nearly every piece of
-    /// scenery in the game: the ceiling fans, the fountains, the fires, the flashing clock.
-    /// Worth telling apart because it can be played as a <em>looping clip</em> rather than
-    /// as a script that starts the clip again every time round. The difference is a
-    /// fifteenth of a second of held pose at each seam, which on a fan going ninety degrees
-    /// a second is a visible hitch every four seconds.
-    /// </remarks>
     public bool Continuous =>
         Steps.Count(s => s.Action == GasAction.Animate) == 1 &&
         Steps.All(s => s.Action is GasAction.Animate or GasAction.Label
@@ -322,10 +286,6 @@ public sealed record GasFile
     /// <summary>
     /// Reads a percentage from a position onwards, defaulting to certainty.
     /// </summary>
-    /// <remarks>
-    /// The chance may follow an optional <c>TRUE</c>/<c>FALSE</c>, so it is looked for
-    /// rather than counted to.
-    /// </remarks>
     private static int Percent(string[] parts, int from)
     {
         for (int i = from; i < parts.Length; i++)
@@ -362,10 +322,6 @@ public readonly record struct GasStep(GasAction Action, string? Name, double Sec
     public int Value { get; init; }
 
     /// <summary>The chance of doing it at all, as a percentage.</summary>
-    /// <remarks>
-    /// A hundred when the instruction gives none, which is nearly all of them. It is what
-    /// keeps a fidget repeated nine times in a row from reading as a loop.
-    /// </remarks>
     public int Chance { get; init; }
 
     /// <summary>This choice's share of the draw, against the others beside it.</summary>

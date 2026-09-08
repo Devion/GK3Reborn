@@ -58,12 +58,6 @@ public sealed record LoadedScene(
     /// <summary>
     /// The shell that keeps the camera inside the room, when the scene names one.
     /// </summary>
-    /// <remarks>
-    /// Beside the record's other members rather than among them because only a scene that
-    /// was actually loaded can have one — <see cref="SceneLoader.Compose"/> reads the text
-    /// and no models at all, and a corpus sweep over five hundred rooms has no camera to
-    /// fence in.
-    /// </remarks>
     public Navigation.CameraBounds? CameraShell { get; init; }
 
     /// <summary>
@@ -79,41 +73,19 @@ public sealed record LoadedScene(
     /// <summary>
     /// Reads one of the game's bitmaps by name, decoded.
     /// </summary>
-    /// <remarks>
-    /// Here because one thing after the load needs a picture rather than a surface: an open
-    /// flame is measured by how much of its card the artists painted a flame on, and that
-    /// is in the bitmap's alpha and nowhere else. See <see cref="Flame.Paint"/>. Null on a
-    /// scene composed from text alone, which has no archive behind it.
-    /// </remarks>
     public Func<string, Formats.Bitmaps.DecodedImage?>? Bitmaps { get; init; }
 
     /// <summary>
     /// The room's own foliage cards that a grown tree stands in for, by surface.
     /// </summary>
-    /// <remarks>
-    /// The renderer is told not to draw these, and what is not drawn must not be clickable
-    /// either: the card is still in <see cref="Geometry"/>, where a ray would find it and
-    /// name a tree that is no longer there. Paired with <see cref="Woods"/> — one says what
-    /// stopped being drawn and the other says what took its place.
-    /// </remarks>
     public IReadOnlySet<int>? ReplacedSurfaces { get; init; }
 
     /// <summary>
     /// The silhouette painted on each of the room's hit-test textures, by texture name.
     /// </summary>
-    /// <remarks>
-    /// Wanted by the picker and by nothing else — a hit test is never drawn, so what is on
-    /// it is not a picture but a statement about which part of the quad is the thing. See
-    /// <see cref="SceneLoader.ReadHitTestMasks"/>.
-    /// </remarks>
     public IReadOnlyDictionary<string, Rendering.CutoutMask>? HitTestMasks { get; init; }
 
     /// <summary>The modelled trees grown over those cards, and where they stand.</summary>
-    /// <remarks>
-    /// Kept for the same reason <see cref="Placed"/> is: the geometry the renderer holds
-    /// cannot answer a click, and these are the only drawn things in a room that are
-    /// neither part of its <see cref="Geometry"/> nor a <see cref="PlacedModel"/>.
-    /// </remarks>
     public IReadOnlyList<GrownStand>? Woods { get; init; }
 
     /// <summary>
@@ -129,11 +101,6 @@ public sealed record LoadedScene(
     /// <summary>
     /// How high the ground is under a point, or null when the scene cannot say.
     /// </summary>
-    /// <remarks>
-    /// Built from the object the scene calls its floor, the first time anybody asks. Lazily
-    /// because most of what loads a scene never walks anybody across it — a corpus sweep
-    /// over five hundred rooms should not triangulate five hundred floors to find that out.
-    /// </remarks>
     public WalkFloor? Ground
     {
         get
@@ -159,12 +126,6 @@ public sealed record LoadedScene(
     /// </summary>
     /// <param name="objectName">The BSP object's name, such as <c>bthdr_scene</c>.</param>
     /// <returns>Its centre in world space, or null when the room has no such object.</returns>
-    /// <remarks>
-    /// Most of what a script points at is not a model standing in the room but part of the
-    /// room itself — a door, a rack, a noticeboard. 2,120 of the corpus's 3,617 approaches
-    /// are <c>WalkToSee</c> and most of their targets are these, so without this a walk is
-    /// asked for and there is nowhere to walk to.
-    /// </remarks>
     public Vector3? MiddleOf(string objectName)
     {
         ArgumentNullException.ThrowIfNull(objectName);
@@ -225,10 +186,6 @@ public sealed record LoadedScene(
     /// </summary>
     /// <param name="objectName">The object's name in the BSP.</param>
     /// <returns>Its corners, or null when the room has no object of that name.</returns>
-    /// <remarks>
-    /// For deciding whether somebody can see it, which a single point cannot answer: a
-    /// door is a wide flat thing and its middle is inside the wall it is set into.
-    /// </remarks>
     public (Vector3 Minimum, Vector3 Maximum)? ExtentOf(string objectName)
     {
         ArgumentNullException.ThrowIfNull(objectName);
@@ -293,19 +250,6 @@ public sealed record LoadedScene(
 /// <summary>
 /// Assembles a scene the way the game does.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A scene is not one file. The initialisation file names a scene asset for the time of
-/// day; the scene asset names the geometry, the objects in it and the lights that lit it;
-/// the geometry references textures and pairs surface for surface with a lightmap set.
-/// This walks that chain and puts the result on the GPU.
-/// </para>
-/// <para>
-/// Conditional sections are taken at face value. Which apply depends on the story's
-/// state, and deciding that needs the Sheep virtual machine and a running game; until
-/// then, showing everything a scene can contain is more useful than showing nothing.
-/// </para>
-/// </remarks>
 public sealed class SceneLoader
 {
     private static readonly string[] TimeblockSuffixes = ["_M", "_A", "_E", "_N", ""];
@@ -327,25 +271,11 @@ public sealed class SceneLoader
     /// The trees the room draws whole — leaves on a modelled bole — for the props that are
     /// pictures of the same trees to be measured against.
     /// </summary>
-    /// <remarks>
-    /// A scene file and a room often describe one tree twice, and only the room's copy
-    /// reaches the ground: <c>rc1_vegitation</c> is the hotel maple's bole with its leaves
-    /// on it, and <c>rc1_hoteltreeleavesff</c> is a flat <c>MAPLESIDE1</c> card of the same
-    /// tree in the same place. The prop is still what gets grown — it is the thing the
-    /// scene placed, with whatever noun and script belong to it — but it is fitted to the
-    /// <em>room's</em> box, so the tree stands on the ground instead of hanging where the
-    /// leaves were, and the room's own copy is hidden underneath it.
-    /// </remarks>
     private readonly List<TreeSite> _trunked = [];
 
     /// <summary>
     /// The trees grown over the room's own cards, kept so that a click can find them.
     /// </summary>
-    /// <remarks>
-    /// Gathered as they are planted rather than worked out again afterwards, because
-    /// planting is where the refusals are: a site a prop already stands on is skipped, and
-    /// so is one whose tree will not read. What is in here is what is on the screen.
-    /// </remarks>
     private readonly List<GrownStand> _woods = [];
 
     /// <summary>Creates a loader.</summary>
@@ -361,67 +291,16 @@ public sealed class SceneLoader
     /// <summary>
     /// Something to do between pieces of work, offered often while the scene is read.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// What keeps the window alive across a load, and what lets the transition's fade run
-    /// while the room is being built rather than before it. See
-    /// <see cref="Rendering.ScreenFade"/>: a cold arrival with the packs to read and ray
-    /// tracing turned up is well over a second, and a window that presents nothing for that
-    /// long is a window the desktop puts a "not responding" title on.
-    /// </para>
-    /// <para>
-    /// Called from the loading thread, which is the caller's own — nothing here is
-    /// concurrent, so whatever this does may touch the renderer. It is offered rather than
-    /// paced: the texture loop calls it once a texture, and it is the caller's business to
-    /// decide that most of those are too soon to be worth a frame.
-    /// </para>
-    /// </remarks>
     public Action? Progress { get; set; }
 
     /// <summary>
     /// How much of the room has been read, from nought to one.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Read by whatever <see cref="Progress"/> was given, so that a load which turns out to
-    /// be slow can be drawn as a bar rather than as a still picture. See
-    /// <c>UI.LoadingScreen</c>.
-    /// </para>
-    /// <para>
-    /// <b>The pieces are counted where they can be counted and estimated where they
-    /// cannot.</b> The two scene files, the .BSP and the bake are single calls that are
-    /// either done or not, and what they are worth is the share of a cold load they were
-    /// measured taking; the textures and the props are loops over a list whose length is
-    /// known before the loop starts, and those are a real count of real work. The textures
-    /// are most of a load, so most of the bar is a count rather than a guess.
-    /// </para>
-    /// <para>
-    /// Never goes backwards. An estimate that comes in under is ordinary — a room with no
-    /// sky skips two of these outright — and a bar that shrank is the one thing nobody
-    /// reads as progress.
-    /// </para>
-    /// </remarks>
     public double Through { get; private set; }
 
     /// <summary>
     /// Where each piece of a load ends, as a share of the whole.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Measured off <c>--timings</c> on a cold arrival into a large outdoor room with the
-    /// enhanced packs in the way, which is the load worth drawing a bar for; a warm walk
-    /// through a door is over before the bar is up. They are proportions of that load
-    /// rather than of any particular one, so a room with no sky or no props reaches some of
-    /// them without spending anything, and the bar jumps. That is the honest picture — the
-    /// alternative is a bar paced by a clock, which is a bar that lies on every machine
-    /// except the one it was timed on.
-    /// </para>
-    /// <para>
-    /// The stretch between two of them is filled in by whatever is counting inside it: the
-    /// textures by texture, the props by prop. Everything else is a single call that cannot
-    /// be interrupted, so the bar holds still for its length and then steps.
-    /// </para>
-    /// </remarks>
     private const double AtSceneFiles = 0.05;
     private const double AtRoomGeometry = 0.14;
     private const double AtRoomTextures = 0.55;
@@ -446,12 +325,6 @@ public sealed class SceneLoader
     /// <summary>Says that the work about to run fills a stretch of the bar.</summary>
     /// <param name="from">Where it starts.</param>
     /// <param name="to">Where it ends.</param>
-    /// <remarks>
-    /// Nested on purpose. A prop's own slice of the props stretch is set here, and the
-    /// textures that prop turns out to need then divide that slice again — so the bar keeps
-    /// moving through a model with forty textures on it without ever running past the point
-    /// the next prop starts from.
-    /// </remarks>
     private void Doing(double from, double to)
     {
         _from = from;
@@ -470,129 +343,60 @@ public sealed class SceneLoader
     }
 
     /// <summary>Where the time goes, when somebody is measuring.</summary>
-    /// <remarks>
-    /// Null unless the caller wants a breakdown, and the stamps cost a stopwatch read
-    /// each, so leaving it on would also be defensible. It is off by default because the
-    /// report is the expensive part and nobody playing wants twenty lines a door.
-    /// </remarks>
     public LoadTimeline? Timeline { get; set; }
 
     /// <summary>
     /// Higher-resolution textures to use in place of the archives', if there are any.
     /// </summary>
-    /// <remarks>
-    /// A layer rather than a replacement: a texture with no enhanced version loads from the
-    /// archive as before, so a partial set works. Null or empty means the game looks
-    /// exactly as it shipped.
-    /// </remarks>
     public EnhancedTextures? Enhanced { get; set; }
 
     /// <summary>
     /// Generated normal maps, standing beside the colour textures.
     /// </summary>
-    /// <remarks>
-    /// A separate set from <see cref="Enhanced"/> because they are a separate pass and a
-    /// separate judgement: a surface may have a better colour texture and no normal map, or
-    /// the other way round. Named for the colour texture they belong to.
-    /// </remarks>
     public EnhancedTextures? Normals { get; set; }
 
     /// <summary>
     /// Generated occlusion, roughness and metalness, packed into one picture per surface.
     /// </summary>
-    /// <remarks>
-    /// Red, green and blue in that order, which is the glTF packing every generator and
-    /// every authoring tool already writes. A separate set again, and a separate judgement:
-    /// a roughness that reads as wet stone is a different mistake from a normal map that
-    /// embosses printed lettering, and they are reviewed apart.
-    /// </remarks>
     public EnhancedTextures? Orms { get; set; }
 
     /// <summary>
     /// Generated height fields, one per surface, for parallax.
     /// </summary>
-    /// <remarks>
-    /// Mid grey is the modelled surface. Consumed as a texture-coordinate offset rather
-    /// than as displacement, so it deepens what is already flat and changes no silhouette.
-    /// </remarks>
     public EnhancedTextures? Heights { get; set; }
 
     /// <summary>
     /// Modelled trees to stand in place of the scene's flat foliage cards.
     /// </summary>
-    /// <remarks>
-    /// The one enhancement here that changes geometry rather than what is painted on it,
-    /// and it is confined to foliage because foliage is where a card is the whole of the
-    /// object: a wall drawn flat is a wall, and a tree drawn flat is a picture of a tree.
-    /// Null or empty leaves every card exactly as it shipped.
-    /// </remarks>
     public TreeLibrary? Trees { get; set; }
 
     /// <summary>
     /// Improved geometry for the rooms themselves, where any has been built.
     /// </summary>
-    /// <remarks>
-    /// The other enhancement that changes geometry rather than what is painted on it, and
-    /// the one that reaches the rooms: a chair whose edges have a width, a fountain whose
-    /// bowl is a curve. Null, empty, or missing an entry for the room being loaded draws
-    /// that room exactly as it shipped — and so does an entry built against a different
-    /// build of the room, which is refused rather than trusted. See
-    /// <see cref="Content.EnhancedScenes"/>.
-    /// </remarks>
     public EnhancedScenes? Scenes { get; set; }
 
     /// <summary>
     /// Prop geometry that did not ship with the game, for the objects restorations put back.
     /// </summary>
-    /// <remarks>
-    /// Consulted only when the archives have no <c>.MOD</c> of that name, so it can never
-    /// stand in front of a model the game itself places. Null or empty leaves every scene
-    /// with exactly the props it shipped with, and a scene naming a model nothing has
-    /// reports it and places nothing. See <see cref="Content.ModelLibrary"/>.
-    /// </remarks>
     public ModelLibrary? Models { get; set; }
 
     /// <summary>
     /// Rooms that did not ship with the game, built from glTF.
     /// </summary>
-    /// <remarks>
-    /// Consulted only when the archives have no <c>.BSP</c> of that name, so it can never
-    /// stand in front of a room the game ships. Null or empty leaves a scene with no
-    /// geometry failing exactly as it did. See <see cref="Content.RoomLibrary"/>.
-    /// </remarks>
     public RoomLibrary? Rooms { get; set; }
 
     /// <summary>
     /// Where the reconstructed terrain sets live loose, or null for none.
     /// </summary>
-    /// <remarks>
-    /// Flat files named <c>&lt;set&gt;.&lt;part&gt;.&lt;ext&gt;</c> —
-    /// <c>BMB_A.heights.r32</c>, <c>BMB_A.splat.png</c> — written by
-    /// <c>PbrLab/publish_terrain.py</c>. A loose file beats the packed one, the same
-    /// rule every other enhanced kind follows. A scene whose sky has no set anywhere
-    /// keeps its painted horizon. See
-    /// <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c> for the contract.
-    /// </remarks>
     public string? TerrainDirectory { get; set; }
 
     /// <summary>
     /// What the material library measured about each texture, or null to displace only
     /// the floor.
     /// </summary>
-    /// <remarks>
-    /// Only consulted to widen relief displacement outdoors: which of a scene's
-    /// textures carry a displaced-class finish is a question the sink's own copy could
-    /// answer, but the sink learns of surfaces one batch at a time and the relief plan
-    /// wants the whole set before the first one.
-    /// </remarks>
     public Rendering.Materials.SurfaceFinishes? Finishes { get; set; }
 
     /// <summary>The ReBarn packs the terrain sets ship in, or null for none.</summary>
-    /// <remarks>
-    /// The same files as <see cref="TerrainDirectory"/>, as <c>Raw</c> entries under
-    /// their flat names. This is what makes the reconstructed horizon part of the
-    /// shipped game rather than a workspace-only extra.
-    /// </remarks>
     public RebarnContent? TerrainPacks { get; set; }
 
     /// <summary>How many flat cards were replaced by a modelled tree in the last load.</summary>
@@ -607,55 +411,22 @@ public sealed class SceneLoader
     /// <summary>
     /// The same textures and maps, block-compressed, if the pipeline has built them.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A fallback rather than a preference, and deliberately so while the enhanced sets are
-    /// still being generated. A <c>.dds</c> in <c>build</c> is whatever the last compression
-    /// run made of whatever the enhanced set held at the time; the <c>.png</c> beside it is
-    /// what the generator has produced <em>now</em>. Taking the compressed one first means
-    /// regenerating a texture changes nothing on screen until somebody remembers to
-    /// recompress, which is a debugging session nobody enjoys twice.
-    /// </para>
-    /// <para>
-    /// The trade it wins — nothing to decode, a mip chain already built, a quarter of the
-    /// video memory — is a shipping concern rather than a development one, and it comes
-    /// back the moment the enhanced sets stop moving.
-    /// </para>
-    /// </remarks>
     public CompressedTextures? Compressed { get; set; }
 
     /// <summary>Colour only: no normal maps, no finishes, no height, from any source.</summary>
-    /// <remarks><c>--flat</c>, for photographing what the maps alone are doing.</remarks>
     public bool FlatSurfaces { get; set; }
 
     /// <summary>How many times to subdivide a character's head; zero draws it as authored.</summary>
-    /// <remarks>
-    /// Characters only, and only their heads. See <see cref="Actors.HeadRefinement"/> for
-    /// why that is the one part of a GK3 character which can be re-meshed at all.
-    /// </remarks>
     public int SmoothHeads { get; set; }
 
     /// <summary>
     /// The cast, which is where a character's changes of clothes are recorded.
     /// </summary>
-    /// <remarks>
-    /// Optional only in the sense that the caller need not supply it: the file describes the
-    /// game's people rather than any one room, so a host that has already read it hands it
-    /// over rather than paying for it again, and a loader that is given nothing reads it
-    /// itself. Leaving it unset must not undress anybody — see <see cref="Cast"/>.
-    /// </remarks>
     public Actors.CharacterLibrary? Characters { get; set; }
 
     /// <summary>
     /// Whether the synthesized sun is left out of every room.
     /// </summary>
-    /// <remarks>
-    /// <c>--no-sun</c>. For measuring what it contributes: it is added to any room whose
-    /// scene asset names a sky, which includes interiors with a window, and telling how
-    /// much of a room's brightness is the sun and how much is its own rig is otherwise
-    /// guesswork. Static because it is a property of the run rather than of a loader, in
-    /// the same way <c>VulkanPortability.ForceHostExpansion</c> is.
-    /// </remarks>
     public static bool NoSun { get; set; }
 
     private Actors.CharacterLibrary? _cast;
@@ -672,12 +443,6 @@ public sealed class SceneLoader
     /// <summary>
     /// Who is looking at what as the scene is built.
     /// </summary>
-    /// <remarks>
-    /// A glance is applied where an actor is placed, because a character has no skeleton
-    /// and turning a head means placing one of its meshes differently. Live glancing —
-    /// somebody turning to watch you cross the room — needs an update loop that does not
-    /// exist yet; this is the same mechanism, decided once.
-    /// </remarks>
     public Glances Glances { get; } = new();
 
     /// <summary>How many textures came from the enhanced set rather than the archives.</summary>
@@ -1032,28 +797,6 @@ public sealed class SceneLoader
     /// <param name="timeblock">The timeblock or asset suffix the caller named, if any.</param>
     /// <param name="asset">The scene asset that was chosen.</param>
     /// <returns>The hour to light the room at.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A sky means a sun.</b> There is always an answer here, and that is the point: the
-    /// rule used to be "a sky <em>and</em> a timeblock", so a room entered without one was
-    /// lit flat, cast no shadows at all, and looked like a bug in the renderer rather than
-    /// a missing argument. Whether the hour has a sun in it is
-    /// <see cref="Sunlight.For(Timeblock, System.Numerics.Vector3, Formats.Scenes.AuthoredLight)"/>'s business — it
-    /// answers null at night, which is a sun's absence for a reason.
-    /// </para>
-    /// <para>
-    /// The story's own clock first. Then whatever the caller named, which is how a
-    /// headless render asks for a particular hour. Then the <em>asset's own suffix</em>,
-    /// which is the artists saying what time of day the room was baked for: <c>_M</c>
-    /// morning, <c>_A</c> afternoon, <c>_E</c> evening, <c>_N</c> night. That is a real
-    /// answer and not a guess — it is the same letter that chose the lightmaps the room is
-    /// already lit by, so the sun agrees with the bake by construction.
-    /// </para>
-    /// <para>
-    /// And mid-morning when even that is silent, because a room with a sky and no other
-    /// evidence is a daylit room.
-    /// </para>
-    /// </remarks>
     private static Timeblock Daylight(
         SceneRequest request, string? timeblock, SceneAssetFile? asset)
     {
@@ -1089,14 +832,6 @@ public sealed class SceneLoader
     /// <param name="request">Which scene, and where the story is.</param>
     /// <param name="diagnostics">Receives loading diagnostics.</param>
     /// <returns>The scene, or null if it has no initialisation file at all.</returns>
-    /// <remarks>
-    /// The composition — which state the room is in, who is in it, where they may stand,
-    /// what may be done to them — is decided entirely by text files, and answering
-    /// questions about it does not need the fifty megabytes of geometry and the hundred
-    /// textures that go with drawing it. A sweep of the whole corpus is the case that
-    /// makes the difference worth having: 1,343 pairs at a few milliseconds each rather
-    /// than at a second each.
-    /// </remarks>
     public LoadedScene? Compose(SceneRequest request, DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -1128,12 +863,6 @@ public sealed class SceneLoader
     /// <summary>Reads one of the game's bitmaps and decodes it.</summary>
     /// <param name="texture">Its name, with or without the extension.</param>
     /// <returns>The decoded image, or null when there is no such bitmap.</returns>
-    /// <remarks>
-    /// The original rather than anything the enhanced packs put in front of it: what asks
-    /// for this wants the shape the artists painted, and a generated texture is the same
-    /// shape at a higher resolution — but only the original is certain to carry GK3's
-    /// magenta key, which is where that shape is written down.
-    /// </remarks>
     private Formats.Bitmaps.DecodedImage? ReadBitmap(string texture)
     {
         if (texture is not { Length: > 0 })
@@ -1168,10 +897,6 @@ public sealed class SceneLoader
     /// <param name="chosen">Where it stands and which way it points.</param>
     /// <param name="geometry">The room, for how far the far plane has to reach.</param>
     /// <returns>The view.</returns>
-    /// <remarks>
-    /// Separate from the lookup because not every camera in a scene has a name: the
-    /// close-up views are keyed by what they look at rather than called anything.
-    /// </remarks>
     public static Camera CameraAt(SceneCamera chosen, ISceneSink geometry)
     {
         ArgumentNullException.ThrowIfNull(chosen);
@@ -1193,13 +918,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Objects baked into the geometry that must not be drawn.</summary>
-    /// <remarks>
-    /// Hit tests are volumes the player can click but never see — a doorway's clickable
-    /// region, the area a note occupies on a desk. They are ordinary geometry inside the
-    /// BSP with an ordinary texture, so nothing about the geometry itself says to skip
-    /// them; only the initialisation file does. Drawing them puts large flat slabs through
-    /// the middle of a room, which is exactly what the lobby showed before this.
-    /// </remarks>
     private static HashSet<string> HiddenObjects(SceneDefinition init)
     {
         return init.Models()
@@ -1209,13 +927,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>The textures on the object the scene calls its floor.</summary>
-    /// <remarks>
-    /// Not a guess and not a matter of what a texture is called. Every scene's general
-    /// <c>.SIF</c> names one <c>floor=</c> object, the BSP knows which surfaces belong to
-    /// it, and each surface names its texture — the same chain the walk height query
-    /// follows. Sixty-nine scenes name a floor and a hundred and twenty-six distinct
-    /// textures are on one; <c>TE3FLOORCRS</c> is a floor and <c>27FLOOR</c> is not.
-    /// </remarks>
     private static HashSet<string> FloorTextures(BspFile scene, string? floorObject)
     {
         var textures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -1254,11 +965,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Notes the models drawn only because their condition could not be decided.</summary>
-    /// <remarks>
-    /// These are shown rather than hidden, so a wrong guess adds an object instead of
-    /// removing one. Naming them is what makes the guess reviewable: without this the only
-    /// evidence is an object that looks out of place, which is hard to trace back here.
-    /// </remarks>
     private static void ReportDisputedVisibility(SceneDefinition init, DiagnosticBag diagnostics)
     {
         if (init.ConditionsResolved)
@@ -1283,21 +989,6 @@ public sealed class SceneLoader
     /// <param name="owner">What it belongs to, for a diagnostic.</param>
     /// <param name="diagnostics">Receives what could not be read.</param>
     /// <returns>The script, or null when there is none or it is missing.</returns>
-    /// <remarks>
-    /// <para>
-    /// A script whose every instruction is not understood is <em>kept</em> now. It did not
-    /// used to be, and the reason was good at the time: the branching half of the language
-    /// decides which idle to play, so running only the parts that were understood picked
-    /// the wrong one and repeated it for as long as the scene was loaded.
-    /// </para>
-    /// <para>
-    /// That half is understood now — <c>ONEOF</c> above all, which is 1,559 of the corpus's
-    /// instructions — so what is left unread is the perception layer: <c>WHENNEAR</c> and
-    /// its relatives, which add a way for a script to be interrupted rather than deciding
-    /// what it does. A script missing those does the right things and misses a cue, which
-    /// is much better than a character standing still.
-    /// </para>
-    /// </remarks>
     private GasFile? ReadBehaviour(string? named, string owner, DiagnosticBag diagnostics)
     {
         if (named is not { Length: > 0 })
@@ -1343,25 +1034,6 @@ public sealed class SceneLoader
     /// A mask for each keyed hit-test texture, or null when the room has no such thing —
     /// which most rooms do not.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A hit test's texture is a mask and nothing else.</b> It is never drawn, so what is
-    /// painted on it can only be saying which part of the quad is the thing: the church's
-    /// four angels are four quads in the same place, one behind another a half-unit apart,
-    /// each 64 texels of magenta with one angel's outline in it. A ray that stops at the
-    /// front one names the same angel wherever the player points, which is a square that can
-    /// never be traced — the first touch lights its dot and every touch after it is the same
-    /// touch. See <c>ScenePicker</c> for the other half.
-    /// </para>
-    /// <para>
-    /// Read from the archives rather than from the loaded set: a hit test is not drawn, so
-    /// its texture is not on the device and no enhanced set replaces it. A corpus sweep
-    /// finds <b>73 distinct hit-test textures and five of them keyed</b> — the four angels
-    /// and <c>DINFIREPLACE</c>, which the dining room leaves on <c>din_watermarks</c> and
-    /// whose every action <c>DIN_ALL.NVC</c> has commented out — so this is one 64-square
-    /// bitmap in two rooms and nothing at all in the other 108.
-    /// </para>
-    /// </remarks>
     private Dictionary<string, CutoutMask>? ReadHitTestMasks(
         SceneDefinition init, BspFile? bsp)
     {
@@ -1416,12 +1088,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Whether a model refers to geometry inside the BSP rather than a file.</summary>
-    /// <remarks>
-    /// Only <c>prop</c>, <c>gasprop</c> and <c>decal</c> load a model file; everything else
-    /// names an object the geometry already contains. Loading a file for those draws the
-    /// same furniture twice, in slightly different places, which reads as z-fighting rather
-    /// than as a loading mistake.
-    /// </remarks>
     private static bool IsBakedIn(SceneModel model) =>
         !string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) &&
         !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase) &&
@@ -1462,12 +1128,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Reads the shells that fence the camera into the room.</summary>
-    /// <remarks>
-    /// A scene that names none, or names one no archive holds, gets no bounds and a camera
-    /// that can go anywhere — which is what every scene did before this and is a great deal
-    /// better than a room the camera cannot move in. The names are model files rather than
-    /// objects in the geometry: nothing draws them, and only this reads them.
-    /// </remarks>
     private CameraBounds? ReadCameraBounds(SceneDefinition init, DiagnosticBag diagnostics)
     {
         IReadOnlyList<string> named = init.CameraBounds();
@@ -1685,29 +1345,6 @@ public sealed class SceneLoader
     /// <param name="already">What the scene file has already placed, so nothing is placed twice.</param>
     /// <param name="diagnostics">Receives anything that could not be read.</param>
     /// <returns>The props staged, hidden, waiting to be shown.</returns>
-    /// <remarks>
-    /// <para>
-    /// <c>AddModel("model=discoball_pole,type=prop")</c> is GK3's construction mode: a
-    /// script putting something into a room the scene file never mentioned. Six scripts in
-    /// the game use it and every one of them is an easter egg — the disco ball that comes
-    /// down over the bar, the monkey in Grace's fridge, the propeller on Mosely's hat.
-    /// </para>
-    /// <para>
-    /// <b>They are staged at load rather than built when the call arrives.</b> Adding a
-    /// model to a room that is already standing means new vertex buffers, new descriptor
-    /// sets and a new acceleration structure mid-frame, and the reward for all of it is a
-    /// prop that would then be lit and shadowed differently from everything around it. A
-    /// room's scripts are a closed set and its construction calls are string constants in
-    /// them, so what will be built can simply be read before the room opens — and then the
-    /// disco ball is an ordinary prop that happens to start hidden.
-    /// </para>
-    /// <para>
-    /// Hidden is the safe way round and the faithful one. Every construction call in the
-    /// game is followed immediately by <c>ShowModel</c> or by <c>HideModel</c>, so nothing
-    /// depends on what a freshly added model looks like — while a prop staged visible would
-    /// stand in the room from the moment the player walked in.
-    /// </para>
-    /// </remarks>
     private List<PlacedModel> StageConstructed(
         ISceneSink geometry,
         string scene,
@@ -1747,19 +1384,6 @@ public sealed class SceneLoader
     /// <param name="scene">The room's name, which its scripts are named after.</param>
     /// <param name="diagnostics">Receives a script that will not parse.</param>
     /// <returns>Model names, in the order the scripts name them, without duplicates.</returns>
-    /// <remarks>
-    /// <para>
-    /// A script belongs to a room when its name begins with the room's — <c>RL2_ALL</c>,
-    /// <c>RL2312P</c>, <c>LBYEGG</c> — which is the convention the whole corpus keeps and
-    /// the only thing that relates the two. Reading every script in the game instead would
-    /// stage the monkey from Grace's fridge in the bar.
-    /// </para>
-    /// <para>
-    /// The specification is <c>model=NAME,type=prop</c>, written with whatever spaces and
-    /// tabs the author felt like. Only <c>type=prop</c> is staged: the other kind is
-    /// <c>AddActor</c>'s, which wants a character rather than a model and is not this.
-    /// </para>
-    /// </remarks>
     private List<string> ConstructedProps(string scene, DiagnosticBag diagnostics)
     {
         HashSet<string> found = new(StringComparer.OrdinalIgnoreCase);
@@ -1967,19 +1591,6 @@ public sealed class SceneLoader
     /// <param name="where">Where it is to stand.</param>
     /// <param name="heading">Which way it is to face, in degrees about Y.</param>
     /// <returns>The transform to place it with.</returns>
-    /// <remarks>
-    /// <para>
-    /// "Stand here" rather than "put your origin here", because the point a placement is
-    /// chosen from is a surface — a shelf, a desk, the floor — and the useful thing to say
-    /// about an object on a surface is that it rests on it. So the model is centred on the
-    /// point in X and Z and its lowest vertex put at the point's Y.
-    /// </para>
-    /// <para>
-    /// The rotation is applied about the model's own centre before it is moved, or an
-    /// object with an origin far from its geometry — which is every prop authored in room
-    /// coordinates — would swing away instead of turning on the spot.
-    /// </para>
-    /// </remarks>
     private static Matrix4x4 StandOn(ModFile model, Vector3 where, float heading)
     {
         if (Box(model) is not { } corners)
@@ -1999,11 +1610,6 @@ public sealed class SceneLoader
     /// <summary>The box a model fills, in the space its own vertices are in.</summary>
     /// <param name="model">The parsed model.</param>
     /// <returns>Its corners, or null when it has no vertices at all.</returns>
-    /// <remarks>
-    /// Each group's own transform is applied and nothing else, because that is what makes
-    /// the parts of a model agree with each other. Where the model then stands is a
-    /// separate question and a different matrix.
-    /// </remarks>
     private static (Vector3 Least, Vector3 Most)? Box(ModFile model)
     {
         Vector3 min = new(float.MaxValue), max = new(float.MinValue);
@@ -2029,17 +1635,6 @@ public sealed class SceneLoader
     /// <summary>
     /// How many triangles of grown wood one room may be given.
     /// </summary>
-    /// <remarks>
-    /// A cap rather than a target, and a guard rather than a constraint: no room in the
-    /// corpus comes near it now that a card is counted as the face an artist drew rather
-    /// than as the pieces a BSP splitter left. It is kept because the arithmetic that
-    /// motivated it is still true — a stand of a hundred and sixty trees at four thousand
-    /// triangles each is six hundred thousand triangles of scenery behind a conversation, in
-    /// a room that shipped at six — and because a scene nobody has looked at yet should not
-    /// be able to spend that. Every stand is grown at the far detail first, which is a
-    /// quarter of the cost, and the budget left over is spent raising the tallest trees to
-    /// full.
-    /// </remarks>
     private const int WoodBudget = 400_000;
 
     /// <summary>Finds the stands of trees in a room, as far as the budget reaches.</summary>
@@ -2047,19 +1642,6 @@ public sealed class SceneLoader
     /// <param name="init">What the scene files say the room holds.</param>
     /// <param name="diagnostics">Receives a warning for any grown tree that will not load.</param>
     /// <returns>The objects whose cards are to be replaced, largest first.</returns>
-    /// <remarks>
-    /// <para>
-    /// All of an object or none of it. A room is hidden by name and there is no way to hide
-    /// half of one, so growing part of a stand and leaving the rest would draw the modelled
-    /// trees over the cards they were meant to replace.
-    /// </para>
-    /// <para>
-    /// Which is also why one buried prop refuses the whole object rather than the one tree
-    /// standing over it: the surfaces a stand replaces are recorded for the object and not
-    /// for the tree, so a single site cannot be left flat on its own. See
-    /// <see cref="Reachable"/> for what counts as buried and why it is worth the cost.
-    /// </para>
-    /// </remarks>
     private List<Foliage.FoliageObject> GrowWoods(
         BspFile scene, SceneDefinition init, DiagnosticBag diagnostics)
     {
@@ -2173,34 +1755,6 @@ public sealed class SceneLoader
     /// <param name="library">The trees, for recognising a prop that is only a picture of one.</param>
     /// <param name="diagnostics">Receives a prop that will not read.</param>
     /// <returns>The box each noun-bearing prop fills, in the room's own space.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Why this exists.</b> A flat card is a picture of a tree and takes up no room; the
-    /// tree that replaces it is eighty units across and two hundred tall, and the space it
-    /// fills was empty when the room was authored. At MCF the third clue note is nailed to
-    /// a maple three units off its trunk and a fifth of the way up it, and the grown maple
-    /// closes over it: the note goes on being drawn, inside a canopy, and every click near
-    /// it lands on the foliage in front. A puzzle item that cannot be reached is worse than
-    /// a flat tree, so the stand stays flat.
-    /// </para>
-    /// <para>
-    /// <b>Props only, and only ones with a noun.</b> The room's own geometry cannot be
-    /// buried by this — a tree replaces cards from one object and the objects around it are
-    /// drawn where they always were — and a prop with no noun is scenery, which may stand
-    /// inside a tree as happily as a branch does.
-    /// </para>
-    /// <para>
-    /// <b>A foliage prop is not counted.</b> Where a scene places a card of a tree the room
-    /// also draws, the two are the same tree and the prop is meant to be inside the site —
-    /// that is the duplicate <see cref="AlreadyStanding"/> settles, and counting it here
-    /// would refuse every stand that has a prop copy, which is most of them.
-    /// </para>
-    /// <para>
-    /// The models are read here rather than waited for, because the surfaces a grown tree
-    /// replaces have to be named before the room is added and the props are not placed
-    /// until after it. Only rooms that have a stand to grow at all pay for it.
-    /// </para>
-    /// </remarks>
     private List<(Vector3 Least, Vector3 Most)> Reachable(
         SceneDefinition init, TreeLibrary library, DiagnosticBag diagnostics)
     {
@@ -2250,11 +1804,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Whether every tree a stand needs can actually be loaded.</summary>
-    /// <remarks>
-    /// Both details, because the budget decides between them after this and either may be
-    /// asked for. A stand is all or nothing: the room hides its cards by object name, so one
-    /// tree that will not read costs the whole object rather than one trunk.
-    /// </remarks>
     private static bool Readable(
         Foliage.FoliageObject wood, TreeLibrary library, DiagnosticBag diagnostics)
     {
@@ -2341,19 +1890,6 @@ public sealed class SceneLoader
     /// </summary>
     /// <param name="site">What the prop's card says about the tree.</param>
     /// <returns>The room's site, or the card's own when the room does not draw this tree.</returns>
-    /// <remarks>
-    /// <para>
-    /// Overlapping horizontally and in height, which is the same test that decides a room's
-    /// copy is a duplicate of a prop — and it has to be, because adopting the room's site
-    /// here is what makes <see cref="AlreadyStanding"/> suppress it afterwards. The two
-    /// answers agree exactly, so the room's stand is skipped and one tree is grown.
-    /// </para>
-    /// <para>
-    /// The prop keeps its own identity: it is still the model the scene placed, under its
-    /// own name, with whatever noun and script belong to it. All it takes from the room is
-    /// how tall the tree is and where its foot is.
-    /// </para>
-    /// </remarks>
     private TreeSite Whole(TreeSite site)
     {
         foreach (TreeSite room in _trunked)
@@ -2381,20 +1917,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Whether a prop has already grown a tree where this site is.</summary>
-    /// <remarks>
-    /// <para>
-    /// A third of a crown's radius, which is much tighter than it sounds and is a measured
-    /// number rather than a cautious one. Where a scene places a foliage prop, the room's
-    /// own copy of that tree is <b>within twenty-two units of it and usually within five</b>
-    /// — measured across WOD's eighteen pines, whose crowns are two hundred units across.
-    /// So the duplicates are unambiguous, and anything further away is a different tree.
-    /// </para>
-    /// <para>
-    /// The looser rule this replaced took a whole radius, which suppressed 81 of WOD's 87
-    /// stands to remove 18 duplicates: the hillside behind the eighteen props went with
-    /// them, and the wood came out as a clearing.
-    /// </para>
-    /// </remarks>
     private bool AlreadyStanding(TreeSite site)
     {
         foreach ((System.Numerics.Vector3 foot, float radius) in _standing)
@@ -2419,19 +1941,6 @@ public sealed class SceneLoader
     /// <param name="card">The prop as the archive holds it.</param>
     /// <param name="diagnostics">Receives a warning when a grown tree will not read.</param>
     /// <returns>The tree and where it stands, or null when this prop stays as it is.</returns>
-    /// <remarks>
-    /// <para>
-    /// Null is the ordinary answer and costs one dictionary lookup per submesh: no tree
-    /// library, no foliage texture, or a prop that is a tree and something else all leave
-    /// the card alone. That matters because this runs over every prop in every scene, and
-    /// most scenes are indoors.
-    /// </para>
-    /// <para>
-    /// A tree that will not read leaves the card too, rather than leaving a gap. Enhanced
-    /// content is a draft until somebody has looked at it, and one bad file in a set should
-    /// cost that tree and nothing else.
-    /// </para>
-    /// </remarks>
     private (ModFile Model, Matrix4x4 Standing)? GrowTree(
         ModFile card, DiagnosticBag diagnostics)
     {
@@ -2463,27 +1972,6 @@ public sealed class SceneLoader
     /// <param name="name">What the scene called it, which is what the content is keyed by.</param>
     /// <param name="diagnostics">Receives anything about the sculpt that will not read.</param>
     /// <returns>The carved model, or null to keep the card.</returns>
-    /// <remarks>
-    /// <para>
-    /// The one place the model library is allowed to answer for a name the archives
-    /// <em>do</em> have, and the conditions are what makes that safe. What the archives
-    /// hold has to be a billboard card — one flagged quad, nothing that could be mistaken
-    /// for a modelled prop — and what the library offers has to have real geometry. See
-    /// <see cref="Statues"/> for both tests and why they are tests rather than a list of
-    /// five names.
-    /// </para>
-    /// <para>
-    /// The sculpt carries the room's own coordinates, like the card and like every
-    /// <c>.MOD</c>, so nothing is applied on top of it. That is deliberate: a billboard's
-    /// authored plane is arbitrary — it is the one thing about it the engine was always
-    /// going to throw away — so the direction a carved statue faces is decided where the
-    /// scene files can be read, in <c>tools/blender/carve_statues.py</c>, and baked in.
-    /// </para>
-    /// <para>
-    /// A sculpt that will not read leaves the card, rather than leaving a gap, for the
-    /// same reason a tree that will not read does.
-    /// </para>
-    /// </remarks>
     private ModFile? Carve(ModFile card, string name, DiagnosticBag diagnostics)
     {
         if (Models is not { IsEmpty: false } library || !Statues.IsCard(card))
@@ -2502,20 +1990,6 @@ public sealed class SceneLoader
     /// <param name="init">The scene's two initialisation files, already merged.</param>
     /// <param name="request">Which scene, and where the story is.</param>
     /// <param name="log">Where a change of ego is reported, if anywhere.</param>
-    /// <remarks>
-    /// <para>
-    /// Before anything is placed, drawn or run, because the room's own composition asks:
-    /// SIF conditions and action cases both ask who the player is, and answering with
-    /// yesterday's ego builds the wrong room. The original does the same and says why —
-    /// see <c>Scene::Load</c>, "it's generally important that we know who our ego will be
-    /// as soon as possible".
-    /// </para>
-    /// <para>
-    /// <b>A scene that names nobody changes nobody.</b> Sidney's own screens, the driving
-    /// map and a handful of cutscene rooms have no cast at all, and walking into one is
-    /// not the player becoming nobody.
-    /// </para>
-    /// </remarks>
     private static void BecomeEgo(SceneDefinition init, SceneRequest request, Action<string>? log)
     {
         if (request.State is not { } state || init.EgoNoun() is not { Length: > 0 } noun)
@@ -2533,31 +2007,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Puts the scene's actors where the scene says they stand.</summary>
-    /// <remarks>
-    /// <para>
-    /// The models are in their bind pose. Actors are animated by GAS scripts driving ACT
-    /// animations against a skeleton, none of which exists yet, so an actor standing here
-    /// is standing exactly as the artist modelled them rather than idling.
-    /// </para>
-    /// <para>
-    /// <b>Everyone the section names is loaded</b>, whatever else the line says, and the
-    /// two exceptions this used to make were the same mistake twice — the one already
-    /// recorded above about RC1's moped, made again about people.
-    /// </para>
-    /// <para>
-    /// An actor with no <c>pos=</c> was being skipped outright. 206 actor/timeblock pairs
-    /// in the corpus have none, and they are not absent: <c>GKActor::Init</c> only declines
-    /// to <em>set</em> a position, and what places them is their <c>initanim=</c> or the
-    /// script that walks them in. Emilio is one of them in the lobby at 110A, so the room's
-    /// only other person was never there — and when the story sent him out through the
-    /// front door, all that arrived in the square was a door swinging by itself.
-    /// </para>
-    /// <para>
-    /// An actor declared <c>hidden</c> was being skipped too, and hidden is where several
-    /// of them start: RC1 hides Emilio while he is still indoors and the animation that
-    /// walks him out turns him back on. A model that was never read cannot be shown.
-    /// </para>
-    /// </remarks>
     private List<PlacedModel> PlaceActors(
         ISceneSink geometry,
         SceneDefinition init,
@@ -2734,18 +2183,6 @@ public sealed class SceneLoader
     /// <param name="now">The story's timeblock, or null when the caller named none.</param>
     /// <param name="diagnostics">Receives anything the change of clothes could not find.</param>
     /// <returns>The model, dressed.</returns>
-    /// <remarks>
-    /// <para>
-    /// Every character with more than one outfit is repainted here, and so is every
-    /// character with exactly one: the shipped models carry undyed placeholder textures and
-    /// even the first day's clothes are an animation. Without this the whole tour group
-    /// stood round Poussin's tomb in blank white shirts.
-    /// </para>
-    /// <para>
-    /// A model the archives have no clothes animation for is left as it is, which is most
-    /// of them — 34 of the 45 characters own a single set of clothes and wear it painted on.
-    /// </para>
-    /// </remarks>
     private ModFile Dress(
         ModFile model, string name, Timeblock? now, DiagnosticBag diagnostics)
     {
@@ -2776,32 +2213,11 @@ public sealed class SceneLoader
     }
 
     /// <summary>The cube map's sides, in the order the hardware wants them.</summary>
-    /// <remarks>
-    /// <b>Front is +X and right is +Z</b>, not the other way about. Measured off the images
-    /// rather than reasoned from the names, twice and independently. Butting each side's
-    /// right-hand column against each other side's left-hand column, the four that join are
-    /// left→back→right→front, with a mean difference of 2.9 to 6.1 against 23 to 34 for
-    /// every other pairing. Butting each side's top row against the four edges of the up
-    /// face agrees: front meets +X, right meets +Z, back meets −X and left meets −Z, at 2.9
-    /// to 3.2 against 25 to 48.
-    /// </remarks>
     private static readonly string[] Sides = ["front", "back", "up", "down", "right", "left"];
 
     /// <summary>
     /// Gives the room its sky, when the scene asset names one.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The six sides go to the device in the order the hardware wants — right, left, up,
-    /// down, front, back — which is not the order the file lists them in.
-    /// </para>
-    /// <para>
-    /// A missing side is filled with one that is present, as the original does: the ground
-    /// is usually left out because nothing can see it, but the hardware still requires six.
-    /// A sky whose sides are different sizes is refused rather than resampled, because
-    /// nothing in the corpus has one and guessing would hide a misreading.
-    /// </para>
-    /// </remarks>
     private void LoadSkybox(ISceneSink geometry, SkyboxDefinition sky, DiagnosticBag diagnostics)
     {
         string?[] named = [sky.Front, sky.Back, sky.Up, sky.Down, sky.Right, sky.Left];
@@ -2911,11 +2327,6 @@ public sealed class SceneLoader
     private sealed record TerrainMeta(int Grid, float ExtentMeters);
 
     /// <summary>One tree of the backdrop's forest, as the offline placement wrote it.</summary>
-    /// <remarks>
-    /// <c>K</c> is which impostor shape it is — a spruce, a broadleaf, a cypress or scrub.
-    /// A set written before the shapes existed leaves it out, and zero is the conifer every
-    /// one of its trees used to be.
-    /// </remarks>
     private readonly record struct TerrainTree(
         float X, float Y, float Z, float S, float R, float K);
 
@@ -2925,21 +2336,6 @@ public sealed class SceneLoader
     /// <param name="set">The terrain set.</param>
     /// <param name="diagnostics">Receives anything wrong with what was found.</param>
     /// <returns>Six floats a tree, or empty for a set with no forest.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The raw stream first, and it is the whole reason this is not JSON any more.</b>
-    /// The published form is exactly the array this returns, so reading it is a length
-    /// check and a copy. As objects it was the single most expensive thing in an outdoor
-    /// scene load: 91,766 trees took <b>95 ms</b> to deserialise for LER and 129 ms for the
-    /// worst set in the corpus, against 4 ms for the same forest as floats — and the load
-    /// runs inside the screen fade, offering it no frame for the whole of that.
-    /// </para>
-    /// <para>
-    /// The JSON remains readable because it is what the offline scatter writes and what a
-    /// person reads when a forest looks wrong; a workspace published before the raw form
-    /// existed still loads, just slowly.
-    /// </para>
-    /// </remarks>
     private float[] ForestFor(string set, DiagnosticBag diagnostics)
     {
         if (ReadTerrainPart(set, "trees.f32") is { } raw)
@@ -2989,12 +2385,6 @@ public sealed class SceneLoader
     /// <param name="set">The terrain set.</param>
     /// <param name="part">"splat" or "tint".</param>
     /// <returns>The compressed map, or null to fall back to the PNG beside it.</returns>
-    /// <remarks>
-    /// A DDS that will not parse is treated as absent rather than as a fault: the PNG is
-    /// still there and still right, so the scene keeps its horizon and loses only the
-    /// speed. It is the same reading everything else in this file takes of missing
-    /// enhanced content.
-    /// </remarks>
     private CompressedImage? TerrainBlocks(string set, string part)
     {
         if (ReadTerrainPart(set, $"{part}.DDS") is not { } bytes ||
@@ -3158,12 +2548,6 @@ public sealed class SceneLoader
     /// <summary>
     /// Which species stands in for each of the backdrop's impostor shapes.
     /// </summary>
-    /// <remarks>
-    /// The offline placement numbers its trees by silhouette — a conifer, a broadleaf, a
-    /// cypress, and scrub — and the library grows them by species. Three of the four have
-    /// an obvious answer; scrub does not, and a bush the size of a person is under a pixel
-    /// at any range the backdrop is seen from, so it stays an impostor and is left out.
-    /// </remarks>
     private static readonly string[] TerrainTreeSpecies = ["spruce", "broadleaf", "cypress"];
 
     /// <summary>
@@ -3172,23 +2556,6 @@ public sealed class SceneLoader
     /// <param name="textures">Receives the bark and foliage they are painted with.</param>
     /// <param name="diagnostics">Receives anything that would not read.</param>
     /// <returns>Two levels of detail per species, or nothing at all.</returns>
-    /// <remarks>
-    /// <para>
-    /// Two of each, and the pair is the point: the library grows a full tree of twenty
-    /// thousand triangles and a cheap one of four, and a backdrop needs both — the full
-    /// one for the slope beyond the wall the player is leaning on, the cheap one for the
-    /// hillside behind it, and the impostor cone for everything past that. Which a given
-    /// tree gets is decided by how far away it is, and that is the renderer's business
-    /// because the camera moves and the trees do not.
-    /// </para>
-    /// <para>
-    /// One variant per species rather than four. The rooms pick a variant per tree so that
-    /// no two trees within arm's reach are the same tree; at backdrop range that
-    /// distinction is carried by the per-instance scale, height jitter and yaw the
-    /// impostors already vary, and four variants would be four copies of twenty thousand
-    /// triangles resident for something nobody can see.
-    /// </para>
-    /// </remarks>
     private List<TerrainTreeModel> TerrainTrees(
         List<DecodedImage> textures, DiagnosticBag diagnostics)
     {
@@ -3265,12 +2632,6 @@ public sealed class SceneLoader
     /// <param name="name">What to call it in a report.</param>
     /// <param name="texture">Resolves a texture name to its place in the shared list.</param>
     /// <returns>The model, or null when nothing in it could be painted.</returns>
-    /// <remarks>
-    /// The submeshes are merged and regrouped by texture, so a tree is two draws — its
-    /// bark and its leaves — rather than one per clump. The per-mesh transforms are baked
-    /// in here: a backdrop instance carries a position, a scale and a yaw and nothing else,
-    /// and a matrix has nowhere to live in that.
-    /// </remarks>
     private static TerrainTreeModel? Flatten(
         ModFile grown, int kind, int detail, string name, Func<string, int> texture)
     {
@@ -3371,30 +2732,6 @@ public sealed class SceneLoader
     /// file the player put in <c>overrides/</c> — rather than the shared one.
     /// </param>
     /// <returns>True when the layer must stand aside and let the archive answer.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A sign in the wrong language is a bug; a sign at 1999 resolution is only a 1999
-    /// sign.</b> Sierra re-cut every archive per language, so about a hundred of GK3's
-    /// surfaces per language — road signs, shop fronts, the notes on Mosely's desk, the
-    /// nine panels of the Temple puzzle — ship as a different picture on a German disc than
-    /// on an English one, and <c>Reborn_&lt;CODE&gt;.rebarn</c> carries exactly those.
-    /// </para>
-    /// <para>
-    /// The enhanced set is shared by every language and its words are English. Where the
-    /// language repaints a surface and the enhanced set does not, the enhanced picture is
-    /// not an improvement on the language's — it is the wrong words at a higher resolution,
-    /// which is worse than the right words at the original one. So the shared layers step
-    /// aside here and the archive answers, which is the language's own bitmap because
-    /// <see cref="Content.GameArchives"/> reads the pack in front of the installation.
-    /// </para>
-    /// <para>
-    /// It steps aside only for the <em>shared</em> answer. A picture out of
-    /// <c>enhanced/localtextures/&lt;CODE&gt;</c>, loose or packed, is this language's own
-    /// and wins outright; so does a file the player put in <c>overrides/</c>, which is them
-    /// naming the picture they want. That is what
-    /// <see cref="Content.EnhancedTextures.IsLocalized"/> and its two neighbours are for.
-    /// </para>
-    /// </remarks>
     public static bool ShadowsLanguage(
         LocalizedContent? language, string texture, bool ownPicture)
     {
@@ -3444,12 +2781,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>How many textures are decoded at once.</summary>
-    /// <remarks>
-    /// Bounded well below the core count on purpose. Each decode in flight holds about
-    /// 33 MB — the compressed file, the inflated rows and the pixels — so the ceiling here
-    /// is what the load costs in memory at its peak, and past a point the machine is waiting
-    /// on memory bandwidth rather than on arithmetic.
-    /// </remarks>
     private static int Decoders => Math.Max(1, Environment.ProcessorCount);
 
     /// <summary>
@@ -3460,29 +2791,6 @@ public sealed class SceneLoader
     /// <param name="name">The texture, without an extension.</param>
     /// <param name="diagnostics">Receives anything that went wrong reading it.</param>
     /// <returns>Whether the room now has a picture of that name.</returns>
-    /// <remarks>
-    /// <para>
-    /// A hundred and sixty-eight of the game's animations repaint something part-way
-    /// through — an alarm clock counting down, a monitor changing what it shows, a van
-    /// arriving in a window — and every one of those textures arrives after the load that
-    /// would have resolved it. Something has to fetch them, and until this existed the
-    /// something read <c>&lt;name&gt;.BMP</c> straight out of the 1999 archives.
-    /// </para>
-    /// <para>
-    /// <b>Which meant no picture an animation ever brought in could be enhanced.</b> Not
-    /// the enhanced PNG, not the packed BC7, not the player's own override, and no normal,
-    /// occlusion or height map either — the whole stack the room's own surfaces resolve
-    /// through, skipped, silently, for exactly the textures nobody looks at while the room
-    /// is loading. Larry's monitor is the plain case: the office is 2048 texels a surface
-    /// and the screen the animation puts on it was 128.
-    /// </para>
-    /// <para>
-    /// It costs a decode and an upload on the frame it happens, which is why it is not
-    /// speculative: the swap is the first anybody knows that the texture is wanted, and a
-    /// room that pre-loaded every picture its animations might reach for would pay for all
-    /// of them at the door.
-    /// </para>
-    /// </remarks>
     public bool LoadTextureLate(ISceneSink geometry, string name, DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(geometry);
@@ -3514,20 +2822,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Reads, decodes and uploads the textures a room asks for.</summary>
-    /// <remarks>
-    /// <para>
-    /// In three passes rather than one, because the middle one is worth spreading over the
-    /// machine. Deciding what is missing has to be in order — asking the sink what it holds
-    /// is not something two threads may do at once, and the answer counts what was reused —
-    /// and uploading has to be in order because that is the device. Decoding is neither: it
-    /// is pure arithmetic over bytes nobody else is looking at.
-    /// </para>
-    /// <para>
-    /// It is also nearly all of the time. An enhanced texture is 2048², which is 48 ms and
-    /// 33 MB of decode apiece, and a room wants dozens of them with a normal map each; done
-    /// one after another that is ten seconds of a scene load with thirty-one cores idle.
-    /// </para>
-    /// </remarks>
     private void LoadTextures(
         ISceneSink geometry, IEnumerable<string> names, string owner, DiagnosticBag diagnostics)
     {
@@ -3823,13 +3117,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Brings the scene's action files into scope.</summary>
-    /// <remarks>
-    /// The files decide what the player may do to a noun, so this is what turns a click
-    /// that resolves to <c>NIGHTSTAND</c> into a list of verbs. Which files apply is
-    /// <see cref="ActionSets"/>' business; this reads them and hands them to a resolver
-    /// sharing the story host the scene's own conditions were decided through, because two
-    /// hosts over the same state would sooner or later give two answers.
-    /// </remarks>
     private ActionResolver? ReadActions(
         SceneDefinition init, SceneRequest request, DiagnosticBag diagnostics)
     {
@@ -3908,12 +3195,6 @@ public sealed class SceneLoader
     }
 
     /// <summary>Reads the soundtracks a scene names.</summary>
-    /// <remarks>
-    /// A soundtrack is a little script rather than a piece of music — wait a second, play
-    /// the room's theme, wait five to ten seconds, play a mood — so a scene that names one
-    /// and never reads it knows nothing about what the room sounds like. Reading it is
-    /// cheap and separate from playing it, which needs a clock and an audio device.
-    /// </remarks>
     private List<SoundtrackFile> ReadSoundtracks(SceneDefinition init, DiagnosticBag diagnostics)
     {
         List<SoundtrackFile> soundtracks = [];
@@ -3939,10 +3220,6 @@ public sealed class SceneLoader
     /// <summary>
     /// Where an actor's head should be pointing, if they are looking at anything.
     /// </summary>
-    /// <remarks>
-    /// Null unless somebody has asked. A character with nothing to look at stands as the
-    /// artist modelled them, which is what every actor in the game has done until now.
-    /// </remarks>
     private Dictionary<int, Matrix4x4>? TurnedHead(
         string name, ModFile model, ScenePosition? spot)
     {

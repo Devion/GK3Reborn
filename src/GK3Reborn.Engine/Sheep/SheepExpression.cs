@@ -14,24 +14,6 @@ public delegate void SheepCallObserver(string name, IReadOnlyList<SheepValue> ar
 /// <summary>
 /// Evaluates Sheep expressions written as text.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Action files define their conditions as expressions rather than compiled bytecode —
-/// <c>RETURNED_COAT={ DoesEgoHaveInvItem("MOPED_KEYS") || GetGameVariableInt("…") }</c> —
-/// so evaluating them needs a reader for the source language, not the VM.
-/// </para>
-/// <para>
-/// This is a hand-written recursive-descent parser over the expression production of the
-/// grammar in <c>SHEEP ENGINE.DOC</c>, which is the same approach
-/// <c>Plan/01-architecture.md</c> section 6 chose for the full compiler. Building it here
-/// first means the harder job starts from something already proven against real content.
-/// </para>
-/// <para>
-/// Precedence follows C, which the language reference explicitly says it was modelled on:
-/// <c>||</c> lowest, then <c>&amp;&amp;</c>, equality, relational, additive,
-/// multiplicative, then unary.
-/// </para>
-/// </remarks>
 public sealed class SheepExpression
 {
     private readonly string _text;

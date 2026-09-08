@@ -11,14 +11,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The Direct3D side of the seam a scene is put on a device through.
 /// </summary>
-/// <remarks>
-/// Not a rendering test — nothing here draws. What it checks is the bookkeeping a scene
-/// depends on and that fails quietly: that a texture asked for twice is uploaded once, that
-/// a material takes the five contiguous slots the shader expects, and that the samplers stay
-/// a fixed run of five however many materials there are. That last one is a hard limit
-/// rather than a preference — a shader-visible sampler heap holds two thousand and
-/// forty-eight descriptors, and five a material would run out inside one room.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12GeometryDeviceTests
 {

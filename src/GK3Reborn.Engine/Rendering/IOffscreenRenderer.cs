@@ -7,19 +7,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Draws a room into a picture, with no window anywhere.
 /// </summary>
-/// <remarks>
-/// <para>
-/// What <c>render-scene</c> and the reference renders talk to. It exists so that the same
-/// room, the same camera and the same shaders can be put through either backend and the two
-/// pictures put side by side — which is the only way to know that a second backend draws the
-/// game rather than merely drawing.
-/// </para>
-/// <para>
-/// Deliberately not <see cref="IRenderer"/>. That one presents to a window, keeps frames in
-/// flight and owns a swapchain; this one draws once and hands back the pixels, and a tool
-/// that wants a picture should not have to open a window to get one.
-/// </para>
-/// </remarks>
 public interface IOffscreenRenderer : IDisposable
 {
     /// <summary>Which API is behind this renderer.</summary>
@@ -42,18 +29,10 @@ public interface IOffscreenRenderer : IDisposable
 
     /// <summary>Gives the room its smoke and embers.</summary>
     /// <param name="particles">The particles, furthest from the eye first.</param>
-    /// <remarks>
-    /// Empty unless a caller sets it, so a headless render draws a room whose fires are
-    /// standing still — which is what two versions of this engine are compared with.
-    /// </remarks>
     void SetParticles(IReadOnlyList<Particle> particles);
 
     /// <summary>Gives the room its fog, or takes it away again.</summary>
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
-    /// <remarks>
-    /// None unless a caller sets it, which is the state of every room but the handful
-    /// <see cref="Game.SceneFog"/> names.
-    /// </remarks>
     void SetFog(FogVolume fog);
 
     /// <summary>Somewhere to put a scene, on this renderer's device.</summary>

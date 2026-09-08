@@ -11,16 +11,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the H.264 decoder.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The bar is "matches FFmpeg sample for sample", because H.264 reconstruction is
-/// specified exactly and a decoder that is one off anywhere drifts further from the
-/// encoder with every predicted frame. The self-contained tests decode three tiny x264
-/// streams — CABAC, CAVLC and 4:4:4, all with B-frames and 8x8 transforms — and compare a
-/// CRC of every frame against the CRC of FFmpeg's decode, recorded when the streams were
-/// made. The corpus comparison runs only where ffmpeg and the game's clips exist.
-/// </para>
-/// </remarks>
 public sealed class H264DecoderTests
 {
     /// <summary>testsrc 48x32, five frames, CABAC, two B-frames with a pyramid, 8x8 transform, weighted prediction.</summary>

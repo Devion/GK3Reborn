@@ -13,25 +13,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// What each of the game's score events is worth.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>ChangeScore</c> takes the <em>name</em> of an event — <c>ChangeScore("e_110a_lby_read_register")</c>
-/// — and the points are the engine's business. Nothing in the shipped data says what one
-/// is worth: there is no such file in any of the eight barns, because the table was
-/// compiled into the original executable. So the engine carries it, restored from
-/// G-Engine's reconstruction; see <c>Assets/Story/Scores.txt</c> and NOTICE.
-/// </para>
-/// <para>
-/// <b>An event scores once.</b> The same call is made every time the player does the thing,
-/// and the second time is worth nothing — which is also what makes the set of events
-/// achieved a reasonable record of what the player has done.
-/// </para>
-/// <para>
-/// A name the table does not have scores nothing and is reported. The original logs
-/// "Illegal score name" and carries on, which is right: a typo in a script must not stop
-/// the game, and it must not silently award points either.
-/// </para>
-/// </remarks>
 public sealed class ScoreEvents
 {
     private readonly Dictionary<string, int> _worth = new(StringComparer.OrdinalIgnoreCase);
@@ -44,11 +25,6 @@ public sealed class ScoreEvents
     public int Count => _worth.Count;
 
     /// <summary>The highest score the game can reach.</summary>
-    /// <remarks>
-    /// The sum of every event, which is what the interface's "of 965" is. Derived rather
-    /// than written down, so that correcting one event's points cannot leave the total
-    /// disagreeing with the parts.
-    /// </remarks>
     public int Maximum => _worth.Values.Sum();
 
     /// <summary>Every event's name, in a stable order.</summary>
@@ -123,12 +99,6 @@ public sealed class ScoreEvents
     /// </summary>
     /// <param name="name">The event, such as <c>e_110a_lby_read_register</c>.</param>
     /// <returns>The timeblock, or null when the name does not carry one.</returns>
-    /// <remarks>
-    /// Every event but a handful is named for the timeblock it can be earned in, which makes
-    /// the name the only index of the story these events have. Used to work out what an old
-    /// save must already have achieved — see <c>SaveStore</c> — and to check the journal's
-    /// own table files each objective under the right day.
-    /// </remarks>
     public static Timeblock? TimeblockOf(string name)
     {
         ArgumentNullException.ThrowIfNull(name);

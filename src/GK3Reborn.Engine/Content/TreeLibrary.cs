@@ -8,11 +8,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Content;
 
 /// <summary>One grown tree: a species, a variant of it, and the shape it came out.</summary>
-/// <remarks>
-/// Measurements are in the normalised frame the generator works in — base at the origin,
-/// exactly one unit tall — so <see cref="Radius"/> is a fraction of the tree's height and
-/// stays meaningful whatever the tree is scaled to.
-/// </remarks>
 public sealed record GrownTree
 {
     /// <summary>File name, without extension: <c>spruce_02</c>.</summary>
@@ -40,24 +35,12 @@ public sealed record TreeSpecies
     /// <summary>
     /// Whether the grown unit is the crown alone rather than a whole tree.
     /// </summary>
-    /// <remarks>
-    /// True for the conifers, and it decides what a card's box means. <c>PINE2</c> is a
-    /// leaves card: the rooms that place it draw the trunk themselves — WOD's ten pines
-    /// stand on the ten trunks of <c>wod_pinetrunks</c> — so the box a spruce is fitted to
-    /// is the crown's box and there is no bole to put anywhere. <c>TREE00</c> draws a whole
-    /// tree, trunk included, and its box is the whole tree's.
-    /// </remarks>
     public required bool Canopy { get; init; }
 
     /// <summary>The original sprites this species replaces.</summary>
     public required IReadOnlyList<string> Sprites { get; init; }
 
     /// <summary>The bitmap its leaves are painted with: <c>RBN_MAPLE_CLUMP</c>.</summary>
-    /// <remarks>
-    /// Drawn for this rather than shipped with the game, and it is the one thing that
-    /// tells a batch of leaves from a batch of anything else once the tree has become
-    /// geometry. That is what <see cref="Rendering.ISceneSink.MoveInWind"/> is given.
-    /// </remarks>
     public required string Card { get; init; }
 
     /// <summary>The variants grown for it, in name order.</summary>
@@ -69,38 +52,12 @@ public sealed record TreeSpecies
     /// <summary>
     /// The cheap ones, for the rest of the hillside.
     /// </summary>
-    /// <remarks>
-    /// A quarter of the triangles for the same silhouette. A wood is a hundred and seventy
-    /// trees and only the near dozen are ever looked at closely; growing every one of them
-    /// in full spends a scene's whole budget on scenery nobody walks into.
-    /// </remarks>
     public IReadOnlyList<GrownTree> Distant => [.. Variants.Where(v => v.Far)];
 }
 
 /// <summary>
 /// The modelled trees that stand in for GK3's foliage cards.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A tree in this game is a picture of a tree on one quad, or on two quads crossed. That
-/// was the right call in 1999 and it is the single most obvious thing left in an outdoor
-/// scene: the scene files place 431 of those cards and the rooms draw 5,760 more, and the
-/// moment the camera moves off the angle the artist framed, a wood becomes a row of
-/// cardboard.
-/// </para>
-/// <para>
-/// The trees themselves are grown by <c>tools/blender/grow_trees.py</c> and read from disk
-/// here. Each is normalised — trunk base at the origin, exactly one unit tall — so a
-/// species is grown a handful of times and then fitted to whichever card it is replacing,
-/// which is what keeps a forest to a few dozen kilobytes instead of one mesh per tree.
-/// </para>
-/// <para>
-/// A layer rather than a rewrite, in the same way <see cref="EnhancedTextures"/> is. A
-/// missing directory, a missing manifest and a tree that will not parse all leave the flat
-/// card exactly where it was, so a partial set is a good set and the two can be rendered
-/// side by side — which is the only way to judge this work.
-/// </para>
-/// </remarks>
 public sealed class TreeLibrary
 {
     private static readonly JsonSerializerOptions Lenient =
@@ -142,13 +99,6 @@ public sealed class TreeLibrary
     /// <summary>
     /// The foliage the trees are painted with, which ships with them.
     /// </summary>
-    /// <remarks>
-    /// A grown tree names textures no archive contains — <c>RBN_SPRUCE_SPRAY</c> is a
-    /// needle spray drawn for this, not a bitmap Sierra shipped — so the pack has to carry
-    /// them and the loader has to look here as well as in the game. Indexed exactly as the
-    /// enhanced texture set is, because that is the same job: PNGs in a directory, matched
-    /// by name without extension or case.
-    /// </remarks>
     public EnhancedTextures Textures { get; }
 
     /// <summary>How many species have at least one variant to draw.</summary>
@@ -175,11 +125,6 @@ public sealed class TreeLibrary
     /// <param name="directory">Where they are.</param>
     /// <param name="diagnostics">Receives a warning when the manifest will not read.</param>
     /// <returns>The library, empty when there is nothing there.</returns>
-    /// <remarks>
-    /// A missing directory is not an error, for the reason enhanced content generally is
-    /// not: the game runs from a legally obtained installation and this is an addition to
-    /// it.
-    /// </remarks>
     public static TreeLibrary Open(string directory, DiagnosticBag? diagnostics = null) =>
         Open(directory, null, diagnostics);
 
@@ -188,20 +133,6 @@ public sealed class TreeLibrary
     /// <param name="packs">Packs beside the executable, or null for none.</param>
     /// <param name="diagnostics">Receives a warning when the manifest will not read.</param>
     /// <returns>The library, empty when neither has anything.</returns>
-    /// <remarks>
-    /// <para>
-    /// The loose directory wins where it has an answer, which is the same way round as
-    /// everything else here and for the same reason: a tree regrown during a session is
-    /// what should be drawn, without the pack having to be rebuilt to see it.
-    /// </para>
-    /// <para>
-    /// <b>Neither having anything is the ordinary case and not an error.</b> A player
-    /// running the engine against a plain installation, with no packs beside it and no
-    /// content workspace anywhere, gets an empty library — and an empty library leaves every
-    /// foliage card exactly where the game put it. That is what makes this an addition to a
-    /// legally obtained game rather than a requirement of it.
-    /// </para>
-    /// </remarks>
     public static TreeLibrary Open(
         string directory, RebarnContent? packs, DiagnosticBag? diagnostics = null)
     {
@@ -297,11 +228,6 @@ public sealed class TreeLibrary
     }
 
     /// <summary>Whether the geometry for a grown tree is anywhere this can reach.</summary>
-    /// <remarks>
-    /// Asked before a species is offered at all. A manifest that names a tree nobody has
-    /// grown — or one left out of a pack — would otherwise take a card away and put nothing
-    /// in its place, which is a hole in a hillside rather than a missing tree.
-    /// </remarks>
     private bool Holds(string name) =>
         (Directory.Length > 0 && File.Exists(Path.Combine(Directory, name + ".glb"))) ||
         _packs?.Has(RebarnKind.Model, name) == true;
@@ -323,12 +249,6 @@ public sealed class TreeLibrary
     /// <param name="seed">Something stable about the place the tree stands.</param>
     /// <param name="far">Whether to take the cheap one grown for a far hillside.</param>
     /// <returns>The variant.</returns>
-    /// <remarks>
-    /// Chosen from where the tree is rather than from a counter or a clock. A wood has to
-    /// come out the same on every load — a stand that reshuffles itself when the player
-    /// walks out of a room and back in is worse than a stand of identical trees, and it
-    /// makes two renders of the same scene impossible to compare.
-    /// </remarks>
     public static GrownTree Variant(TreeSpecies species, int seed, bool far = false)
     {
         ArgumentNullException.ThrowIfNull(species);

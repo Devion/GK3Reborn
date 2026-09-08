@@ -7,21 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for who the player is in a room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported from the chateau on the second afternoon: scanning something in Grace's
-/// timeblock answered in Gabriel's voice. <c>INV_23ALL.NVC</c> writes the same rule twice,
-/// <c>ANY_OBJECT, SCANNER, GABE_ALL_INV</c> above <c>ANY_OBJECT, SCANNER,
-/// GRACE_ALL_INV</c>, and both cases end in <c>IsCurrentEgo</c> — so a game that thought
-/// it was Gabriel took the first of every such pair, in every room, for the whole of both
-/// of Grace's days.
-/// </para>
-/// <para>
-/// Nothing in the data says which timeblock belongs to whom. A SIF's cast list marks one
-/// actor <c>ego</c> and that is the only statement of it anywhere, which is why this is a
-/// question about scene files rather than about the clock.
-/// </para>
-/// </remarks>
 public sealed class EgoIdentityTests
 {
     /// <summary>The chateau's general file, which is Grace's on the day it is used.</summary>

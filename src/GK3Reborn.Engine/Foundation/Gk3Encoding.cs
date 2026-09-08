@@ -5,49 +5,11 @@ namespace GK3Reborn.Foundation;
 /// <summary>
 /// The single-byte code pages GK3's text assets were authored in.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Every text file in the game — the string table, Sidney's documents, the screen layouts,
-/// the font definitions — is one byte a character in whatever code page the localisation
-/// was made on. Decoding one as UTF-8 turns every accented character into a replacement
-/// and can throw on a file that is otherwise perfectly valid; decoding French as Latin-1
-/// is nearly right and wrong in the one place it matters, because Windows-1252 puts the
-/// curly apostrophe at 0x92 and Latin-1 puts a control character there. <c>L’Empereur</c>
-/// then arrives with a hole in it.
-/// </para>
-/// <para>
-/// <b>Sierra's own eight are written out here rather than taken from the platform.</b> .NET
-/// carries only UTF-8, UTF-16, ASCII and Latin-1 in the box, and three code pages are three
-/// tables of 128 characters — smaller than a package reference, identical on every platform
-/// the game runs on, and with no registration call at startup for anybody to forget. Only
-/// the high half is tabulated: 0x00 to 0x7F is ASCII in all three.
-/// </para>
-/// <para>
-/// <b>Anything else goes to the platform, and that is where the line is.</b> A localisation
-/// outside Western Europe is not one byte a character — GBK, which Simplified Chinese uses,
-/// is twenty-two thousand mappings in which a byte above 0x80 begins a pair. That is not a
-/// table anybody hand-writes, and getting it wrong is not a visible failure: the text
-/// decodes, into the wrong characters, silently. So the platform's own code-page provider
-/// is registered on first use and asked for any page there is no table for. It ships with
-/// .NET 10 and needs no package reference; it does need the registration call, which is
-/// why the call lives here rather than at startup where somebody would move it.
-/// </para>
-/// <para>
-/// A page the platform does not have either falls back to Windows-1252 rather than
-/// throwing. It is the wrong text, but it is the wrong text in a game that started, which
-/// is the same trade every other content layer here makes.
-/// </para>
-/// </remarks>
 public static class Gk3Encoding
 {
     /// <summary>
     /// Windows-1252, for English, French, German, Italian, Spanish and Portuguese.
     /// </summary>
-    /// <remarks>
-    /// Latin-1 with the C1 control block replaced by punctuation and a few letters. The
-    /// eight positions Windows never assigned decode to U+FFFD, which is what any decoder
-    /// does with them and what makes a wrongly-tagged file visible rather than silent.
-    /// </remarks>
     private const string Latin1Supplement =
         "\u20AC\uFFFD\u201A\u0192\u201E\u2026\u2020\u2021" +
         "\u02C6\u2030\u0160\u2039\u0152\uFFFD\u017D\uFFFD" +
@@ -112,19 +74,6 @@ public static class Gk3Encoding
     /// The distinct printable characters, in code-page order. Empty for a page this does
     /// not tabulate.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// A glyph atlas has to be told which characters to rasterise, and the honest answer is
-    /// "the ones the open language's text can contain" — which is exactly this table, read
-    /// the other way round. Guessing instead is how the interface came to draw
-    /// <c>Dzie&#x0144; 1</c> as "Dzie 1": Latin-1 covers every language shipped before
-    /// Polish, so nothing noticed that <c>&#x0144;</c> is not in it.
-    /// </para>
-    /// <para>
-    /// The unassigned positions and the two that are not letters — no-break space and the
-    /// soft hyphen — are left out, because an atlas is for things that get drawn.
-    /// </para>
-    /// </remarks>
     public static string Repertoire(int codePage)
     {
         if (Elsewhere(codePage) is not null)
@@ -181,12 +130,6 @@ public static class Gk3Encoding
     /// <param name="text">The text.</param>
     /// <param name="codePage">1250, 1251, 1252, or any the platform has.</param>
     /// <returns>The bytes.</returns>
-    /// <remarks>
-    /// For writing a file the 1999 game will read back — a save's comment, an extracted
-    /// asset put back into <c>overrides/</c>. A character the code page has no byte for
-    /// becomes a question mark, which is what every single-byte encoder does and what makes
-    /// the loss visible in the file rather than at the point somebody reads it.
-    /// </remarks>
     public static byte[] GetBytes(string text, int codePage)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -231,17 +174,6 @@ public static class Gk3Encoding
     /// </summary>
     /// <param name="codePage">The page.</param>
     /// <returns>The encoding, or null to use a table.</returns>
-    /// <remarks>
-    /// <para>
-    /// Null for the three that are tabulated, so the ordinary case — every localisation
-    /// Sierra published — costs one integer comparison and reaches no provider at all.
-    /// </para>
-    /// <para>
-    /// Null again when the platform has no such page: the fallback is then Windows-1252,
-    /// which is the wrong text in a game that started rather than an exception at the first
-    /// line of dialogue.
-    /// </para>
-    /// </remarks>
     private static Encoding? Elsewhere(int codePage)
     {
         if (codePage is 1250 or 1251 or 1252)

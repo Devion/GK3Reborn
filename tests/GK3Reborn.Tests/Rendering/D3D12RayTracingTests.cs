@@ -8,22 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Inline ray tracing on Direct3D, which is three separate acts of faith until it is looked at.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The shaders are GLSL and Direct3D cannot read a word of them; they reach it through
-/// SPIRV-Cross and DXC. That chain compiling is not the same as it being right. What these
-/// tests check is that a <c>rayQueryEXT</c> translated into a <c>RayQuery</c> traces the
-/// same rays, that an acceleration structure built from this engine's matrices puts the
-/// geometry where the engine thinks it is, and that an acceleration structure binds
-/// correctly through a view made from an address rather than from a resource.
-/// </para>
-/// <para>
-/// Every one of those fails as a plausible wrong picture rather than as an error: a shadow
-/// in the wrong place, a room lit as though nothing were in it. So the answer is arranged
-/// to have a shape — a square blocker's shadow on a square grid of rays — which is either
-/// in the right place or obviously not.
-/// </para>
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12RayTracingTests
 {

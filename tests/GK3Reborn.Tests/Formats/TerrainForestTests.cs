@@ -42,11 +42,6 @@ public sealed class TerrainForestTests
     /// <summary>
     /// The order matters as much as the values: both tree pipelines index this stream.
     /// </summary>
-    /// <remarks>
-    /// x, y, z, scale, rotation, kind — the same six the impostor shader and the grown
-    /// models read, in the same order, which is what lets a tree cross a detail tier and
-    /// change only what it is built from.
-    /// </remarks>
     [Fact]
     public void A_tree_is_six_floats_in_the_order_both_pipelines_read()
     {
@@ -65,11 +60,6 @@ public sealed class TerrainForestTests
     /// <summary>
     /// The bytes are little-endian whatever machine wrote or reads them.
     /// </summary>
-    /// <remarks>
-    /// Stated against literal bytes rather than against a round trip, because a round trip
-    /// through the same code agrees with itself on a big-endian machine while disagreeing
-    /// with every file the publisher ever wrote.
-    /// </remarks>
     [Fact]
     public void The_stream_is_little_endian()
     {
@@ -95,12 +85,6 @@ public sealed class TerrainForestTests
     /// <summary>
     /// A length that is not a whole number of trees is refused rather than guessed at.
     /// </summary>
-    /// <remarks>
-    /// The format has no header, so this is the only check available — and it is the one
-    /// that catches the cases that matter: a truncated write, and a file that is not a
-    /// forest at all. The scene then keeps its horizon and draws no forest on it, rather
-    /// than scattering trees from whatever the bytes happened to mean.
-    /// </remarks>
     [Theory]
     [InlineData(1)]
     [InlineData(4)]

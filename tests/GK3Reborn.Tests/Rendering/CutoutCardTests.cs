@@ -8,14 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for giving a keyed card the thickness of the thing drawn on it.
 /// </summary>
-/// <remarks>
-/// GK3 draws a railing as a picture of one on a single quad with the gaps between the
-/// balusters cut out of the magenta key, which is convincing from in front and a sheet of
-/// paper from anywhere else. The measurement that decides whether a texture is a lattice of
-/// bars, and how deep to make them, is what most of this exercises: it is one number, it
-/// separates a railing from a chest of drawers with a keyhole in it, and getting it wrong
-/// is silent in both directions.
-/// </remarks>
 public sealed class CutoutCardTests
 {
     /// <summary>A texture whose texels are keyed where the mask says so.</summary>

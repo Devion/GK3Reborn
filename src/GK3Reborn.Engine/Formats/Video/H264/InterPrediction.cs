@@ -5,18 +5,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// Fractional-sample interpolation, 8.4.2.2, and weighted sample prediction, 8.4.2.3.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A block's reference window is copied into a local buffer with its coordinates clamped
-/// to the picture, which is how the standard defines reads beyond the edge; the block
-/// itself is then computed from that window without further bounds checks. Blocks whose
-/// window lies entirely inside the picture, which is nearly all of them, skip the clamp.
-/// </para>
-/// <para>
-/// Luma is quarter-sample with the six-tap filter, chroma of a 4:2:0 picture eighth-sample
-/// bilinear; 4:4:4 chroma is interpolated like luma, as 8.4.2.2 requires.
-/// </para>
-/// </remarks>
 internal static class InterPrediction
 {
     private const int MaxBlock = 16;

@@ -17,33 +17,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// Draws the reconstructed horizon: real terrain, its forest, and a generated sky with
 /// procedural cloud cover, where the painted skybox was.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The twin of <c>TerrainPipeline</c>. What is drawn — the mesh, the forest, which trees are
-/// near enough to be models, and the two constant blocks a frame is drawn with — is
-/// <see cref="TerrainPlan"/>, which both backends share, and the stages are
-/// <see cref="TerrainShaders"/>. What is here is the buffers, the textures and the four
-/// pipeline states.
-/// </para>
-/// <para>
-/// <b>One view heap and one sampler heap for the whole pass.</b> Direct3D allows one of each
-/// bound at a time, so the six ground textures and every tree sheet live in the same pair:
-/// the ground's table starts at zero and a sheet's table starts at six plus its own index.
-/// A table is a base pointer, so binding a sheet is one call and no heap is ever swapped
-/// inside the pass.
-/// </para>
-/// <para>
-/// When this draws, the painted cubemap does not: its mountains are baked into the picture
-/// and would double-expose against the reconstructed ridge.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12TerrainPass : IDisposable
 {
     /// <summary>How many textures the ground, the impostors and the models share.</summary>
-    /// <remarks>
-    /// Four tiles, the splat weights and the vista's tint. The first four repeat and the
-    /// last two are clamped, which is the whole of why the samplers are not all one.
-    /// </remarks>
     private const uint GroundTextures = 6;
 
     /// <summary>Bytes from one corner of the ground or of an impostor to the next.</summary>
@@ -138,11 +114,6 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     /// <param name="camera">Where the player is looking from, in room units.</param>
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Its height.</param>
-    /// <remarks>
-    /// Records into whatever render targets are already bound, so the caller keeps the
-    /// room's own targets set. The backdrop writes depth as well as colour — it has to sort
-    /// against itself — so unlike the painted cubemap it must be given a writable depth view.
-    /// </remarks>
     public void Record(ID3D12GraphicsCommandList4* list, Camera camera, int width, int height)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -326,15 +297,6 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     /// <summary>
     /// Puts the four tiles, the splat weights and the vista's tint onto the device.
     /// </summary>
-    /// <remarks>
-    /// <b>All six carry a mip chain, and the last two are why the ridges used to crawl.</b>
-    /// A thousand-cell splat map is stretched over a kilometre and a half of terrain, so a
-    /// mountain at the far edge of it puts twenty cells inside one pixel. Sampled from the
-    /// top level with no chain to fall back on, that pixel takes whichever cell it happens
-    /// to land in — rock here, forest at the neighbouring pixel, rock again at the next —
-    /// and a hillside a kilometre away comes out as a shimmering grey-and-green weave that
-    /// moves with the camera.
-    /// </remarks>
     private void UploadTextures(TerrainBackdrop backdrop)
     {
         _textures[0] = D3D12TextureUpload.Create(_context, backdrop.TileForest);
@@ -407,10 +369,6 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     }
 
     /// <summary>Writes every descriptor the pass will bind, once.</summary>
-    /// <remarks>
-    /// The six ground textures first, then one per tree sheet, in both heaps and at the same
-    /// indices — which is what makes a sheet's whole binding one number.
-    /// </remarks>
     private void Describe()
     {
         uint count = GroundTextures + (uint)_sheets.Count;

@@ -13,25 +13,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Measures how rigidly every character's head moves, across the whole clip corpus.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The head refinement rests on a claim about the data — that a head's vertex track carries
-/// a rigid motion and nothing else — and this is where that claim is checked rather than
-/// asserted. For every character, every clip and every recorded frame, it fits the authored
-/// head onto what the clip says and reports what is left over as a fraction of the head's
-/// own width.
-/// </para>
-/// <para>
-/// The number to read is the median, not the maximum. A clip that really does deform a head
-/// exists — <c>GAB_GABTE3HDOFF</c>, which is Gabriel's head coming off, and the worst frame
-/// in the game at 17% — and one such frame says nothing about the nine hundred clips either
-/// side of it, which is why the worst offender is named rather than folded into a figure.
-/// </para>
-/// <para>
-/// As measured: all 56 models with head clips pass, over 3,069 clips and 122,034 recorded
-/// frames, at 1.0% of head width for the median model and 4.1% for the worst.
-/// </para>
-/// </remarks>
 public sealed class HeadSolveStage
 {
     private readonly Action<string> _log;
@@ -248,11 +229,6 @@ public sealed class HeadSolveStage
     }
 
     /// <summary>Which frames of a clip record a shape for the head.</summary>
-    /// <remarks>
-    /// The recorded frames, not every frame the clip runs for. A mesh that does not move is
-    /// not written again, so surveying all of them would count one pose many times over and
-    /// report the still frames as evidence.
-    /// </remarks>
     private static IEnumerable<int> Frames(ActFile clip, int mesh) =>
         clip.Vertices
             .Where(v => v.Mesh == mesh)
@@ -261,15 +237,6 @@ public sealed class HeadSolveStage
             .OrderBy(f => f);
 
     /// <summary>What one frame's head leaves over after the best rigid fit.</summary>
-    /// <remarks>
-    /// <b>The held pose, not only what this frame records.</b> A mesh that has not moved is
-    /// not written again, so on most frames a head has one or two of its submeshes recorded
-    /// and the rest are still standing at whatever they were last set to. Fitting only the
-    /// submeshes written on the exact frame measures a rotation from eleven vertices of a
-    /// collar rather than from three hundred of a head, and then reports the resulting
-    /// nonsense as evidence that the head deforms — which it did, until this read a clip the
-    /// same way playback reads one.
-    /// </remarks>
     private static float? Fit(ActFile clip, HeadRig rig, int frame)
     {
         var from = new List<Vector3>();

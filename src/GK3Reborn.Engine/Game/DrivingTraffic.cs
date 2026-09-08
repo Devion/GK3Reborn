@@ -42,20 +42,9 @@ public sealed record Traveller(
     /// <summary>
     /// The noun the story keeps the count of following them under.
     /// </summary>
-    /// <remarks>
-    /// Usually themselves, and not always: Day 2's chase is Estelle at the wheel and Lady
-    /// Howard beside her, and the game counts it — and scores it, as
-    /// <c>e_202p_map_follow_howard</c> — under Lady Howard. So the map says who is driving
-    /// and the story remembers whose car it was.
-    /// </remarks>
     public string Counted { get; init; } = Noun;
 
     /// <summary>Where the road ends, as a scene code, or null for a route that loops.</summary>
-    /// <remarks>
-    /// The junction names are the scene codes: <c>pl4</c> is L'Ermitage both on the road
-    /// network and in the archives. The four junctions that are only junctions —
-    /// <c>in1</c> to <c>in4</c> — never end a route.
-    /// </remarks>
     public string? Arrives =>
         Loops || Junctions.Count == 0 ? null : Junctions[^1].ToUpperInvariant();
 }
@@ -63,47 +52,12 @@ public sealed record Traveller(
 /// <summary>
 /// Who else is on the roads while the map is open.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The map has traffic, and the traffic is a puzzle.</b> Day 1 at two in the afternoon,
-/// Wilkes rides out of Larry Chester's house and Madeleine Buthane drives away from the
-/// Armchair of the Devil, and both of them are going somewhere the player has never heard
-/// of. Giving chase is how L'Ermitage, Coume Sourde and L'Homme Mort get onto the map at
-/// all; without it those three places do not exist for the rest of the game.
-/// </para>
-/// <para>
-/// <b>Two kinds of traveller.</b> One goes round and round — the retail engine calls the
-/// route <c>circling</c> and builds one whenever the player has not yet given chase — and
-/// exists to be noticed. The other is the chase itself: a fixed route from where the player
-/// is standing to where the quarry is going, with Gabriel a little way behind. The routes
-/// of both are recovered from the retail driving layer, which writes them as slash-separated
-/// junction names, and the junctions are <c>PATHDATA.TXT</c>'s own.
-/// </para>
-/// <para>
-/// <b>What the port does differently.</b> In 1999 a circling traveller could only be
-/// watched: the chase started from the room, by clicking the moped or the van as it went
-/// past, and a player who did not happen to be standing at Blanchefort in the ten seconds
-/// Wilkes rode by lost L'Ermitage for the whole game. Here the circling traveller is a
-/// target on the map as well, so the map itself offers the chase — see
-/// <c>Plan/03-gameplay-ui-audio.md</c> section 3, which asks that no puzzle be lost to an
-/// interface. The room's own way in is untouched and does the same thing.
-/// </para>
-/// </remarks>
 public sealed class DrivingTraffic
 {
     /// <summary>How fast somebody circling covers the map, in its own pixels a second.</summary>
-    /// <remarks>
-    /// Slow enough to be watched and quick enough to come round again: the long loop is
-    /// about 2,600 of the map's pixels, so a lap is a little over a minute.
-    /// </remarks>
     private const float Wandering = 42f;
 
     /// <summary>How fast a chase moves.</summary>
-    /// <remarks>
-    /// Four times as fast, because a chase is a thing being watched to its end rather than
-    /// scenery: the longest of them is 1,900 pixels and takes eleven seconds, which is
-    /// about as long as anybody wants to watch a dot cross a painting.
-    /// </remarks>
     private const float Chasing = 170f;
 
     /// <summary>How far behind the quarry the player rides, in map pixels.</summary>
@@ -363,13 +317,6 @@ public sealed class DrivingTraffic
     /// <summary>
     /// The faces the map draws, which are Sidney's.
     /// </summary>
-    /// <remarks>
-    /// The same ten portraits the suspect list uses, rendered from the characters' own
-    /// heads by the offline tool — so a marker on the map is the person rather than a
-    /// coloured square, and the player recognises them from the screen where they have
-    /// been reading about them. Buchelli stands for the pair of them: the game calls the
-    /// two men out on the road at six o'clock one thing, and one face has to be it.
-    /// </remarks>
     private const string WilkesFace = "PORTRAIT_WIL";
 
     /// <inheritdoc cref="WilkesFace"/>
@@ -387,19 +334,6 @@ public sealed class DrivingTraffic
     /// <summary>
     /// Gabriel, which is the marker the player is watching.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Rendered from <c>GAB</c>'s own head by the same tool that frames the ten suspects,
-    /// and framed the same way, so the map's square knows what to take out of it.
-    /// </para>
-    /// <para>
-    /// <b>He is the one marker that had no face at all.</b> The original draws the player
-    /// as a green square, which is the one thing on the map that says nothing: every other
-    /// dot is somebody, and the dot the player is steering was a colour. It falls back to
-    /// that square in an installation with no enhanced content, where there is nothing else
-    /// to draw — the game ships no picture of Gabriel that is not a model skin.
-    /// </para>
-    /// </remarks>
     public const string EgoFace = "PORTRAIT_GAB";
 
     /// <summary>A colour the retail engine holds as one number.</summary>
@@ -416,14 +350,6 @@ public sealed class DrivingTraffic
     /// <param name="loop">The route, whose first and last junctions are the same.</param>
     /// <param name="start">The junction they set out from.</param>
     /// <returns>The same loop, turned so that it begins there.</returns>
-    /// <remarks>
-    /// The retail engine hands a circling traveller a route and, separately, the junction
-    /// they are standing at — Madeleine leaves the Armchair of the Devil and Wilkes leaves
-    /// Larry Chester's house, and both are written against the same lap of the valley. A
-    /// closed loop begun somewhere else is a rotation of itself, so this is the whole of
-    /// it. Without it the two of them set off from the same junction on the same road,
-    /// which draws as one van.
-    /// </remarks>
     private static string[] Begun(string[] loop, string start)
     {
         int at = -1;
@@ -448,11 +374,6 @@ public sealed class DrivingTraffic
     /// <summary>
     /// Who is out on the roads at this point in the story.
     /// </summary>
-    /// <remarks>
-    /// Each of them stops circling once the player has given chase — the room's own action
-    /// sets the count that says so — because the whole of what they are doing out there is
-    /// waiting to be followed.
-    /// </remarks>
     public static IReadOnlyList<Traveller> Circling(GameState story)
     {
         ArgumentNullException.ThrowIfNull(story);
@@ -550,13 +471,6 @@ public sealed class DrivingTraffic
     /// <param name="follow">The number <c>FollowOnDrivingMap</c> was given.</param>
     /// <param name="from">Where the player is riding out of, as a scene code.</param>
     /// <returns>The chase, or null where the number describes none.</returns>
-    /// <remarks>
-    /// Four of the seven have a route for each place they may be started from, because a
-    /// chase begins where the player is standing and the quarry's road out of Blanchefort
-    /// is not their road out of L'Ermitage. Where the player is somewhere the retail layer
-    /// has no route for, it uses the long way round from Rennes-le-Château, and so does
-    /// this.
-    /// </remarks>
     public static Traveller? Chased(int follow, string? from)
     {
         bool At(string where) => string.Equals(from, where, StringComparison.OrdinalIgnoreCase);

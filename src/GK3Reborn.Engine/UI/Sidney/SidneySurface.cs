@@ -12,11 +12,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// The colours the machine draws itself in.
 /// </summary>
-/// <remarks>
-/// Amber on a warm black, which is what the original's screen is and what every piece of
-/// its art was drawn to sit on. The neutrals are warm for the same reason: a cold grey
-/// panel over the gold crest reads as a dialog box from another program.
-/// </remarks>
 public static class SidneyPalette
 {
     /// <summary>The screen itself, behind everything.</summary>
@@ -55,12 +50,6 @@ public static class SidneyPalette
     /// <summary>
     /// What is drawn on the map, which is not a screen but a photograph.
     /// </summary>
-    /// <remarks>
-    /// Amber on black is right for a screen and wrong for a survey map: the original marks
-    /// its places in solid blue and draws the figures it finds in the same blue over pale
-    /// green country, because that is what reads on it. A mark in the interface's own amber
-    /// on that map is a fleck of the same colour as the contour shading.
-    /// </remarks>
     public static readonly Vector4 Mark = new(0.09f, 0.12f, 0.82f, 1f);
 
     /// <summary>The figure laid over the country, in the same blue.</summary>
@@ -75,30 +64,12 @@ public static class SidneyPalette
     /// <summary>
     /// A figure the machine has confirmed passes through every mark.
     /// </summary>
-    /// <remarks>
-    /// Deeper than the green the rest of the interface confirms things in, because the
-    /// country under it is pale green and a light green line on it is the one thing on the
-    /// map that cannot be seen.
-    /// </remarks>
     public static readonly Vector4 Confirmed = new(0.02f, 0.55f, 0.12f, 1f);
 }
 
 /// <summary>
 /// A place to draw Sidney, and where a click in it lands.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Sidney is eight screens, a desktop, a mail client and a map, and drawing all of it as
-/// private methods on the painter that also draws the inventory and the binoculars made one
-/// file nobody could hold in their head. This is the surface those screens draw on: the
-/// overlay, the pointer, the scale, the game's own art by file name, and the handful of
-/// shapes that are not rectangles.
-/// </para>
-/// <para>
-/// The hit list belongs to the painter rather than to this, because a click is answered
-/// against every screen's rectangles at once and Sidney is one screen among them.
-/// </para>
-/// </remarks>
 public sealed class SidneySurface
 {
     private readonly List<(string Id, Vector4 Bounds)> _hits;
@@ -135,11 +106,6 @@ public sealed class SidneySurface
     /// <summary>
     /// Every region drawn this frame that scrolls, and where it is.
     /// </summary>
-    /// <remarks>
-    /// So that the wheel can find the one under the pointer. It cannot be answered from the
-    /// hit list: the rows inside a list are registered over it and are what a click means,
-    /// and the wheel wants the list rather than the row.
-    /// </remarks>
     public List<(string Id, Vector4 Bounds)> Scrollables { get; } = [];
 
     /// <summary>Where it draws.</summary>
@@ -208,12 +174,6 @@ public sealed class SidneySurface
     /// <param name="y">Top of the line.</param>
     /// <param name="width">How much room it has.</param>
     /// <param name="colour">What colour.</param>
-    /// <remarks>
-    /// Every list here is one column of a two-column screen, and a suspect with a long name
-    /// or a mail with a long subject would otherwise run under the scrollbar and out the
-    /// side. The clip would cut it mid-letter, which reads as a rendering fault rather than
-    /// as a name that did not fit.
-    /// </remarks>
     public void WriteIn(string text, float x, float y, float width, Vector4 colour)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -303,20 +263,6 @@ public sealed class SidneySurface
     /// <param name="by">Second point's y.</param>
     /// <param name="colour">What colour.</param>
     /// <param name="thickness">How thick, in pixels.</param>
-    /// <remarks>
-    /// <para>
-    /// One rectangle per row for a steep line and one per column for a shallow one, rather
-    /// than one per pixel along it. The overlay draws rectangles and a rectangle covering a
-    /// diagonal's bounding box is a filled block, so a diagonal has to be broken up — but it
-    /// only has to be broken up along the axis it moves fastest in.
-    /// </para>
-    /// <para>
-    /// <b>The count matters.</b> The display list is capped, and drawing a line a pixel at a
-    /// time is how an interface of a few hundred shapes becomes one of a few thousand
-    /// rectangles — which on a large window pushed the taskbar off the end of the list and
-    /// out of the picture.
-    /// </para>
-    /// </remarks>
     public void Stroke(float ax, float ay, float bx, float by, Vector4 colour, float thickness = 1f)
     {
         float dx = bx - ax;
@@ -395,12 +341,6 @@ public sealed class SidneySurface
     /// <param name="to">Where to stop.</param>
     /// <param name="colour">What colour.</param>
     /// <param name="thickness">How thick the line is, in pixels.</param>
-    /// <remarks>
-    /// One rectangle a step, each big enough to close the gap to the next, rather than one
-    /// rectangle per pixel of arc for every pixel of thickness. A thick ring drawn the
-    /// second way costs its circumference times its thickness in rectangles, which for the
-    /// four ridges of the fingerprint icon on a large window was some thousands of them.
-    /// </remarks>
     public void Arc(
         float x,
         float y,
@@ -464,20 +404,6 @@ public sealed class SidneySurface
     /// </summary>
     /// <param name="points">The corners, in order; the last joins back to the first.</param>
     /// <param name="colour">What colour.</param>
-    /// <remarks>
-    /// <para>
-    /// The overlay draws axis-aligned rectangles and nothing else, which is right for an
-    /// interface of panels and rules and is why every icon here would otherwise be a box.
-    /// A scanline fill turns that one primitive into any shape: for each row of pixels,
-    /// find where the outline crosses it, sort the crossings and fill between them in
-    /// pairs. Non-zero winding is not worth the extra bookkeeping — nothing drawn here
-    /// self-intersects, and even-odd gives holes for free, which is what a ring needs.
-    /// </para>
-    /// <para>
-    /// A row at a time rather than a pixel at a time, so a filled glyph costs about as many
-    /// rectangles as it is tall rather than as many as it has pixels.
-    /// </para>
-    /// </remarks>
     public void Polygon(ReadOnlySpan<Vector2> points, Vector4 colour)
     {
         if (points.Length < 3)
@@ -543,22 +469,6 @@ public sealed class SidneySurface
     /// <param name="region">Where it is on the screen.</param>
     /// <param name="content">How tall its content is in full.</param>
     /// <returns>How far to shift the content up, which is never more than it has to be.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Every list in Sidney goes through this.</b> The first pass drew lists until they
-    /// reached the bottom of the panel and then stopped, which quietly dropped the tenth
-    /// suspect at ordinary window sizes — and with him the only way to link the print that
-    /// names him. A list that cannot be reached is worse than one that is ugly.
-    /// </para>
-    /// <para>
-    /// The offset is clamped whether the bar is needed or not, so a list that shrinks — a
-    /// file un-linked, a search that found less — cannot stay scrolled past its own end and
-    /// show an empty page.
-    /// </para>
-    /// <para>
-    /// Call <see cref="EndScroll"/> once the content has been drawn.
-    /// </para>
-    /// </remarks>
     public float BeginScroll(string id, Vector4 region, float content)
     {
         ArgumentNullException.ThrowIfNull(id);
@@ -687,18 +597,6 @@ public sealed class SidneySurface
 /// <summary>
 /// How far each of Sidney's lists is scrolled.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The screens are drawn from the machine's state every frame and keep nothing of their
-/// own, so this is where a scroll position lives. Keyed by region rather than by screen
-/// because a screen may have two — the mail list and the message beside it — and they
-/// scroll separately.
-/// </para>
-/// <para>
-/// It belongs to the machine rather than to a save: where somebody had scrolled to is not
-/// part of the story, and a save that restored it would be restoring the wrong thing.
-/// </para>
-/// </remarks>
 public sealed class SidneyScrolls
 {
     private readonly Dictionary<string, float> _offsets = new(StringComparer.Ordinal);

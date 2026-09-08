@@ -10,47 +10,9 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// One language's pack, standing between the overrides and the game's own archives.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 was localised the most awkward way available: Sierra re-cut every archive per
-/// language, so a French disc is not an English disc with a French patch on it — it is a
-/// whole second copy of the game in which about fifteen thousand of the forty thousand
-/// assets happen to differ. Nothing in the 1999 data says which fifteen thousand.
-/// </para>
-/// <para>
-/// <b>So the port works out the difference once and ships it.</b> A language pack —
-/// <c>Reborn_FR.rebarn</c> beside the executable — holds exactly the assets that language
-/// spells or records differently, under their 1999 names, and nothing else. Reading it in
-/// front of the archives turns any installation into any language: an English install with
-/// the French pack plays in French, and a French install with the English pack plays in
-/// English. See <c>docs/localization.md</c> for how the set is derived.
-/// </para>
-/// <para>
-/// <b>It is a layer, not a replacement.</b> A name the pack does not hold falls through to
-/// the installation, which is what makes a partial pack a perfectly good pack — the same
-/// rule <see cref="EnhancedTextures"/> and <see cref="RebarnContent"/> follow, and the
-/// reason a missing pack is not an error. What a player loses by not having one is that
-/// language, not the game.
-/// </para>
-/// <para>
-/// Three doors, because a localised asset is three different things depending on who is
-/// asking. <see cref="Read(string?)"/> answers the 1999 name — the door
-/// <see cref="GameArchives"/> puts in front of every script, bitmap, font and recording.
-/// <see cref="ReadTexture"/> answers the enhanced texture stack,
-/// for the pictures with words painted into them that had to be redone per language.
-/// <see cref="OpenMovie"/> and <see cref="OpenMovieSound"/> answer the video, where the
-/// picture is usually shared and only the soundtrack is not.
-/// </para>
-/// </remarks>
 public sealed partial class LocalizedContent : IDisposable
 {
     /// <summary>The manifest a pack has to carry to be taken for a language pack.</summary>
-    /// <remarks>
-    /// A file name is a weak claim. <c>Reborn_HD.rebarn</c> matches the pattern and is
-    /// somebody's texture mod; a pack that declares itself is one that meant to. The
-    /// manifest is written by <c>extract-localized</c> and read on open, and a pack without
-    /// one is skipped rather than misread.
-    /// </remarks>
     public const string ManifestName = "localization";
 
     private static readonly JsonSerializerOptions Json =
@@ -102,18 +64,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// The languages, English first and then in <see cref="GameLanguage.Known"/> order.
     /// English is always among them whether or not a pack exists for it.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// English is offered unconditionally because it is what every installation can already
-    /// read: the archives answer to the English spellings under every locale Sierra
-    /// shipped, so a player with no packs at all still has one language rather than none.
-    /// </para>
-    /// <para>
-    /// The name is matched and the pack is then <em>opened</em> to see whether it declares
-    /// itself — a listing that offered a language the pack turns out not to hold would put
-    /// a row in the menu that does nothing when chosen.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<GameLanguage> Available(string directory)
     {
         ArgumentNullException.ThrowIfNull(directory);
@@ -164,20 +114,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// <param name="language">Which language to read.</param>
     /// <param name="diagnostics">Receives a diagnostic when the pack will not open.</param>
     /// <returns>The layer, or null when there is no pack for that language.</returns>
-    /// <remarks>
-    /// <para>
-    /// Null rather than an empty layer, and null all the way down: every reader below tests
-    /// this to decide whether the localisation door exists at all, so an empty one handed
-    /// out instead would have each of them consulting a dictionary that can never answer,
-    /// on the path of every asset the game reads.
-    /// </para>
-    /// <para>
-    /// Every language opens, English included: <c>Reborn_EN.rebarn</c> is what turns a
-    /// French or German installation into an English game, which is the mirror of what the
-    /// French pack does to an English one. Whether its 1999 assets are then <em>read</em> is
-    /// a separate question, and <see cref="RepeatsInstallation"/> answers it.
-    /// </para>
-    /// </remarks>
     public static LocalizedContent? Open(
         string directory, GameLanguage language, DiagnosticBag? diagnostics = null)
     {
@@ -263,13 +199,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// <summary>
     /// Whether the pack's 1999 assets would only repeat the installation, and are skipped.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set by <see cref="RepeatsInstallation"/>. It silences the 1999 half of the pack and
-    /// nothing else: the repainted textures, the movies and the manifests still answer,
-    /// because those are the remake's own work and no installation has them.
-    /// </para>
-    /// </remarks>
     public bool ArchivesRepeatInstallation { get; private set; }
 
     /// <summary>
@@ -281,29 +210,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// of it. <see cref="GameArchives.Read"/> reads this pack first, so it cannot be used.
     /// </param>
     /// <returns>True when the assets were found to repeat and are now skipped.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A pack is redundant when the game is already installed in its language.</b> A
-    /// German pack on a German installation cannot say anything the archives do not already
-    /// say — and it does not say it for free, because the layer sits in front of both the
-    /// archives and the shared enhanced set. The one that matters is English on an English
-    /// installation, which is nearly every player: the English release sourced here is a
-    /// <em>dumped tree</em>, and a dump has thrown away which archive an entry came from, so
-    /// its <c>WOODTILE.BMP</c> is a foliage card rather than the hotel lobby's floor.
-    /// </para>
-    /// <para>
-    /// <b>Decided by one file rather than by guessing what the installation is.</b> The
-    /// pack's own string table — <c>GSTRINGS.TXT</c> for German, <c>FSTRINGS.TXT</c> for
-    /// French — against the installation's copy of that same name. Byte-identical means the
-    /// disc this pack was derived from and the disc that is installed are the same
-    /// localisation. Reading the letter off a file name cannot do this: Portuguese ships
-    /// <c>ESTRINGS.TXT</c>, exactly as English does, and its contents are not English.
-    /// </para>
-    /// <para>
-    /// Only the 1999 assets are skipped. A language's repainted textures are the remake's
-    /// own and are in no installation anywhere, so they go on answering.
-    /// </para>
-    /// </remarks>
     public bool RepeatsInstallation(Func<string, byte[]?> installed)
     {
         ArgumentNullException.ThrowIfNull(installed);
@@ -330,12 +236,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// <summary>Reads an asset of the 1999 game.</summary>
     /// <param name="name">Its whole name, extension included.</param>
     /// <returns>Its bytes, or null when the pack does not hold it.</returns>
-    /// <remarks>
-    /// The whole name, because that is how the game asks. <c>FSTRINGS.TXT</c> and
-    /// <c>ESTRINGS.TXT</c> are different files, <c>A0NQIB44.QR1</c> and <c>.QR2</c> are
-    /// different recordings of different lines, and <c>GAB_FACE.BMP</c> must not answer a
-    /// question about <c>GAB_FACE.MOD</c>.
-    /// </remarks>
     public byte[]? Read(string? name) =>
         !ArchivesRepeatInstallation &&
         name is { Length: > 0 } &&
@@ -351,13 +251,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// </summary>
     /// <param name="name">Its file name.</param>
     /// <returns>The bytes, or null when the pack holds no such manifest.</returns>
-    /// <remarks>
-    /// Two things are read this way. The manifest that says which language the pack is for,
-    /// which is what makes a file name a claim rather than a guess; and
-    /// <c>interface.json</c>, the port's own words in this language — the one family of
-    /// text here that is a translation somebody wrote rather than an asset Sierra shipped.
-    /// See <see cref="UI.UiText"/>.
-    /// </remarks>
     public byte[]? ReadManifest(string? name) =>
         name is { Length: > 0 } &&
         _entries.TryGetValue(RebarnFormat.Key(RebarnKind.Manifest, name), out RebarnEntry? found)
@@ -396,16 +289,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// <param name="name">The colour texture's name, which every set is keyed by.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The texture, or null when this language does not redo it.</returns>
-    /// <remarks>
-    /// The words painted into a picture are the reason this exists: a road sign, a
-    /// newspaper, the labels on Sidney's buttons. Most of GK3's textures carry no words and
-    /// are shared, so this set is small and every name in it is a decision somebody made.
-    /// <para>
-    /// Blocks point into the memory-mapped pack, exactly as
-    /// <see cref="RebarnContent.ReadTexture"/>'s do, and stay valid for the life of this
-    /// object — which for the game is the life of the process.
-    /// </para>
-    /// </remarks>
     public CompressedImage? ReadTexture(
         RebarnKind kind, string name, DiagnosticBag? diagnostics = null)
     {
@@ -440,13 +323,6 @@ public sealed partial class LocalizedContent : IDisposable
     /// <summary>Opens a movie this language has its own picture for.</summary>
     /// <param name="name">Its name, with or without an extension.</param>
     /// <returns>A seekable stream, or null when the shared picture serves.</returns>
-    /// <remarks>
-    /// Rare and deliberate. Four of GK3's sixteen spoken movies are a different cut in
-    /// French — <c>day3-3</c> runs 430 seconds in English and 153 in French — so a
-    /// soundtrack laid over the shared picture would drift apart within seconds. Where the
-    /// two are the same length the picture is shared and only
-    /// <see cref="OpenMovieSound"/> answers.
-    /// </remarks>
     public Stream? OpenMovie(string? name) => OpenEntry(RebarnKind.Video, name);
 
     /// <summary>Opens this language's soundtrack for a shared movie.</summary>
@@ -501,10 +377,6 @@ public sealed partial class LocalizedContent : IDisposable
     }
 
     /// <summary>Matches the file name a language pack carries.</summary>
-    /// <remarks>
-    /// Only used to say what a directory looks like it holds; whether a file <em>is</em> a
-    /// language pack is decided by its manifest, not by its name.
-    /// </remarks>
     [GeneratedRegex(@"^Reborn_(?<code>[A-Za-z]{2})\.rebarn$", RegexOptions.IgnoreCase)]
     public static partial Regex FileNamePattern();
 }
@@ -516,11 +388,6 @@ public sealed partial class LocalizedContent : IDisposable
 /// <param name="Assets">How many 1999 assets the pack replaces.</param>
 /// <param name="Source">Where the set was derived from, for a person reading the pack.</param>
 /// <param name="BuiltUtc">When it was derived, in round-trip form.</param>
-/// <remarks>
-/// Small on purpose. It exists to answer one question on open — "is this a pack for the
-/// language I asked for" — and everything past that is for somebody looking at the file
-/// with <c>pack-extract</c> rather than for the loader.
-/// </remarks>
 public sealed record LocalizationManifest(
     string Language,
     char Prefix,

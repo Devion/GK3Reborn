@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for GK3's vertex animation.
 /// </summary>
-/// <remarks>
-/// The five invariants are from <c>Plan/06-c6-rig-solve.md</c> §3.6, which says to use them
-/// as reader tests, and all five hold across the corpus. Each one is a way for the reader to
-/// have lost its place in the file — after which it is reading noise and would happily
-/// carry on, so each is checked rather than assumed.
-/// </remarks>
 public sealed class ActFileTests
 {
     private static ActFile Read(Clip clip, bool vertices = true)
@@ -281,11 +275,6 @@ public sealed class ActFileTests
     }
 
     /// <summary>A basis turned about the vertical and mirrored, as GK3 authors them.</summary>
-    /// <remarks>
-    /// Every mesh basis in the corpus has a determinant of −1 — the world is left-handed —
-    /// so a test that mixes two right-handed bases is not testing anything the game
-    /// contains.
-    /// </remarks>
     private static Matrix4x4 Spun(float degrees, Vector3 at = default)
     {
         Matrix4x4 basis = Matrix4x4.CreateRotationY(degrees * MathF.PI / 180f);

@@ -9,12 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for walking a <c>.STK</c> — the little program a room's sound is written as.
 /// </summary>
-/// <remarks>
-/// R25's afternoon is the shape of nearly all of them: wait a second, play the room's
-/// theme once, then moods with one to ten seconds between them, round and round. Playing
-/// only the first sound of that — which is what happened before — gives a hotel room a
-/// permanent hum it never had, and none of the fourteen moods it did.
-/// </remarks>
 public sealed class SoundtrackProgramTests
 {
     private static readonly string[] Hisses = ["HISS1", "HISS2", "HISS3"];

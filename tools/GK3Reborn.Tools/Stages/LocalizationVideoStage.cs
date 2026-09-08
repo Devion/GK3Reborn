@@ -11,38 +11,6 @@ namespace GK3Reborn.Tools.Stages;
 /// Decides, for each language, whether a cutscene needs its own picture, only its own
 /// sound, or nothing at all — and produces whichever it is.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Sierra shipped a whole BIK per language and most of them are the same pixels.</b>
-/// 657 megabytes of video per release, nearly all of it identical, and copying that
-/// arrangement would mean shipping the picture once for every language the port supports.
-/// So the picture is imported once and each language contributes an audio track: five
-/// megabytes instead of a hundred and fifty.
-/// </para>
-/// <para>
-/// <b>Except when it is not the same pixels, and there are two ways that happens.</b> Some
-/// cutscenes are a different <em>edit</em> — <c>day3-3</c> runs 430 seconds in English and
-/// 153 in French and German. Others are the same edit with <em>words burned into the
-/// picture</em>: GK3's intro carries its location captions as part of the frame, so every
-/// localisation repainted them, and Spanish subtitles several cutscenes it did not dub at
-/// all. Neither can take a soundtrack laid over the shared picture — the first drifts apart
-/// within seconds, the second would show English captions over Spanish speech.
-/// </para>
-/// <para>
-/// <b>So the pictures are compared exactly, not approximately.</b> Both are decoded to raw
-/// RGB and hashed. Bink is deterministic — the same master gives the same frames — so two
-/// releases of the same footage hash identically, and anything else does not. That is a
-/// question with a yes and a no rather than a similarity score and a threshold, and it
-/// costs one decode of a 320x240 movie. A duration comparison alone, which is what this did
-/// first, called the French intro shared and would have played English captions under a
-/// French soundtrack for three and a half minutes.
-/// </para>
-/// <para>
-/// The sound is compared the same way, and it is what tells a dub from a subtitle: Spanish
-/// hashes identically to English on eleven of its cutscenes, because it did not re-record
-/// them. Those cost that language nothing at all.
-/// </para>
-/// </remarks>
 public sealed partial class LocalizationVideoStage
 {
     private readonly FfmpegTools _tools;
@@ -245,20 +213,6 @@ public sealed partial class LocalizationVideoStage
     /// <param name="path">The movie.</param>
     /// <param name="sound">True for the soundtrack, false for the picture.</param>
     /// <returns>The hash, or null when there is no such stream or it will not decode.</returns>
-    /// <remarks>
-    /// <para>
-    /// Raw RGB for the picture and 16-bit PCM for the sound, so what is compared is what a
-    /// player would see and hear rather than how it happens to be stored. Bink is
-    /// deterministic, so two releases cut from the same master hash identically and
-    /// anything else does not — no threshold, no similarity score, and a length difference
-    /// changes the hash by itself.
-    /// </para>
-    /// <para>
-    /// Kept, because the baseline's copy of a movie is compared against once per language
-    /// and decoding <c>day3-3</c> four times would be four times as long for the same four
-    /// answers.
-    /// </para>
-    /// </remarks>
     private string? Hash(string path, bool sound)
     {
         string key = (sound ? "a:" : "v:") + path;
@@ -346,11 +300,6 @@ public sealed partial class LocalizationVideoStage
     }
 
     /// <summary>Copies one language's words out from under the shared picture.</summary>
-    /// <remarks>
-    /// Re-encoded rather than copied: Bink's own audio codec is not something an MP4 may
-    /// carry, and the settings are the import's own — AAC at 192 kbps resampled once to the
-    /// mixer's 48 kHz, so nothing resamples again at playback.
-    /// </remarks>
     private LocalizationMovieEntry Soundtrack(
         FileInfo movie,
         string name,

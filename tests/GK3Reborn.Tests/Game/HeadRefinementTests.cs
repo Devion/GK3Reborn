@@ -8,21 +8,9 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for giving a character a denser head without invalidating their animation.
 /// </summary>
-/// <remarks>
-/// The refinement is only safe because of one thing: the rig keeps the authored vertex
-/// positions, so a clip that addresses 307 vertices still has 307 vertices to address even
-/// though the head being drawn now has thousands. Most of what is worth checking here is
-/// that this separation holds — that the rig describes the model that went in and the mesh
-/// describes the model that comes out, and that nothing outside the head is touched.
-/// </remarks>
 public sealed class HeadRefinementTests
 {
     /// <summary>A head-shaped thing: an octahedron split into a face and a hairline.</summary>
-    /// <remarks>
-    /// Split across the equator, so the two submeshes share four vertices. That shared ring
-    /// is where a hairline seam would show if the normals were not welded across it, which
-    /// is the one thing about this that is not simply subdivision.
-    /// </remarks>
     private static ModFile Character()
     {
         Vector3[] corners =

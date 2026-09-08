@@ -7,22 +7,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A texture on the device, and the state it is currently in.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The state travels with the texture rather than being tracked by whoever draws with it,
-/// because a texture outlives a pass and is read by several of them. Direct3D does not
-/// track it at all: a resource read in the wrong state is undefined data, silently, unless
-/// the debug layer is on. Keeping the state beside the resource is what makes
-/// <see cref="Transition"/> able to be a no-op when nothing needs to change, which in turn
-/// is what lets callers ask for the state they want without first working out what it is.
-/// </para>
-/// <para>
-/// A render target or depth target is created with a clear value. That is not an
-/// optimisation to skip: a target created without one and then cleared is a slow path on
-/// every driver, and one created with a clear value different from the one it is cleared
-/// with is a validation error.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Texture : IDisposable
 {
     private ComPtr<ID3D12Resource> _resource;
@@ -42,13 +26,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     public Format Format { get; }
 
     /// <summary>The format a shader resource view of it declares.</summary>
-    /// <remarks>
-    /// The same as <see cref="Format"/> for everything except a depth target the denoiser
-    /// reads. A resource that is both a depth target and a texture has to be created
-    /// typeless, because the two views want different formats of the same bits — D32_FLOAT
-    /// for the one the hardware tests against, R32_FLOAT for the one a shader samples — and
-    /// a typed resource may only be viewed as the type it was created with.
-    /// </remarks>
     public Format Sampling { get; private init; }
 
     /// <summary>The format a depth stencil view of it declares.</summary>
@@ -107,10 +84,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="sampled">Whether a shader reads it as well as the depth test.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
-    /// <remarks>
-    /// Cleared to one, which is the far plane. The projection puts near at zero and the
-    /// depth test is <c>Less</c>, on both backends alike.
-    /// </remarks>
     public static D3D12Texture CreateDepthTarget(
         D3D12Context context, Format format, int width, int height, bool sampled = false)
     {
@@ -172,11 +145,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="size">How wide and tall each face is.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
-    /// <remarks>
-    /// No mip chain. A sky is always at the far plane and never minified, and generating one
-    /// would blend across the face boundaries — which is exactly where a skybox shows its
-    /// seams.
-    /// </remarks>
     public static D3D12Texture CreateCube(D3D12Context context, Format format, int size)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -198,12 +166,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="context">The device.</param>
     /// <param name="where">Where to write it.</param>
     /// <exception cref="InvalidOperationException">It is not a cube.</exception>
-    /// <remarks>
-    /// A separate call rather than a flag on <see cref="Describe"/>, because the dimension is
-    /// a property of how the shader declares the binding rather than of the resource: the
-    /// same six slices can be read as an array or as a cube, and only one of them matches a
-    /// <c>samplerCube</c>.
-    /// </remarks>
     public void DescribeCube(D3D12Context context, CpuDescriptorHandle where)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -240,11 +202,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="writable">Whether the mip builder will write into it.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
-    /// <remarks>
-    /// It starts in <c>Common</c> rather than in a shader-read state, because the next
-    /// thing that happens to it is a copy and a copy destination must be reached from a
-    /// state a copy can begin from. Whoever fills it puts it where it belongs afterwards.
-    /// </remarks>
     public static D3D12Texture CreateSampled(
         D3D12Context context,
         Format format,
@@ -298,19 +255,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <param name="context">The device.</param>
     /// <param name="where">Where to write it.</param>
     /// <param name="level">Which mip level.</param>
-    /// <remarks>
-    /// <para>
-    /// One level and no others, which is what the mip builder samples through: a view of
-    /// the whole chain would let the filter pick a level of its own and the result would
-    /// depend on what the sampler decided rather than on what was asked for.
-    /// </para>
-    /// <para>
-    /// The texture's own format, sRGB encode and all — unlike <see cref="DescribeWrite"/>,
-    /// which has no choice. Reading a colour texture through the plain format hands the
-    /// filter the stored bytes and it averages a transfer curve, which is not what averaging
-    /// light means and not what Vulkan's blit does. See <see cref="D3D12MipChain"/>.
-    /// </para>
-    /// </remarks>
     public void DescribeLevel(D3D12Context context, CpuDescriptorHandle where, uint level)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -360,11 +304,6 @@ public sealed unsafe class D3D12Texture : IDisposable
     /// <summary>Writes a depth stencil view of this texture into a descriptor slot.</summary>
     /// <param name="context">The device.</param>
     /// <param name="where">Where to write it.</param>
-    /// <remarks>
-    /// Stated rather than left null. A null description means "whatever the resource says",
-    /// which is exactly what a typeless resource cannot answer, so a depth target the
-    /// denoiser reads must be given its format here explicitly.
-    /// </remarks>
     public void DescribeDepth(D3D12Context context, CpuDescriptorHandle where)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -416,12 +355,6 @@ public sealed unsafe class D3D12Texture : IDisposable
 
     /// <summary>Says what state the texture is in, without recording anything.</summary>
     /// <param name="state">The state it is in.</param>
-    /// <remarks>
-    /// For the one caller that moves the subresources individually. Building a mip chain
-    /// reads one level while it writes the next, which a whole-resource transition cannot
-    /// express, so it does its own and then says where it left things. Anything else that
-    /// reaches for this is almost certainly about to lie to the tracker.
-    /// </remarks>
     public void Claim(ResourceStates state) => State = state;
 
     /// <summary>Moves the texture into a state, if it is not in it already.</summary>

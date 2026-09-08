@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Direct3D render tests that need a working GPU.
 /// </summary>
-/// <remarks>
-/// The twin of <see cref="OffscreenRenderTests"/>, and skipped rather than failed where
-/// there is no Direct3D device — which is everywhere but Windows, and on Windows a machine
-/// with no adapter that reaches the compatibility tier. A build agent without a GPU still
-/// reports a green run; a machine that has one gets the real check.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12RenderTests
 {

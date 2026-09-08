@@ -12,19 +12,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// End-to-end render tests for the mesh pipeline.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The geometry is synthetic rather than taken from the game, so the suite still needs no
-/// copyrighted data, but it goes through exactly the path a real model does: a parsed
-/// <see cref="ModFile"/>, a decoded texture, vertex and index buffers, descriptor sets and
-/// a draw.
-/// </para>
-/// <para>
-/// They skip where no Vulkan device is available so a build agent without a GPU still
-/// reports a green run, and do the real check on a machine that has one — which is the
-/// only way to tell "drew nothing" apart from "did not crash".
-/// </para>
-/// </remarks>
 public sealed class SceneRenderTests
 {
     private static bool HasDevice()
@@ -249,23 +236,6 @@ public sealed class SceneRenderTests
     /// A model whose normals are written already placed is still lit from the side the
     /// light is on.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The regression this is here for: a character's normals are in the model's space, not
-    /// the mesh's, and the vertex shader applies the mesh transform to whatever it is
-    /// given. That transform is about a ninety-degree turn for every character group — 3ds
-    /// Max's Z-up written into GK3's Y-up — so applying it to a normal that has already had
-    /// it laid every one of them on its side. Gabriel's chest normal pointed at the sky, he
-    /// was shaded by the vertical part of the rig alone, and his front never lit however he
-    /// was turned or wherever the sun was.
-    /// </para>
-    /// <para>
-    /// So the check is not that the shading is any particular value; it is that moving the
-    /// light from one side of the model to the other changes which side is bright. That is
-    /// the property the bug destroyed, and it holds for any model whose normals are read in
-    /// the right space.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void A_model_is_lit_from_the_side_its_light_is_on()
     {

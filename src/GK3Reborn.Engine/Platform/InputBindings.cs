@@ -5,38 +5,9 @@ namespace GK3Reborn.Platform;
 /// <summary>
 /// Which key and which gamepad button do which job.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The bindings used to be a static table in <c>SilkGameWindow</c>, which is the right
-/// place for a decision nobody can change and the wrong place for one everybody wants to.
-/// They are here instead: above the windowing library, named in the game's own
-/// <see cref="InputKey"/> rather than in Silk.NET's, and carried in the settings file with
-/// everything else the player has chosen.
-/// </para>
-/// <para>
-/// <b>Only the differences are written down.</b> A file that listed every binding would
-/// pin a player to whatever the defaults were on the day they first ran the game — a key
-/// added to an action in a later version would never reach anybody who had ever opened the
-/// settings screen. What is stored is what the player changed, so a default that improves
-/// improves for everybody who did not have an opinion about it.
-/// </para>
-/// <para>
-/// <b>An action may have several keys and one pad button.</b> Several keys because the
-/// defaults have always offered two ways to say the same thing — W and Up both walk
-/// forward — and taking that away to make rebinding simpler would be paying for the feature
-/// with the thing it is meant to improve. One pad button because a gamepad has sixteen of
-/// them and no room for alternates.
-/// </para>
-/// </remarks>
 public sealed class InputBindings
 {
     /// <summary>What every action answers to when nobody has said otherwise.</summary>
-    /// <remarks>
-    /// The table that used to live in <c>SilkGameWindow</c>, moved here whole. Escape and
-    /// the grave accent appear here and among the editing keys both, which is deliberate:
-    /// the key is one key and what it means depends on whether the console has the
-    /// keyboard.
-    /// </remarks>
     private static readonly Dictionary<CameraAction, InputKey[]> DefaultKeys = new()
     {
         [CameraAction.Forward] = [InputKey.W, InputKey.Up],
@@ -65,19 +36,6 @@ public sealed class InputBindings
     /// <summary>
     /// What every action answers to on a gamepad when nobody has said otherwise.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The walking actions have no button, and that is not an oversight.</b> They are
-    /// the free camera's, and on a pad the free camera is driven by the sticks — so
-    /// binding them to face buttons would spend the four most reachable controls on the
-    /// pad on a mode most players never turn on. Anybody who wants them can say so on the
-    /// Controls page; that is what it is for.
-    /// </para>
-    /// <para>
-    /// The face buttons go to the pointer instead: this is a game played by pointing at
-    /// things, and the button under the thumb should be the one that does the pointing.
-    /// </para>
-    /// </remarks>
     private static readonly Dictionary<CameraAction, GamepadButton> DefaultButtons = new()
     {
         [CameraAction.Inventory] = GamepadButton.North,
@@ -115,11 +73,6 @@ public sealed class InputBindings
     public static InputBindings Default { get; } = new([], [], []);
 
     /// <summary>Every action that can be bound, in the order a page lists them.</summary>
-    /// <remarks>
-    /// The declaration order of <see cref="CameraAction"/>, which puts the free camera's own
-    /// movement first and the things everybody uses after it. The Controls page reorders
-    /// them into groups; this is only the set.
-    /// </remarks>
     public static IReadOnlyList<CameraAction> Actions { get; } =
         [.. Enum.GetValues<CameraAction>()];
 
@@ -162,12 +115,6 @@ public sealed class InputBindings
     /// <param name="action">The action.</param>
     /// <param name="key">The key, or <see cref="InputKey.None"/> to unbind it.</param>
     /// <returns>The new bindings.</returns>
-    /// <remarks>
-    /// <b>The key is taken away from whatever else had it</b>, in the same pass. Two actions
-    /// on one key is not a state the player can see or get out of: both would fire, and the
-    /// Controls page would show the key twice with nothing to say which one won. Every other
-    /// game resolves this by evicting the earlier binding, and so does this.
-    /// </remarks>
     public InputBindings With(CameraAction action, InputKey key)
     {
         Dictionary<CameraAction, InputKey[]> keys = new(_keys);
@@ -298,11 +245,6 @@ public sealed class InputBindings
     /// <summary>Reads the bindings back.</summary>
     /// <param name="stored">What was in the settings file, or null for none.</param>
     /// <returns>The bindings.</returns>
-    /// <remarks>
-    /// Everything unrecognised is dropped rather than refused. A settings file is a text
-    /// file somebody may edit, and a binding naming a key this version has never heard of
-    /// should cost that binding and nothing else.
-    /// </remarks>
     public static InputBindings Restore(StoredBindings? stored)
     {
         if (stored is null)
@@ -363,11 +305,6 @@ public sealed class InputBindings
     /// <summary>What to call an action on a settings page.</summary>
     /// <param name="action">The action.</param>
     /// <returns>Its name, in words.</returns>
-    /// <remarks>
-    /// Written out rather than derived from the enum's spelling. "CycleRayTracing" is what
-    /// the code calls it and "Step the lighting quality" is what it does, and a Controls
-    /// page is read by somebody who has never seen the code.
-    /// </remarks>
     public static string Name(CameraAction action) => action switch
     {
         CameraAction.Forward => "Camera forward",
@@ -405,11 +342,6 @@ public sealed class InputBindings
 /// <param name="Keys">Action name to a comma-separated list of key names.</param>
 /// <param name="Buttons">Action name to a gamepad button name.</param>
 /// <param name="Pointers">Mouse button name to a gamepad button name.</param>
-/// <remarks>
-/// Plain strings on both sides, so the file stays readable and stays valid when an
-/// enumeration gains a member. See <see cref="InputBindings.Store"/> for why only the
-/// differences are here.
-/// </remarks>
 public sealed record StoredBindings(
     Dictionary<string, string> Keys,
     Dictionary<string, string> Buttons,
@@ -429,18 +361,6 @@ public sealed record StoredBindings(
 /// <param name="Right">The right stick.</param>
 /// <param name="LeftTrigger">The left trigger, from nought to one.</param>
 /// <param name="RightTrigger">The right trigger.</param>
-/// <remarks>
-/// <para>
-/// Apart from the buttons because these are not presses. What reads them is moving a
-/// pointer or turning a camera, which wants how far the stick is pushed and in which
-/// direction rather than whether it has passed a threshold.
-/// </para>
-/// <para>
-/// <b>Y is positive downwards</b>, which is the screen's convention and not the stick's.
-/// The main thing a stick does in this game is move a cursor, and a cursor lives in pixels
-/// from the top-left; converting at every use is how one of the two ends up upside down.
-/// </para>
-/// </remarks>
 public readonly record struct GamepadSticks(
     System.Numerics.Vector2 Left,
     System.Numerics.Vector2 Right,

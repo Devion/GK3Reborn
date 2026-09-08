@@ -3,11 +3,6 @@ using System.Globalization;
 namespace GK3Reborn.Sheep;
 
 /// <summary>The value types the Sheep virtual machine operates on.</summary>
-/// <remarks>
-/// The member names deliberately mirror Sheep's own type vocabulary rather than .NET's.
-/// A conformance boundary is easier to verify against the original grammar when the
-/// names match it, which is why CA1720 is suppressed here.
-/// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Naming",
     "CA1720:Identifier contains type name",
@@ -27,12 +22,6 @@ public enum SheepValueKind
 /// <summary>
 /// A value on the Sheep stack.
 /// </summary>
-/// <remarks>
-/// Plan/01-architecture.md section 6: coercion rules, string semantics and error
-/// behavior are a compatibility boundary proven by conformance tests, not something
-/// to reimplement from intuition. GEngine's compiler is flex/bison generated, so
-/// GK3Reborn hand-writes the scanner and parser instead of porting generated code.
-/// </remarks>
 public readonly record struct SheepValue
 {
     private readonly int _int;

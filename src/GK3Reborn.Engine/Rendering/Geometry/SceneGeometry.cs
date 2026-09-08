@@ -12,39 +12,12 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <summary>
 /// Everything a scene needs on the GPU: its meshes, its textures and its baked lighting.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is where the content pipeline and the renderer meet. A parsed model, scene or
-/// lightmap set becomes vertex buffers, textures and descriptor sets here, and nothing
-/// goes through an intermediate format on the way — the same parsers that produce the glTF
-/// exports feed the renderer directly.
-/// </para>
-/// <para>
-/// It knows nothing about where it is drawn. The same loaded scene records into an
-/// offscreen target or into a swapchain image, which is what makes a headless regression
-/// render and the running game the same code path rather than two that drift.
-/// </para>
-/// </remarks>
 public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 {
     /// <summary>The original multiplies texture by lightmap by two, in gamma space.</summary>
-    /// <remarks>
-    /// Doing the same multiplication in linear space needs the constant raised to the
-    /// gamma, or a fully lit surface comes out at about 70% of the brightness the game
-    /// showed.
-    /// </remarks>
     private const float LightmapMultiplier = 4.59f;
 
     /// <summary>How much of a displaced surface's depth is left for the shader to march.</summary>
-    /// <remarks>
-    /// A quarter. The geometry is cut at whatever spacing the triangle budget affords — six
-    /// or seven units on a street — and the field is averaged over a cell before a vertex is
-    /// moved, so what the vertices carry is the part of the relief coarser than that and
-    /// what remains is the part finer. The remainder is nearly all of the field's detail and
-    /// a small share of its amplitude, and this is an estimate of that share rather than a
-    /// measurement: splitting a single map into two bands exactly would mean handing the
-    /// shader the complement of what the geometry took, and there is nowhere to put it.
-    /// </remarks>
     private const float ResidualRelief = 0.25f;
 
     private readonly IGeometryDevice _device;
@@ -53,31 +26,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// Which batches belong to each of the room's own named objects.
     /// </summary>
-    /// <remarks>
-    /// The room is one mesh as far as the file is concerned, and a name over a run of its
-    /// surfaces is all that separates the front desk from the wall behind it. Scripts show
-    /// and hide those names 287 times across the corpus — a curtain drawn back, a door that
-    /// becomes a prop for a cutscene — so the batches are cut along the same lines and this
-    /// says which is which.
-    /// </remarks>
     private readonly Dictionary<string, List<int>> _sceneObjects =
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Which batches belong to which mesh of which placed model.</summary>
-    /// <remarks>
-    /// A mesh becomes one batch per submesh, so moving a head means moving all of them
-    /// together. Kept beside the batches rather than inside them because only the handful
-    /// of models that can move ever need it.
-    /// </remarks>
     private readonly List<Dictionary<int, List<int>>> _placements = [];
 
     /// <summary>Which batch is which submesh of which placed model.</summary>
-    /// <remarks>
-    /// A second index over the same batches as <see cref="_placements"/>, because an
-    /// <c>[MVISIBILITY]</c> line names a mesh <em>and</em> a submesh and the batch list a
-    /// mesh owns cannot be indexed by submesh number: an empty group is skipped as the
-    /// model is read, so the two run out of step on any model that has one.
-    /// </remarks>
     private readonly List<Dictionary<(int Mesh, int Submesh), int>> _parts = [];
 
     /// <summary>What each placement was, so a mesh can be re-placed from its own space.</summary>
@@ -90,12 +45,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly HashSet<int> _posed = [];
 
     /// <summary>How many frames the renderer keeps in flight.</summary>
-    /// <remarks>
-    /// Must match <c>VulkanRenderer.FramesInFlight</c>. An animated batch keeps one vertex
-    /// buffer per frame so that writing this frame's pose cannot disturb one the device has
-    /// not finished reading — and one more besides, because the frame still in flight is
-    /// also reading the pose before it, to know how far the surface moved.
-    /// </remarks>
     private const int FramesInFlight = 2;
     private readonly TextureCache _textures;
 
@@ -113,10 +62,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private LightmapAtlas? _lightmapAtlas;
 
     /// <summary>Material sets for repainted surfaces, by what they draw.</summary>
-    /// <remarks>
-    /// Kept because a face comes back to the same mouth shape a dozen times a sentence, and
-    /// a set that is only a handful of image views is far cheaper to keep than to build.
-    /// </remarks>
     private readonly Dictionary<(string Painted, string Of, bool Lit), IGeometryMaterial> _repainted =
         new();
     private Vector3 _minimum = new(float.MaxValue);
@@ -135,12 +80,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int TriangleCount => _batches.Where(b => !b.Hidden).Sum(b => (int)b.IndexCount / 3);
 
     /// <summary>How many triangles are loaded, drawn or not.</summary>
-    /// <remarks>
-    /// The room's hit-test volumes and whatever the story is holding back are in the
-    /// buffers and not in the picture, so the two numbers differ — by 7,000 triangles in
-    /// the lobby. <see cref="TriangleCount"/> is what is drawn, because that is what every
-    /// caller means by it.
-    /// </remarks>
     public int LoadedTriangleCount => _batches.Sum(b => (int)b.IndexCount / 3);
 
     /// <summary>How many draws a frame costs.</summary>
@@ -156,10 +95,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public IGeometryAccelerationStructure? RayTracing => _rayTracing;
 
     /// <summary>Whether and how finely a floor's relief becomes geometry.</summary>
-    /// <remarks>
-    /// Set by whoever loads the scene, from the player's own settings. Off, every surface
-    /// takes the path it took before displacement existed.
-    /// </remarks>
     public ReliefSettings Relief { get; set; } = ReliefSettings.Default;
 
     /// <summary>How many triangles this room's floor was cut into, or zero.</summary>
@@ -169,11 +104,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public float ReliefCell { get; private set; }
 
     /// <summary>The furthest a displaced vertex moved, in world units, or zero.</summary>
-    /// <remarks>
-    /// See <see cref="ReliefPlan.Moved"/>. A floor cut into a million triangles and left
-    /// flat costs everything displacement costs and shows nothing, and no other number
-    /// says so.
-    /// </remarks>
     public float ReliefDepth { get; private set; }
 
     /// <summary>How far the average displaced vertex moved, in world units, or zero.</summary>
@@ -186,11 +116,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int RoundedObjects { get; private set; }
 
     /// <summary>Which objects those were, in the order they were met.</summary>
-    /// <remarks>
-    /// Named rather than counted because the list is curated by name
-    /// (<see cref="RoundNames"/>) and the failure it hides is silent: a room where nothing
-    /// matched looks exactly like a room where everything did.
-    /// </remarks>
     public IReadOnlyList<string> Rounded => _rounded;
 
     /// <summary>How many triangles those objects came to, once rounded.</summary>
@@ -199,16 +124,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// How many of the room's surfaces were moved off a surface they coincided with.
     /// </summary>
-    /// <remarks>Zero for nearly every surface; see <see cref="CoplanarCards"/>.</remarks>
     public int CardsSeparated { get; private set; }
 
     /// <summary>Whether a keyed card is given the thickness of the thing drawn on it.</summary>
-    /// <remarks>
-    /// Set by whoever loads the scene, from the player's own settings. Off, every card takes
-    /// the path it took before <see cref="CutoutCards"/> existed. It also gates the
-    /// measurement itself, which happens as textures are uploaded and so must be decided
-    /// before the first of them is.
-    /// </remarks>
     public bool ThickenCutoutCards
     {
         get => _textures.MeasureCutouts;
@@ -218,38 +136,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// Whether the room's own surfaces are drawn only on the side their winding faces.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// What the original does — <c>Renderer::Render</c> sets <c>CullMode::Back</c> for all
-    /// opaque world geometry — and what this renderer did not, which is a visible fault
-    /// rather than a lost optimisation. A GK3 room is a shell of inward-facing surfaces and
-    /// some of them are solid sheets with no hole where a door goes: R25's dumbwaiter shaft
-    /// is a closed box of lath whose room-side face covers the doorway, so drawing its back
-    /// paints the shaft shut the moment the door is opened. See <c>docs/known-issues.md</c>.
-    /// </para>
-    /// <para>
-    /// <b>Only the room.</b> A placed model keeps both faces whatever this says, and that is
-    /// not timidity: this port grows modelled trees where 1999 hung a painted quad, and a
-    /// leaf card is a single sheet with no back — culling models takes every crown in the
-    /// game and leaves the boles standing. The rooms are where the fault is and the rooms
-    /// are what this covers.
-    /// </para>
-    /// <para>
-    /// Set by whoever loads the scene, from the player's own settings, and read per draw
-    /// rather than baked into the geometry, so the same room can be photographed both ways
-    /// without being loaded twice.
-    /// </para>
-    /// </remarks>
     public bool CullBackFaces { get; set; } = true;
 
     /// <summary>Whether a thickened card is also given a shadow to cast.</summary>
-    /// <remarks>
-    /// Separate from <see cref="ThickenCutoutCards"/> and not implied by it, because the two
-    /// go wrong in unrelated ways and the comparison that tells them apart is worth being
-    /// able to make: thickening is geometry anybody can see, shadowing is an instance in the
-    /// acceleration structure carrying its own mask. A railing that looks right and shades
-    /// the wall behind it wrongly is this, and a railing that looks flat is the other.
-    /// </remarks>
     public bool CardShadows { get; set; } = true;
 
     /// <summary>How many of the room's cards were given a thickness.</summary>
@@ -259,19 +148,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int CardTriangles { get; private set; }
 
     /// <summary>How many triangles their shadows are traced against.</summary>
-    /// <remarks>
-    /// Not a subset of <see cref="CardTriangles"/> and not comparable to it: those are drawn
-    /// and these are not, and the merge that builds these means a card whose shell is two
-    /// thousand triangles routinely casts its shadow with forty.
-    /// </remarks>
     public int CardShadowTriangles { get; private set; }
 
     /// <summary>The thickest and thinnest any of them was given, in world units.</summary>
-    /// <remarks>
-    /// Reported because the thickness is measured rather than chosen, and a measurement that
-    /// has gone wrong shows up here as a room full of cards at the clamp — which a triangle
-    /// count cannot show and a screenshot of one rail cannot either.
-    /// </remarks>
     public (float Thinnest, float Thickest) CardThickness { get; private set; }
 
     /// <summary>How many triangles the plan expected the cut to come to.</summary>
@@ -281,18 +160,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int ReliefSetApart { get; private set; }
 
     /// <summary>What each texture's surface is like, for the passes that care.</summary>
-    /// <remarks>
-    /// Set by whoever loads the scene. Empty by default, which makes every surface matte
-    /// and every reflection cost nothing.
-    /// </remarks>
     public Rendering.Materials.SurfaceFinishes Materials { get; set; } =
         Rendering.Materials.SurfaceFinishes.Empty;
 
     /// <summary>How many triangles are in the ray-traced representation.</summary>
-    /// <remarks>
-    /// Lower than <see cref="TriangleCount"/>, because alpha-tested geometry is left out;
-    /// the gap is a useful measure of how much of a scene casts no shadow.
-    /// </remarks>
     public int TraceableTriangleCount => _traceable.Sum(m => m.Indices.Length / 3);
 
     /// <inheritdoc/>
@@ -333,11 +204,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>The six sides of the room's sky, once it has been given one.</summary>
-    /// <remarks>
-    /// Kept rather than uploaded here: building the pipeline needs the shader compiler and
-    /// the swapchain's formats, which belong to the renderer. The geometry's job is to know
-    /// what the room asked for.
-    /// </remarks>
     public IReadOnlyList<DecodedImage>? SkyboxFaces { get; private set; }
 
     /// <summary>How far the sky is turned, in radians.</summary>
@@ -353,10 +219,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>The room's reconstructed horizon, once it has been given one.</summary>
-    /// <remarks>
-    /// Kept rather than uploaded, for the same reason the sky's faces are: building the
-    /// pipeline needs the shader compiler and the swapchain's formats.
-    /// </remarks>
     public TerrainBackdrop? Terrain { get; private set; }
 
     /// <inheritdoc/>
@@ -438,11 +300,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// A map that is here as a picture but not as numbers is not here, for a floor that
-    /// wants to be displaced: the room before this one uploaded it and had no reason to
-    /// keep a readable copy, and the only way to get one is to read the file again.
-    /// </remarks>
     public bool HasHeightMap(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -501,29 +358,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// How far the top of a tree travels, as a fraction of its own height.
     /// </summary>
-    /// <remarks>
-    /// Two per cent, which on a two-hundred-unit maple is four units and on a room's
-    /// eighty-unit shrub is one and a half. It is meant to be noticed only when it stops:
-    /// a still tree beside a fountain and a walking character is the thing that says
-    /// nothing in this room is alive.
-    /// </remarks>
     private const float LeafSway = 0.020f;
 
     /// <summary>How fast the wind runs, in radians a second.</summary>
-    /// <remarks>
-    /// A gust every five or six seconds once the two waves in the shader have beaten
-    /// against each other. Faster than this reads as a gale in what is, in every scene
-    /// that has a tree in it, a still summer afternoon.
-    /// </remarks>
     private const float WindSpeed = 1.05f;
 
     /// <summary>The material constants for one batch's texture.</summary>
-    /// <remarks>
-    /// Scalars, and a map multiplies them rather than replacing them — which is what makes
-    /// a corrected roughness in the edit layer still mean something once a generated map
-    /// arrives for the same surface. The neutral map is all ones in the two channels that
-    /// multiply, so a surface with no map gets its measured finish unchanged.
-    /// </remarks>
     private Vector4 MaterialOf(string texture)
     {
         SurfaceFinish finish = Materials.Of(texture);
@@ -563,12 +403,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     public int NormalMapCount => _textures.NormalCount;
 
     /// <summary>Where the time goes inside the sink, when somebody is measuring.</summary>
-    /// <remarks>
-    /// The same timeline the loader stamps, so the two interleave into one account of a
-    /// load. Building the room is most of a cold arrival and all of a warm one, and it is
-    /// one call from the loader's side — without this the breakdown says "AddScene" and
-    /// stops exactly where the question starts.
-    /// </remarks>
     public LoadTimeline? Timeline { get; set; }
 
     /// <inheritdoc/>
@@ -733,22 +567,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// Every object at least one of whose batches is painted with a texture the material
     /// library calls emissive.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The library, and not the room's own self-lit flag.</b> A BSP surface's bit 8
-    /// means the 1999 bake never lit it, which covers two very different things: the lamp
-    /// shades, and the <em>painted views</em> — the van parked outside the hotel window,
-    /// the grass beyond it, the dining room seen through a doorway. The second kind are
-    /// pictures of somewhere else hung on a wall, and a light at the middle of one is a
-    /// lamp standing in the middle of the lobby. The library asks a different question —
-    /// is this picture bright enough to be giving off light — and only that one is a light.
-    /// </para>
-    /// <para>
-    /// Models as well as room geometry, which is where this differs from anything the
-    /// content pipeline could have written down: a room's lamps are as often props as
-    /// geometry, and which props are standing depends on the point in the story.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<EmissiveSurface> Emitters()
     {
         var found = new List<EmissiveSurface>();
@@ -777,12 +595,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>The one emitter an object comes to, or null when none of it glows.</summary>
-    /// <remarks>
-    /// A lamp shade is six surfaces and a stained-glass window is five; one light apiece is
-    /// the answer, and averaging their vertices puts it where the fitting is. The vertices
-    /// are the authored ones through the batch's current placement, so a lamp a script has
-    /// moved lights where it now stands.
-    /// </remarks>
     private EmissiveSurface? Gather(string owner, List<int> batches)
     {
         Vector3 total = Vector3.Zero;
@@ -927,13 +739,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>A material set drawing one picture with another surface's normal map.</summary>
-    /// <remarks>
-    /// A model's repaint takes no lightmap, because only the room's own geometry is baked.
-    /// The room repaints too — an animation may swap the picture on a wall or a floor — and
-    /// that one keeps the bake, or the surface it lands on goes flat and bright in a room
-    /// where everything around it is lit. Cached, because a talking face comes back to the
-    /// same eight mouth shapes over and over and a flashing floor to the same three.
-    /// </remarks>
     private IGeometryMaterial MaterialFor(string picture, string surface, bool lit = false)
     {
         if (_repainted.TryGetValue((picture, surface, lit), out IGeometryMaterial? known))
@@ -955,20 +760,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     private readonly HashSet<int> _invisible = [];
 
     /// <summary>Batches an <c>[MVISIBILITY]</c> line has turned off on their own.</summary>
-    /// <remarks>
-    /// Held apart from <see cref="_invisible"/> because the two are independent in the
-    /// original: a submesh switched off stays off when the model is shown again, and
-    /// showing a model does not put back a part an animation took away. So a batch is
-    /// drawn only when neither says otherwise.
-    /// </remarks>
     private readonly HashSet<int> _invisibleParts = [];
 
     /// <summary>Every placement that turns to the camera, and the pose it was placed in.</summary>
-    /// <remarks>
-    /// The authored transform is kept rather than read back each frame, because the turn
-    /// is applied <em>to</em> it: reading back a transform this already turned and turning
-    /// that would compound the angle and spin the model.
-    /// </remarks>
     private readonly List<(ModelPlacement Placement, Matrix4x4 Placed, Vector3 Pivot, float Authored)>
         _billboards = [];
 
@@ -1028,11 +822,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="model">The model, in its own space.</param>
     /// <param name="placed">Where the scene stood it.</param>
     /// <returns>The horizontal front direction, or zero when it has none.</returns>
-    /// <remarks>
-    /// The area-weighted sum of the face normals, which for a card is the card. Summed
-    /// rather than averaged: a closed shape cancels to nothing and is refused by the
-    /// caller, which is the right answer for a thing that has no front.
-    /// </remarks>
     private static Vector3 Facing(ModFile model, Matrix4x4 placed)
     {
         Vector3 total = Vector3.Zero;
@@ -1062,20 +851,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Turns every billboard to face where the camera is now.</summary>
     /// <param name="eye">Where the camera stands, in the room's coordinates.</param>
     /// <returns>How many were turned.</returns>
-    /// <remarks>
-    /// <para>
-    /// Called once a frame, after the frame's camera is decided and before anything is
-    /// drawn with it. About the vertical only, and by the angle between where the model
-    /// was authored looking and where the camera is: the authored transform stays, so a
-    /// billboard the scene placed, hid, or lit keeps all of that.
-    /// </para>
-    /// <para>
-    /// The cost is one <see cref="MoveModel"/> per billboard per frame, which rewrites its
-    /// batches and moves it in the traced world. That is affordable because there are few
-    /// of them left — the grown trees replace the foliage cards that are the bulk of the
-    /// set, so what remains in a room is chains, lanterns and the odd small pine.
-    /// </para>
-    /// </remarks>
     public int TurnBillboards(Vector3 eye)
     {
         foreach ((ModelPlacement placement, Matrix4x4 placed, Vector3 pivot, float authored)
@@ -1162,12 +937,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The vertices do not move; the transform they are drawn with does. That keeps a
-    /// glance to a handful of matrix multiplies a frame and leaves the acceleration
-    /// structure alone — which is also its limit, since a head turned under ray tracing
-    /// still casts the shadow of the head it was.
-    /// </remarks>
     public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
     {
         if (!placement.Exists || placement.Id >= _placements.Count)
@@ -1204,12 +973,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The positions are kept and written into a buffer by <see cref="Flush"/>, not written
-    /// here. A vertex buffer the device may still be reading cannot be overwritten from the
-    /// CPU, and the only place that knows which frame the device has finished with is the
-    /// renderer.
-    /// </remarks>
     public void ShapeMesh(
         ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)
     {
@@ -1233,18 +996,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// Writes whatever has been reshaped into the buffers for a frame.
     /// </summary>
     /// <param name="frame">Which of the frames in flight is about to be recorded.</param>
-    /// <remarks>
-    /// <para>
-    /// One vertex buffer per frame in flight, cycled. Writing a single buffer from the CPU
-    /// while the device is still reading it for an earlier frame gives a character built
-    /// from two different poses at once; waiting for the device instead would give up the
-    /// pipelining that makes it worth having frames in flight at all.
-    /// </para>
-    /// <para>
-    /// A batch is only given animated buffers the first time something reshapes it, so a
-    /// scene where nothing deforms pays nothing.
-    /// </para>
-    /// </remarks>
     public void Flush(int frame)
     {
         if (_pendingShapes.Count == 0)
@@ -1285,12 +1036,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Hands the acceleration structure the vertices now being drawn.</summary>
-    /// <remarks>
-    /// Without this a character's shadow is the shape the model was authored in, wherever
-    /// the animation has actually put them: rays leaving a raised arm start inside a body
-    /// that is still standing at rest, and report themselves as shadowed. It shows as
-    /// smears across whichever parts of them moved.
-    /// </remarks>
     private void Retrace()
     {
         if (_posed.Count == 0 || _rayTracing is null)
@@ -1366,25 +1111,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             : Matrix4x4.Identity;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <para>
-    /// Every batch of every mesh is re-placed against the new transform, <b>each from the
-    /// pose it is in now</b> rather than from the pose the model was authored in. A head
-    /// that is turned goes on looking where it was looking, and a mesh a clip has moved
-    /// stays where the clip put it, which is the same rule <see cref="TurnMesh"/> keeps and
-    /// for the same reason.
-    /// </para>
-    /// <para>
-    /// Rebuilding from <c>MeshToLocal</c> instead threw away every pose the frame had just
-    /// applied, which is not visible on a model that is only walking — a stride poses every
-    /// mesh again on the next frame — and is total for a <b>held prop</b>, whose
-    /// pose is applied once and whose placement is then rewritten every frame to follow
-    /// whoever is holding it. The Abbé's binoculars are modelled 252 units below his feet
-    /// and put in his hands entirely by their clip, so they were being drawn underground:
-    /// reported as a man miming binoculars he did not have. Lady Howard's camera and its
-    /// lens are the same defect 93 units behind her.
-    /// </para>
-    /// </remarks>
     public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
     {
         if (!placement.Exists || placement.Id >= _placements.Count)
@@ -1424,12 +1150,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="positions">World-space vertices.</param>
     /// <param name="indices">Triangles over them.</param>
     /// <param name="colour">What to draw it in, each channel from zero to one.</param>
-    /// <remarks>
-    /// For diagnostic overlays — the walk boundary is the first — so it deliberately does
-    /// not participate in anything else: no lightmap, no rig, and nothing in the
-    /// acceleration structure, because an overlay that cast shadows would change the
-    /// picture it exists to check.
-    /// </remarks>
     public void AddOverlay(
         string name, ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, Vector3 colour)
     {
@@ -1591,40 +1311,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// Cuts the room's relief on every core, a window of polygons at a time.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>This was 53% of walking through a door.</b> Cutting RC4's ground took 684 ms of
-    /// the 1,280 the room took to load, on one core, while fifteen others did nothing and
-    /// the screen fade had no frame to present. It parallelises exactly: a triangle's
-    /// relief depends on the triangle, the plan and a height field, and the plan is
-    /// read-only once <see cref="ReliefPlan.For"/> has built it. The one thing shared is
-    /// the "how far did it move" tally, which each cut keeps to itself and merges once.
-    /// </para>
-    /// <para>
-    /// <b>A window at a time, and that is not a detail.</b> Cutting the whole room up front
-    /// is simpler and was measurably worse: a room's cut is some tens of megabytes of
-    /// vertices, and holding all of it while the loop consumes it cost more in collection
-    /// than the parallelism saved — the cut itself fell to 257 ms and every phase *after*
-    /// it rose, buffers alone from 285 ms to 841. A window is cut, consumed and dropped
-    /// before the next is cut, so the extra live set is a fraction of one room.
-    /// </para>
-    /// <para>
-    /// <b>The order of the result is the order of the room, not the order the work finished
-    /// in.</b> Every triangle has a slot decided before any of them runs, so the batches
-    /// come out vertex for vertex identical to the serial cut — verified byte for byte on
-    /// an outdoor room and an interior. That is not tidiness: two renders of the same scene
-    /// are compared byte for byte to tell a shading change from noise.
-    /// </para>
-    /// </remarks>
     private sealed class ReliefCut
     {
         /// <summary>How much of the room is cut at once.</summary>
-        /// <remarks>
-        /// Bounded by memory rather than by cores: it decides the live set, and every
-        /// window is still spread across every core. A thousand polygons of an outdoor
-        /// room is some tens of thousands of cut triangles, which is far more work than a
-        /// core needs to be worth waking.
-        /// </remarks>
         private const int PolygonsPerWindow = 1024;
 
         private readonly BspFile _scene;
@@ -1660,11 +1349,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// <summary>Where each polygon's triangles begin, by polygon index.</summary>
         /// <param name="scene">The room.</param>
         /// <returns>One more entry than there are polygons; the last is the total.</returns>
-        /// <remarks>
-        /// A polygon is fanned from its first vertex, so it is exactly two fewer triangles
-        /// than it has corners. Computed once so a window can be written into disjoint
-        /// slots without the workers agreeing on anything at run time.
-        /// </remarks>
         public static int[] Triangles(BspFile scene)
         {
             int[] first = new int[scene.Polygons.Count + 1];
@@ -1683,11 +1367,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// <param name="first">From <see cref="Triangles"/>.</param>
         /// <param name="geometry">Whose material library and texture set are read.</param>
         /// <returns>The cutter, or null when the loop takes its flat path throughout.</returns>
-        /// <remarks>
-        /// What each surface displaces at is decided here, once per surface rather than
-        /// once per triangle — and on this thread, because the material library and the
-        /// texture set are not the tessellator and were never asked to be concurrent.
-        /// </remarks>
         public static ReliefCut? For(
             BspFile scene, ReliefPlan? plan, int[] first, SceneGeometry geometry)
         {
@@ -1746,12 +1425,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         /// <param name="polygon">Which polygon the loop has reached.</param>
         /// <param name="triangle">The triangle's index across the whole room.</param>
         /// <returns>The cut, or null for the flat path.</returns>
-        /// <remarks>
-        /// The loop walks polygons in order, so reaching one past the window is what asks
-        /// for the next — and letting the old one go here is what keeps the live set to a
-        /// window. A frame is offered after each, because a worker may not:
-        /// <see cref="SceneGeometry.Progress"/> belongs to the loading thread and it draws.
-        /// </remarks>
         public CutTriangle? At(int polygon, int triangle)
         {
             if (polygon >= _windowTo)
@@ -1829,26 +1502,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// The object the scene calls its floor, whose surfaces may have their relief cut into
     /// the geometry rather than only sampled by the shader, or null to displace nothing.
     /// </param>
-    /// <remarks>
-    /// <para>
-    /// BSP files carry no normals, so each triangle gets the normal of its own plane. Flat
-    /// shading is wrong for the few curved surfaces a scene contains and right for the
-    /// walls, floors and doorways that make up nearly all of them, and it invents no
-    /// smoothing groups the data never had.
-    /// </para>
-    /// <para>
-    /// The floor is the exception, and has to be: a displaced surface is subdivided, and
-    /// giving every piece of it the plane's normal would make the relief invisible. Those
-    /// pieces carry a normal smoothed across the floor instead. See
-    /// <see cref="ReliefPlan"/>.
-    /// </para>
-    /// <para>
-    /// And improved geometry is the other exception, because it has normals of its own: an
-    /// object somebody bevelled outside the engine arrives with the shading its new edges
-    /// need, and putting the plane's normal back on it would throw away the whole reason
-    /// for the bevel. See <see cref="Replace"/>.
-    /// </para>
-    /// </remarks>
     /// <param name="enhanced">
     /// Improved geometry for some of the room's objects, or null to draw every object from
     /// the room itself.
@@ -2250,12 +1903,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </summary>
     /// <param name="texture">The texture's name.</param>
     /// <returns>True where the surface may be cut.</returns>
-    /// <remarks>
-    /// All three are required — a floor whose map never arrived cannot be displaced, and
-    /// one nothing asked to displace must not be. A method rather than a local function
-    /// because <see cref="ReliefCut"/> asks it too, and the two have to agree: it decides
-    /// which surfaces are cut, and a second copy of it would be a second answer.
-    /// </remarks>
     private bool Deep(string texture)
     {
         SurfaceFinish finish = Materials.Of(texture);
@@ -2264,21 +1911,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>The names of the room's round things, matched by what they contain.</summary>
-    /// <remarks>
-    /// A curated list rather than a measurement. Curvature could be estimated, and would
-    /// then round off things whose faceting is the point — a cut gem, a timber beam — so
-    /// the things that are round on purpose are named: bells, lamps, lanterns, candles,
-    /// chandeliers, vases and urns.
-    /// </remarks>
     private static readonly string[] RoundNames =
         ["bell", "lamp", "lantern", "candle", "chandel", "vase", "urn"];
 
     /// <summary>How many of the room's objects were drawn from improved geometry.</summary>
-    /// <remarks>
-    /// Reported rather than folded into the triangle count, because the failure worth
-    /// seeing is silent: a room with no overlay built for it and a room whose overlay was
-    /// refused draw exactly the same picture, and only a number tells them apart.
-    /// </remarks>
     public int EnhancedObjects { get; private set; }
 
     /// <summary>What those objects came to, once refined.</summary>
@@ -2297,23 +1933,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="groups">The batches being built.</param>
     /// <param name="occluders">What a ray can hit.</param>
     /// <param name="occluderIndices">Its indices.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The overlay supplies positions, normals and texture coordinates. It supplies
-    /// nothing else, and it is not asked to.</b> Every triangle names one of the room's own
-    /// surfaces, and that surface decides the picture on it, where its lightmap sits, and
-    /// whether it lights itself, casts a shadow or is drawn at all — through exactly the
-    /// same arithmetic an unmodified surface goes through, three lines below. That is what
-    /// makes replacing a chair a change to the chair rather than to the room's lighting.
-    /// </para>
-    /// <para>
-    /// Two things are refused rather than replaced. A hidden surface stays in its batch as
-    /// hidden, because there is no showing something that was never read. And a surface
-    /// the relief plan is cutting into keeps its own geometry, because the cut and the
-    /// replacement are two sets of triangles for one patch of floor and drawing both puts
-    /// the floor through itself.
-    /// </para>
-    /// </remarks>
     private void Replace(
         BspFile scene,
         SceneOverlay enhanced,
@@ -2447,28 +2066,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="apart">How far each surface is moved off one it coincides with.</param>
     /// <param name="emitted">Receives every surface index this handled.</param>
     /// <param name="groups">The batches being built.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>First, ahead of the improved geometry and the rounding.</b> A railing is a single
-    /// surface inside an object that is otherwise a staircase or a wall, and the other two
-    /// passes work on whole objects: whichever of them reached the object first would claim
-    /// the rail along with it and draw the flat card it has always drawn. Claiming the card
-    /// here and letting <see cref="Replace"/> skip what is claimed is the only ordering in
-    /// which a rail on an improved staircase gets both treatments.
-    /// </para>
-    /// <para>
-    /// The improved copy of such a card is the same flat quad in any case — a surface on one
-    /// plane has no edge to bevel and no curve to recover, so the Blender pass leaves it
-    /// exactly as it found it — which is why taking the card from the room's own polygons
-    /// here loses nothing.
-    /// </para>
-    /// <para>
-    /// No occluders. Every card this touches is keyed, and keyed geometry is kept out of the
-    /// acceleration structure whatever its shape: without an any-hit shader the holes in it
-    /// would cast a solid shadow. So a thickened rail casts exactly the shadow a flat one
-    /// did, which is none.
-    /// </para>
-    /// </remarks>
     private void ThickenCards(
         BspFile scene,
         IReadOnlySet<string>? hiddenObjects,
@@ -2647,20 +2244,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         RoundNames.Any(round => owner.Contains(round, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The most triangles an object may hold and still be worth rounding.</summary>
-    /// <remarks>
-    /// Two levels of subdivision are sixteen times the triangles, so five hundred is a cap
-    /// of about eight thousand for one object — a chandelier's worth, not a building's. A
-    /// "lamp" that is really a street of lampposts stays as authored.
-    /// </remarks>
     private const int RoundBudget = 500;
 
     /// <summary>How many times a rounded object's edges are halved.</summary>
-    /// <remarks>
-    /// Two, which is sixteen pieces per authored triangle. One is visibly still a polygon on
-    /// the eight-sided objects and three buys nothing a bell is large enough on screen to
-    /// show. Zero leaves the authored shape and keeps only the crease-aware shading, which
-    /// is how the two are told apart in a screenshot.
-    /// </remarks>
     public int RoundLevels { get; set; } = 2;
 
     /// <summary>
@@ -2673,19 +2259,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <param name="groups">The batches being built.</param>
     /// <param name="occluders">What a ray can hit.</param>
     /// <param name="occluderIndices">Its indices.</param>
-    /// <remarks>
-    /// <para>
-    /// See <see cref="ObjectRounding"/> for why the object is welded whole: the rim between
-    /// a bell's side and its top belongs to two surfaces, and refining each alone pins it,
-    /// which is how the first attempt at this left every bell exactly as hexagonal as it
-    /// found it.
-    /// </para>
-    /// <para>
-    /// Each refined triangle is emitted into its own surface's batch, with its lightmap
-    /// coordinate computed from its texture coordinate through that surface's mapping — the
-    /// same arithmetic every unrounded surface uses.
-    /// </para>
-    /// </remarks>
     private void RoundOff(
         BspFile scene,
         int objectIndex,
@@ -2870,11 +2443,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Remembers where everything was drawn, ready for the next frame.</summary>
-    /// <remarks>
-    /// Called after a frame is recorded, not before: what a motion vector needs is where a
-    /// thing was when it was last <em>drawn</em>, and something that moved twice between
-    /// two frames was only ever drawn at the second place.
-    /// </remarks>
     public void Advance()
     {
         for (int i = 0; i < _batches.Count; i++)
@@ -2887,20 +2455,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     }
 
     /// <summary>Makes the traced world agree with the drawn one, once a frame.</summary>
-    /// <remarks>
-    /// Anything that moved this frame has only been recorded; this is what rebuilds the
-    /// structure that shadows are cast against. Called before the frame traces anything.
-    /// </remarks>
     public void Settle() => _rayTracing?.Settle();
 
     /// <summary>How many separately movable things the traced world holds.</summary>
     public int TraceablePartCount => _rayTracing?.PartCount ?? 0;
 
     /// <summary>Builds the descriptor sets and acceleration structure the batches need.</summary>
-    /// <remarks>
-    /// Called once, after loading and before the first draw. Everything it builds is
-    /// immutable afterwards, so nothing has to be rebuilt or synchronised per frame.
-    /// </remarks>
     public void Finish()
     {
         if (_finished || _batches.Count == 0)
@@ -2976,42 +2536,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// the remarks below for why the two cannot both be had in one frame.
     /// </param>
     /// <returns>The plane, or null if the room has nothing worth reflecting about.</returns>
-    /// <remarks>
-    /// <para>
-    /// Called before <see cref="Draws"/> and remembered, because the two have to agree: the
-    /// batch that carries the mirror flag is the batch the reflection was rendered for, and
-    /// any other mirror in the room keeps the picture painted on it. A second mirror would
-    /// be a second pass over the whole room for a reflection nobody is looking at.
-    /// </para>
-    /// <para>
-    /// <b>The material marks a slab and the geometry picks the glass out of it.</b>
-    /// <c>MIRRORL.MOD</c> is a box whose front, back, sides, top and bottom all carry
-    /// <c>MIRRORLEFT1</c>, so every one of those is a candidate and only one of them is a
-    /// mirror. What separates them is flatness and the way the vertices' own normals point;
-    /// see <see cref="MirrorSurfaces"/>.
-    /// </para>
-    /// <para>
-    /// <b>A polished floor is reflected the same way, and only where the room has no
-    /// mirror.</b> What a floor shows is mostly what is above the camera — the ceiling, the
-    /// beams, the lamps hanging off them — and none of that is ever in the frame the
-    /// screen-space march has to work from, which is why a tiled hall reflected nothing
-    /// however smooth its material said it was. Rendering the room again from under the
-    /// floor has the ceiling because it drew it.
-    /// </para>
-    /// <para>
-    /// One plane a frame, so a room with both keeps its mirror: a mirror that stops
-    /// reflecting shows a painted fake of a room that is not there, and a floor that stops
-    /// reflecting shows a floor. No room in the game has a mirror over a floor polished
-    /// enough for this in any case.
-    /// </para>
-    /// <para>
-    /// <b>Which surfaces are the floor is the room's own answer, not a guess.</b> The
-    /// scene file names its floor object, and <see cref="KeepRelief"/> is already told the
-    /// textures on it — that is the set displacement is cut into. A floor is therefore a
-    /// batch drawn with one of those textures, smooth enough for a reflection to be worth
-    /// having, and mostly at one height.
-    /// </para>
-    /// </remarks>
     public MirrorSurface? ChooseMirror(Vector3 eye, bool floors = false)
     {
         List<MirrorSurface>? found = null;
@@ -3092,23 +2616,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// The plane this room's floor is reflected about, worked out once.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Cached, and the first version was not, and that cost two thirds of the frame.</b>
-    /// Fitting the plane walks every vertex of every polished piece of the floor three
-    /// times, and a room's floor object names more than the floor: the hotel lobby's is
-    /// eight textures, four of which are its panelling and its beams, so "every batch drawn
-    /// with one of the floor's textures" came to most of the room. Done every frame that is
-    /// three million transforms on one thread — the lobby went from 142 frames a second to
-    /// 35, and the <em>drawing</em> of the reflection was not what cost it: cutting the pass
-    /// out and leaving the fitting in still gave 38.
-    /// </para>
-    /// <para>
-    /// A floor does not move, so once is right. Recomputed when the number of batches
-    /// changes, which is the one thing that happens to a room after it has loaded — the
-    /// hidden models are replayed onto it, and the story shows and hides things.
-    /// </para>
-    /// </remarks>
     private MirrorSurface? _floor;
 
     /// <summary>How many batches the room had when that was last worked out.</summary>
@@ -3124,12 +2631,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// The plane this room's floor is reflected about, fitting it if that has not been done.
     /// </summary>
     /// <returns>The plane, or null when the room has no floor worth a pass.</returns>
-    /// <remarks>
-    /// The room has one floor and gets one plane. Fitted a piece at a time, the church chose
-    /// its tiled runner — the largest single piece — and the grey tiles either side sat a
-    /// little lower and were not on it, so the reflection appeared on a strip up the middle
-    /// of the nave and nowhere else.
-    /// </remarks>
     private MirrorSurface? Floor()
     {
         if (_floorAt == _batches.Count)
@@ -3192,11 +2693,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// Which batch the frame's reflection plane came from, or -1.
     /// </summary>
-    /// <remarks>
-    /// Apart from <see cref="_mirrorBatch"/> because a floor supplies a plane without being
-    /// drawn as glass. Kept only so that the line above is said once when it changes rather
-    /// than once a frame.
-    /// </remarks>
     private int _planeBatch = -1;
 
     /// <summary>Works out what every loaded batch needs drawn, and with what.</summary>
@@ -3204,20 +2700,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// The wind's clock as it stood a frame ago, so that a leaf reports its own movement to
     /// the temporal filter rather than reporting none.
     /// </param>
-    /// <remarks>
-    /// <para>
-    /// The caller binds the pipeline, the viewport and the frame's descriptor set first;
-    /// this only issues what varies per batch.
-    /// </para>
-    /// <para>
-    /// The pipeline is passed in rather than taken from the geometry, because the raster
-    /// and ray-traced variants have different set 0 layouts and therefore incompatible
-    /// pipeline layouts. Binding a descriptor set or pushing constants through the wrong
-    /// one is not an error Vulkan reports: the vertex shader simply reads a garbage
-    /// transform and the geometry lands outside the frustum, which looks exactly like
-    /// drawing nothing at all.
-    /// </para>
-    /// </remarks>
     public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f)
     {
         for (int index = 0; index < _batches.Count; index++)
@@ -3445,34 +2927,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>
     /// Drawn wherever a model asks for a texture the corpus does not contain.
     /// </summary>
-    /// <remarks>
-    /// A wrong-looking texture is better than a silently black one: the first is a bug you
-    /// can see, and the second is a room that merely looks badly lit.
-    /// </remarks>
     /// <summary>
     /// What a group of triangles is painted with, which is not always a texture.
     /// </summary>
     /// <param name="submesh">The group.</param>
     /// <returns>A texture name, which may be one made up for a colour.</returns>
-    /// <remarks>
-    /// <para>
-    /// A <c>.MOD</c> group carries a texture name <em>and</em> a colour, and a handful of
-    /// the game's models use the second instead of the first: <c>BINO1</c> and
-    /// <c>ABEBINOCS</c> — the tour's binoculars — name no texture anywhere in the file and
-    /// are a dark teal body and near-black rubber, stored as the two groups' colours.
-    /// </para>
-    /// <para>
-    /// Without this they took the missing-texture fallback, which is a <b>magenta
-    /// chequerboard</b>, and the binoculars turned up as a loud purple object. That
-    /// fallback is a good thing and it stays: a texture that is <em>named</em> and not
-    /// found is a real fault and should be impossible to miss. A group that names none was
-    /// never asking for one.
-    /// </para>
-    /// <para>
-    /// One texel, under a name made from the colour, so that every group of the same colour
-    /// shares one texture and the batch key keeps working exactly as it did.
-    /// </para>
-    /// </remarks>
     private string Painted(ModSubmesh submesh)
     {
         if (submesh.TextureName.Length > 0)
@@ -3589,11 +3048,6 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public IGeometryBuffer? Was { get; init; }
 
         /// <summary>This mesh's place within its model.</summary>
-        /// <remarks>
-        /// Rays see one structure per model, placed by one transform, so each mesh's own
-        /// transform has to be folded into the vertices handed to it — which means
-        /// knowing what that transform currently is.
-        /// </remarks>
         public Matrix4x4 Local { get; init; }
 
         public required IGeometryBuffer Indices { get; init; }
@@ -3601,21 +3055,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public required uint IndexCount { get; init; }
 
         /// <summary>Whether the indices are sixteen bits each rather than thirty-two.</summary>
-        /// <remarks>
-        /// A model's submeshes are small enough for sixteen; a scene batch routinely is not,
-        /// because a single wall texture in the larger rooms covers more geometry than a
-        /// sixteen-bit index can address.
-        /// </remarks>
         public required bool ShortIndices { get; init; }
 
         public required Matrix4x4 Transform { get; init; }
 
         /// <summary>Where this batch was drawn last frame.</summary>
-        /// <remarks>
-        /// Half of a motion vector. Advanced at the end of a frame rather than when the
-        /// batch moves, because several things may move it between one drawing and the
-        /// next and what a filter needs is where it actually last appeared.
-        /// </remarks>
         public Matrix4x4 Previous { get; init; }
 
         public required string TextureName { get; init; }
@@ -3632,53 +3076,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         public bool Foliage { get; init; }
 
         /// <summary>Whether the picture on it is a cutout: holes rather than a solid sheet.</summary>
-        /// <remarks>
-        /// Which is what a card is, and cards are the room's one class of surface with no
-        /// back. A 1999 tree is a handful of crossed quads painted with a crown and keyed
-        /// out around it, and every one of them is meant to be seen from either side. See
-        /// <see cref="CullBackFaces"/>.
-        /// </remarks>
         public bool Keyed { get; init; }
 
         /// <summary>A model standing in the room, rather than the room itself.</summary>
-        /// <remarks>
-        /// Carried through to the shader so a shadow ray leaving this pixel knows to skip
-        /// the models: GK3's people are a stack of overlapping shells and a ray leaving a
-        /// shirt hits the arm inside it. See <c>RayTracingScene.MaskFor</c>.
-        /// </remarks>
         public bool IsModel { get; init; }
 
         /// <summary>What is drawn on it instead of its own texture, if anything is.</summary>
-        /// <remarks>
-        /// A character's face while they talk or blink. The original texture's name is kept
-        /// beside it because that is what the normal map is filed under, and because
-        /// putting the face back is asking for the model's own picture again.
-        /// </remarks>
         public string? Painted { get; init; }
 
         /// <summary>The picture actually on this batch right now.</summary>
-        /// <remarks>
-        /// <b>Which is not always <see cref="TextureName"/>.</b> It matters wherever what
-        /// is asked of the material is a fact about the picture rather than about the
-        /// surface it is filed under — and mirrors are the case where the difference is the
-        /// whole feature. TE4's two mirrors are <c>MIRRORLEFT1</c> and <c>MIRRORRIGHT1</c>
-        /// at rest and are mirrors; the moment the story steps Gabriel up to one, an
-        /// <c>[MTEXTURES]</c> line repaints it with <c>MIRRORGABEBAD</c> — a jaundiced,
-        /// hollow-eyed Gabriel that is not his reflection at all and is the puzzle. Asking
-        /// the original name whether this is a mirror answers yes right through that, and
-        /// the reflection paints the story out.
-        /// </remarks>
         public string Drawn =>
             Painted is { Length: > 0 } picture ? picture : TextureName;
 
         /// <summary>Whether it is kept out of the picture.</summary>
-        /// <remarks>
-        /// A model a scene declares <c>hidden</c>, or one a script has hidden. It is loaded
-        /// and placed either way, because <c>ShowModel</c> is how the story brings it out
-        /// and there is no way to do that with something that was never read. Written the
-        /// negative way round because a batch is a struct and the common case has to be
-        /// the default one.
-        /// </remarks>
         public bool Hidden { get; init; }
 
         public IGeometryMaterial? Material { get; init; }

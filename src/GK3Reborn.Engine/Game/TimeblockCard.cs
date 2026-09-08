@@ -16,43 +16,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The lettering that types itself across the card between two parts of the day.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>What is in the archives.</b> Each of the seventeen timeblocks has a painting,
-/// <c>TBT102P.BMP</c>, and a run of thirteen to eighteen small bitmaps, <c>D102P_01.BMP</c>
-/// upwards, listed in playing order by <c>D102P.SEQ</c>. The small ones are the name of the
-/// timeblock appearing a few letters at a time, as if typed. The port drew the name in its
-/// own face instead and threw the animation away; this is the animation.
-/// </para>
-/// <para>
-/// <b>The frames are opaque, and that is the whole problem.</b> Each one is not lettering on
-/// a transparent ground — it is a rectangle of the painting itself with white text blended
-/// over it. Drawn as they are, they only line up over the original 640x480 painting, so on
-/// an installation with the upscaled paintings a player would get a soft postage stamp of
-/// 1999 artwork sitting in the middle of a sharp one. That is the reason none of this is
-/// simply shipped as enhanced textures: at four times the size the lettering would have to
-/// be repainted, and the frames already say exactly what the lettering is if you subtract
-/// the painting back out.
-/// </para>
-/// <para>
-/// So that is what happens here. A frame is a crop of the painting at a known offset, and
-/// the difference between the two is nothing at all outside the letters — checked, not
-/// assumed, and the check is what <see cref="Locate"/> uses to confirm the offset. Inside
-/// them the frame is the painting blended towards white, so
-/// <c>alpha = (frame - painting) / (255 - painting)</c> recovers the coverage the artists
-/// drew. What comes out is white lettering with a real alpha channel, which lays over a
-/// painting of any size, at any window size, and over the upscaled one as readily as the
-/// original.
-/// </para>
-/// <para>
-/// The offsets are adapted from G-Engine's <c>TimeblockScreen</c> by Clark Kromenaker
-/// (https://github.com/kromenak/gengine), GNU General Public License version 3. See NOTICE.
-/// They are given there as an anchor from the bottom-left corner; here they are the
-/// top-left of the lettering in the card, which is the same thing said in the coordinates
-/// everything else in this engine uses. Two of them differ, and both are checked at load —
-/// see <see cref="Where"/>.
-/// </para>
-/// </remarks>
 public sealed class TimeblockCard
 {
     private TimeblockCard(
@@ -77,12 +40,6 @@ public sealed class TimeblockCard
     /// <summary>
     /// The height all but one of them are.
     /// </summary>
-    /// <remarks>
-    /// <c>TBT306P.BMP</c> is 640x481 — one row taller than its sixteen siblings, and the
-    /// enhanced set upscales it to 2048x1539 rather than quietly squaring it up. Nothing
-    /// here assumes either number: <see cref="PaintingHeight"/> is whatever the painting
-    /// turned out to be, which is why the offsets below are measured from the bottom.
-    /// </remarks>
     public const int CardHeight = 480;
 
     /// <summary>Which part of the day this belongs to, as <c>102P</c>.</summary>
@@ -119,21 +76,6 @@ public sealed class TimeblockCard
     /// </summary>
     /// <param name="painting">The painting's rectangle on screen, in window pixels.</param>
     /// <returns>The lettering's rectangle, in the same pixels.</returns>
-    /// <remarks>
-    /// <para>
-    /// The offsets are in the painting's own pixels, so the rectangle it was drawn into is
-    /// what turns them into window pixels — the rectangle, not the size of whatever picture
-    /// went into it. An enhanced painting is ten times as many pixels and lands in exactly
-    /// the same place, and a covered painting runs off the top and the bottom of the window
-    /// with the lettering following it up rather than being nudged back into view on its own.
-    /// </para>
-    /// <para>
-    /// It does assume the painting on screen has the shape of the one the lettering came
-    /// off, which the enhanced set keeps down to <c>306P</c>'s odd extra row. A painting of
-    /// some other shape puts the lettering somewhere plausible and slightly wrong, which is
-    /// the right failure for a decoration.
-    /// </para>
-    /// </remarks>
     public Vector4 Over(Vector4 painting)
     {
         float across = painting.Z / PaintingWidth;
@@ -149,10 +91,6 @@ public sealed class TimeblockCard
     /// <summary>Which frame is showing.</summary>
     /// <param name="seconds">How long the card has been up.</param>
     /// <returns>An index into <see cref="Frames"/>.</returns>
-    /// <remarks>
-    /// It stops on the last frame rather than looping. The last frame is the finished name,
-    /// and a name that types itself over and over is a screensaver.
-    /// </remarks>
     public int At(double seconds) => Math.Clamp(
         (int)(Math.Max(0, seconds) * SequenceFile.FramesPerSecond), 0, Frames.Count - 1);
 
@@ -162,12 +100,6 @@ public sealed class TimeblockCard
     /// <param name="archives">The game's own barns.</param>
     /// <param name="timeblock">Which one, as <c>102P</c>.</param>
     /// <returns>The lettering, or null when the archives cannot supply it.</returns>
-    /// <remarks>
-    /// <b>The originals, whatever the paintings on screen are.</b> The lettering is
-    /// recovered by subtracting the picture it was blended into, and an upscale of that
-    /// picture is a different set of pixels — subtracting it would leave the letters full
-    /// of the difference between the two rather than of the letters.
-    /// </remarks>
     public static TimeblockCard? Read(GameArchives archives, string timeblock)
     {
         ArgumentNullException.ThrowIfNull(archives);
@@ -217,14 +149,6 @@ public sealed class TimeblockCard
     /// <param name="frames">The frames, in playing order, as they are in the archives.</param>
     /// <param name="painting">The card's painting, which the frames were cut out of.</param>
     /// <returns>The lettering, or null when the two do not go together.</returns>
-    /// <remarks>
-    /// Null is a fair answer and the caller falls back to writing the name out in the
-    /// port's own face. It happens for frames that are not all one size, for frames too big
-    /// for the painting, and — the case worth having the check for — for a language pack
-    /// that ships its own lettering over a painting it did not also ship. In that last case
-    /// the subtraction would be against the wrong picture and would recover noise, which
-    /// <see cref="Locate"/> refuses rather than draws.
-    /// </remarks>
     public static TimeblockCard? From(
         string timeblock, IReadOnlyList<DecodedImage> frames, DecodedImage painting)
     {
@@ -303,25 +227,6 @@ public sealed class TimeblockCard
     /// </summary>
     /// <param name="code">The timeblock, as <c>102P</c>.</param>
     /// <returns>The offset to start looking at, in the painting's own pixels.</returns>
-    /// <remarks>
-    /// <para>
-    /// A table, because the artists placed each one by hand and nothing in the data says
-    /// where. It is a hint rather than the answer: <see cref="Locate"/> proves it against
-    /// the art at load and searches a few pixels around it if it is wrong, so a language
-    /// pack that nudged its lettering does not need an entry here.
-    /// </para>
-    /// <para>
-    /// <b>Up from the bottom, not down from the top.</b> That is how the original anchors
-    /// it, and it is not an arbitrary choice: <c>TBT306P.BMP</c> is 640x481 where every
-    /// other painting is 640x480, and measuring from the top would put that one card's
-    /// lettering a pixel out — which is exactly what happened when this was written down
-    /// as a distance from the top instead.
-    /// </para>
-    /// <para>
-    /// Nearly all of them are the same 14,64. <c>102P</c> starts six pixels further left and
-    /// <c>312P</c> one, and a handful sit a pixel up or down from the rest.
-    /// </para>
-    /// </remarks>
     private static (int Left, int Up) Where(string code) => code switch
     {
         "110A" => (14, 64),
@@ -351,22 +256,6 @@ public sealed class TimeblockCard
     /// <param name="hintLeft">Where to start looking.</param>
     /// <param name="hintTop">And down.</param>
     /// <returns>The offset, or null when the frame does not belong to this painting.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Lettering only ever lightens.</b> The frames are the painting with white blended
-    /// into them, so at the offset they were cut from, no channel of any pixel is darker
-    /// than the painting under it. One pixel out and thousands are — the letters land on
-    /// the wrong ground, and half of what they overlap goes the wrong way. So the score is
-    /// the count of samples that came out darker, and the right offset scores nought.
-    /// </para>
-    /// <para>
-    /// Two out of 255 is allowed per sample against a language pack that re-encoded its
-    /// painting; a misplacement is off by far more than that. A sixty-fourth of the samples
-    /// may fail outright for the same reason, which leaves room to spare: measured against
-    /// the shipped art, one pixel out fails between a twentieth of them and a quarter,
-    /// the twentieth being 202A, whose name is the shortest in the game.
-    /// </para>
-    /// </remarks>
     private static (int Left, int Top)? Locate(
         DecodedImage frame, DecodedImage painting, int hintLeft, int hintTop)
     {
@@ -481,19 +370,6 @@ public sealed class TimeblockCard
     /// <param name="left">Where the frame was cut from.</param>
     /// <param name="top">And down.</param>
     /// <returns>White pixels carrying the lettering's coverage as alpha.</returns>
-    /// <remarks>
-    /// <para>
-    /// Solving <c>frame = painting + alpha * (255 - painting)</c> a channel at a time and
-    /// pooling the three, which is a least-squares fit over however much room each channel
-    /// had. Doing it per channel and averaging would weight a channel that had almost no
-    /// room to move as heavily as one that had all of it, and that channel is nothing but
-    /// rounding.
-    /// </para>
-    /// <para>
-    /// Where the painting is already white there is no room at all and no answer: the
-    /// letter is invisible against it either way, so the pixel is left clear.
-    /// </para>
-    /// </remarks>
     private static DecodedImage Lettering(
         DecodedImage frame, DecodedImage painting, int left, int top)
     {

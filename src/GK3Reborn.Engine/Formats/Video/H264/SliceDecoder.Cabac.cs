@@ -3,13 +3,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// The CABAC half of macroblock parsing: 7.3.5 read with the contexts of 9.3.
 /// </summary>
-/// <remarks>
-/// Context index increments are derived from the neighbouring macroblocks exactly as
-/// 9.3.3.1.1 says, with the picture's stored per-macroblock and per-block state standing
-/// in for "the syntax element of mbAddrN". The conventions that make those lookups uniform
-/// — a skipped macroblock stores cbp 0, an I_PCM one stores cbp 0x2F and every coded block
-/// flag set — are chosen in <see cref="SliceDecoder.Store"/>.
-/// </remarks>
 internal sealed partial class SliceDecoder
 {
     // ctxIdxOffsets, Table 9-34.

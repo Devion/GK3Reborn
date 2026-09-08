@@ -44,10 +44,6 @@ public interface ISheepApi
     /// <summary>
     /// Reports whether a function can be waited on.
     /// </summary>
-    /// <remarks>
-    /// The original specification classifies every function as IMMEDIATE, WAIT or
-    /// DEVELOPMENT, so this is metadata to be carried over rather than guessed at.
-    /// </remarks>
     /// <param name="name">Function name.</param>
     /// <returns>True when the function is waitable.</returns>
     bool IsWaitable(string name);
@@ -56,13 +52,6 @@ public interface ISheepApi
     /// <param name="name">Function name.</param>
     /// <param name="arguments">What it was called with, since the wait often is one.</param>
     /// <returns>Seconds, or zero when the host has no idea and the call is over at once.</returns>
-    /// <remarks>
-    /// Zero by default, which is what the engine did everywhere before anything could take
-    /// time: a script waits and carries straight on. A host that knows better — a timer
-    /// knows exactly, a camera glide knows its own duration — says so, and only then does a
-    /// script's own pacing start to mean anything. Guessing for the calls whose length
-    /// depends on assets that are not read yet would invent timing the game does not have.
-    /// </remarks>
     double SecondsFor(string name, IReadOnlyList<SheepValue> arguments) => 0;
 }
 
@@ -108,35 +97,12 @@ public sealed class SheepThread
     /// <summary>
     /// How long the wait block this thread is in still has to run.
     /// </summary>
-    /// <remarks>
-    /// The longest of the calls inside it, because a wait block waits for all of them and
-    /// is therefore over when the slowest is.
-    /// </remarks>
     public double WaitSeconds { get; internal set; }
 }
 
 /// <summary>
 /// Executes compiled Sheep.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A stack machine, matching the original's conventions rather than improving on them.
-/// Arguments are pushed in order followed by their count; a call pops the count, takes
-/// that many arguments and pushes a result — even void functions push one, because the
-/// original compiler emits a <c>Pop</c> after every void call and the stack would
-/// otherwise drift.
-/// </para>
-/// <para>
-/// Waiting is modelled as an explicit resumable state rather than by blocking a real
-/// thread, which is what Plan/01-architecture.md section 6 requires: <c>wait</c> becomes
-/// a suspension the game thread can resume, not an operation that stops the engine.
-/// </para>
-/// <para>
-/// Execution is bounded. A script that loops forever stops with a fault rather than
-/// hanging the caller, which matters because these scripts came from data the project
-/// does not control.
-/// </para>
-/// </remarks>
 public sealed class SheepVirtualMachine
 {
     private readonly ISheepApi _api;
@@ -198,15 +164,6 @@ public sealed class SheepVirtualMachine
     /// <summary>
     /// Whether two function names refer to the same function.
     /// </summary>
-    /// <remarks>
-    /// A compiled script names its functions with a <c>$</c> on the end — the disassembly
-    /// of R25's reads <c>Window_Open$</c> — and the callers routinely leave it off:
-    /// <c>CallSheep("R25_ALL","WINDOW_OPEN")</c> is how the action files spell it. The
-    /// original appends the suffix when it is missing, with the comment "some GK3 data
-    /// files do this, some don't". Matching exactly instead means the call finds nothing,
-    /// the thread faults, and the action appears to run and do nothing at all — which is
-    /// what opening R25's window did.
-    /// </remarks>
     private static bool Same(string? declared, string wanted) =>
         declared is not null &&
         string.Equals(declared.TrimEnd('$'), wanted.TrimEnd('$'), StringComparison.OrdinalIgnoreCase);
@@ -214,11 +171,6 @@ public sealed class SheepVirtualMachine
     /// <summary>
     /// Tells a blocked thread that everything it waited on has finished.
     /// </summary>
-    /// <remarks>
-    /// The scheduler owns this: the VM suspends a thread and takes no view on when the
-    /// animation, walk or timer it waited for actually completes. Calling this makes the
-    /// thread runnable again; it does not run it.
-    /// </remarks>
     /// <param name="thread">The blocked thread.</param>
     public static void NotifyWaitsCompleted(SheepThread thread)
     {
@@ -237,12 +189,6 @@ public sealed class SheepVirtualMachine
     /// <summary>
     /// The thread being stepped, while one is.
     /// </summary>
-    /// <remarks>
-    /// A script may ask the host to do something that depends on which script asked —
-    /// <c>Call("TwoShot")</c> means "the function of that name <em>in me</em>", and there
-    /// are 190 of those in the game. The host is given a name and no context, so this is
-    /// the context. It nests, because a called script may call another.
-    /// </remarks>
     public SheepThread? Current { get; private set; }
 
     /// <summary>Runs a thread until it stops.</summary>

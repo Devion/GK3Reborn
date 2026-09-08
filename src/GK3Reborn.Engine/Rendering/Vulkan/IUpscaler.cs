@@ -68,23 +68,6 @@ public readonly record struct UpscaleFrame(
 /// <summary>
 /// Something that turns a small picture into a big one.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Three implement it and they have almost nothing in common underneath: one is a compute
-/// shader in this repository, one is a call into AMD's runtime, and one is a call into
-/// NVIDIA's through Streamline. What they share is exactly this — they are given the frame
-/// at render resolution and fill an image at display resolution — and keeping that the
-/// whole of the contract is what lets the renderer switch between them while the game is
-/// running.
-/// </para>
-/// <para>
-/// <b>The renderer owns the images and the barriers.</b> Every implementation is handed its
-/// inputs already in <c>ShaderReadOnlyOptimal</c> and its output in <c>General</c>, and
-/// must leave them that way. Letting each backend transition for itself was the first
-/// design and it does not survive contact with a vendor runtime that transitions the same
-/// image again on the way in.
-/// </para>
-/// </remarks>
 internal interface IUpscaler : IDisposable
 {
     /// <summary>Which one this is.</summary>

@@ -10,13 +10,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the two ways the game can be made easier.
 /// </summary>
-/// <remarks>
-/// Both work by changing what the shipped scripts do rather than by editing them, which
-/// means both can be wrong in the same quiet way: doing nothing, or doing it twice. The
-/// moustache handed over a second time would put an item back in the bag after the player
-/// had spent it, and plot armour that missed its function would leave somebody standing in
-/// the temple with the puzzle reset and nothing running.
-/// </remarks>
 public sealed class AssistTests
 {
     private static GameState At(int day, int hour, bool afternoon) =>
@@ -210,11 +203,6 @@ public sealed class AssistTests
     }
 
     /// <summary>A temple script that plays its room again after the reset.</summary>
-    /// <remarks>
-    /// Which is what all five do: <c>Die$</c> stops every soundtrack and <c>PostDeath$</c>
-    /// starts the ones the room needs. TE6's is the demon's growl, and it is the one a
-    /// player saved by plot armour heard for ever.
-    /// </remarks>
     private static SheepScriptFile TempleWithMusic(string name) =>
         TestScripts.Build(name, builder =>
         {
@@ -292,10 +280,6 @@ public sealed class AssistTests
     }
 
     /// <summary>Both faces, as FACES.TXT lists them.</summary>
-    /// <remarks>
-    /// Trimmed to what matters: GA3's entry is Gabriel's with a mouth region two pixels
-    /// taller, because the moustache is painted into it.
-    /// </remarks>
     private const string Faces = """
         [DEFAULT]
         Blink Frequency         = 5000,12000

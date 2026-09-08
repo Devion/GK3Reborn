@@ -52,21 +52,6 @@ public sealed record Quest(
     int Ordinal)
 {
     /// <summary>What this objective's title is filed under in <c>interface-*.json</c>.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The position, never the words.</b> The title is the thing being translated, so it
-    /// cannot also be the name of the translation; and a key made from the English would
-    /// mean an edit to a comma silently dropped seven languages back to English. The
-    /// numbering is the same one the hints already use — counting from one within a point in
-    /// the story — so <c>quest.110A.3</c> and <c>hint.110A.3</c> are read the same way.
-    /// </para>
-    /// <para>
-    /// <b>It is not what a save remembers.</b> That is <c>Journal.Key</c>, which is the
-    /// timeblock and the English title, because a player who asked for a hint in French has
-    /// asked for it in English too — and a key that moved with the language would hand them
-    /// their hints back the moment they changed it.
-    /// </para>
-    /// </remarks>
     public string TitleKey => Key(Timeblock, Ordinal);
 
     /// <summary>What the objective at a position in a point in the story is filed under.</summary>
@@ -80,11 +65,6 @@ public sealed record Quest(
     /// <param name="scored">Whether a given score event has been earned.</param>
     /// <param name="past">Whether the story has moved past this point.</param>
     /// <returns>True when it is done.</returns>
-    /// <remarks>
-    /// A <see cref="QuestTest.Story"/> objective is done when its timeblock is behind the
-    /// player, which is the honest answer for a beat the game measures nothing about: it was
-    /// either done or it was not possible to leave.
-    /// </remarks>
     public bool Done(Func<string, bool> scored, bool past)
     {
         ArgumentNullException.ThrowIfNull(scored);
@@ -98,11 +78,6 @@ public sealed record Quest(
     }
 
     /// <summary>How far through it the player is, from nought to one.</summary>
-    /// <remarks>
-    /// For an objective measured by several score events, which most are. It is what lets
-    /// the journal say "asked about three of five" rather than only "not done", and that is
-    /// most of the difference between a list that helps and a list that nags.
-    /// </remarks>
     public float Progress(Func<string, bool> scored, bool past)
     {
         ArgumentNullException.ThrowIfNull(scored);
@@ -126,18 +101,6 @@ public sealed record Quest(
 /// <summary>
 /// The journal's objectives, read as data.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The original shipped no journal, and a 1999 adventure game will happily let a player
-/// wander for an hour with no idea what it wants of them. This is the table that says.
-/// </para>
-/// <para>
-/// It is kept apart from the walkthrough deliberately. The walkthrough answers "how" and is
-/// a spoiler from end to end; this answers "what", which a player can be told for free. The
-/// two are joined only by the hint numbers, so asking for help is always something the
-/// player does on purpose.
-/// </para>
-/// </remarks>
 public sealed class Quests
 {
     private readonly List<Quest> _quests = [];
@@ -178,12 +141,6 @@ public sealed class Quests
     /// </summary>
     /// <param name="text">Its contents.</param>
     /// <returns>The objectives.</returns>
-    /// <remarks>
-    /// A heading in brackets is a point in the story; every line under it is an objective,
-    /// as a title, a condition and a list of hint lines separated by bars. A malformed line
-    /// is skipped rather than thrown over — but nothing should ever reach a player that way,
-    /// because the tests read this file and check every part of every line.
-    /// </remarks>
     public static Quests Parse(string text)
     {
         ArgumentNullException.ThrowIfNull(text);

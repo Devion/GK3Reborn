@@ -17,11 +17,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <param name="Seed">Where in the sequence this frame's grain starts.</param>
 /// <param name="Samples">How many rays each pixel spends on each signal.</param>
 /// <param name="Padding">Unused, and there so the block is a whole number of vectors.</param>
-/// <remarks>
-/// Shared between the backends because it is the shader's own struct, and the shader is one
-/// source compiled two ways. A field reordered here and not there would be a picture that is
-/// wrong in a way neither compiler can see.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct TraceConstants(
     Matrix4x4 ViewProjectionInverse,

@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the shell that keeps the camera inside the room.
 /// </summary>
-/// <remarks>
-/// The fixture is a closed box two hundred units across with its faces turned inward, which
-/// is what a camera-bounds model is: a room-shaped bag the camera lives in. The questions
-/// worth asking of it are the ones that decide whether a player can get the view outside —
-/// walking into a wall, walking into the seam between two of its triangles, and covering
-/// more ground in one frame than the wall is thick.
-/// </remarks>
 public sealed class CameraBoundsTests
 {
     /// <summary>Half the width of the fixture box, in world units.</summary>
@@ -22,12 +15,6 @@ public sealed class CameraBoundsTests
 
     /// <summary>A closed box centred on the origin, every face turned inward.</summary>
     /// <param name="half">Half its width, on every axis.</param>
-    /// <remarks>
-    /// Turned inward because that is the side the camera is on, and it is the side the
-    /// solver refuses to let it leave. Each face is wound and then checked against the
-    /// centre rather than being written out by hand, because a box with one face wound the
-    /// wrong way is a box with one wall missing and nothing about it looks wrong.
-    /// </remarks>
     private static CameraBounds Box(float half = Half) =>
         new([Shell(Corners(half))]);
 
@@ -242,14 +229,6 @@ public sealed class CameraBoundsTests
     /// A camera that begins inside a wall is put back outside it rather than left to slide
     /// along in there.
     /// </summary>
-    /// <remarks>
-    /// Reported as the camera getting stuck in the geometry. The sweep decides what a move
-    /// may do and says nothing about a sphere that was already overlapping when the move
-    /// began — and once overlapping, every step towards that wall is refused and every step
-    /// along it allowed, so it slid along inside the wall indefinitely with the near plane
-    /// through it. One unit from a wall that wants sixteen is what a scene cuts to when the
-    /// artists placed the viewpoint against the room rather than against the shell.
-    /// </remarks>
     [Fact]
     public void A_camera_that_starts_inside_a_wall_is_pushed_out_of_it()
     {
@@ -279,11 +258,6 @@ public sealed class CameraBoundsTests
     }
 
     /// <summary>Freeing it does not send it out through the wall opposite.</summary>
-    /// <remarks>
-    /// The push is out of the deepest overlap and then the sphere is looked at again, rather
-    /// than every overlap being added up at once. In a corner, summing sends it out through
-    /// the third wall; taking the worst one at a time converges.
-    /// </remarks>
     [Fact]
     public void A_camera_wedged_into_a_corner_ends_up_inside_the_room()
     {
@@ -301,11 +275,6 @@ public sealed class CameraBoundsTests
     /// <summary>
     /// A space narrower than the camera settles somewhere rather than hanging or jittering.
     /// </summary>
-    /// <remarks>
-    /// Two opposing walls twenty units apart cannot both be satisfied by a sphere thirty-two
-    /// across, and the game has places that tight. What matters is that it stops asking: the
-    /// push is bounded, so it does its best and the frame ends.
-    /// </remarks>
     [Fact]
     public void A_gap_narrower_than_the_camera_settles_instead_of_hanging()
     {
@@ -320,11 +289,6 @@ public sealed class CameraBoundsTests
     }
 
     /// <summary>A camera outside the shell is left alone rather than pushed further out.</summary>
-    /// <remarks>
-    /// Being outside is a state it is meant to be able to leave, and the way back in is what
-    /// the sweep keeps open. Treating the far side of a surface as an overlap to be cleared
-    /// would push it away from the room instead of towards it.
-    /// </remarks>
     [Fact]
     public void A_camera_outside_the_shell_is_not_pushed_further_out()
     {

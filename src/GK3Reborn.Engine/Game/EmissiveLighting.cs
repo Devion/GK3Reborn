@@ -13,54 +13,17 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Lights the room by the things in it that glow.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>A self-lit surface lights nothing.</b> The flag means "draw this at full brightness
-/// and skip shading" and no more, so GK3's lamp shades, lit bulbs, stained glass and the
-/// painted views through its windows have always been bright objects standing in rooms
-/// they did not light. This is the gather that fixes that: every glowing surface the room
-/// has is a candidate light source, and the ones nobody has already lit get one.
-/// </para>
-/// <para>
-/// <b>Gathering into lights rather than tracing at the hit.</b> The alternative — a ray
-/// that returns the emission of whatever it struck — needs the acceleration structure to
-/// carry per-triangle materials, and this one is built one instance per <em>model</em>
-/// with no material data at all. Turning the emitters into lights instead gets the same
-/// picture through machinery the renderer already has: they are shadowed by the same rays,
-/// gathered by the same grid, and cost the same as any other lamp. What it cannot do is
-/// bounce a second time, which for a 1999 adventure game is not the missing part.
-/// </para>
-/// <para>
-/// <b>The rule is the one the fires already use.</b> A lamp the artists put a light inside
-/// needs nothing added, and most of them did: doubling every practical in the game would
-/// blow out every room that has one. So an emitter with a light already standing in it is
-/// left alone, and only the ones nobody lit are given one. See <see cref="FlameLighting"/>,
-/// which is the same shape for the same reason.
-/// </para>
-/// </remarks>
 public static class EmissiveLighting
 {
     /// <summary>
     /// How near a light has to be to count as already lighting an emitter.
     /// </summary>
-    /// <remarks>
-    /// Larger than the flames' thirteen, and it has to be: a fire is a card a few units
-    /// across with its light in the middle of it, while an emitter here is a whole fitting
-    /// — a chandelier, a bank of stained glass — whose centre may be a good way from the
-    /// bulb the artists put inside it. Scaled by the emitter's own size for that reason,
-    /// with this as the floor.
-    /// </remarks>
     public const float Reach = 25f;
 
     /// <summary>How far an emitter's own size widens that.</summary>
     private const float ReachPerRadius = 1.5f;
 
     /// <summary>How far a synthesized light reaches, as a multiple of the emitter's size.</summary>
-    /// <remarks>
-    /// A lamp shade is about ten units across and lights a corner of a room; the ratio is
-    /// what makes a bank of windows light more of one than a bulb does, which is the whole
-    /// point of measuring the surface rather than counting it.
-    /// </remarks>
     private const float ReachPerSize = 9f;
 
     /// <summary>The least a synthesized light reaches.</summary>
@@ -72,11 +35,6 @@ public static class EmissiveLighting
     /// <summary>
     /// How bright a synthesized light is.
     /// </summary>
-    /// <remarks>
-    /// Under the practicals the artists placed, which run from 0.5 to 3. These are the
-    /// lights nobody thought were needed, and a room where they arrive brighter than the
-    /// lamps somebody did place is a room this has taken over rather than filled in.
-    /// </remarks>
     private const float Intensity = 0.55f;
 
     /// <summary>
@@ -118,11 +76,6 @@ public static class EmissiveLighting
     }
 
     /// <summary>Whether the artists already put a light in this thing.</summary>
-    /// <remarks>
-    /// Measured against the rig the room was authored with rather than against what this
-    /// has added, so two emitters close together each get their own — a pair of wall
-    /// sconces is two lights, not one and a shadow.
-    /// </remarks>
     private static bool Lit(IReadOnlyList<AuthoredLight> rig, EmissiveSurface emitter)
     {
         float reach = Reach + (emitter.Radius * ReachPerRadius);

@@ -38,45 +38,12 @@ public readonly record struct Completion(string Name, string Signature);
 /// <summary>
 /// The developer console.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The game's own scripting language is the command language, because it already is one:
-/// everything the story can do is a Sheep call, the calls are named in the scripts the game
-/// shipped with, and there are 139 signatures for them in the archives. Inventing a second
-/// vocabulary on top would mean maintaining a translation between two sets of verbs that
-/// mean the same things.
-/// </para>
-/// <para>
-/// <b>Which is why the completion matters rather than being a nicety.</b> Nobody can be
-/// expected to know that the way to see the easter-egg content is <c>SetFlag("EGG")</c> —
-/// which is why there is now a row for it under Options, Playing — or
-/// to remember which of <c>SetLocation</c> and <c>SetEgoLocation</c> takes what. A list that
-/// narrows as you type, showing each function's return type and arguments, is the
-/// difference between a console that is usable without the source open beside it and one
-/// that is not.
-/// </para>
-/// <para>
-/// Calls are parsed here rather than compiled. A console line is one call with literal
-/// arguments — there are no variables to resolve and no control flow to run — so a parser
-/// of forty lines does the whole job, and the alternative would be standing up the
-/// compiler, a script file and a thread to run one <c>SetFlag</c>.
-/// </para>
-/// <para>
-/// Nothing here touches the clock, the renderer or the story directly. It is a buffer, a
-/// history and a list of names; what a command does is whatever the host it is given does
-/// with it.
-/// </para>
-/// </remarks>
 public sealed class GameConsole
 {
     /// <summary>How many printed lines are kept.</summary>
     private const int Scrollback = 200;
 
     /// <summary>How many completions are offered at once.</summary>
-    /// <remarks>
-    /// A list long enough to be worth reading and short enough to read. Typing one more
-    /// character is a cheaper way to narrow it than scrolling is.
-    /// </remarks>
     public const int Suggestions = 8;
 
     private readonly List<ConsoleLine> _lines = [];
@@ -109,30 +76,15 @@ public sealed class GameConsole
     /// <summary>
     /// The signatures, when anything has read them out of the archives.
     /// </summary>
-    /// <remarks>
-    /// Optional. Without it the completion still offers names, which is most of the value;
-    /// with it each one carries its return type and arguments, which is the rest.
-    /// </remarks>
     public SheepSignatures? Catalogue { get; set; }
 
     /// <summary>
     /// What to do with a parsed call.
     /// </summary>
-    /// <remarks>
-    /// Given the function's name and its arguments; answers what it returned, or null when
-    /// there is no such function. Set by whoever owns a game to run; left null by a test,
-    /// which is what lets the buffer and the completion be exercised without a story.
-    /// </remarks>
     public Func<string, IReadOnlyList<SheepValue>, SheepValue?>? Calls { get; set; }
 
     /// <summary>Tells the console which functions exist.</summary>
     /// <param name="names">Their names, in whatever order.</param>
-    /// <remarks>
-    /// From the host's own registry rather than from the archives, so the list is what this
-    /// build can actually do rather than what the 1999 scripts called. The two differ, and
-    /// offering a completion for something that would be recorded and not performed is
-    /// worse than not offering it.
-    /// </remarks>
     public void Knows(IEnumerable<string> names)
     {
         ArgumentNullException.ThrowIfNull(names);
@@ -210,10 +162,6 @@ public sealed class GameConsole
     }
 
     /// <summary>Takes the chosen completion.</summary>
-    /// <remarks>
-    /// Completing writes the open bracket as well, because a function is being called
-    /// rather than named, and the caret ends up where the arguments go.
-    /// </remarks>
     public void TakeCompletion()
     {
         if (_completions.Count == 0)
@@ -230,12 +178,6 @@ public sealed class GameConsole
 
     /// <summary>Moves the choice through the completions, or through the history.</summary>
     /// <param name="delta">Negative for up, positive for down.</param>
-    /// <remarks>
-    /// One key doing two things, decided by whether there is a list to move through: with
-    /// completions showing, up and down move the choice; with none — which is what an empty
-    /// line or a finished call looks like — they recall what was typed before. That is what
-    /// every shell does, and it is why neither needs a key of its own.
-    /// </remarks>
     public void Move(int delta)
     {
         if (_completions.Count > 0)
@@ -343,11 +285,6 @@ public sealed class GameConsole
     /// <param name="arguments">Receives the arguments.</param>
     /// <param name="complaint">Receives why it could not be read.</param>
     /// <returns>True when it was read.</returns>
-    /// <remarks>
-    /// <c>Name</c> and <c>Name(...)</c> are both accepted, because a function of no
-    /// arguments is a thing the player wants to type without the brackets and there is
-    /// nothing else a bare name could mean here.
-    /// </remarks>
     private static bool TryRead(
         string line,
         out string name,
@@ -450,12 +387,6 @@ public sealed class GameConsole
     }
 
     /// <summary>Works out what the typed prefix could become.</summary>
-    /// <remarks>
-    /// Names that <em>start</em> with what was typed first, then names that merely contain
-    /// it. The first is what somebody typing a name they know wants; the second is what
-    /// somebody looking for a name they half remember wants, and putting them in one list
-    /// in that order serves both without a mode.
-    /// </remarks>
     private void Complete()
     {
         _completions.Clear();

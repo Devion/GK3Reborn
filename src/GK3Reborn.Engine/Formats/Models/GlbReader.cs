@@ -10,35 +10,6 @@ namespace GK3Reborn.Formats.Models;
 /// Reads models written as glTF 2.0 binary (<c>.glb</c>) back into the engine's own
 /// model type.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The counterpart of <see cref="GlbWriter"/>, and the reason enhanced geometry can reach
-/// the screen at all. Until this existed <c>enhanced/models</c> was an output and never an
-/// input: the toolchain could convert a model out to glTF, improve it in a DCC and write
-/// it back, and the engine had no way to read the result. Everything drawn came from a
-/// <c>.MOD</c>.
-/// </para>
-/// <para>
-/// A deliberately small subset, because the documents this reads are ones the project's
-/// own tools wrote: a static mesh hierarchy with positions, normals and one set of texture
-/// coordinates. Skins, morph targets, animation, sparse accessors and external buffers are
-/// refused rather than half-supported — a silently ignored skin is a model that draws in
-/// its bind pose forever and looks like a different bug.
-/// </para>
-/// <para>
-/// A material names a texture and nothing else. GK3 addresses every surface by a texture
-/// name that the archives or the enhanced set resolve, so what the engine needs from a
-/// glTF material is that name; the PBR factors alongside it belong to a material system
-/// this renderer does not have. The name is taken from the material, falling back to the
-/// image, because Blender's exporter keeps material names exactly and rewrites image ones.
-/// </para>
-/// <para>
-/// Coordinates pass straight through, as they do on the way out. The GLB files the
-/// toolchain writes are the game's own axes wearing a glTF label, so a model that goes to
-/// Blender and comes back lands exactly where it started — which is the property the tree
-/// work depends on, since a generated tree has to stand where the card it replaces stood.
-/// </para>
-/// </remarks>
 public static class GlbReader
 {
     private const uint GlbMagic = 0x46546C67;    // "glTF"
@@ -137,11 +108,6 @@ public static class GlbReader
     /// <param name="name">Name used in diagnostics and given to the model.</param>
     /// <param name="diagnostics">Receives a warning when the file will not read.</param>
     /// <returns>The model, or null.</returns>
-    /// <remarks>
-    /// For callers loading optional content. A generated tree that will not parse should
-    /// cost that tree and leave the scene standing, in the same way an enhanced texture
-    /// that will not decode falls back to the original.
-    /// </remarks>
     public static ModFile? TryParse(
         ReadOnlySpan<byte> data, string name, DiagnosticBag? diagnostics)
     {
@@ -361,14 +327,6 @@ public static class GlbReader
     }
 
     /// <summary>Cuts a primitive into pieces small enough to index with 16 bits.</summary>
-    /// <remarks>
-    /// A MOD submesh indexes with <c>ushort</c>, which is the format's own limit and not
-    /// one worth relaxing: the whole point of producing <see cref="ModFile"/> is that
-    /// enhanced geometry travels the same path as original geometry and is drawn by the
-    /// same code. A generated tree is a few thousand triangles and never needs this, but a
-    /// merged stand of them does, and silently dropping the overflow would take the far
-    /// half of a wood away.
-    /// </remarks>
     private static IEnumerable<ModSubmesh> Chop(
         Vector3[] positions,
         Vector3[] normals,

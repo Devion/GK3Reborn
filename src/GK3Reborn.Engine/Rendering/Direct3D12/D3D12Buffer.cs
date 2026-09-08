@@ -7,29 +7,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A buffer on the device, and the views a shader reaches it through.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Thinner than its Vulkan counterpart, because Direct3D asks for less. There is no usage
-/// mask to declare: a buffer is a buffer, and whether it is a vertex buffer, an index
-/// buffer or a structured one is decided by how it is bound rather than by how it was made.
-/// The only thing that has to be said in advance is whether a shader may write to it,
-/// because unordered access is a resource flag.
-/// </para>
-/// <para>
-/// The one asymmetry worth naming is that a constant buffer's size must be a multiple of
-/// two hundred and fifty-six bytes, and a view of one that is not is refused. That is not a
-/// hint or an alignment preference; it is a rule, and the padding is added here rather than
-/// left to every caller that ever writes a uniform block.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Buffer : IDisposable
 {
     /// <summary>What a constant buffer's size must be a multiple of.</summary>
-    /// <remarks>
-    /// <c>D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT</c>. A view of a buffer that is
-    /// not a multiple of this is refused outright, which is a good way to be told and a
-    /// surprising one the first time a sixty-four-byte matrix will not bind.
-    /// </remarks>
     public const ulong ConstantAlignment = 256;
 
     private ComPtr<ID3D12Resource> _resource;
@@ -85,11 +65,6 @@ public sealed unsafe class D3D12Buffer : IDisposable
     /// </param>
     /// <param name="writable">Whether a shader may write to it.</param>
     /// <returns>The buffer, whose contents are there once the batch has been submitted.</returns>
-    /// <remarks>
-    /// <b>Submitting on its own waits for the whole queue, and a room is hundreds of
-    /// buffers.</b> See <see cref="D3D12Uploads"/>: batched, the copies are one submission
-    /// instead of seven hundred.
-    /// </remarks>
     public static D3D12Buffer CreateDeviceLocal<T>(
         D3D12Context context,
         ReadOnlySpan<T> data,
@@ -129,12 +104,6 @@ public sealed unsafe class D3D12Buffer : IDisposable
     /// <param name="forConstants">Whether the size should be rounded up for a constant buffer view.</param>
     /// <returns>The buffer.</returns>
     /// <exception cref="D3D12Exception">It could not be created or mapped.</exception>
-    /// <remarks>
-    /// Mapped once and left mapped, which Direct3D permits and Vulkan calls persistent
-    /// mapping. What the per-frame uniforms are written through: mapping and unmapping
-    /// around every write would be two calls a frame per buffer to no purpose, since
-    /// nothing here ever needs the pointer to go away.
-    /// </remarks>
     public static D3D12Buffer CreateHostVisible(
         D3D12Context context, ulong bytes, bool forConstants = false)
     {
@@ -221,11 +190,6 @@ public sealed unsafe class D3D12Buffer : IDisposable
     /// <summary>Writes a raw shader resource view of this buffer into a descriptor slot.</summary>
     /// <param name="context">The device.</param>
     /// <param name="where">Where to write it.</param>
-    /// <remarks>
-    /// Raw rather than structured, because SPIRV-Cross turns a read-only GLSL storage
-    /// buffer into a <c>ByteAddressBuffer</c> and that is what a raw view binds. A
-    /// structured view would need an element stride the generated HLSL never declares.
-    /// </remarks>
     public void DescribeRead(D3D12Context context, CpuDescriptorHandle where)
     {
         ArgumentNullException.ThrowIfNull(context);

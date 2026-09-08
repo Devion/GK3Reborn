@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Architecture;
 /// <summary>
 /// Enforces the engine's internal layering.
 /// </summary>
-/// <remarks>
-/// The engine is one assembly (ADR 0005), so the compiler no longer refuses a bad
-/// reference the way a project graph did. These tests take that job over: they read the
-/// engine's own source files and check which namespaces each area is allowed to reach.
-/// Source inspection rather than IL inspection keeps this dependency-free and makes a
-/// failure point straight at the offending <c>using</c>.
-/// </remarks>
 public sealed partial class LayeringTests
 {
     // area -> namespaces under GK3Reborn that area may NOT reference.
@@ -47,11 +40,6 @@ public sealed partial class LayeringTests
     ];
 
     /// <summary>The graphics APIs, and the one directory each is allowed to appear in.</summary>
-    /// <remarks>
-    /// Two backends make this a rule rather than an observation. A Vulkan type reached from
-    /// the shared rendering code compiles perfectly well and quietly makes the Direct3D
-    /// path unbuildable on the day it is written, which is not the day anyone finds out.
-    /// </remarks>
     private static readonly (string Namespace, string Directory)[] Backends =
     [
         ("Silk.NET.Vulkan", Path.Combine("Rendering", "Vulkan")),
@@ -158,10 +146,6 @@ public sealed partial class LayeringTests
     }
 
     /// <summary>The four files allowed to open a Silk.NET native library.</summary>
-    /// <remarks>
-    /// Every other file borrows a handle from one of them. See
-    /// <c>Rendering/Shaders/ShaderToolchain.cs</c> for why there is a rule at all.
-    /// </remarks>
     private static readonly string[] MayOpenANativeLibrary =
     [
         Path.Combine("Rendering", "Shaders", "ShaderToolchain.cs"),
@@ -263,11 +247,6 @@ public sealed partial class LayeringTests
     }
 
     /// <summary>A file's lines with the comment-only ones dropped.</summary>
-    /// <remarks>
-    /// Both rules above are about what the engine calls, and this tree explains itself at
-    /// length: the two files that document why a native library must not be reopened name
-    /// the very calls they forbid. Prose is not a call site.
-    /// </remarks>
     private static IEnumerable<string> CodeIn(string file) =>
         File.ReadLines(file).Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal));
 

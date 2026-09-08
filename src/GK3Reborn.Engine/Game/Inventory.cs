@@ -3,18 +3,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// What the characters are carrying.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Inventory is per character rather than global: GK3 switches between Gabriel and Grace,
-/// they carry different things, and a great deal of the action files' logic turns on
-/// which of them holds what — <c>DoesEgoHaveInvItem</c> appears in 161 conditions and
-/// <c>DoesGraceHaveInvItem</c> exists separately for exactly this reason.
-/// </para>
-/// <para>
-/// Items are named, not numbered, and compared case-insensitively like everything else in
-/// this data.
-/// </para>
-/// </remarks>
 public sealed class Inventory
 {
     private readonly Dictionary<string, HashSet<string>> _byOwner = new(StringComparer.OrdinalIgnoreCase);
@@ -58,12 +46,6 @@ public sealed class Inventory
     /// <summary>What someone is holding ready to use on things.</summary>
     /// <param name="owner">Whose hand to look in.</param>
     /// <returns>The item, or null when they are holding nothing.</returns>
-    /// <remarks>
-    /// Distinct from carrying it. GK3's inventory screen has one item selected at a time,
-    /// and using an item on something is written in the action files as a verb named for
-    /// the item — so <c>IsActiveInvItem</c> asks which of the things in the bag is the one
-    /// currently in hand.
-    /// </remarks>
     public string? ActiveItemOf(string owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -73,10 +55,6 @@ public sealed class Inventory
     /// <summary>Puts an item in someone's hand, or empties it.</summary>
     /// <param name="owner">Whose hand.</param>
     /// <param name="item">The item, or null for none.</param>
-    /// <remarks>
-    /// Not refused when they are not carrying it. The original logs a warning and does it
-    /// anyway, and a script that sets an item active before granting it is relying on that.
-    /// </remarks>
     public void SetActive(string owner, string? item)
     {
         ArgumentNullException.ThrowIfNull(owner);
@@ -92,11 +70,6 @@ public sealed class Inventory
     }
 
     /// <summary>Empties every pocket.</summary>
-    /// <remarks>
-    /// For loading a game. Adding what a save holds is not enough on its own: whatever the
-    /// player was carrying before has to go, or a load hands them both games' inventories
-    /// and every puzzle either side of it stops meaning anything.
-    /// </remarks>
     public void Clear()
     {
         _byOwner.Clear();

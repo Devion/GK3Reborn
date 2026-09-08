@@ -14,21 +14,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// What a plain left click does to the thing under the pointer.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported as "once Gabriel picks up the fingerprint scanner it overrides most other
-/// nouns on everything, so most clicks afterwards need a right click to select the other
-/// options". The kit is not special-cased anywhere; the second line of
-/// <c>GLB_ALL.NVC</c> — in scope in every room in the game — is
-/// <c>ANY_OBJECT, FINGERPRINT_KIT, GABE_ALL</c>, the catch-all that gives Gabriel a line
-/// for dusting something with no prints on it.
-/// </para>
-/// <para>
-/// So the moment the kit is in the bag it is a verb offered on every noun there is, and
-/// being written about the wildcard noun it came out ahead of everything written about the
-/// thing itself.
-/// </para>
-/// </remarks>
 public sealed class DefaultVerbTests
 {
     /// <summary>The verbs, with the two kinds that matter told apart as VERBS.TXT does.</summary>
@@ -43,11 +28,6 @@ public sealed class DefaultVerbTests
     /// <summary>
     /// The shipped catch-all, and two nouns of the shape the report is about.
     /// </summary>
-    /// <remarks>
-    /// <c>ANY_OBJECT</c>'s line is copied from <c>GLB_ALL.NVC</c>. The cabinet answers to
-    /// one verb of its own and no <c>LOOK</c>, which is what the kit used to beat; the
-    /// wall answers to nothing at all, which is where it used to invent an action.
-    /// </remarks>
     private const string Sample = """
         ANY_OBJECT,  FINGERPRINT_KIT,  GABE_ALL,  script={wait CallSheep("glb_all","FingerPrint");}
         CABINET,     OPEN,             ALL,       script={wait StartVoiceOver("aaa",1);}

@@ -25,12 +25,6 @@ public readonly record struct OverlayVertex(Vector2 Position, Vector2 TexCoord, 
 /// <param name="PaperWhite">Where diffuse white sits.</param>
 /// <param name="Headroom">How far above it the display goes.</param>
 /// <param name="Unused">Padding, so the vector is a whole float4.</param>
-/// <remarks>
-/// Twelve bytes of padding between the flag and the vector, because a vector in a push
-/// constant block is aligned to sixteen bytes whatever precedes it. Writing this as an
-/// <c>int</c> and three floats put the shader's idea of paper white twelve bytes past the
-/// end of what was pushed, and the interface came out almost black on an HDR display.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct OverlayConstants(
     int Picture,
@@ -43,11 +37,6 @@ public readonly record struct OverlayConstants(
     float Unused);
 
 /// <summary>The interface, drawn on top of the room.</summary>
-/// <remarks>
-/// One pipeline, one texture, one vertex buffer, one draw. The interface is a few hundred
-/// rectangles at most and they all come from the same atlas, so batching them by anything
-/// would cost more bookkeeping than it saved.
-/// </remarks>
 public static class OverlayShaders
 {
     /// <summary>How many bytes of push constants the fragment stage takes.</summary>
@@ -78,11 +67,6 @@ public static class OverlayShaders
     /// <summary>
     /// The fragment stage, with the shared display encode spliced into the middle of it.
     /// </summary>
-    /// <remarks>
-    /// Two halves and a shared function between them, rather than one string, because the
-    /// encode is the same arithmetic in four passes and four copies of ST.2084 is four
-    /// places for it to be wrong differently. See <see cref="DisplayEncoding"/>.
-    /// </remarks>
     public static string Fragment => Prelude + "\n" + DisplayEncoding.Glsl + "\n" + Body;
 
     private const string Prelude = """

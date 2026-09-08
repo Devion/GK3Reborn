@@ -15,24 +15,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Measures the baked lighting, as the evidence base for stage C4b.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Before proposing light rigs it is worth establishing whether the lightmaps contain
-/// enough structure to propose them from. This stage answers that with measurements
-/// rather than assertion: how bright each surface is, what colour its light is, how much
-/// the light varies across the surface, and how much it changes between times of day.
-/// </para>
-/// <para>
-/// A surface lit evenly tells you almost nothing about where its light came from. A
-/// surface with a strong gradient tells you a direction. The ratio between those two
-/// populations is what decides whether the derivation in ADR 0002 can work at all.
-/// </para>
-/// <para>
-/// Timeblock differencing is the other half. A night bake shows only artificial light,
-/// so a surface that is bright in the morning and dark at night is sun-driven, while one
-/// that holds steady is lit by a practical.
-/// </para>
-/// </remarks>
 public sealed class LightingAnalysisStage
 {
     private readonly Action<string> _log;
@@ -221,11 +203,6 @@ public sealed class LightingAnalysisStage
     /// <summary>
     /// Measures one lightmap: how bright it is, how much it varies, and its colour.
     /// </summary>
-    /// <remarks>
-    /// Range is taken between the fifth and ninety-fifth percentile rather than absolute
-    /// minimum and maximum, so one stray texel does not make an evenly lit surface look
-    /// directional.
-    /// </remarks>
     private static (double Mean, double Range, Vector3 Color) Measure(DecodedImage lightmap)
     {
         int count = lightmap.Width * lightmap.Height;

@@ -12,18 +12,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the calls the game makes that were being met with nothing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// P4's exit criterion is that every API function is implemented or carries a recorded
-/// exception. An unanswered <em>question</em> is the worse half of that: a script branches
-/// on the answer, so a silent zero sends it down the wrong path and everything after is
-/// wrong for a reason nothing records.
-/// </para>
-/// <para>
-/// These are written in Sheep source and compiled, which is what the front end is for.
-/// Hand-assembling bytecode to test a host was always the wrong way round.
-/// </para>
-/// </remarks>
 public sealed class SheepApiSurfaceTests
 {
     private static SheepSignatures Signatures(params (string Name, sbyte Returns, sbyte[] Args)[] functions)

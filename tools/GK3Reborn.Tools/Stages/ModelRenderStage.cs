@@ -14,19 +14,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Renders one model straight out of the game's archives to a PNG.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The shortest path from shipped data to pixels: open the barns, parse the model, decode
-/// the textures it names, upload both, draw. Nothing is pre-converted, so what this
-/// produces is evidence about the parsers and the renderer together rather than about an
-/// intermediate file.
-/// </para>
-/// <para>
-/// It renders offscreen deliberately. A headless render needs no window, runs on a build
-/// agent, and its output can be compared between runs — none of which is true of a
-/// screenshot.
-/// </para>
-/// </remarks>
 public sealed class ModelRenderStage
 {
     private readonly Action<string> _log;
@@ -230,11 +217,6 @@ public sealed class ModelRenderStage
     /// </summary>
     /// <param name="model">The character.</param>
     /// <returns>The head's corners, or null when the model has no head.</returns>
-    /// <remarks>
-    /// A little of the neck is kept below it and a little air above, because a head cropped
-    /// exactly to its own bounds reads as a floating object rather than as somebody looking
-    /// at you.
-    /// </remarks>
     private static (Vector3 Minimum, Vector3 Maximum)? Bust(ModFile model)
     {
         if (CharacterHead.Find(model) is not { } which)
@@ -317,11 +299,6 @@ public sealed class ModelRenderStage
     /// </summary>
     /// <param name="model">The model's name.</param>
     /// <returns>The angle its face looks along.</returns>
-    /// <remarks>
-    /// Found by rendering the character through a full turn and looking at which frame is
-    /// the face. Everything not named here is built looking along zero, which is nearly all
-    /// of them.
-    /// </remarks>
     private static float Facing(string model) =>
         model.StartsWith("EML", StringComparison.OrdinalIgnoreCase) ? MathF.PI : 0f;
 

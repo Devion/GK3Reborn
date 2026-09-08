@@ -3,11 +3,6 @@ namespace GK3Reborn.Foundation;
 /// <summary>
 /// The game's notion of time, kept separate from wall-clock time.
 /// </summary>
-/// <remarks>
-/// Plan/01-architecture.md section 3: simulation time, real time, cinematic time
-/// and pause state must be distinguishable, and a headless deterministic mode must
-/// advance by explicit ticks so tests never depend on the machine's speed.
-/// </remarks>
 public sealed class GameClock
 {
     private readonly double _fixedStepSeconds;

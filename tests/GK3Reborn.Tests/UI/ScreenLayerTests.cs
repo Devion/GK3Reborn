@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for what is in front of the room and how the player gets out of it.
 /// </summary>
-/// <remarks>
-/// GK3 has a lot of modal screens and in the original each arrived with its own way in and
-/// its own way out. <c>Plan/03</c> section 3 asks that they share navigation and back
-/// behaviour, so the player learns the way out once. These pin that: one Back, one thing
-/// closed, back where you were.
-/// </remarks>
 public sealed class ScreenLayerTests
 {
     private static int Eval(GameState state, string expression) =>

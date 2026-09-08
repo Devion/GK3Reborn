@@ -11,11 +11,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for showing every hotspot in the room at once.
 /// </summary>
-/// <remarks>
-/// Rooms put a dozen nouns within a few degrees of each other — a desk, its drawer, the
-/// register on it, the bell beside it — so the labels have to be laid out rather than simply
-/// drawn. A heap of them on the same spot answers the question no better than none.
-/// </remarks>
 public sealed class HotspotLabelTests
 {
     /// <summary>A hud over a font of one character, which is enough to measure with.</summary>

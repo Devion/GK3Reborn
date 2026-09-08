@@ -18,11 +18,6 @@ public readonly record struct ProcessResult(int ExitCode, string StandardOutput,
 /// <summary>
 /// Locates and drives the pinned external FFmpeg toolchain.
 /// </summary>
-/// <remarks>
-/// Plan/01-architecture.md: video import uses an external FFmpeg executable whose
-/// version is checked. Conversion is an offline import concern; the runtime never
-/// shells out.
-/// </remarks>
 public sealed class FfmpegTools
 {
     private FfmpegTools(string ffmpeg, string ffprobe, string version)

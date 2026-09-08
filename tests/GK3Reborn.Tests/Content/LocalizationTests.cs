@@ -12,14 +12,6 @@ namespace GK3Reborn.Tests.Content;
 /// Tests for the language table, the pack that carries a language, and the rule that
 /// works out which assets belong in one.
 /// </summary>
-/// <remarks>
-/// The expensive half of localisation is a comparison of two three-hundred-megabyte
-/// releases and cannot be a test. What can be tested is every rule that comparison turns
-/// on, and those are the ones that are silently wrong when they are wrong: a prefix
-/// stripped from a name that never carried one collides five assets into each other, and a
-/// prefix <em>not</em> stripped leaves seven thousand French lip-sync files with no English
-/// counterpart and the English pack empty.
-/// </remarks>
 public sealed class LocalizationTests : IDisposable
 {
     private readonly string _root = Path.Combine(

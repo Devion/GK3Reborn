@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Sheep;
 /// <summary>
 /// Tests for a script that is waiting for something.
 /// </summary>
-/// <remarks>
-/// The machine has always parked a thread properly and nothing ever kept it parked, so
-/// every wait was over as soon as it began. What matters here is that a script now takes
-/// as long as the calls it waited on, and that a host with nothing to wait against still
-/// runs it straight through.
-/// </remarks>
 public sealed class SheepSchedulerTests
 {
     /// <summary>A host where one call takes time and the rest do not.</summary>

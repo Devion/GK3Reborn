@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for the subtitles GK3 wrote for its cutscenes and never showed.
 /// </summary>
-/// <remarks>
-/// Fourteen of the films carry a <c>.YAK</c> of the film's own name whose <c>[GK3]</c>
-/// section is a list of <c>SpeakerCaption</c> nodes — a start frame, an end frame, who is
-/// speaking and what they say — and every release translates them. They matter most where a
-/// language never dubbed its cutscenes: Spanish and Portuguese films are spoken in English,
-/// and these are the whole of what those two have.
-/// </remarks>
 public sealed class MovieSubtitleTests
 {
     /// <summary>A cutscene YAK, in the shape the shipped ones are in.</summary>

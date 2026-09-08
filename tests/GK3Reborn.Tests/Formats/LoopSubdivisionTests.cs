@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the subdivision that rounds off a character's outline.
 /// </summary>
-/// <remarks>
-/// Two things have to hold. It has to actually round the silhouette, which is the whole
-/// point and is checked by watching the angles between neighbouring faces open towards
-/// flat. And it must not open a crack where two submeshes meet, because GK3 splits a head
-/// into a face, a hairline, an ear and a patch of skin, and a seam that comes apart along
-/// the hairline is worse than the hard outline it replaced.
-/// </remarks>
 public sealed class LoopSubdivisionTests
 {
     /// <summary>An octahedron: the crudest closed surface with every vertex a fan.</summary>

@@ -8,20 +8,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the sheet the loading screen draws with before the game has one.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The screen itself needs a window and a device and is not testable here; what is testable
-/// is the thing that makes it possible at all. Everything the interface draws is cut from a
-/// font's sheet with a block of white added under it, and the loading screen exists before
-/// any font has been read — so it needs the block on its own.
-/// </para>
-/// <para>
-/// The failure this is really about is a silent one. An atlas whose white texel is not white
-/// draws a bar in whatever colour happened to be there, and one that answers with a glyph
-/// for a character it cannot draw puts a fragment of the sheet on screen instead of a letter.
-/// Both look like a broken font rather than like a missing one.
-/// </para>
-/// </remarks>
 public sealed class LoadingScreenTests
 {
     /// <summary>The white block is opaque white, at the coordinate it hands out.</summary>
@@ -43,11 +29,6 @@ public sealed class LoadingScreenTests
     /// <summary>
     /// It draws no letters at all, rather than drawing the wrong ones.
     /// </summary>
-    /// <remarks>
-    /// The screen asks for its word every frame whether it can write it or not, so the
-    /// answer to every character has to be nothing: a word measured as nothing is a word
-    /// that is not drawn, which is what the bar-only screen is.
-    /// </remarks>
     [Fact]
     public void The_blank_atlas_draws_no_letters()
     {
@@ -71,11 +52,6 @@ public sealed class LoadingScreenTests
     }
 
     /// <summary>And rectangles drawn from it are the colour they were asked for.</summary>
-    /// <remarks>
-    /// The whole of the loading screen is rectangles — the dimming over what is behind it,
-    /// the bar's track, and the part of the bar that is filled in — so a sheet that cannot
-    /// draw a solid rectangle is a sheet that cannot draw the screen.
-    /// </remarks>
     [Fact]
     public void The_blank_atlas_draws_rectangles()
     {

@@ -8,25 +8,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// Compiles HLSL to DXIL, which is the only thing Direct3D 12 will load.
 /// </summary>
-/// <remarks>
-/// <para>
-/// DXC arrives as a NuGet package of its own rather than from an installed SDK, for the
-/// same reason shaderc does: a contributor who wants to change gameplay code should not
-/// have to install a graphics SDK to build the project. Two native libraries come with it
-/// and both are needed. <c>dxcompiler</c> is the compiler; <c>dxil</c> is the signing
-/// library, and without it every module compiles but comes out unsigned — which a device
-/// refuses to create a pipeline from unless the machine is in developer mode. That failure
-/// arrives at pipeline creation rather than here, which is a long way from its cause, so
-/// the signature is checked at the end of every compile instead.
-/// </para>
-/// <para>
-/// Shader model 6.5 by default, which is the floor for <c>RayQuery</c>, the only form of
-/// ray tracing the renderer uses. It is not a floor for the device: a card that reports
-/// less is given modules compiled for what it has, down to 6.0, because the raster
-/// shaders need nothing newer and a ray query is never in them on a card without the
-/// tier. See <see cref="Direct3D12.D3D12Context.DxilShaderModel"/>.
-/// </para>
-/// </remarks>
 public sealed class DxilCompiler : IDisposable
 {
     /// <summary>DXC's class ID for the compiler object, from <c>dxcapi.h</c>.</summary>
@@ -261,12 +242,6 @@ public sealed class DxilCompiler : IDisposable
     }
 
     /// <summary>Whether a DXIL container carries a signature rather than sixteen zero bytes.</summary>
-    /// <remarks>
-    /// A DXBC container's header is the four-character code, then a sixteen-byte hash, then
-    /// the sizes. DXC writes zeroes into the hash and the signing library fills them in; if
-    /// it was never loaded they stay zero and the module is refused at pipeline creation
-    /// with nothing said about why. Checking here turns that into a sentence.
-    /// </remarks>
     private static bool IsSigned(ReadOnlySpan<byte> container)
     {
         if (container.Length < 20 || !container.StartsWith("DXBC"u8))

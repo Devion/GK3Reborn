@@ -5,21 +5,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <summary>
 /// What the mesh pipeline binds, declared once for both backends.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One statement, two spellings. Vulkan builds descriptor set layouts from it and Direct3D
-/// builds a root signature; neither is derived from the other, and the shaders that read
-/// them are the same shaders. The correspondence is <see cref="ShaderBindings"/> — a set
-/// becomes a register space and a binding becomes a register index.
-/// </para>
-/// <para>
-/// Two sets, split by how often they change. Set 0 holds the camera, the light rig and —
-/// where the device can trace — the acceleration structure, and is bound once a frame. Set 1
-/// holds a batch's five textures and never changes at all once a room is built. What is left,
-/// the model transform and the shading mode, travels as push constants, which need no buffer,
-/// no descriptor and no synchronisation between frames in flight.
-/// </para>
-/// </remarks>
 public static class MeshLayout
 {
     /// <summary>Set 0: what a frame is, bound once for all of it.</summary>
@@ -29,11 +14,6 @@ public static class MeshLayout
     public const uint MaterialSet = 1;
 
     /// <summary>How many textures a material binds.</summary>
-    /// <remarks>
-    /// Colour, lightmap, normal, occlusion-roughness-metalness, height. The stand-ins are
-    /// bound where a surface has none of a thing, because both APIs require every declared
-    /// binding to point at something valid even when the shader ignores what it reads.
-    /// </remarks>
     public const int TexturesPerMaterial = 5;
 
     /// <summary>What the pipeline binds without ray tracing.</summary>

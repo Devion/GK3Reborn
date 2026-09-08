@@ -15,13 +15,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for cutting a room into objects and putting them back.
 /// </summary>
-/// <remarks>
-/// The property everything here rests on is that a triangle can be handed to a modelling
-/// tool and come back still knowing which surface of which room it belongs to. Lose that
-/// and the geometry is fine and the lighting is somebody else's: every surface carries its
-/// own lightmap placement and its own flags, and there is nothing in a returned triangle's
-/// position to say which.
-/// </remarks>
 public sealed class SceneObjectGlbTests
 {
     /// <summary>A room of quads, each its own surface, grouped into objects as asked.</summary>

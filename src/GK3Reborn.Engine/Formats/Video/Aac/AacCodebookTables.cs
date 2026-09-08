@@ -6,11 +6,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// <summary>
 /// The Huffman codebooks of AAC: eleven spectral books and the scalefactor book.
 /// </summary>
-/// <remarks>
-/// The rows are the canonical (length, codeword, values) triples from the standard;
-/// <see cref="HuffmanCodebook"/> turns them into a decode tree once at start-up so a
-/// symbol costs a walk of a few array reads rather than a scan of the rows.
-/// </remarks>
 internal static class AacCodebookTables
 {
     /// <summary>HCB1 (81 entries).</summary>

@@ -9,22 +9,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// What the room sounds like.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Three things put sound in a GK3 scene and they behave differently enough to be worth
-/// separating. <b>Ambience</b> is one looping bed that lasts as long as the room does.
-/// <b>Effects</b> are one-shots a script fires and forgets. <b>Dialogue</b> is a queue: a
-/// voice-over of three lines is three files played one after another, and the second must
-/// not start until the first has finished.
-/// </para>
-/// <para>
-/// Which file a spoken line actually is comes out of the animation that carries it. A
-/// script says <c>StartVoiceOver("0NQIB44QR1", 2)</c>; the plate resolves to
-/// <c>E0NQIB44QR1.YAK</c>, whose <c>[SOUNDS]</c> names <c>A0NQIB44.QR1</c>, and that is the
-/// audio. Nothing in the script mentions any of those names, which is why the library and
-/// the animations both have to be here for anybody to say a word.
-/// </para>
-/// </remarks>
 public sealed class SceneAudio
 {
     private readonly SoundLibrary _sounds;
@@ -34,25 +18,12 @@ public sealed class SceneAudio
 
     /// <summary>A soundtrack the room is running, and the sound it has going.</summary>
     /// <param name="program">The list being walked.</param>
-    /// <remarks>
-    /// A program that is not holding a handle to what it started cannot stop it, and a
-    /// sound nothing can stop is a sound that outlives its room: the theme of the room
-    /// just left, still playing under the theme of the room just entered. The reference
-    /// keeps the same handle for the same reason — <c>PlayingSoundtrack</c> holds the
-    /// sound its current node started, and the scene forces every one of them to stop
-    /// as it unloads.
-    /// </remarks>
     private sealed class Playing(SoundtrackProgram program)
     {
         /// <summary>The list being walked.</summary>
         public SoundtrackProgram Program { get; } = program;
 
         /// <summary>The one-shots it has going, oldest first.</summary>
-        /// <remarks>
-        /// More than one at a time is ordinary: a node's sound is what times the next
-        /// step, and a step that decides to play something the moment the last sound was
-        /// due to end will overlap it by whatever the decode rounded off.
-        /// </remarks>
         public List<AudioVoice> Voices { get; } = [];
 
         /// <summary>Its looping bed, when it has reached one.</summary>
@@ -86,11 +57,6 @@ public sealed class SceneAudio
     /// <summary>
     /// Where the waits and the choices are drawn from.
     /// </summary>
-    /// <remarks>
-    /// Its own generator rather than the game's, so that how often a room creaks does not
-    /// depend on how many times anybody has clicked on anything — and seeded, so that two
-    /// runs of the same scene make the same noises at the same moments. ADR 0004.
-    /// </remarks>
     private readonly Foundation.DeterministicRandom _chance = new(0x51A7C0DE51A7C0DE);
 
     /// <summary>A bed started by name rather than by a soundtrack, and what it is.</summary>
@@ -103,11 +69,6 @@ public sealed class SceneAudio
     /// <summary>
     /// How much longer a line with a caption and no recording is held for.
     /// </summary>
-    /// <remarks>
-    /// The one place a timer stands in for the device. Everywhere else a line is over when
-    /// its source stops, which is why the two never drift; a line that was never recorded
-    /// has no source, so its own animation is the clock instead.
-    /// </remarks>
     private double _silent;
 
     /// <summary>Creates the scene's audio.</summary>
@@ -131,27 +92,9 @@ public sealed class SceneAudio
     /// <summary>
     /// Told whenever a line starts or stops, so that faces can follow it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A line of dialogue is one animation: its <c>[SOUNDS]</c> is the recording and its
-    /// <c>[GK3]</c> is the mouth shapes, against the same frame numbers. So whatever moves
-    /// mouths needs the animation and not just the name of it, and it needs it at the
-    /// moment the sound actually starts rather than when the script asked for it — a
-    /// queued line may be several seconds behind the call that queued it.
-    /// </para>
-    /// <para>
-    /// Null when nothing is being said, which is how a mouth learns to close. Optional:
-    /// the room may be running without faces, or without anything to draw them on.
-    /// </para>
-    /// </remarks>
     public Action<AnimationFile?>? Speaking { get; set; }
 
     /// <summary>The caption for what is being said, if the line carries one.</summary>
-    /// <remarks>
-    /// Read from the animation rather than a subtitle file, because that is where GK3 keeps
-    /// it: a <c>[GK3]</c> section of speaker and text against frame numbers. It is what a
-    /// subtitle track will be drawn from.
-    /// </remarks>
     public string? Caption { get; private set; }
 
     /// <summary>Who is saying it.</summary>
@@ -180,11 +123,6 @@ public sealed class SceneAudio
     /// <param name="gain">How loud, from zero to one, on top of its bus.</param>
     /// <param name="bus">Which bus to mix it on.</param>
     /// <returns>True when something played.</returns>
-    /// <remarks>
-    /// What an animation's <c>[SOUNDS]</c> cue needs: the file names a model and a volume,
-    /// and both are lost by playing it flat at full level. Gabriel's yawn comes from where
-    /// Gabriel is.
-    /// </remarks>
     public bool PlayAt(
         string name, Vector3? at, float gain = 1f, AudioBus bus = AudioBus.Effects)
     {
@@ -220,11 +158,6 @@ public sealed class SceneAudio
     /// <param name="name">The sound, or null to stop whatever is playing.</param>
     /// <param name="at">Where it is, or null to play it at the listener's head.</param>
     /// <returns>True when something is playing.</returns>
-    /// <remarks>
-    /// A soundtrack says where its sound is and how far it carries — RC1's fountain is at
-    /// (3113, 114, −2337) and reaches 1,200 units. Played at the head instead, it is as loud
-    /// across the square as it is standing in it.
-    /// </remarks>
     public bool Loop(string? name, AudioPlacement? at)
     {
         if (_ambience.Exists)
@@ -253,12 +186,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Says which bed the room is to report as its own.</summary>
-    /// <remarks>
-    /// A room may have several going at once — 62 of the game's 493 timeblocks name more
-    /// than one looping soundtrack, and CSE's afternoon means its room tone and its
-    /// fountain to be heard together — so there is no single bed to hold in a field. The
-    /// most recent one is what gets reported, and the rest are running underneath it.
-    /// </remarks>
     private void Reported()
     {
         for (int i = _programs.Count - 1; i >= 0; i--)
@@ -297,18 +224,6 @@ public sealed class SceneAudio
     /// <summary>Starts the room's ambience from the soundtracks the scene names.</summary>
     /// <param name="soundtracks">What the scene listed.</param>
     /// <returns>What is playing, or null when none of it could be.</returns>
-    /// <remarks>
-    /// <para>
-    /// A soundtrack is a little program — pick one of these at random, wait between four
-    /// and nine seconds, repeat twice — and running it properly is a scheduler of its own.
-    /// This takes the first sound of the first ambient track and loops it, which gives a
-    /// room its tone but not its variety.
-    /// </para>
-    /// <para>
-    /// Deliberately the simple half. The difference is audible over minutes rather than
-    /// seconds, and a room that hums is much closer to right than a room that is silent.
-    /// </para>
-    /// </remarks>
     public string? StartAmbience(IReadOnlyList<SoundtrackFile> soundtracks)
     {
         ArgumentNullException.ThrowIfNull(soundtracks);
@@ -340,20 +255,6 @@ public sealed class SceneAudio
     /// <param name="playing">The soundtrack it belongs to.</param>
     /// <param name="sound">The sound, as the file describes it.</param>
     /// <returns>Its length in seconds, or zero when it could not be played.</returns>
-    /// <remarks>
-    /// <para>
-    /// A sound that loops is the room's bed: it is what the room sounds like for as long
-    /// as the player is in it, and it stops when the player leaves the room.
-    /// It goes through the same decode-off-the-thread path as before, because a bed is
-    /// often a five-minute MP3 and decoding one where the room appears is a quarter of a
-    /// second of nothing happening.
-    /// </para>
-    /// <para>
-    /// Everything else is a moment — a creak, a bell, a car going past — and is played
-    /// outright. Those are short, already decoded by the time a room has been in for a
-    /// minute, and waiting a frame for one would put it after the step that follows it.
-    /// </para>
-    /// </remarks>
     private double Sound(Playing playing, SoundtrackSound sound)
     {
         AudioPlacement? at = PlacementOf(sound);
@@ -422,10 +323,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Which bus a soundtrack's sounds are mixed on.</summary>
-    /// <remarks>
-    /// The file says: <c>SoundType=Music</c>, <c>Ambient</c> or <c>SFX</c>, which is which
-    /// of the player's own volume sliders it obeys.
-    /// </remarks>
     private static AudioBus Bus(SoundtrackKind kind) => kind switch
     {
         SoundtrackKind.Music => AudioBus.Music,
@@ -436,20 +333,6 @@ public sealed class SceneAudio
     /// <summary>Where a soundtrack's sound is, if it says.</summary>
     /// <param name="sound">The sound, as its soundtrack describes it.</param>
     /// <returns>Its placement, or null when it belongs at the listener.</returns>
-    /// <remarks>
-    /// <para>
-    /// A <c>.STK</c> either gives a sound a place in the room or does not. Those that do
-    /// carry <c>3D=1</c> with a position and a pair of distances — CSE's fountain is 85 to
-    /// 1,000 units, a passing car is 250 to 2,500 — and those that do not are room tone,
-    /// which belongs at the head because it comes from everywhere.
-    /// </para>
-    /// <para>
-    /// A sound that follows something is not placed here. <c>Follow=blk_sedan</c> means the
-    /// emitter moves with a model, and where that model is at any moment is the room's
-    /// business rather than this file's; until something asks the room, following sounds
-    /// play at their authored spot, which is where the model starts.
-    /// </para>
-    /// </remarks>
     public static AudioPlacement? PlacementOf(SoundtrackSound sound) =>
         sound.Is3D
             ? new AudioPlacement(
@@ -469,11 +352,6 @@ public sealed class SceneAudio
     /// <param name="plate">The licence plate the script gave.</param>
     /// <param name="lines">How many lines, itself included.</param>
     /// <returns>How many of them were found.</returns>
-    /// <remarks>
-    /// Anything already being said is abandoned. That is what the original does — a script
-    /// that starts a conversation while one is running means to replace it — and it is also
-    /// the only behaviour that cannot deadlock.
-    /// </remarks>
     public int Speak(string plate, int lines)
     {
         ArgumentNullException.ThrowIfNull(plate);
@@ -497,18 +375,6 @@ public sealed class SceneAudio
     /// <summary>Says the next lines of whatever was last started.</summary>
     /// <param name="lines">How many more to say.</param>
     /// <returns>How many of them were found.</returns>
-    /// <remarks>
-    /// <para>
-    /// A conversation is written as one plate and then a series of continuations: the
-    /// script says <c>StartDialogue("1E4CU4OCZ1", 1)</c> and later <c>ContinueDialogue(2)</c>,
-    /// which means the next two in the same sequence. The plate is not repeated, so
-    /// somebody has to remember where the run had got to.
-    /// </para>
-    /// <para>
-    /// Continuing when nothing was started says nothing, which is what a script calling it
-    /// out of order deserves — and is better than guessing at a plate.
-    /// </para>
-    /// </remarks>
     public int Continue(int lines)
     {
         if (_stem is not { Length: > 0 } stem)
@@ -543,11 +409,6 @@ public sealed class SceneAudio
     /// </summary>
     /// <param name="lines">How many more.</param>
     /// <returns>Seconds, or nought when nothing has been started.</returns>
-    /// <remarks>
-    /// What a waited <c>ContinueDialogue</c> is worth. The run's licence plate was given
-    /// once, when it started, and this is the only thing that still knows it — so the script
-    /// host asks rather than working it out, and a continuation of nothing answers nought.
-    /// </remarks>
     public double SecondsOfNext(int lines)
     {
         if (_stem is not { Length: > 0 } stem)
@@ -569,20 +430,6 @@ public sealed class SceneAudio
     /// Cuts the line being spoken short and starts the next one.
     /// </summary>
     /// <returns>True when there was a line to cut short.</returns>
-    /// <remarks>
-    /// <para>
-    /// What a click during dialogue means. A player who has read the caption should not have
-    /// to sit through the rest of the recording, and every adventure game of this kind lets
-    /// them tap through — the original does not, which is a limitation of 1999 rather than a
-    /// design anybody would choose.
-    /// </para>
-    /// <para>
-    /// The rest of the run is kept, because a conversation is a queue and skipping a line is
-    /// not abandoning the exchange. Skipping the last line stops cleanly and lets whatever
-    /// was waiting on the dialogue carry on, which is the same path the line finishing on
-    /// its own takes.
-    /// </para>
-    /// </remarks>
     public bool Skip()
     {
         if (Saying is not { Length: > 0 })
@@ -614,10 +461,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Stops whatever is being said and forgets the rest of it.</summary>
-    /// <remarks>
-    /// What the line was going to do to the music is forgotten with it. A caller that means
-    /// to replace the line rather than to end the room says so — see <see cref="Ended"/>.
-    /// </remarks>
     public void Hush() => Hush(performed: false);
 
     /// <summary>Stops whatever is being said, saying what becomes of its schedule.</summary>
@@ -644,21 +487,9 @@ public sealed class SceneAudio
     }
 
     /// <summary>Stops the one-shot sounds, leaving the ambience and the dialogue.</summary>
-    /// <remarks>
-    /// What a script means by <c>StopAllSounds</c>. The room goes on sounding like the room
-    /// and whoever is speaking goes on speaking; what stops is the door that was closing
-    /// and the glass that was breaking.
-    /// </remarks>
     public void Quiet() => _backend.StopBus(AudioBus.Effects);
 
     /// <summary>Stops everything that is sounding, leaving the soundtracks running.</summary>
-    /// <remarks>
-    /// Every voice, whichever bus it is on, including the beds — but not the programs
-    /// that started them, which go on walking their lists and will play whatever their
-    /// next node says. A soundtrack holding at a looping node has nothing left to play,
-    /// so a room silenced this way stays silent; the reference behaves the same way, for
-    /// the same reason.
-    /// </remarks>
     public void Silence()
     {
         Hush();
@@ -713,13 +544,6 @@ public sealed class SceneAudio
     /// <summary>
     /// Ends the room, and everything it was saying and sounding like with it.
     /// </summary>
-    /// <remarks>
-    /// The bed used to be handed to a crossfade and left playing while the next room's came
-    /// up underneath it. Two beds on one bus is two beds you can hear, and a room whose
-    /// soundtrack asks for a long <c>FadeOutMS</c> carried its own sound well into the next
-    /// room; between them the overlap was loud enough to be the wrong room. So the bed stops
-    /// where the room does.
-    /// </remarks>
     public void Leave()
     {
         Hush();
@@ -753,10 +577,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Starts the room's bed, once it has finished decoding.</summary>
-    /// <remarks>
-    /// At its own level from the first sample. The room it replaced stopped when the player
-    /// left it, so there is nothing underneath for this to come up over.
-    /// </remarks>
     private void Begin(Playing playing, string? name, AudioPlacement? at)
     {
         if (name is null || _sounds.Read(name) is not { } sound)
@@ -784,13 +604,6 @@ public sealed class SceneAudio
     /// <summary>Starts a soundtrack a script named, on top of the room's own.</summary>
     /// <param name="track">The file.</param>
     /// <returns>True if it was not already playing.</returns>
-    /// <remarks>
-    /// A script's soundtrack is another program running beside the room's rather than
-    /// instead of it: <c>PlaySoundTrack</c> in the middle of a scene is a car arriving or
-    /// a storm getting up, and the room is still the room underneath it. Playing one
-    /// twice does nothing, which is what the original does — the same list started twice
-    /// would be the same sound at two different points in its own walk.
-    /// </remarks>
     public bool Play(SoundtrackFile track) => Play(track, looping: true);
 
     /// <summary>Starts a soundtrack, saying whether it walks its list more than once.</summary>
@@ -826,11 +639,6 @@ public sealed class SceneAudio
     /// <summary>Stops one soundtrack, or every soundtrack.</summary>
     /// <param name="name">Which one, or null for all of them.</param>
     /// <returns>How many were stopped.</returns>
-    /// <remarks>
-    /// A soundtrack stops with everything it had going: its bed, if it had reached one,
-    /// and the sounds it has playing. Stopping the storm a script started should not
-    /// leave the last thunderclap ringing on into the room.
-    /// </remarks>
     public int StopSoundtrack(string? name = null)
     {
         int stopped = 0;
@@ -864,21 +672,6 @@ public sealed class SceneAudio
     /// <summary>Does what an animation's soundtrack node says.</summary>
     /// <param name="change">The node.</param>
     /// <returns>True if anything started or stopped.</returns>
-    /// <remarks>
-    /// <para>
-    /// The one place a <c>PLAYSOUNDTRACK</c>, a <c>STOPSOUNDTRACK</c> or a
-    /// <c>STOPALLSOUNDTRACKS</c> is performed, whichever kind of animation carried it: a
-    /// line of dialogue's own schedule reaches it from inside this class, and a moment's
-    /// reaches it through <c>SceneUpdate.Music</c>. Both mean the same thing and neither
-    /// should mean it differently.
-    /// </para>
-    /// <para>
-    /// A stop names the soundtrack it stops; stopping one that is not running is nothing
-    /// happening rather than a fault, and the corpus does it — <c>MontUpstaris.STK</c> is a
-    /// stop for a soundtrack whose real name is spelled the other way, so the original
-    /// missed it too.
-    /// </para>
-    /// </remarks>
     public bool Cue(AnimationMusic change)
     {
         if (change.Stop)
@@ -892,23 +685,12 @@ public sealed class SceneAudio
     }
 
     /// <summary>The soundtracks the room is running, by name.</summary>
-    /// <remarks>
-    /// A room may be running several — RC1 at ten in the morning names a fountain, a room
-    /// tone and birdsong — and most of them are silent at any given moment, because a
-    /// soundtrack is mostly waiting. So this says what is <em>running</em>, where
-    /// <see cref="Ambience"/> says what is sounding.
-    /// </remarks>
     public IReadOnlyList<string> Running =>
         [.. _programs.Select(p => p.Program.Track.Name)];
 
     /// <summary>Where a line is spoken from, or null when it belongs at the head.</summary>
     /// <param name="line">The line's animation, which names its speaker in its caption.</param>
     /// <returns>The placement, or null to centre it.</returns>
-    /// <remarks>
-    /// This line's own speaker rather than <see cref="Speaker"/>, which is the last one
-    /// known: an animation with no caption names nobody, and taking the previous line's
-    /// speaker would put an unattributed line wherever the last person to talk is standing.
-    /// </remarks>
     private AudioPlacement? Placed(AnimationFile line)
     {
         if (line.Captions.Count == 0 ||
@@ -924,46 +706,21 @@ public sealed class SceneAudio
     }
 
     /// <summary>How near a speaker has to be before their voice stops getting louder.</summary>
-    /// <remarks>
-    /// A person talking is not a fountain: the useful range is a conversation's worth of
-    /// room rather than a square's, so a line placed in the world is at full level for the
-    /// few feet a conversation is held across and falls away beyond that. Wider than the
-    /// game's own default for a sound, because a line the player cannot make out is worse
-    /// than a line that is not quite placed right.
-    /// </remarks>
     private const float DialogueNear = 300f;
 
     /// <summary>And how far away it is as quiet as it gets.</summary>
     private const float DialogueFar = 2000f;
 
     /// <summary>Which speakers are centred and which are placed in the room.</summary>
-    /// <remarks>
-    /// Gabriel by default, and everybody when the player turns on centred dialogue — which
-    /// is an accessibility option, not a mixing preference (Plan/03 section 8).
-    /// </remarks>
     public DialogueRoutingOptions Routing { get; set; } = new();
 
     /// <summary>Reads a soundtrack by name, for the calls that name one.</summary>
-    /// <remarks>
-    /// A hook rather than an archive reference: a <c>.STK</c> is text in a barn, and the
-    /// audio layer knowing how to open one would put the archives behind the mixer.
-    /// </remarks>
     public Func<string, SoundtrackFile?>? Soundtracks { get; set; }
 
     /// <summary>Where a model in the room is, for a sound that moves with it.</summary>
-    /// <remarks>
-    /// <c>Follow=blk_sedan</c> on a soundtrack's sound means the emitter travels with that
-    /// model. Where the model is at any moment is the room's business rather than the
-    /// audio's, so this is a hook: without one, a following sound stays where the file
-    /// authored it, which is where the model starts.
-    /// </remarks>
     public Func<string, Vector3?>? Where { get; set; }
 
     /// <summary>Brings the sounds that are fading in up to their own level.</summary>
-    /// <remarks>
-    /// Straight-line in gain. A sound whose fade has finished is dropped from the list rather than kept and set to the same
-    /// level every frame for as long as it plays.
-    /// </remarks>
     private void Rising(double seconds)
     {
         for (int i = _rising.Count - 1; i >= 0; i--)
@@ -985,11 +742,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Moves the sounds that travel with something.</summary>
-    /// <remarks>
-    /// Voices that have finished are dropped here rather than kept, because a room stood
-    /// in for ten minutes starts a great many sounds and only a handful of them follow
-    /// anything.
-    /// </remarks>
     private void Following()
     {
         for (int i = _following.Count - 1; i >= 0; i--)
@@ -1010,11 +762,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Drops the soundtrack sounds that have finished on their own.</summary>
-    /// <remarks>
-    /// A soundtrack's sounds are held so that leaving the room can stop them, and a room
-    /// stood in for ten minutes starts a great many. The device is the clock here as it is
-    /// for dialogue: a sound is over when its source stops, and the handle goes then.
-    /// </remarks>
     private void Spent()
     {
         foreach (Playing playing in _programs)
@@ -1030,10 +777,6 @@ public sealed class SceneAudio
     }
 
     /// <summary>Starts the next line when the last one has finished.</summary>
-    /// <remarks>
-    /// Called once a frame. The device is the clock: a line is over when its source stops,
-    /// not when a timer says it should have, so the two never drift apart.
-    /// </remarks>
     /// <param name="seconds">How long since the last frame, for the fades and the waits.</param>
     public void Update(double seconds = 0)
     {
@@ -1212,12 +955,6 @@ public sealed class SceneAudio
     /// <param name="line">The line's animation.</param>
     /// <param name="plate">The licence plate it was read under.</param>
     /// <returns>What to ask the sound library for.</returns>
-    /// <remarks>
-    /// Whatever the YAK names, where it names anything: 683 of the corpus's YAKs point at a
-    /// recording that is not the one their own name implies — <c>E01LIQ44QR1</c> plays
-    /// <c>A01LED44.QR1</c>, a line said twice and recorded once — and a derived name must
-    /// never stand in front of a stated one.
-    /// </remarks>
     private static IEnumerable<string> Named(AnimationFile line, string plate) =>
         line.Sounds.Count > 0
             ? line.Sounds.Select(cue => cue.Name)
@@ -1226,33 +963,10 @@ public sealed class SceneAudio
     /// <summary>The recording a licence plate implies, by the game's own naming.</summary>
     /// <param name="plate">Ten characters, as <c>StartVoiceOver</c> takes them.</param>
     /// <returns>The asset name, or null when the name is not a plate.</returns>
-    /// <remarks>
-    /// <para>
-    /// A YAK called <c>E1395D0LCW1</c> carries <c>A1395D0L.CW1</c>: the first seven
-    /// characters, a stop, and the last three. **6,606 of the corpus's YAKs name exactly
-    /// that and nothing else**, which makes it the game's convention rather than a guess.
-    /// </para>
-    /// <para>
-    /// It is only reached where the YAK names no sound at all, and that is what makes it
-    /// safe: **of the 90 soundless YAKs in the shipped game, not one has its implied
-    /// recording in the archives.** So this can never give voice to a line the developers
-    /// silenced — there is nothing there to find. What it does reach is audio that was
-    /// added afterwards under the 1999 name, which is where <c>tools/audio</c> writes the
-    /// crow's-nest puzzle's lines and where a player's own recording in
-    /// <c>overrides/audio</c> goes. Without it the pack held fourteen spoken lines that
-    /// nothing ever asked for.
-    /// </para>
-    /// </remarks>
     private static string? Asset(string plate) =>
         plate.Length == 10 ? $"A{plate[..7]}.{plate[7..]}" : null;
 
     /// <summary>Takes on the schedule the line about to be spoken carries.</summary>
-    /// <remarks>
-    /// Sorted by frame rather than taken in file order, because the files are not written in
-    /// order — <c>E0SB2J3H7B1</c> stops one soundtrack at frame 9 on the line after the one
-    /// that starts another at frame 10 — and a cursor over file order would perform them the
-    /// wrong way round.
-    /// </remarks>
     private void Opening(AnimationFile line)
     {
         _sounding = line;
@@ -1267,13 +981,6 @@ public sealed class SceneAudio
 
     /// <summary>Performs whatever the line being spoken has reached.</summary>
     /// <param name="seconds">How long since the last frame.</param>
-    /// <remarks>
-    /// The line is the clock. 79 of the corpus's 81 soundtrack changes are written inside
-    /// one, on a frame chosen against the words — <c>E01KED3S4U6</c> cuts the lobby's music
-    /// at frame 40 of "But I'm afraid I have bad news" and brings the fight's up at 50 —
-    /// so performing them anywhere but against the recording's own clock puts the music on
-    /// the wrong side of the sentence.
-    /// </remarks>
     private void Cueing(double seconds)
     {
         if (_sounding is not { } line)

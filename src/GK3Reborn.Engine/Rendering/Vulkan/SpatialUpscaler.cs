@@ -18,39 +18,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// The engine's own upscaler: one frame in, edge-directed, no history.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Why there is one at all.</b> The two good upscalers are somebody else's binaries and
-/// neither ships with this game. Without a built-in one, "render at three quarters and
-/// upscale" would be a setting that does nothing until the player has downloaded a DLL,
-/// and the settings page would be advertising a feature the game does not have. This is
-/// the floor: it works on every device the renderer runs on, it is a few hundred lines,
-/// and it is honestly worse than either vendor's.
-/// </para>
-/// <para>
-/// <b>What it does.</b> For each output pixel it takes the sixteen source pixels around
-/// where it lands and weights them with a windowed sinc — but not a round one. The
-/// three-by-three luminance around the point gives a gradient; the kernel is squeezed
-/// across that gradient and left alone along it, so a taut diagonal is resampled along its
-/// own direction rather than across it. That is the difference between an upscaled edge
-/// that looks like an edge and one that looks like a staircase with grey on it. The result
-/// is then clamped to the range of the four nearest source pixels, which is what stops a
-/// negative-lobed kernel ringing along the hard edges this game is full of — door numbers,
-/// Sidney's screen, the inventory's line art.
-/// </para>
-/// <para>
-/// <b>What it cannot do.</b> Nothing here recovers detail that was never drawn, because
-/// there is only one frame to look at. That is the whole reason the temporal upscalers
-/// exist and the reason this one is not the default. Its compensation is that it has no
-/// history to be wrong about: nothing it produces can ghost, smear or shimmer over time,
-/// which for a game played largely in fixed camera angles is worth more than it sounds.
-/// </para>
-/// <para>
-/// The sharpening that normally follows an upscale is not here. It is in
-/// <see cref="OutputPipeline"/>, which is the last pass either way and can therefore
-/// sharpen a picture that was not upscaled at all.
-/// </para>
-/// </remarks>
 internal sealed unsafe class SpatialUpscaler : IUpscaler
 {
     /// <summary>How many pixels one invocation group covers each way.</summary>
@@ -206,12 +173,6 @@ internal sealed unsafe class SpatialUpscaler : IUpscaler
     /// <summary>
     /// Which upscaler this is standing in for, which is usually itself.
     /// </summary>
-    /// <remarks>
-    /// It is also what runs when FSR or DLSS was chosen and its runtime is not installed,
-    /// and it has to know: a stand-in that reported itself as merely spatial would be
-    /// judged not to serve a plan asking for DLSS, and torn down and rebuilt on every
-    /// single frame. Which is exactly what it did.
-    /// </remarks>
     private readonly UpscalerKind _serving;
 
     private DescriptorPool _pool;
@@ -386,13 +347,6 @@ internal sealed unsafe class SpatialUpscaler : IUpscaler
     }
 
     /// <summary>Points the stage at this frame's two images, when they have changed.</summary>
-    /// <remarks>
-    /// The two do not change from frame to frame in the ordinary case, so this is a
-    /// comparison and a return. It is written as a per-frame call rather than a separate
-    /// setup step because the renderer may swap the images underneath — a resize, a
-    /// different quality setting — and a descriptor pointing at a destroyed view is a class
-    /// of bug that only shows up on somebody else's machine.
-    /// </remarks>
     private void Bind(ImageView source, ImageView destination)
     {
         if (_set.Handle != 0 &&

@@ -6,13 +6,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for writing a game down and putting it back.
 /// </summary>
-/// <remarks>
-/// The interesting property is not that a field round-trips but that <em>every</em> field
-/// does, and a test that listed them would be the same list the save already is — it would
-/// pass while missing whatever the save missed. So the check is the state hash, which
-/// <c>GameState</c> computes over everything observable and which exists precisely because
-/// a partial answer to "is this the same game" is worthless.
-/// </remarks>
 public sealed class SaveGameTests
 {
     /// <summary>A game with something of everything in it.</summary>
@@ -320,14 +313,6 @@ public sealed class SaveStoreTests : IDisposable
     }
 
     /// <summary>An import an older build brought across is given its introductions.</summary>
-    /// <remarks>
-    /// Imports learned who the player had met when schema three did; the ones already
-    /// sitting in a store were brought across before that, and re-importing is not offered
-    /// because a slot that exists is a save already carried over. What identifies one is
-    /// that it has no history at all and is past ten in the morning: no game played in this
-    /// engine can be in that position, because the first timeblock cannot be left until
-    /// four separate topics have been raised.
-    /// </remarks>
     [Fact]
     public void A_save_with_no_history_past_the_first_block_is_given_its_introductions()
     {

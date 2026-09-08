@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for choosing which of a room's cameras watches a conversation.
 /// </summary>
-/// <remarks>
-/// The original has no answer here — <c>SetDefaultDialogueCamera</c> is a no-op in it, and
-/// the lobby's introduction to Emilio names no conversation at all — so the port decides, out
-/// of the artists' own cameras. What it must not do is decide badly: reported as Gabriel
-/// turning round during dialogue, which was the view cutting to a shot from behind him.
-/// </remarks>
 public sealed class ConversationCameraTests
 {
     /// <summary>A camera at a place, looking at a point.</summary>
@@ -74,10 +68,6 @@ public sealed class ConversationCameraTests
     }
 
     /// <summary>Without facings it judges on framing alone, as it always did.</summary>
-    /// <remarks>
-    /// Not every caller can say which way somebody is looking, and an unknown facing must
-    /// cost a shot nothing rather than rule it out.
-    /// </remarks>
     [Fact]
     public void A_speaker_whose_facing_is_unknown_rules_nothing_out()
     {
@@ -95,10 +85,6 @@ public sealed class ConversationCameraTests
     }
 
     /// <summary>A camera that cannot see everybody is no camera at all.</summary>
-    /// <remarks>
-    /// A bad cut is worse than no cut: leaving the view where it was is always available and
-    /// is never wrong, where a shot of one person during a conversation between two is.
-    /// </remarks>
     [Fact]
     public void A_camera_that_leaves_somebody_out_is_not_used()
     {

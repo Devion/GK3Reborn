@@ -12,23 +12,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Draws the sky behind everything else.
 /// </summary>
-/// <remarks>
-/// <para>
-/// 177 of the game's 229 scene assets name a sky, and none of them was drawn, so every
-/// window and courtyard opened onto whatever the depth buffer was cleared to. The names
-/// are already in the <c>.SCN</c>; this is the part that puts them on the screen.
-/// </para>
-/// <para>
-/// Day and night come free. A scene has one asset per time of day — <c>ARM_A</c>,
-/// <c>ARM_M</c>, <c>ARM_N</c> — each naming its own sky, and the timeblock already decides
-/// which asset is read. Nothing here knows what time it is.
-/// </para>
-/// <para>
-/// Drawn <b>after</b> the room rather than before it, with the depth test on and depth
-/// writes off, so it fills only what the room left empty. Drawing it first would shade
-/// every pixel of the screen and then paint the room over most of them.
-/// </para>
-/// </remarks>
 public sealed unsafe class SkyboxPipeline : IDisposable
 {
     /// <summary>The corners of a cube, two triangles a face, wound to be seen from inside.</summary>
@@ -102,11 +85,6 @@ public sealed unsafe class SkyboxPipeline : IDisposable
     /// <param name="camera">Where the player is looking from.</param>
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Viewport height.</param>
-    /// <remarks>
-    /// The view's translation is dropped, so the sky turns with the head and never moves
-    /// with the feet — which is what makes it read as distance rather than as a box the
-    /// player is standing in.
-    /// </remarks>
     public void Record(CommandBuffer command, Camera camera, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(camera);

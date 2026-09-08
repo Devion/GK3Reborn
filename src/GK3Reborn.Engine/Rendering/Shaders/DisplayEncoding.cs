@@ -39,35 +39,11 @@ public readonly record struct DisplayEncode(
 /// <summary>
 /// The one copy of the display encode, shared by every pass that writes the swapchain.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The interface, a movie and the fade all draw straight onto the swapchain image, after
-/// the room has been encoded onto it. On an ordinary sRGB surface that needs no thought:
-/// they write linear light, the hardware encodes it on write, and that is the whole of it.
-/// On an HDR surface there is no hardware encode — the format is a plain ten-bit or
-/// half-float one — so anything written without doing the encode itself comes out as a
-/// number the display reads through the wrong curve. Which is exactly what it looked like:
-/// a correct room with a grey, washed-out interface over it.
-/// </para>
-/// <para>
-/// <b>They blend in encoded space.</b> The alternative is to draw the interface into a
-/// target of its own and composite it, which is more correct and changes how every existing
-/// standard-range frame blends. Between a theoretical improvement to HDR blending and
-/// leaving the SDR picture alone, this project's regression images decide it. What it costs
-/// is that a half-transparent panel over a bright room sits slightly differently in HDR
-/// than it would in SDR; what it saves is every reference image in the corpus.
-/// </para>
-/// </remarks>
 internal static class DisplayEncoding
 {
     /// <summary>
     /// The encode, as GLSL, for pasting into a fragment shader.
     /// </summary>
-    /// <remarks>
-    /// A string constant rather than an include, because this renderer compiles its shaders
-    /// from strings in C# and has no include resolver. One copy is what stops the four
-    /// implementations of ST.2084 from drifting apart.
-    /// </remarks>
     public const string Glsl = """
         // Rec.709 to Rec.2020, which is what ST.2084 signalling is carried in.
         const mat3 kEncodeRec709ToRec2020 = mat3(

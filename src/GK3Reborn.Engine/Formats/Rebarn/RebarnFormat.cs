@@ -6,12 +6,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Formats.Rebarn;
 
 /// <summary>What an entry in a ReBarn pack is for.</summary>
-/// <remarks>
-/// The kind is part of an entry's identity rather than a property of it, because the
-/// remake's sets are addressed by the <em>colour</em> texture's name: a surface called
-/// <c>R25WALLS</c> has a colour texture, a normal map, an ORM and a height map, and all
-/// four of them are called <c>R25WALLS</c>. Without a kind in the key they would collide.
-/// </remarks>
 public enum RebarnKind : byte
 {
     /// <summary>Not stated. Never written; a pack from a later version may hold one.</summary>
@@ -47,44 +41,16 @@ public enum RebarnKind : byte
     /// <summary>
     /// Improved geometry for one of the game's rooms, as glTF binary.
     /// </summary>
-    /// <remarks>
-    /// A kind of its own rather than a <see cref="Model"/>, because it is not one. A model
-    /// stands somewhere in a room; this <em>is</em> part of a room, addressed by the room's
-    /// name, and every triangle in it names a surface of that room's original geometry. It
-    /// is also the one kind a game may be missing entirely and be complete without.
-    /// </remarks>
     SceneGeometry = 10,
 
     /// <summary>
     /// An asset of the 1999 game as one language spells it, addressed by its whole name.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The extension is part of the key, as it is for <see cref="Audio"/> and for nothing
-    /// else. It has to be: a localised set holds <c>F014ED3S6J1.YAK</c> beside
-    /// <c>A014ED3S.6J1</c> beside <c>27KASHAF.BMP</c>, and a key that dropped the extension
-    /// would make the first two collide with the English recordings of the same lines and
-    /// the third with its own enhanced <see cref="Texture"/>.
-    /// </para>
-    /// <para>
-    /// It is read in front of the game's own archives rather than in front of the packs,
-    /// because that is what it stands in for: an entry here is the French bitmap the French
-    /// disc holds, not an improvement on anything. See <c>docs/localization.md</c>.
-    /// </para>
-    /// </remarks>
     Localized = 11,
 
     /// <summary>
     /// One language's soundtrack for a movie whose picture every language shares.
     /// </summary>
-    /// <remarks>
-    /// Addressed by the movie's name without an extension, the way
-    /// <see cref="Content.VideoLibrary"/> addresses the picture. Separate from
-    /// <see cref="Video"/> because the two are chosen independently: thirteen of GK3's
-    /// sixteen spoken movies are the same footage in every language and differ only in what
-    /// is said over them, and shipping a whole second copy of the picture to change the
-    /// words would cost a hundred megabytes a language for nothing.
-    /// </remarks>
     MovieAudio = 12,
 
     /// <summary>Anything else, addressed by name alone.</summary>
@@ -92,11 +58,6 @@ public enum RebarnKind : byte
 }
 
 /// <summary>What an entry's bytes are, once decompressed.</summary>
-/// <remarks>
-/// A hint rather than a contract. The reader does not act on it; a tool listing a pack
-/// uses it to choose an extension, and a loader may use it to refuse early rather than
-/// after a confusing parse failure.
-/// </remarks>
 public enum RebarnPayload : byte
 {
     /// <summary>Unstated.</summary>
@@ -157,34 +118,6 @@ public sealed record RebarnEntry(
 /// <summary>
 /// The ReBarn container: constants, keys, and the header that opens every volume.
 /// </summary>
-/// <remarks>
-/// <para>
-/// ReBarn holds the remake's own content — enhanced textures and their material channels,
-/// modernised models, imported video — in a file that sits beside the executable. It is
-/// deliberately <em>not</em> GK3's Barn format: Barn is a 1999 archive with 32-bit offsets
-/// and per-entry LZO, and what this has to hold is fifteen gigabytes of block data that
-/// must reach the GPU without being decoded on the way.
-/// </para>
-/// <para>
-/// Which is the whole design. Every offset is 64-bit; entries are aligned so that a mapped
-/// view of one can be handed straight to a staging buffer; and block-compressed textures
-/// are stored verbatim, because a DDS is already compressed and running DEFLATE over one
-/// buys a few per cent for a decompression pass on the critical path of a room load. Time
-/// to display is what matters — see <c>docs/formats/rebarn.md</c>.
-/// </para>
-/// <para>
-/// Layout, in order: a 64-byte header, the data section, the name table, then the index.
-/// The index is last so that a pack can be written in one streaming pass without knowing
-/// in advance how large it will be, and the header is rewritten at the end with the three
-/// offsets that pass discovered.
-/// </para>
-/// <code>
-///   0   header       64 bytes
-///   64  data         entries, each starting on a 256-byte boundary
-///   ..  name table   UTF-8, no separators; entries carry an offset and a length
-///   ..  index        entryCount records of 48 bytes, sorted by key hash
-/// </code>
-/// </remarks>
 public static class RebarnFormat
 {
     /// <summary>The four bytes a pack starts with, <c>RBRN</c>.</summary>
@@ -200,12 +133,6 @@ public static class RebarnFormat
     public const int EntryBytes = 48;
 
     /// <summary>What every entry's offset is a multiple of.</summary>
-    /// <remarks>
-    /// Chosen so that a mapped entry starts on a boundary a copy engine is happy with, and
-    /// so that a DDS's block data — 128 bytes into the file — lands on a 128-byte boundary
-    /// too. Ten thousand entries waste about a megabyte between them, which is nothing
-    /// against fifteen gigabytes.
-    /// </remarks>
     public const int Alignment = 256;
 
     /// <summary>The extension a pack file carries.</summary>
@@ -215,14 +142,6 @@ public static class RebarnFormat
     /// <param name="kind">What the entry is for.</param>
     /// <param name="name">The name, with or without an extension or a directory.</param>
     /// <returns>The canonical key.</returns>
-    /// <remarks>
-    /// Uppercase, no extension and no directory for ordinary ReBarn content. Two kinds are
-    /// the exception. <see cref="RebarnKind.Audio"/> keeps its extension because GK3 stores
-    /// a dialogue sequence there, so <c>A0NQIB44.QR1</c> and <c>A0NQIB44.QR2</c> are
-    /// different recordings; <see cref="RebarnKind.Localized"/> keeps its because an entry
-    /// there <em>is</em> a 1999 file name and the game asks for it by that whole name —
-    /// <c>ESTRINGS.TXT</c>, <c>F014ED3S6J1.YAK</c>, <c>27KASHAF.BMP</c>.
-    /// </remarks>
     public static string Key(RebarnKind kind, string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -250,11 +169,6 @@ public static class RebarnFormat
     /// <summary>Hashes a key.</summary>
     /// <param name="key">A key from <see cref="Key"/>.</param>
     /// <returns>Its 64-bit FNV-1a hash.</returns>
-    /// <remarks>
-    /// The index is sorted by this so that a pack written twice from the same inputs is
-    /// byte for byte the same file. A collision is resolved by comparing the name, which
-    /// the index carries anyway.
-    /// </remarks>
     public static ulong Hash(string key)
     {
         ArgumentNullException.ThrowIfNull(key);

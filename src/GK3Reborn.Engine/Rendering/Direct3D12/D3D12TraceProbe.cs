@@ -8,23 +8,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Traces a grid of rays past a known obstacle and says which of them were blocked.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The ray-tracing counterpart of <see cref="D3D12OffscreenRenderer"/>, and it exists for
-/// the same reason with more force. Everything that makes inline ray tracing work on this
-/// backend is somebody's guess until it is looked at: whether SPIRV-Cross turns
-/// <c>rayQueryEXT</c> into a <c>RayQuery</c> that behaves the same way, whether an
-/// acceleration structure built from this engine's matrices ends up where the geometry
-/// actually is, whether an acceleration structure binds correctly as a shader resource view
-/// made from an address rather than a resource. A shader that compiles proves none of them,
-/// and every one of them fails as a plausible wrong picture rather than as an error.
-/// </para>
-/// <para>
-/// So the probe is arranged to give an answer with a shape. A square blocker floats above a
-/// square grid of upward rays, and what comes back is the blocker's shadow: not a number
-/// that could be anything, but a pattern that is right in the middle or it is wrong.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12TraceProbe : IDisposable
 {
     /// <summary>How many rays on a side.</summary>

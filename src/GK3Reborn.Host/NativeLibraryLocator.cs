@@ -6,23 +6,6 @@ namespace GK3Reborn.Bootstrap;
 /// <summary>
 /// Resolves native libraries out of <c>libs/&lt;rid&gt;</c> so the install root stays clean.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The brief asks for native and managed clutter to live under <c>libs/</c> rather than
-/// beside the executable. The per-RID subdirectory is a deliberate refinement so one
-/// tree can carry both <c>win-x64</c> and <c>linux-x64</c> payloads.
-/// </para>
-/// <para>
-/// Resolution is by absolute path. The global <c>PATH</c> is never modified: mutating
-/// it would change how every other process on the machine loads libraries, and it
-/// fails silently when it fails at all.
-/// </para>
-/// <para>
-/// Silk.NET does not route all of its loading through the BCL resolver - it has its own
-/// search mechanism, so the hook below never sees glfw3, soft_oal or shaderc_shared.
-/// <see cref="Install"/> therefore teaches Silk.NET's resolver about the same directory.
-/// </para>
-/// </remarks>
 public static class NativeLibraryLocator
 {
     private static readonly string[] Prefixes = OperatingSystem.IsWindows()
@@ -71,14 +54,6 @@ public static class NativeLibraryLocator
     /// Soft and shaderc are found once the publish has moved them out of
     /// <c>runtimes/&lt;rid&gt;/native</c>.
     /// </summary>
-    /// <remarks>
-    /// The engine registers a resolver of its own with Silk.NET - see
-    /// <see cref="Foundation.NativeLibraries"/>, which exists because Silk cannot
-    /// find its own natives on Linux at all - so this adds a directory to that one rather
-    /// than installing a second. Ahead of everything else it searches: an install root's
-    /// payload should beat both a bare name, which would let a stray system copy win, and
-    /// the runtimes tree a publish has already flattened away.
-    /// </remarks>
     private static void InstallSilkResolver() =>
         Foundation.NativeLibraries.AddSearchDirectory(_libsRoot!);
 
@@ -147,11 +122,6 @@ public static class NativeLibraryLocator
     }
 
     /// <summary>Records what happened to one library, once per library.</summary>
-    /// <remarks>
-    /// A resolver is asked about the same name repeatedly, and once is all a log needs. The
-    /// engine's log is reached from here rather than the other way round because this runs
-    /// long after startup, when the assembly it lives in is loaded and open.
-    /// </remarks>
     private static void Note(string libraryName, string message)
     {
         if (FirstTime(libraryName))

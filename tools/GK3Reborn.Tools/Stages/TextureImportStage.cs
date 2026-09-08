@@ -10,36 +10,9 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Takes generated texture candidates into the enhanced set, or says why not.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A generator produces a directory of pictures. What the game needs is a set of textures
-/// under the names the geometry already uses, each one checked against the original it
-/// replaces, with a record of where it came from — <c>Plan/02</c> section 1 requires the
-/// provenance to be kept, and <c>docs/texture-enhancement.md</c> sets out what a
-/// replacement has to preserve. This is the step between the two.
-/// </para>
-/// <para>
-/// Three checks disqualify a candidate outright, because each produces a game that looks
-/// wrong rather than merely different. <b>Aspect ratio</b>, because the UV layout is fixed
-/// and the geometry will stretch whatever it is given. <b>Alpha</b>, in both directions:
-/// an alpha-tested texture that comes back opaque draws a solid block where a chain or a
-/// leaf should be, and an opaque one that comes back with holes in it punches them through
-/// a shirt. And <b>flat colours</b>, which the brief says belong in a material as a
-/// base-colour factor and not in an image pipeline at all.
-/// </para>
-/// <para>
-/// Everything else is recorded and passed on. Nothing here approves anything: a candidate
-/// that survives every check a machine can make is a draft, and the manifest says so.
-/// </para>
-/// </remarks>
 public sealed class TextureImportStage
 {
     /// <summary>How much larger than its source an upscale may be before it is inventing.</summary>
-    /// <remarks>
-    /// The cap <c>docs/texture-enhancement.md</c> puts on the plan's targets. Exceeding it
-    /// is a warning rather than a refusal — a remade texture is inventing on purpose, and
-    /// whether that is wanted is a decision for the person reviewing it, not for this.
-    /// </remarks>
     private const int RestorationLimit = 16;
 
     private readonly Action<string> _log;
@@ -260,11 +233,6 @@ public sealed class TextureImportStage
     }
 
     /// <summary>Whether any pixel is not fully opaque.</summary>
-    /// <remarks>
-    /// Not whether the file has an alpha channel: a generator that writes RGBA and fills
-    /// the alpha with 255 has produced an opaque image, and one that writes RGB where the
-    /// original was keyed has lost something. What matters is what a renderer would see.
-    /// </remarks>
     private static bool HasTransparency(DecodedImage image)
     {
         for (int i = 3; i < image.Pixels.Length; i += 4)

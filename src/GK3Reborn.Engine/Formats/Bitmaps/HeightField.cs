@@ -9,28 +9,6 @@ namespace GK3Reborn.Formats.Bitmaps;
 /// <summary>
 /// A height map as a number the CPU can ask for, rather than a picture for the device.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Everything else a height field is for happens in a shader, which reads it from a sampler
-/// and needs nothing here. Displacement is the exception: it moves vertices, and vertices
-/// are built once at load on this side of the seam. So the same map has to be readable
-/// twice, in two forms.
-/// </para>
-/// <para>
-/// <b>Mid grey is the modelled surface</b>, which is the convention the whole pipeline
-/// shares: <c>PbrLab</c> integrates a normal map into a field and high-passes it back to a
-/// half, the shader subtracts a half before offsetting, and <see cref="At"/> returns the
-/// same signed quantity — minus a half to plus a half of the field's full depth.
-/// </para>
-/// <para>
-/// <b>It is deliberately small.</b> The shipped maps are 512 pixels and the workspace's are
-/// 2,048, and displacement samples at whatever spacing its triangle budget affords — six
-/// units on a street, which is a dozen texels apart at best. Reading a level low in the
-/// chain costs a fraction of the memory and answers the same question, so
-/// <see cref="From(CompressedImage, int)"/> takes the smallest level that still has more
-/// texels than the geometry can use.
-/// </para>
-/// </remarks>
 public sealed class HeightField
 {
     private readonly float[] _values;
@@ -54,11 +32,6 @@ public sealed class HeightField
     /// <param name="u">Horizontal coordinate; wraps.</param>
     /// <param name="v">Vertical coordinate; wraps.</param>
     /// <returns>Minus a half to plus a half, zero being the modelled surface.</returns>
-    /// <remarks>
-    /// Bilinear and wrapping. Wrapping because a floor tiles its texture dozens of times
-    /// across a street and the sampler that draws it repeats; a clamped read would flatten
-    /// the relief along every tile's far edge into a smear of its last row.
-    /// </remarks>
     public float At(float u, float v)
     {
         float x = (Wrap(u) * Width) - 0.5f;
@@ -88,15 +61,6 @@ public sealed class HeightField
     /// <param name="v">Vertical coordinate of the centre; wraps.</param>
     /// <param name="span">Width of the square, in texture coordinates.</param>
     /// <returns>Minus a half to plus a half, zero being the modelled surface.</returns>
-    /// <remarks>
-    /// What displacement wants rather than <see cref="At"/>. A vertex stands for a whole
-    /// cell of the surface, and reading one texel at its centre makes the geometry a point
-    /// sample of a field with detail far finer than the cell: the same street tessellated
-    /// twice at slightly different densities comes out a different shape, and that shape is
-    /// noise as often as it is cobbles. Averaging over the cell takes the part of the field
-    /// the geometry can carry and leaves the rest to the parallax and the normal map, which
-    /// is the division of labour those two were always meant to have.
-    /// </remarks>
     public float Over(float u, float v, float span)
     {
         // Enough samples to cover the cell at about a texel each, and never so many that a
@@ -175,13 +139,6 @@ public sealed class HeightField
     /// <param name="image">The compressed levels.</param>
     /// <param name="wanted">The largest extent worth decoding, in texels.</param>
     /// <returns>The field, or null if it is in a format this cannot read.</returns>
-    /// <remarks>
-    /// BC4 only, which is what the content pipeline compresses height to and the one block
-    /// format that is a single channel. Eight bytes a block: two endpoints and sixteen
-    /// three-bit indices. The six-endpoint form interpolates between them, and the
-    /// eight-endpoint form reserves two of its codes for the ends of the range — which is
-    /// the part of BC4 that gets written wrong.
-    /// </remarks>
     public static HeightField? From(CompressedImage image, int wanted = 512)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(wanted, 1);

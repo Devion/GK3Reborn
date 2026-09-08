@@ -9,12 +9,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// <c>extract-localized</c>: works out what each language of GK3 does differently.
 /// </summary>
-/// <remarks>
-/// Its own flag parser, for the same reason the pack and scene commands have theirs:
-/// <c>--localized</c>, <c>--language</c> and <c>--no-video</c> mean nothing to any other
-/// command, and adding them to the record every command shares would make every command's
-/// help worse.
-/// </remarks>
 public static class LocalizationCommands
 {
     /// <summary>The commands this file owns.</summary>

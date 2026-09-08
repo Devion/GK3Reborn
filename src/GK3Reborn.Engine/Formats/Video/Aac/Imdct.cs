@@ -3,19 +3,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// <summary>
 /// Inverse MDCT of 2048 or 256 points, evaluated through an N/4-point complex FFT.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The direct definition, x[n] = (2/N) sum X[k] cos(2pi/N (n + n0)(k + 1/2)), is an
-/// O(N^2) sum that would cost more than everything else in the decoder combined. The
-/// same values come out of a DCT-IV of N/2 points, which folds into an N/4-point FFT
-/// with a complex twiddle before and after, and the DCT-IV's symmetries give the four
-/// quarters of the IMDCT output.
-/// </para>
-/// <para>
-/// The FFT is a plain radix-2 decimation-in-time on split real/imaginary arrays with
-/// precomputed twiddles; at 512 and 64 points it needs no cleverer scheme.
-/// </para>
-/// </remarks>
 internal sealed class Imdct
 {
     private readonly int _n;        // window length: 2048 or 256

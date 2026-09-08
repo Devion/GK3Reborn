@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for the assets the remake adds, which no barn has.
 /// </summary>
-/// <remarks>
-/// This is the layer most able to do harm and so the one with the strictest rule: it is
-/// consulted after every archive, so it can only ever answer for a name the game does not
-/// know, and it is empty unless the player asked for cut content. A replaced <c>.SIF</c>
-/// is a replaced room.
-/// </remarks>
 public sealed class AddedAssetsTests : IDisposable
 {
     private readonly string _root = Path.Combine(

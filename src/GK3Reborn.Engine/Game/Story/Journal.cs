@@ -21,12 +21,6 @@ namespace GK3Reborn.Game.Story;
 /// ask, and never longer than the objective has to give.
 /// </param>
 /// <param name="MoreHints">Whether there is another hint to ask for.</param>
-/// <remarks>
-/// <b>The title is here and not taken from the objective.</b> <c>Quest.Title</c> is the
-/// English the table was written in and stays that way: it is half of what a save files a
-/// player's hints under, so translating it in place would hand a French player their hints
-/// back the moment they changed language. This is the same sentence, for reading.
-/// </remarks>
 public sealed record JournalEntry(
     Quest Quest,
     string Title,
@@ -63,27 +57,6 @@ public sealed record JournalChapter(
 /// <summary>
 /// The quest log.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The original game has none, and the port is not obliged to reproduce that. What it
-/// reproduces instead is 1999's problem: a player who has done everything they can think of,
-/// with no way to find out what the game is waiting for, and an evening lost to walking
-/// between the same four rooms. <c>Plan/03</c> section 3 asks for an interface easier than
-/// the original's, and knowing where you are in a story is most of what that means.
-/// </para>
-/// <para>
-/// <b>Two levels, and the player chooses which.</b> The journal says what to do and never
-/// how — see <see cref="Quests"/>. A player who is stuck asks for a hint, and gets one line
-/// of the walkthrough at a time. Nothing from the walkthrough is ever shown unasked, because
-/// several of these puzzles are the best things in the game.
-/// </para>
-/// <para>
-/// <b>Nothing here is state.</b> What is done is read from the score events the story has
-/// already recorded, so the journal cannot drift out of step with the game and there is
-/// nothing to migrate when it changes. The one thing it does own is which hints have been
-/// asked for, which is a player's own business and is saved with the game.
-/// </para>
-/// </remarks>
 public sealed class Journal
 {
     private readonly Quests _quests;
@@ -93,33 +66,11 @@ public sealed class Journal
     /// <summary>
     /// The port's own words, in the language being played.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The objectives and the walkthrough are the port's own prose — the 1999 game shipped no
-    /// journal, so there is nothing to extract — and they are keyed into
-    /// <c>interface-&lt;code&gt;.json</c> beside the menus rather than kept as a second copy
-    /// of <c>Quests.txt</c> per language. A per-language copy would have to agree with the
-    /// English about its score names and its hint numbers, and nothing could check that a
-    /// translator had not quietly reordered a line.
-    /// </para>
-    /// <para>
-    /// English by default, which is what the tests and the corpus tools get: every key falls
-    /// back to the English the table itself carries, so a language nobody has translated
-    /// loses the translation rather than the journal.
-    /// </para>
-    /// </remarks>
     public UiText Text { get; init; } = UiText.English;
 
     /// <summary>
     /// GK3's own string table, for the heading over each point in the story.
     /// </summary>
-    /// <remarks>
-    /// The one line of the journal that needed no translation written. Every release names
-    /// its own timeblocks — <c>Day110a = Day 1, 10am - 12pm</c>, and <c>Jour 1, 10.00 -
-    /// 12.00</c> in French — and it is the line the corner of the room and Sidney's clock
-    /// already draw, so the journal says it their way rather than in three English words of
-    /// its own. Null in a tool with no archives, which then gets those three words.
-    /// </remarks>
     public GameStrings? Names { get; init; }
 
     /// <summary>Builds a journal over a game in progress.</summary>
@@ -175,11 +126,6 @@ public sealed class Journal
 
     /// <summary>What the player should be doing now.</summary>
     /// <returns>The unfinished objectives of the current point in the story.</returns>
-    /// <remarks>
-    /// What a corner of the screen would show, and what the journal opens on. Finished
-    /// objectives are left out here and kept in <see cref="Read"/>, because the question
-    /// this answers is "what now" and the question that answers is "what have I done".
-    /// </remarks>
     public IReadOnlyList<JournalEntry> Now() =>
     [
         .. _quests.Of(_story.Timeblock)
@@ -195,11 +141,6 @@ public sealed class Journal
     /// </summary>
     /// <param name="quest">The objective.</param>
     /// <returns>The hint, or null when there are none left.</returns>
-    /// <remarks>
-    /// One line at a time and always the next one. A player who is a little stuck usually
-    /// needs the first, which says where to go; the one that gives a puzzle away is further
-    /// down, and reaching it should take asking again.
-    /// </remarks>
     public string? Reveal(Quest quest)
     {
         ArgumentNullException.ThrowIfNull(quest);
@@ -237,11 +178,6 @@ public sealed class Journal
         [.. Steps(quest).Select(step => Text.Say(step.TextKey, step.Text))];
 
     /// <summary>The walkthrough lines an objective points at.</summary>
-    /// <remarks>
-    /// By position within the point in the story, which is how the table writes them: a step
-    /// number is only meaningful next to the timeblock it belongs to, and numbering the whole
-    /// file would make every hint in the game shift when one line is added at the top.
-    /// </remarks>
     private IReadOnlyList<WalkthroughStep> Steps(Quest quest)
     {
         IReadOnlyList<WalkthroughStep> steps = _walkthrough.Of(quest.Timeblock);
@@ -259,11 +195,6 @@ public sealed class Journal
     /// </summary>
     /// <param name="key">What <see cref="Key"/> produced.</param>
     /// <returns>The objective, or null when the table no longer has one by that name.</returns>
-    /// <remarks>
-    /// How a click on the page becomes an objective again. Null rather than an exception when
-    /// nothing matches, because the table is data and a click is a frame behind the state it
-    /// was drawn from.
-    /// </remarks>
     public Quest? Find(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -273,20 +204,9 @@ public sealed class Journal
     }
 
     /// <summary>What an objective is filed under, for remembering its hints.</summary>
-    /// <remarks>
-    /// The timeblock and the title. Not the title alone, because "Collect your things" is an
-    /// objective on three separate mornings and a player who asked about one has not asked
-    /// about the others.
-    /// </remarks>
     public static string Key(Quest quest) => $"{quest.Timeblock}|{quest.Title}";
 
     /// <summary>What to call a point in the story.</summary>
-    /// <remarks>
-    /// The game's own name for it wherever there is one, and there is one in every release
-    /// and every language. The three English words below are what a tool with no archives
-    /// gets, and what would be drawn if a release ever turned up without the <c>Day110a</c>
-    /// family — never a player with the game installed.
-    /// </remarks>
     private string Name(Timeblock timeblock)
     {
         if (Names?.When(timeblock.ToString()) is { Length: > 0 } called)

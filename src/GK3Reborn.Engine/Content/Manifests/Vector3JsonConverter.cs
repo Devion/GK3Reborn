@@ -7,12 +7,6 @@ namespace GK3Reborn.Content.Manifests;
 /// <summary>
 /// Reads and writes <see cref="Vector3"/> as a three-element array.
 /// </summary>
-/// <remarks>
-/// <see cref="Vector3"/> exposes X, Y and Z as fields rather than properties, so the
-/// default serializer emits an empty object for it — silently, which is the worst
-/// possible failure for a content document a human is expected to hand-edit.
-/// <c>[0.5, 2.0, -1.25]</c> is also simply nicer to edit than three named members.
-/// </remarks>
 public sealed class Vector3JsonConverter : JsonConverter<Vector3>
 {
     /// <inheritdoc/>
@@ -58,12 +52,6 @@ public sealed class Vector3JsonConverter : JsonConverter<Vector3>
 /// <summary>
 /// Reads and writes <see cref="Vector4"/> as a four-element array.
 /// </summary>
-/// <remarks>
-/// The same trap as <see cref="Vector3JsonConverter"/>, for the same reason: X, Y, Z and W
-/// are fields, so the default serializer writes <c>{}</c> and reads nothing back, silently.
-/// The one thing in a material that is four numbers is a screen's glass, and a rectangle
-/// that quietly came back as all zeroes is a screen that quietly stopped being one.
-/// </remarks>
 public sealed class Vector4JsonConverter : JsonConverter<Vector4>
 {
     /// <inheritdoc/>

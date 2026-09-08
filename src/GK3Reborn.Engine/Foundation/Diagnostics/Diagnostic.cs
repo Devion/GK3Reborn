@@ -18,12 +18,6 @@ public enum DiagnosticSeverity
 /// <summary>
 /// A single actionable diagnostic.
 /// </summary>
-/// <remarks>
-/// Plan/README.md, "no silent compatibility failures": unsupported versions and
-/// corrupt assets must produce diagnostics that identify file, offset, expected
-/// value and remediation. Those fields are therefore first class rather than
-/// interpolated into a message string.
-/// </remarks>
 /// <param name="Code">Stable machine-readable code, e.g. <c>GK3R1001</c>.</param>
 /// <param name="Severity">How severe this is.</param>
 /// <param name="Message">Human-readable description.</param>

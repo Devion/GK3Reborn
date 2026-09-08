@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the table that says what each thing in the bag looks like.
 /// </summary>
-/// <remarks>
-/// The whole of what can go wrong here is the reading. <c>INVENTORYSPRITES.TXT</c> is the
-/// one file in the game whose comments begin <c>; //</c>, and the half of that the reader
-/// does not recognise arrives as a line of its own; the stems it holds bear no fixed
-/// relation to the item names, so a lost line is an item that silently has no picture.
-/// </remarks>
 public sealed class InventoryArtTests
 {
     private const string Data = """

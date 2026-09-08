@@ -19,12 +19,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the part of the game that runs on its own.
 /// </summary>
-/// <remarks>
-/// The caller says how much time has passed and everything downstream is a function of
-/// that number, so these can step a world by a tenth of a second at a time and know
-/// exactly what should have happened. That is the property <c>ADR 0004</c> is protecting:
-/// nothing reads a clock but the platform layer.
-/// </remarks>
 public sealed class SceneUpdateTests
 {
     /// <summary>A sink that remembers where things were last put.</summary>

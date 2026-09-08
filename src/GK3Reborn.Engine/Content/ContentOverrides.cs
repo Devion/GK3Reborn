@@ -6,78 +6,16 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Loose files a player has dropped in, standing in front of everything else.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One directory — <c>overrides/</c> beside the executable — whose contents outrank both
-/// the remake's <see cref="RebarnContent">packs</see> and the original game's
-/// <see cref="GameArchives">archives</see>. Somebody who wants a different wallpaper, a
-/// different normal map or a different script puts a file there under the name the game
-/// already uses, and nothing else has to change: no repack, no reinstall, no patch pack.
-/// </para>
-/// <para>
-/// <strong>It is the top of every stack, not another layer in the middle.</strong> That is
-/// the whole difference between this and a <c>RebornPatch.rebarn</c>, which only outranks
-/// the packs that sort before it. A texture has four sources — the archive's bitmap, an
-/// enhanced PNG, a loose <c>build/</c> DDS and a pack — and an override that beat only one
-/// of them would appear to do nothing on the machines where a different one happened to
-/// win. So an override is registered into every one of those layers.
-/// </para>
-/// <para>
-/// A missing directory is not an error, the same rule <see cref="EnhancedTextures"/> and
-/// <see cref="RebarnContent"/> follow. Nothing here is required to play the game.
-/// </para>
-///
-/// <para>
-/// <strong>What decides where a file lands.</strong> Two independent questions, answered from the path and from the extension, so that
-/// neither has to be guessed at:
-/// </para>
-/// <list type="bullet">
-///   <item>
-///     <description>
-///     <strong>The extension says which layer.</strong> The forms the remake's own content
-///     takes — <c>.png .dds .bmp .glb .mp4 .json .wav</c> — go in front of the packs.
-///     Everything else is an asset of the 1999 game, so it goes in front of the archives
-///     under its own file name: <c>R25.SIF</c>, <c>R25.NVC</c>, <c>R25THEME1.WAV</c>.
-///     </description>
-///   </item>
-///   <item>
-///     <description>
-///     <strong>A directory says which kind.</strong> The last path segment that names one
-///     — <c>textures normals orm height emissive models scene-geometry video audio manifests raw</c>
-///     — decides, exactly as <c>enhanced/</c> and <c>pack-extract</c> lay them out, so
-///     <c>--extract</c> writes a tree this reads back without anything being moved. Any
-///     other directory is the player's own filing and is ignored: <c>overrides/my mod/
-///     textures/R25WALLS.png</c> is a colour texture. With no kind directory at all, an
-///     image is a colour texture and the rest go by extension.
-///     </description>
-///   </item>
-/// </list>
-/// <para>
-/// <strong>Every file is registered in front of the archives as well</strong>, under its
-/// full name with its extension. It costs one dictionary entry and it is what makes a
-/// dropped <c>GAB_FACE.BMP</c> reach the seventeen places that ask an archive for a bitmap
-/// by name, rather than only the one that asks the texture stack for <c>GAB_FACE</c>.
-/// </para>
-/// </remarks>
 public sealed class ContentOverrides
 {
     /// <summary>The directory the game looks in, relative to the executable.</summary>
     public const string DirectoryName = "overrides";
 
     /// <summary>Extensions that go in front of the packs rather than the archives.</summary>
-    /// <remarks>
-    /// The forms the remake's own content takes. Anything else in the directory is an
-    /// asset of the original game and is matched by its whole file name instead.
-    /// </remarks>
     private static readonly string[] PackForms =
         [".PNG", ".DDS", ".BMP", ".GLB", ".GLTF", ".MP4", ".M4V", ".JSON", ".WAV"];
 
     /// <summary>Extensions that decode to pixels rather than to blocks.</summary>
-    /// <remarks>
-    /// No JPEG. Nothing in the engine decodes one, and a form advertised here that then
-    /// falls back to what it was meant to replace is worse than one that was never offered
-    /// — the file is there, the picture is not, and nothing says why.
-    /// </remarks>
     private static readonly string[] ImageForms = [".PNG", ".BMP"];
 
     private readonly Dictionary<string, string> _archive = new(StringComparer.OrdinalIgnoreCase);
@@ -97,12 +35,6 @@ public sealed class ContentOverrides
     private int _assets;
 
     /// <summary>Whether there is anything at all to override.</summary>
-    /// <remarks>
-    /// Worth asking before the layers are built. A game with no overrides directory should
-    /// behave to the byte as it did before this existed, and the cheapest way to promise
-    /// that is for every consumer to skip the layer entirely rather than to consult an
-    /// empty one.
-    /// </remarks>
     public bool IsEmpty => Count == 0;
 
     /// <summary>Reads a directory of overrides, subdirectories included.</summary>
@@ -213,12 +145,6 @@ public sealed class ContentOverrides
     }
 
     /// <summary>Which kind a file under the overrides directory belongs to.</summary>
-    /// <remarks>
-    /// The last directory in its path that names one, so <c>overrides/my mod/normals/X.dds</c>
-    /// is a normal map and <c>overrides/normals/experiments/X.dds</c> is one too. With no
-    /// such directory the extension decides, and an image with nothing else said about it is
-    /// a colour texture — which is what somebody who dropped a PNG in meant.
-    /// </remarks>
     private static RebarnKind KindOf(string root, string file, string extension)
     {
         string? relative = Path.GetDirectoryName(Path.GetRelativePath(root, file));
@@ -261,10 +187,6 @@ public sealed class ContentOverrides
     }
 
     /// <summary>The set for a kind, or the shared empty one when there is none.</summary>
-    /// <remarks>
-    /// Shared rather than freshly allocated, because this is asked once per texture per
-    /// room load for four kinds and the answer for most of them is nothing.
-    /// </remarks>
     private static Dictionary<string, string> Of(
         Dictionary<RebarnKind, Dictionary<string, string>> map, RebarnKind kind) =>
         map.TryGetValue(kind, out Dictionary<string, string>? set) ? set : Nothing;
@@ -275,11 +197,6 @@ public sealed class ContentOverrides
     /// <summary>The images of one kind, by the name the game uses.</summary>
     /// <param name="kind">Which set.</param>
     /// <returns>Name without extension, to the file on disk.</returns>
-    /// <remarks>
-    /// PNG, BMP and JPEG: the forms that have to be decoded to pixels. Handed to
-    /// <see cref="EnhancedTextures"/>, which is the layer already asked before the
-    /// compressed one everywhere in the loader.
-    /// </remarks>
     public IReadOnlyDictionary<string, string> Images(RebarnKind kind) => Of(_images, kind);
 
     /// <summary>The block-compressed textures of one kind, by the name the game uses.</summary>
@@ -326,11 +243,6 @@ public sealed class ContentOverrides
     /// <param name="name">Its name, with or without an extension.</param>
     /// <param name="diagnostics">Receives a diagnostic when the file will not read.</param>
     /// <returns>Its bytes, or null when there is no such override or it will not read.</returns>
-    /// <remarks>
-    /// A file that will not read falls through to whatever was underneath it rather than
-    /// failing the load, which is the rule every optional layer here follows: one bad file
-    /// out of forty costs that one asset and nothing else.
-    /// </remarks>
     public byte[]? Read(RebarnKind kind, string name, DiagnosticBag? diagnostics = null) =>
         ReadFile(PathOf(kind, name), diagnostics);
 
@@ -374,12 +286,6 @@ public sealed class ContentOverrides
 
     /// <summary>A one-line summary of what is being overridden, for a startup report.</summary>
     /// <returns>The summary, or null when there is nothing.</returns>
-    /// <remarks>
-    /// Said out loud on purpose. An override is invisible once it is on screen — that is
-    /// the point of it — so a run in which a stale file in <c>overrides/</c> is quietly
-    /// standing in for the shipped one looks exactly like a run without it, and somebody
-    /// chasing a rendering fault would have no way to tell.
-    /// </remarks>
     public string? Describe()
     {
         if (Count == 0)

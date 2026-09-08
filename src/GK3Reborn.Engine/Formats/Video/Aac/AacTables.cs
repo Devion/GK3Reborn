@@ -9,11 +9,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// The constant tables of AAC-LC: sampling rates, scalefactor band layouts, TNS
 /// coefficient maps, the inverse-quantisation curve and the two window shapes.
 /// </summary>
-/// <remarks>
-/// The windows and the x^(4/3) curve are computed rather than transcribed: they are
-/// closed-form, the computation costs microseconds once, and a formula cannot carry a
-/// transcription slip. The band tables have no formula and are copied from the standard.
-/// </remarks>
 internal static class AacTables
 {
     /// <summary>Sampling rates by samplingFrequencyIndex (indices 13-14 are reserved).</summary>
@@ -111,12 +106,6 @@ internal static class AacTables
     /// TNS reflection coefficients indexed by (coef_compress * 2 + coef_res - 3) and then by
     /// the coded value; the maps for coef_compress = 1 are the halves of the wider maps.
     /// </summary>
-    /// <remarks>
-    /// These carry the standard's signs (sin(coef / iqfac) for small codes). FFmpeg and
-    /// JAAD store them negated and undo that inside their step-up recursion; combining
-    /// their table with the standard's recursion inverts the filter, which shows up as a
-    /// time-reversed transient envelope rather than a parse error.
-    /// </remarks>
     public static readonly float[][] TnsCoefficients =
     [
         // coef_compress 0, coef_res 3 (3-bit values)

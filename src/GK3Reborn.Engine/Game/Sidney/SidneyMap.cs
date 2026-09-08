@@ -30,12 +30,6 @@ public enum MapShape
     /// <summary>
     /// A straight line through the places marked for it.
     /// </summary>
-    /// <remarks>
-    /// The first figure the puzzle asks for and the last: the sunrise line from the church
-    /// at Rennes-le-Château over the tower at Blanchefort, and the snake the railway makes
-    /// north of the site. It was only ever a <em>finding</em> here, so it vanished the
-    /// moment the next place was marked — and every step after the first needs it to stay.
-    /// </remarks>
     Line,
 }
 
@@ -50,12 +44,6 @@ public enum MapShape
 /// <param name="Points">
 /// The places it was fitted to, which are its own.
 /// </param>
-/// <remarks>
-/// <b>A figure owns its marks.</b> One shared set meant that plotting the four corners of
-/// the square re-fitted the circle to eight places and threw it off the four it was
-/// confirmed by — and the puzzle is a stack of figures each answering to its own places.
-/// What is marked but not yet given to a figure stays in the map's working set.
-/// </remarks>
 public sealed record LaidShape(
     MapShape Shape,
     Vector2 At,
@@ -95,31 +83,6 @@ public sealed record MapAnalysis(MapFinding Finding, Vector2 Centre = default, f
 /// <summary>
 /// Sidney's map: entering points on it and finding what they make.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The map is <c>SIDNEYBIGMAP.BMP</c>, a labelled survey of the Rennes-le-Château country
-/// with the Paris meridian drawn down it, and the puzzle is the one the books are about:
-/// mark the churches and the ruins, and see that they fall on a line, a rectangle, or a
-/// circle. <c>ESIDNEY.TXT</c> carries every answer the machine can give — that a line meets
-/// the meridian at Arques, that four points are "linked perfectly by a circle" — and this
-/// decides which of them applies.
-/// </para>
-/// <para>
-/// <b>The geometry is measured, not scripted.</b> The original could have checked the
-/// player's points against a hardcoded list and printed the matching note; doing it by
-/// fitting means a player who marks four other points that genuinely lie on a circle is
-/// told so, and one who marks the right places sloppily still is. The tolerances are in
-/// map pixels and generous, because the player is clicking a village on a picture.
-/// </para>
-/// <para>
-/// <b>Coordinates are approximate and say so.</b> The circle note quotes the coordinates of
-/// its centre, and Sidney's map carries no georeference anywhere in the game's data — the
-/// <c>GPS.TXT</c> entries belong to the handheld device in three outdoor scenes, not to
-/// this. What is used here is a linear fit anchored on the meridian the map draws and on
-/// the region's own extent, which puts a click within about a minute of arc. Good enough to
-/// read out; not good enough to navigate by, and the doc says so.
-/// </para>
-/// </remarks>
 public sealed class SidneyMap
 {
     /// <summary>The map picture, in the archives.</summary>
@@ -138,22 +101,11 @@ public sealed class SidneyMap
     private const float SquareTolerance = 8f;
 
     /// <summary>How close to a laid shape a marked place has to be, in map pixels.</summary>
-    /// <remarks>
-    /// Wider than the circle's, because a shape is laid by eye over places the player
-    /// clicked by eye, and the note it unlocks is a confirmation rather than a measurement.
-    /// </remarks>
     private const float ShapeTolerance = 26f;
 
     /// <summary>
     /// Where the map's longitude and latitude are anchored.
     /// </summary>
-    /// <remarks>
-    /// The Paris meridian — 2 degrees 20 minutes 14 seconds east — is drawn down the map and
-    /// labelled, which is one exact reference. The other is the region's own extent: the
-    /// survey runs from about Couiza in the north-west to Bugarach in the south-east. Both
-    /// are stated here rather than buried so that anybody who measures them properly can
-    /// correct them in one place.
-    /// </remarks>
     private const double MeridianLongitude = 2.0 + (20.0 / 60.0) + (14.0 / 3600.0);
 
     /// <summary>Where the meridian falls across the map, as a fraction of its width.</summary>
@@ -162,13 +114,6 @@ public sealed class SidneyMap
     /// <summary>
     /// Where Arques sits, in map pixels.
     /// </summary>
-    /// <remarks>
-    /// <b>Measured off the map rather than guessed at.</b> The enhanced
-    /// <c>SIDNEYBIGMAP</c> is 2,736 pixels square — exactly twice the coordinates the marks
-    /// are kept in — and the village's own block of buildings, not its label, sits at
-    /// (2523, 330) on it. The label is up and to the left of the place, which is why the
-    /// buildings are what was measured.
-    /// </remarks>
     public static readonly Vector2 Arques = new(1262f, 165f);
 
     /// <summary>
@@ -176,12 +121,6 @@ public sealed class SidneyMap
     /// </summary>
     /// <param name="shape">Which figure.</param>
     /// <returns>The count, or nought where the figure takes no places.</returns>
-    /// <remarks>
-    /// <b>The answer has a size, so the question should too.</b> A circle through four
-    /// villages is four places; a line is two. Letting the player put eleven on the map and
-    /// then wonder why nothing confirms is a puzzle made of arithmetic they cannot see. The
-    /// screen stops taking places once a figure has as many as it needs.
-    /// </remarks>
     public static int Needs(MapShape shape) => shape switch
     {
         MapShape.Line => 2,
@@ -195,20 +134,6 @@ public sealed class SidneyMap
     /// <summary>
     /// The places the survey itself marks with a red cross, in map pixels.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Found in the picture rather than written down from a walkthrough.</b> The survey
-    /// is green and white and carries exactly five red marks; scanning the enhanced
-    /// 2,736-pixel copy for red and clustering what it finds gives five, and cropping each
-    /// one reads its label off the map. Four of them are the four the circle wants.
-    /// </para>
-    /// <para>
-    /// They are here so the screen can offer to place one. The crosses are three pixels
-    /// across on a survey shown in about four hundred and fifty, which is a fine motor task
-    /// rather than a puzzle, and <c>docs/screens.md</c> asks for an interface easier than
-    /// the original's.
-    /// </para>
-    /// </remarks>
     public static readonly (string Name, Vector2 At)[] Sites =
     [
         ("Rennes-le-Château", new Vector2(266f, 416f)),
@@ -224,21 +149,11 @@ public sealed class SidneyMap
     /// <summary>
     /// The ruin of the Château de Blanchefort, where the sunrise line is drawn to.
     /// </summary>
-    /// <remarks>
-    /// <b>Not one of the crosses.</b> The survey marks villages with a red cross and this
-    /// with a single dark point below its label, which is the only marker anywhere near it.
-    /// Measured the same way as the rest: (1382, 714) on the enhanced 2,736-pixel copy.
-    /// </remarks>
     public static readonly Vector2 Blanchefort = new(691f, 357f);
 
     /// <summary>
     /// How near a line has to pass to a named place to be said to go through it.
     /// </summary>
-    /// <remarks>
-    /// Wider than a village, because the two places the line is drawn from were clicked by
-    /// eye on a picture and the note it unlocks is a confirmation rather than a
-    /// measurement — the same reasoning as the tolerance a laid figure is locked by.
-    /// </remarks>
     private const float PlaceTolerance = 40f;
 
     /// <summary>How much ground the map covers east to west, in degrees of longitude.</summary>
@@ -259,14 +174,6 @@ public sealed class SidneyMap
     /// <summary>
     /// Every figure laid over the country, in the order they were laid.
     /// </summary>
-    /// <remarks>
-    /// <b>More than one at a time, because what they make together is the puzzle.</b> The
-    /// books this game is built on lay a pentagram over a circle over a square and read the
-    /// country off where the lines cross; a screen that holds one figure at a time makes the
-    /// player remember the last one. The most recently laid is the one the rotate turns and
-    /// the one the single-figure properties below report, which is what an editor does with
-    /// a selection.
-    /// </remarks>
     public IReadOnlyList<LaidShape> Laid => _laid;
 
     /// <summary>The figure most recently laid, if any.</summary>
@@ -307,10 +214,6 @@ public sealed class SidneyMap
     /// <summary>Marks a point on the map.</summary>
     /// <param name="at">Where, in map pixels.</param>
     /// <returns>True when it was taken.</returns>
-    /// <remarks>
-    /// A dozen at most. Past that the analysis is fitting noise, and the puzzle has never
-    /// wanted more than four.
-    /// </remarks>
     public bool Enter(Vector2 at)
     {
         if (Selected != MapShape.None)
@@ -344,12 +247,6 @@ public sealed class SidneyMap
     /// Takes back the place marked last.
     /// </summary>
     /// <returns>True when there was one to take back.</returns>
-    /// <remarks>
-    /// <b>The original has no such thing</b>: its map offers ENTER POINTS and CLEAR POINTS,
-    /// so one misplaced click costs every place marked so far. The puzzle is played by
-    /// clicking villages on a picture and a misplaced click is the ordinary case, which is
-    /// exactly what <c>docs/screens.md</c> means by an interface easier than that one's.
-    /// </remarks>
     public bool Undo()
     {
         if (_points.Count == 0)
@@ -370,10 +267,6 @@ public sealed class SidneyMap
     /// <param name="which">Which of that figure's places, from nought.</param>
     /// <param name="to">Where it goes, in map pixels.</param>
     /// <returns>True when it moved.</returns>
-    /// <remarks>
-    /// Kept on the map: a place dragged off the edge is a place the analysis would measure
-    /// somewhere the picture does not show.
-    /// </remarks>
     public bool MovePoint(int figure, int which, Vector2 to)
     {
         var at = new Vector2(Math.Clamp(to.X, 0, Extent), Math.Clamp(to.Y, 0, Extent));
@@ -418,12 +311,6 @@ public sealed class SidneyMap
     /// </summary>
     /// <param name="cells">How many cells each way — 2, 4, 8, 12 or 16.</param>
     /// <param name="inShape">Whether to rule inside the figure rather than the whole map.</param>
-    /// <remarks>
-    /// <b>Both of those are the game's own.</b> <c>ESIDNEY.TXT</c> offers Grid2 through
-    /// Grid16 and then asks "Fill entire screen" or "Fill shape", and the chessboard the
-    /// Gemini and Cancer passages are about is eight by eight ruled inside the tilted
-    /// square — which a grid that can only cover the whole map cannot draw.
-    /// </remarks>
     public void DrawGrid(int cells, bool inShape = false)
     {
         Grid = Math.Clamp(cells, 0, 64);
@@ -444,12 +331,6 @@ public sealed class SidneyMap
     /// Lays a shape over the map, fitted to whatever has been marked.
     /// </summary>
     /// <param name="shape">Which shape.</param>
-    /// <remarks>
-    /// Fitted rather than dropped in the middle at some arbitrary size. The player has
-    /// marked the places they think matter; the question the screen exists to answer is
-    /// whether a circle — or a square, or a hexagram — passes through them, and making them
-    /// drag it into position first is asking them to do the analysis by hand.
-    /// </remarks>
     public void UseShape(MapShape shape)
     {
         if (shape == MapShape.None)
@@ -471,12 +352,6 @@ public sealed class SidneyMap
     /// Chooses which figure the places being marked belong to.
     /// </summary>
     /// <param name="shape">The figure, or none to mark places belonging to nothing.</param>
-    /// <remarks>
-    /// <b>Choosing a figure is how a place knows what it is for.</b> One shared set meant
-    /// the square's corners re-fitted the circle; choosing first means every place goes to
-    /// the figure it belongs to, the figure re-fits as each one lands, and choosing a figure
-    /// already drawn picks its places back up to be edited rather than throwing it away.
-    /// </remarks>
     public void Select(MapShape shape)
     {
         Selected = shape;
@@ -658,12 +533,6 @@ public sealed class SidneyMap
     /// <param name="marks">The places, as "x,y" in map pixels.</param>
     /// <param name="figures">The figures, each with where it sits.</param>
     /// <param name="grid">How many cells the ruling is divided into.</param>
-    /// <remarks>
-    /// Whether each figure is confirmed is worked out again rather than restored, because
-    /// it is a fact about the figure and the marks together and both are here. A saved
-    /// "locked" that disagreed with them would be a confirmation the player could no longer
-    /// earn or lose.
-    /// </remarks>
     public void Restore(
         IEnumerable<Vector2> marks, IEnumerable<LaidShape> figures, int grid)
     {
@@ -700,11 +569,6 @@ public sealed class SidneyMap
     /// Whether every marked place sits on the shape as it is placed.
     /// </summary>
     /// <returns>True when the shape is locked down by the marks.</returns>
-    /// <remarks>
-    /// "Select points to lock down feature", as the game puts it. A shape that merely lies
-    /// near the marks is not confirmation of anything; one that passes through all of them
-    /// is the whole point of laying it there.
-    /// </remarks>
     public bool Fits() => _laid.Count > 0 && Fits(_laid[^1]);
 
     /// <summary>Whether every marked place sits on one figure as it is placed.</summary>
@@ -775,12 +639,6 @@ public sealed class SidneyMap
     /// The shape's corners, in map pixels and in order round it.
     /// </summary>
     /// <returns>The corners; empty for a circle, which has none.</returns>
-    /// <remarks>
-    /// A hexagram is drawn as its two overlapping triangles rather than as a twelve-pointed
-    /// outline, because that is what the analysis of Poussin's painting describes finding —
-    /// one triangle, then a second forming the star — and the sides a place has to lie on
-    /// are those triangles' sides.
-    /// </remarks>
     public Vector2[] Corners() => _laid.Count > 0 ? Corners(_laid[^1]) : [];
 
     /// <summary>One figure's corners, in map pixels and in order round it.</summary>
@@ -921,10 +779,6 @@ public sealed class SidneyMap
     /// <param name="to">The other.</param>
     /// <param name="place">The third, in map pixels.</param>
     /// <returns>True when the line runs within a village's width of it.</returns>
-    /// <remarks>
-    /// The whole line, not the piece between the two: what the sunrise line is *for* is
-    /// where it goes on past Blanchefort, which is Arques.
-    /// </remarks>
     public static bool Through(Vector2 from, Vector2 to, Vector2 place)
     {
         Vector2 along = to - from;
@@ -995,12 +849,6 @@ public sealed class SidneyMap
     /// <summary>
     /// Whether four points lie on one circle, and where its middle is.
     /// </summary>
-    /// <remarks>
-    /// The circle through the first three is found exactly — the intersection of two
-    /// perpendicular bisectors — and the fourth is then measured against it. Fitting all
-    /// four at once would answer "how nearly" rather than "whether", and the note this
-    /// unlocks says <em>perfectly</em>.
-    /// </remarks>
     private static bool Circular(IReadOnlyList<Vector2> points, out Vector2 centre, out float radius)
     {
         if (!Circumcircle(points[0], points[1], points[2], out centre, out radius))
@@ -1018,21 +866,6 @@ public sealed class SidneyMap
     /// <param name="centre">Where its middle is.</param>
     /// <param name="radius">How big it is.</param>
     /// <returns>True when one could be fitted that is worth drawing.</returns>
-    /// <remarks>
-    /// <para>
-    /// The ordinary algebraic fit: every place satisfies x squared plus y squared plus Dx
-    /// plus Ey plus F equals nought for one circle, which is linear in D, E and F, so the
-    /// normal equations give the circle whose squared error is least. Three places give the
-    /// exact circle through them, which is what the circumcircle gave; more give the circle
-    /// they actually suggest instead of the one the first three happen to make.
-    /// </para>
-    /// <para>
-    /// Worked around the middle of the places rather than the map's corner, because the
-    /// normal equations of a fit far from the origin lose their precision to the size of the
-    /// numbers. Places in a line have no circle worth drawing and are refused here, which is
-    /// what keeps the figure on the map.
-    /// </para>
-    /// </remarks>
     private static bool FitCircle(
         List<Vector2> points, out Vector2 centre, out float radius)
     {
@@ -1176,11 +1009,6 @@ public sealed class SidneyMap
     /// </summary>
     /// <param name="at">Where, in map pixels.</param>
     /// <returns>Degrees, minutes and seconds of longitude and latitude.</returns>
-    /// <remarks>
-    /// The format is the game's own <c>MapLatLongText</c>: longitude first, then latitude,
-    /// each in degrees, minutes and seconds. See the note on the class about how approximate
-    /// the anchoring is.
-    /// </remarks>
     public static string Coordinates(Vector2 at)
     {
         double longitude = MeridianLongitude + (((at.X / Extent) - MeridianAcross) * SpanLongitude);

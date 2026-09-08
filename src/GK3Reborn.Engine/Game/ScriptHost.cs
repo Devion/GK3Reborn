@@ -8,20 +8,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Owns the loaded scripts and runs them, including when they call each other.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>CallSheep</c> appears 640 times across the corpus and <c>Call</c> another 190, so a
-/// virtual machine that cannot follow a call from one script into another cannot follow
-/// the game's control flow at all. This is what closes that gap: a repository of scripts
-/// by name, plus the API functions that jump between them.
-/// </para>
-/// <para>
-/// Calls run to completion inline rather than being scheduled. The original waits on them
-/// — <c>wait CallSheep(…)</c> is the common form — and running the callee immediately is
-/// the same observable order for everything that does not depend on real elapsed time.
-/// Recursion is bounded, because the data can and does call in circles.
-/// </para>
-/// </remarks>
 public sealed class ScriptHost
 {
     private readonly Dictionary<AssetId, SheepScriptFile> _scripts = [];
@@ -70,12 +56,6 @@ public sealed class ScriptHost
     /// <summary>
     /// Somewhere to leave a script that is waiting for something, if anywhere.
     /// </summary>
-    /// <remarks>
-    /// Without one, a blocked thread is told everything it waited on has finished and
-    /// carried straight on, which is what this did from the beginning and what every tool
-    /// still wants: a sweep of the corpus has no clock and no reason to want one. With
-    /// one, the script waits, and the pacing it was written with is the pacing it gets.
-    /// </remarks>
     public SheepScheduler? Scheduler
     {
         get => _scheduler;
@@ -94,18 +74,6 @@ public sealed class ScriptHost
     private SheepScheduler? _scheduler;
 
     /// <summary>Runs something, and says which scripts it called into.</summary>
-    /// <remarks>
-    /// <para>
-    /// The list is held before it is pushed, so that popping it in a finally and returning
-    /// it are the same list without a field in between.
-    /// </para>
-    /// <para>
-    /// Public because two different things wait on a call into a script. A Sheep thread
-    /// resumed by the scheduler is one; an action file's statement is the other, and it
-    /// has no thread of its own to be parked, so it collects through here and waits on
-    /// what it collected. See <see cref="Gk3SheepApi.Collects"/>.
-    /// </para>
-    /// </remarks>
     /// <param name="work">What to run.</param>
     /// <returns>The threads it started, in the order they were started.</returns>
     public List<SheepThread> Within(Action work)
@@ -133,15 +101,6 @@ public sealed class ScriptHost
     /// <summary>
     /// The scripts each running function has called, innermost last.
     /// </summary>
-    /// <remarks>
-    /// <c>wait CallSheep("rc1102p", "LookMop")</c> means "carry on when that function is
-    /// over", and how long that takes is not knowable in advance: the function may itself
-    /// wait on a timer, a line of dialogue or an animation. So the wait is on the
-    /// <em>thread</em> rather than on a duration, and this is where a caller finds the
-    /// threads it started. A fifth of every statement in the action corpus is one of these,
-    /// and treating them as instant is what let RC1 show Wilkes's moped and hide it again
-    /// in the same frame.
-    /// </remarks>
     private readonly Stack<List<SheepThread>> _nested = new();
 
     /// <summary>Makes a script available to call.</summary>
@@ -156,12 +115,6 @@ public sealed class ScriptHost
     /// <param name="scriptName">Script to look in, with or without extension.</param>
     /// <param name="functionName">Function to look for.</param>
     /// <returns>False when the script is not loaded or does not declare it.</returns>
-    /// <remarks>
-    /// Asking before calling, for a caller that has a choice about whether to call at all.
-    /// <see cref="Run"/> is the wrong question for that: it warns and hands back an empty
-    /// thread, which is the right answer for a script that <em>should</em> have been there
-    /// and the wrong one for an interface deciding whether to offer a row.
-    /// </remarks>
     public bool Declares(string scriptName, string functionName)
     {
         ArgumentNullException.ThrowIfNull(scriptName);

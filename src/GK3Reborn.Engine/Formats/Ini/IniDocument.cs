@@ -25,11 +25,6 @@ public readonly record struct IniEntry(string Key, string Value)
     /// <summary>Reads the value as a list of numbers.</summary>
     /// <param name="components">How many are expected.</param>
     /// <returns>The numbers, or null if the value is not a list of that length.</returns>
-    /// <remarks>
-    /// Both brace-delimited forms (<c>pos={1, 2, 3}</c>, used in scene initialisation
-    /// files) and bare comma-separated forms (<c>Position=1,2,3</c>, used in scene
-    /// assets) appear in the data, so both are accepted here.
-    /// </remarks>
     public float[]? AsNumbers(int components)
     {
         string trimmed = Value.Trim();
@@ -110,12 +105,6 @@ public sealed record IniLine(IReadOnlyList<IniEntry> Entries)
 /// The Sheep expression in the section's header, or null when it has none.
 /// </param>
 /// <returns>True to take the section's lines.</returns>
-/// <remarks>
-/// The reader does not evaluate conditions itself — that needs the story's state and the
-/// Sheep expression parser, neither of which belongs to a text format. Callers that have
-/// them pass one of these; tooling that only wants to see everything a file can contain
-/// passes <see cref="IniDocument.EverySection"/>.
-/// </remarks>
 public delegate bool SectionFilter(string? condition);
 
 /// <summary>A section, together with the condition that gates it.</summary>
@@ -129,24 +118,6 @@ public sealed record IniSection(string Name, string? Condition, IReadOnlyList<In
 /// <summary>
 /// Reader for the INI dialect GK3's text assets use.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Scene initialisation files, scene assets, cursors, fonts and several other asset types
-/// share this format, so it is parsed once here rather than once per asset type.
-/// </para>
-/// <para>
-/// It differs from ordinary INI in three ways. A line may carry several comma-separated
-/// key/value pairs, and commas inside braces belong to the value rather than separating
-/// pairs — <c>pos={1, 2, 3}</c> is one pair, not three. A bare token with no <c>=</c> is a
-/// keyword whose value repeats its key, which is how flags like <c>hidden</c> are written.
-/// And a section header may carry a condition, <c>[MODELS={IsCurrentTime("202p")}]</c>,
-/// so the same section appears repeatedly with contents that depend on the story's state.
-/// </para>
-/// <para>
-/// Conditions are kept verbatim. They are Sheep expressions, and evaluating them belongs
-/// to the Sheep virtual machine rather than to a text parser.
-/// </para>
-/// </remarks>
 public sealed class IniDocument
 {
     private IniDocument(string name, IReadOnlyList<IniSection> sections)
@@ -168,14 +139,6 @@ public sealed class IniDocument
     /// Whether a line may hold several comma-separated key/value pairs.
     /// </param>
     /// <returns>The parsed document.</returns>
-    /// <remarks>
-    /// Whether commas separate pairs or belong to the value is a property of the asset
-    /// type, not something that can be inferred from a line. Scene initialisation files
-    /// write <c>pos={1, 2, 3}, heading=90</c> and need splitting; scene assets write
-    /// <c>Position=1,2,3</c> and must not be split, or every vector in them reduces to
-    /// its first component. Guessing per line gets the second case wrong silently, which
-    /// is how a scene ends up with no lights at all rather than an error.
-    /// </remarks>
     public static IniDocument Parse(
         string text, string name = "<memory>", bool multipleEntriesPerLine = true)
     {
@@ -260,10 +223,6 @@ public sealed class IniDocument
     }
 
     /// <summary>Takes every section, conditional or not.</summary>
-    /// <remarks>
-    /// The union of every state a file describes. Right for tooling, and wrong for the
-    /// game — a scene read this way holds both the made bed and the unmade one.
-    /// </remarks>
     public static readonly SectionFilter EverySection = _ => true;
 
     /// <summary>Takes only the sections that carry no condition.</summary>
@@ -293,23 +252,12 @@ public sealed class IniDocument
     /// <summary>Every section whose name begins with a prefix.</summary>
     /// <param name="prefix">The prefix, matched case-insensitively.</param>
     /// <returns>The sections.</returns>
-    /// <remarks>
-    /// Scene assets name a section per light, <c>[Light_omni01]</c>, so the name carries
-    /// data rather than only structure.
-    /// </remarks>
     public IEnumerable<IniSection> SectionsStartingWith(string prefix) =>
         Sections.Where(s => s.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The expression inside a section header's braces.</summary>
     /// <param name="header">Everything after the <c>=</c>, still in its braces.</param>
     /// <returns>The expression, or the trimmed text when there are no braces.</returns>
-    /// <remarks>
-    /// Between the first brace and the last, rather than trimmed of braces at both ends.
-    /// <c>CHU.SIF</c> closes one of its headers with <c>}]]</c> — a stray bracket the
-    /// original tolerated — and trimming characters leaves it attached to the expression,
-    /// where it reads as trailing junk and the condition fails to parse. Delimiters are
-    /// the honest reading, and it costs nothing.
-    /// </remarks>
     private static string ConditionIn(string header)
     {
         string text = header.Trim();

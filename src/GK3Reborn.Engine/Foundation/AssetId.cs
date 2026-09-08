@@ -6,12 +6,6 @@ namespace GK3Reborn.Foundation;
 /// <summary>
 /// A normalized, case-insensitive logical asset identifier.
 /// </summary>
-/// <remarks>
-/// GK3 data references assets case-insensitively and inconsistently
-/// ("DAY3-3.BIK", "day3-3", "Day3-3.bik"). Every subsystem addresses content
-/// through this type so that exactly one canonical form exists, while the
-/// original spelling stays available for diagnostics and manifests.
-/// </remarks>
 public readonly struct AssetId : IEquatable<AssetId>
 {
     private readonly string? _normalized;

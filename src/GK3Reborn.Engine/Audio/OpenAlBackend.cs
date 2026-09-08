@@ -10,26 +10,6 @@ namespace GK3Reborn.Audio;
 /// <summary>
 /// The audio device, over OpenAL Soft.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One buffer per sound, uploaded the first time it is asked for and kept, and a pool of
-/// sources handed out as things play. GK3 never has many sounds going at once — a line of
-/// dialogue, a room tone, a door — so the pool is small and a sound that cannot get a
-/// source is dropped rather than queued. Dropping is the right failure: a footstep that
-/// arrives late is worse than one that never arrives.
-/// </para>
-/// <para>
-/// Buses are gain multipliers applied when a source starts and when a gain changes.
-/// OpenAL has no bus concept, so this is the mixer: every voice remembers which bus it is
-/// on, so turning dialogue down turns down the line being spoken and not merely the next
-/// one.
-/// </para>
-/// <para>
-/// Opening the device is allowed to fail. A machine with no sound card, or a headless run,
-/// gets no backend and a diagnostic saying so, because refusing to start the game over it
-/// would be worse than running it quietly.
-/// </para>
-/// </remarks>
 public sealed unsafe class OpenAlBackend : IAudioBackend
 {
     private const int Sources = 24;
@@ -47,10 +27,6 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     private Vector3 _ear;
 
     /// <summary>The EFX extension, or null on a device without it.</summary>
-    /// <remarks>
-    /// Optional by design. Everything here works without it except the muffling, and a
-    /// device that cannot filter should still place its sounds.
-    /// </remarks>
     private readonly EffectExtension? _effects;
 
     private OpenAlBackend(
@@ -310,21 +286,6 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     }
 
     /// <summary>Takes the top off a sound that is far away.</summary>
-    /// <remarks>
-    /// <para>
-    /// Distance does two things to a sound and OpenAL only does one of them by itself. It
-    /// makes it quieter, which the rolloff handles, and it takes the high frequencies out
-    /// of it, which is most of what tells a listener that something is far off rather than
-    /// merely quiet. A fountain across a square is a hiss; the same fountain turned down is
-    /// still a fountain at your feet.
-    /// </para>
-    /// <para>
-    /// A low-pass through EFX, opened once and skipped where the device has no EFX at all.
-    /// The curve is a straight line from no filtering at the sound's own minimum distance to
-    /// a quarter of the high frequencies at its maximum — a stand-in for air absorption
-    /// rather than a model of it, and nothing to do with what is in the way.
-    /// </para>
-    /// </remarks>
     private void Muffle(Voice voice)
     {
         if (_effects is null || voice.At is not { } at)
@@ -413,11 +374,6 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     /// <summary>What the device thinks a voice is set to, read back from it.</summary>
     /// <param name="voice">The handle.</param>
     /// <returns>The properties that decide where it is and how far it carries.</returns>
-    /// <remarks>
-    /// Read back rather than remembered, because the thing worth knowing is what the device
-    /// took, not what it was told. A stereo buffer, for one, is played flat at the head
-    /// whatever position it is given.
-    /// </remarks>
     public string Describe(AudioVoice voice)
     {
         foreach (Voice candidate in _voices)
@@ -532,10 +488,6 @@ public sealed unsafe class OpenAlBackend : IAudioBackend
     }
 
     /// <summary>One sound in flight.</summary>
-    /// <remarks>
-    /// A class rather than a struct because a placed sound is edited while it plays: a
-    /// following emitter moves and its filter changes with every step the listener takes.
-    /// </remarks>
     private sealed class Voice(int id, uint source, AudioBus bus)
     {
         public int Id { get; } = id;

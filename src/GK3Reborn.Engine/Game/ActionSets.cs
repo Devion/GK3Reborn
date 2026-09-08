@@ -3,46 +3,9 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Which action files are in scope in a scene, and in what order.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A scene's verbs do not all come from the scene. Four sets of files are in play at once:
-/// the timeblock file's own, listed in its <c>[ACTIONS]</c> section; the location's, listed
-/// in the general file and spanning days or the whole game; a dozen global sets that apply
-/// everywhere; and sixteen inventory sets that say what can be done with what the player is
-/// carrying. Without the last two most objects have no <c>LOOK</c>, because looking at
-/// things is a rule about the game rather than about the room.
-/// </para>
-/// <para>
-/// Which of them apply is written in their names — <c>R25_23ALL.NVC</c> is days two and
-/// three — and <see cref="TimeblockRange"/> reads that. The original checks the name for
-/// the files the general file lists and for the global and inventory sets, and does not
-/// check it for the timeblock file's own: that file is already the timeblock's, so anything
-/// it names is meant for now whatever it is called.
-/// </para>
-/// <para>
-/// Order is what the menu is built in, so it is most particular first: the room's own
-/// files, then the location's, then the global sets and the inventory ones, and inside each
-/// of those the files that name a narrower slice of the story before the ones that span it.
-/// The original inserts them general-first and can afford to, because it keeps every rule
-/// and separates them by case at the point of use; this keeps one entry per verb so that a
-/// menu can be built from the answer.
-/// </para>
-/// <para>
-/// <b>Order is not priority.</b> It used to be — a lower index settled a tie between two
-/// hand-written conditions — and that read the scene file's list as a ranking it never was:
-/// <c>LBY.SIF</c> names <c>lby_all.nvc</c> above <c>lby_1all.nvc</c>. The original ranks by
-/// what the *name* says instead (<see cref="TimeblockRange.Specificity"/>), and
-/// <see cref="ActionResolver"/> does now as well, so this ordering decides only what the
-/// player is shown first.
-/// </para>
-/// </remarks>
 public static class ActionSets
 {
     /// <summary>The sets that apply in every scene.</summary>
-    /// <remarks>
-    /// From G-Engine's <c>ActionManager::kGlobalActionSets</c>. The names encode their own
-    /// timeblocks, so this is the whole list and the range decides.
-    /// </remarks>
     public static IReadOnlyList<string> Global { get; } =
     [
         "GLB_ALL.NVC",
@@ -60,7 +23,6 @@ public static class ActionSets
     ];
 
     /// <summary>The sets that say what can be done with the things the player carries.</summary>
-    /// <remarks>From G-Engine's <c>ActionManager::kInventoryActionSets</c>.</remarks>
     public static IReadOnlyList<string> Inventory { get; } =
     [
         "INV_ALL.NVC",

@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading a soundtrack.
 /// </summary>
-/// <remarks>
-/// A <c>.STK</c> is a little script, not a piece of music: wait a second, play the room's
-/// theme, wait five to ten, play a mood. The part that is easy to get wrong is
-/// <c>[PRS]</c>, where a run of sections is one step rather than several.
-/// </remarks>
 public sealed class SoundtrackTests
 {
     private static SoundtrackFile Parse(string text, out DiagnosticBag diagnostics)

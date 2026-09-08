@@ -14,20 +14,9 @@ public readonly record struct RayTracingMesh(Vector3[] Positions, uint[] Indices
     /// <summary>
     /// Which movable thing this geometry belongs to, or zero for the room itself.
     /// </summary>
-    /// <remarks>
-    /// Everything sharing a part is built into one structure and placed by one transform,
-    /// so moving that thing is a matter of rewriting the transform rather than rebuilding
-    /// the geometry. The room never moves and is always part zero.
-    /// </remarks>
     public int Part { get; init; }
 
     /// <summary>What names this geometry when its shape changes, or minus one.</summary>
-    /// <remarks>
-    /// A character has no skeleton: an <c>.ACT</c> clip rewrites its vertices outright,
-    /// every frame of every animation. The structure has to be given those vertices or it
-    /// goes on holding the pose the model was authored in, and rays leaving an animated
-    /// shoulder start inside a rest-pose body.
-    /// </remarks>
     public int Key { get; init; } = -1;
 }
 
@@ -35,24 +24,6 @@ public readonly record struct RayTracingMesh(Vector3[] Positions, uint[] Indices
 /// The scene as rays see it: one bottom-level acceleration structure over every opaque
 /// triangle, and a top-level structure holding it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Everything goes into a single structure in world space rather than one per object with
-/// instance transforms. GK3's scenes are small — the largest is under thirty thousand
-/// triangles — and its props do not move once a scene is loaded, so the flexibility of
-/// per-object instances would buy nothing and cost a few hundred more device allocations,
-/// of which drivers guarantee only a few thousand in total. Moving props will need that
-/// flexibility; they will also need a rebuild policy, and neither exists yet.
-/// </para>
-/// <para>
-/// Only opaque geometry is included. Alpha-tested surfaces — GK3's windows, railings and
-/// foliage, keyed on magenta — would otherwise cast solid shadows from their transparent
-/// parts, because deciding per-hit whether a texel is a hole needs an any-hit shader and
-/// therefore a full ray-tracing pipeline. Leaving them out makes them cast no shadow at
-/// all, which is wrong in the other direction but far less visible: a missing shadow
-/// under a window reads as bright, a solid one reads as a black rectangle on the floor.
-/// </para>
-/// </remarks>
 public sealed unsafe class RayTracingScene : IDisposable
 {
     private readonly VulkanContext _context;
@@ -196,11 +167,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     /// <summary>Moves one of the things the structure holds.</summary>
     /// <param name="part">Which thing, as <see cref="RayTracingMesh.Part"/> named it.</param>
     /// <param name="transform">Where it is now, in world space.</param>
-    /// <remarks>
-    /// Recorded rather than applied: several models may move in a frame and the structure
-    /// only has to be right by the time something traces against it. <see cref="Settle"/>
-    /// is what makes it so.
-    /// </remarks>
     public void Move(int part, Matrix4x4 transform)
     {
         if (!_instanceOf.TryGetValue(part, out int at))
@@ -220,13 +186,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     /// <summary>Takes one of the things the structure holds in or out of the world.</summary>
     /// <param name="part">Which thing, as <see cref="RayTracingMesh.Part"/> named it.</param>
     /// <param name="traced">Whether rays may hit it.</param>
-    /// <remarks>
-    /// The instance stays and its mask goes to nothing, which is what an instance mask is
-    /// for: rebuilding the structure without it would renumber everything else. A model a
-    /// script has hidden must not be traced or the room grows the shadow of something
-    /// nobody can see — RC1's moped waits out of sight for a scripted drive-past, and its
-    /// shadow would be lying on the square the whole time.
-    /// </remarks>
     public void SetTraced(int part, bool traced)
     {
         if (!_instanceOf.TryGetValue(part, out int at))
@@ -247,11 +206,9 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>The room's own geometry, for a ray that wants to skip what stands in it.</summary>
-    /// <remarks>The one statement of it is <see cref="TracedWorld.WorldMask"/>.</remarks>
     public const uint WorldMask = TracedWorld.WorldMask;
 
     /// <summary>The models standing in the room.</summary>
-    /// <remarks>The one statement of it is <see cref="TracedWorld.ModelMask"/>.</remarks>
     public const uint ModelMask = TracedWorld.ModelMask;
 
     /// <inheritdoc cref="TracedWorld.MaskFor"/>
@@ -266,11 +223,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     /// <summary>Gives a mesh the vertices it is currently drawn with.</summary>
     /// <param name="key">Which mesh, as <see cref="RayTracingMesh.Key"/> named it.</param>
     /// <param name="positions">Its vertices now, in the model's own space.</param>
-    /// <remarks>
-    /// Recorded rather than applied, like <see cref="Move"/>: several meshes of one
-    /// character may be posed in a frame and the structure only has to be right by the
-    /// time something traces against it.
-    /// </remarks>
     public void Reshape(int key, ReadOnlySpan<Vector3> positions)
     {
         if (!_shapes.TryGetValue(key, out (int Part, int Offset, int Count) at) ||
@@ -293,11 +245,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>Rebuilds the top level if anything has moved since it last was.</summary>
-    /// <remarks>
-    /// Only the top level: the geometry inside each thing has not changed, only where the
-    /// thing is, and a rebuild over a few dozen instances is nothing beside one over the
-    /// room's ten thousand triangles. Called once a frame before anything traces.
-    /// </remarks>
     public void Settle()
     {
         if (!_moved || _instanceBuffer is null)
@@ -468,12 +415,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>The first three rows of a transform, which is what an instance carries.</summary>
-    /// <remarks>
-    /// Row-major and three rows deep, where <see cref="Matrix4x4"/> is row-vector and four:
-    /// the translation that sits in the fourth row there belongs in the fourth column here.
-    /// Transposing is the whole of the conversion, and getting it wrong puts a shadow
-    /// somewhere plausible rather than nowhere, which is worse.
-    /// </remarks>
     private static TransformMatrixKHR RowsOf(Matrix4x4 transform)
     {
         var rows = new TransformMatrixKHR();
@@ -497,11 +438,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>Sizes, allocates and builds one structure.</summary>
-    /// <remarks>
-    /// The scratch is kept rather than freed. It is only needed while a build runs, but a
-    /// structure whose geometry can be rewritten is rebuilt every frame that geometry
-    /// moves, and allocating scratch for each of those would cost more than holding it.
-    /// </remarks>
     private Structure Create(
         AccelerationStructureBuildGeometryInfoKHR build,
         uint primitives,
@@ -560,11 +496,6 @@ public sealed unsafe class RayTracingScene : IDisposable
     }
 
     /// <summary>Builds into a structure that already exists.</summary>
-    /// <remarks>
-    /// A full build rather than a refit, and into the same memory: the geometry's shape
-    /// and count do not change when a character is posed, only where its vertices are, so
-    /// nothing about the structure needs to be a different size.
-    /// </remarks>
     private void Rebuild(
         CommandBuffer command,
         AccelerationStructureBuildGeometryInfoKHR build,

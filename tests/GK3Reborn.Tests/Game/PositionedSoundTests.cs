@@ -9,11 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for which sounds belong in the room and which belong at the listener.
 /// </summary>
-/// <remarks>
-/// A soundtrack either gives its sound a place or does not, and the difference is the whole
-/// of whether a fountain sounds like it is across the square. Room tone has no place because
-/// it comes from everywhere; a fountain has one because it does not.
-/// </remarks>
 public sealed class PositionedSoundTests
 {
     [Fact]

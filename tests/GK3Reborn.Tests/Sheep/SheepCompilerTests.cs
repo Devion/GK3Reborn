@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Sheep;
 /// <summary>
 /// Tests for the Sheep front end: scanner, parser and compiler.
 /// </summary>
-/// <remarks>
-/// Each of these compiles source and then <em>runs it</em>, because that is the only check
-/// worth making. A compiler can be wrong in ways a syntax tree comparison cannot see —
-/// the wrong conversion, a jump one byte out, an argument count that does not match what
-/// was pushed — and every one of those shows up the moment the machine reads it.
-/// </remarks>
 public sealed class SheepCompilerTests
 {
     /// <summary>An API that records what it was asked and answers what it was told to.</summary>

@@ -9,30 +9,6 @@ namespace GK3Reborn.Formats.Bitmaps;
 /// <summary>
 /// Reads PNG images.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The originals are GK3's own bitmaps, which <see cref="BitmapDecoder"/> handles;
-/// everything the project produces or takes in afterwards is PNG, because that is what
-/// <c>Plan/02-content-pipeline.md</c> chose as the editable form for images. Enhanced
-/// textures arrive that way, so loading one needs a reader and not only the writer that
-/// already existed.
-/// </para>
-/// <para>
-/// Deliberately narrow. Every PNG in the corpus and in the enhanced set is eight bits a
-/// channel, RGB or RGBA, and not interlaced — 6,658 normalised textures and every
-/// candidate produced so far — so that is what this reads, and anything else is refused by
-/// name rather than half-decoded. A generator that starts emitting sixteen-bit or
-/// palettised output should hear about it from a diagnostic, not from a texture that looks
-/// subtly wrong.
-/// </para>
-/// <para>
-/// It is also on the critical path for showing a room. The enhanced textures are 2048²,
-/// which is 16 MB of pixels each, and a room asks for dozens; at 80 ms and 75 MB of garbage
-/// apiece that was ten seconds and several gigabytes for one scene. So every size here is
-/// known before anything is allocated, rows are reconstructed in place, and the filter is
-/// chosen once a row rather than once a byte.
-/// </para>
-/// </remarks>
 public static class PngReader
 {
     private static readonly byte[] Signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
@@ -128,12 +104,6 @@ public static class PngReader
     }
 
     /// <summary>Every chunk in the file, in order, up to and including IEND.</summary>
-    /// <remarks>
-    /// Materialised rather than yielded, because a span cannot cross an iterator. It is a few
-    /// dozen entries and the bodies stay where they are. The CRC is not checked: a truncated
-    /// or corrupt file fails in the inflater or the row arithmetic either way, and with a
-    /// name attached, which is what a reader owes its caller.
-    /// </remarks>
     private static List<(int Body, int Length, string Kind)> Chunks(
         ReadOnlySpan<byte> data, string name)
     {
@@ -203,11 +173,6 @@ public static class PngReader
     }
 
     /// <summary>Inflates the image data into a buffer of exactly the size it must be.</summary>
-    /// <remarks>
-    /// The header says how many rows there are and how wide each is, and PNG adds one filter
-    /// byte a row, so the inflated size is known before a byte is read. Reading exactly that
-    /// many also does the truncation check for free.
-    /// </remarks>
     private static byte[] Inflate(byte[] compressed, long expected, string name)
     {
         byte[] raw = new byte[expected];
@@ -241,20 +206,6 @@ public static class PngReader
     /// <summary>
     /// Undoes the per-row filters and widens to RGBA.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Every row carries a filter byte and is predicted from the pixel to its left and the
-    /// row above, so rows have to be walked in order and cannot be skipped to. The five
-    /// filters are the whole of PNG's compression cleverness; the rest is zlib.
-    /// </para>
-    /// <para>
-    /// Reconstructed <b>in place</b>, and the filter chosen once a row. Choosing it per byte
-    /// — which is what falls out of writing this the obvious way — puts an unpredictable
-    /// branch in front of every one of a 2048² texture's sixteen million bytes, and stops
-    /// the Up filter, which is what an encoder picks for most rows of a photographic image,
-    /// from vectorising at all.
-    /// </para>
-    /// </remarks>
     private static byte[] Reconstruct(byte[] raw, int width, int height, int channels, string name)
     {
         int stride = width * channels;
@@ -312,10 +263,6 @@ public static class PngReader
     }
 
     /// <summary>Each byte is predicted from the one above it.</summary>
-    /// <remarks>
-    /// Nothing in the row depends on anything else in it, so the whole row adds a vector at
-    /// a time.
-    /// </remarks>
     private static void Up(Span<byte> current, ReadOnlySpan<byte> above)
     {
         int i = 0;
@@ -355,12 +302,6 @@ public static class PngReader
     }
 
     /// <summary>Each byte is predicted from whichever neighbour the gradient points at.</summary>
-    /// <remarks>
-    /// <b>95% of the rows in the enhanced set are this one</b>, so it is where the decode
-    /// spends its time and the only filter worth taking trouble over. Each byte depends on
-    /// the byte a pixel to its left, so a row cannot be split — but the four channels
-    /// <i>within</i> a pixel do not depend on each other, which is a vector four lanes wide.
-    /// </remarks>
     private static void Paeth(Span<byte> current, ReadOnlySpan<byte> above, int bytesPerPixel)
     {
         int lead = Math.Min(bytesPerPixel, current.Length);
@@ -385,19 +326,6 @@ public static class PngReader
     }
 
     /// <summary>The Paeth filter, a pixel at a time.</summary>
-    /// <remarks>
-    /// <para>
-    /// The pixel to the left is whatever the last turn of the loop just wrote, so it stays
-    /// in a register rather than being read back; the same goes for the pixel above-left,
-    /// which is the pixel above from the turn before.
-    /// </para>
-    /// <para>
-    /// Four lanes are loaded whatever the pixel is worth, because reading three bytes costs
-    /// the same as reading four. On RGB the fourth lane holds the next pixel's red, computes
-    /// a result nobody stores, and is overwritten on the next turn — so the loop stops while
-    /// four bytes are still readable and the last pixel or two go the scalar way.
-    /// </para>
-    /// </remarks>
     private static void PaethVector(Span<byte> current, ReadOnlySpan<byte> above, int bytesPerPixel)
     {
         Vector128<short> low = Vector128.Create((short)0xFF);
@@ -469,10 +397,6 @@ public static class PngReader
     }
 
     /// <summary>Copies a reconstructed row out as RGBA.</summary>
-    /// <remarks>
-    /// An RGBA source is already in the layout the device wants, so the row is one copy. RGB
-    /// has to be spread out, which is the only per-pixel work left in the decode.
-    /// </remarks>
     private static void Widen(
         ReadOnlySpan<byte> row, Span<byte> destination, int width, int channels)
     {

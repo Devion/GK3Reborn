@@ -14,36 +14,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Rooms the game never had, as glTF.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A room is a <c>.BSP</c> read out of the archives by name, and a scene whose <c>.BSP</c>
-/// is missing fails outright — which is where the temple's cut second room stops, with its
-/// object list, its light rig, its textures and sixty-two lines of dialogue all still on the
-/// disc and no geometry. This is the way a room can exist without one: the model is read as
-/// glTF and turned into the same shape a parsed <c>.BSP</c> has, so everything downstream —
-/// drawing, picking, the floor, hidden objects, the light rig — works unchanged.
-/// See <see cref="SceneFromModel"/>.
-/// </para>
-/// <para>
-/// <b>It answers only for names the archives have no <c>.BSP</c> for.</b> The same boundary
-/// the prop library has, for the same reason and with more at stake: a library that could
-/// stand in front of the game's own rooms would replace one the moment a workspace happened
-/// to hold a mesh of the same name, and a room is not a chair — its floor, its walk
-/// boundary, its cameras and its bake all belong to the original. Replacing a room that
-/// shipped is what <see cref="EnhancedScenes"/> does, carefully, as an overlay that keeps
-/// all of those; this cannot do it at all.
-/// </para>
-/// <para>
-/// Nothing here reaches the 1999 archives. A room comes from <c>overrides/</c>, from a
-/// content workspace, or from a ReBarn volume, and never from a barn.
-/// </para>
-/// <para>
-/// It shares <see cref="RebarnKind.SceneGeometry"/> with the improved-geometry overlays and
-/// cannot collide with them: those are addressed inside a pack by the hash of the shape they
-/// carry, these by the room's own name, and the two are consulted in mutually exclusive
-/// cases — an overlay only where a <c>.BSP</c> exists, a room only where none does.
-/// </para>
-/// </remarks>
 public sealed class RoomLibrary
 {
     private readonly Dictionary<string, BspFile?> _built = new(StringComparer.OrdinalIgnoreCase);
@@ -131,7 +101,6 @@ public sealed class RoomLibrary
     /// <param name="name">The room's name, without extension.</param>
     /// <param name="diagnostics">Receives the reason whenever one is refused.</param>
     /// <returns>The room, or null when there is none to build.</returns>
-    /// <remarks>Built once and kept, like every other room the loader reads.</remarks>
     public BspFile? Read(string name, DiagnosticBag? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(name);

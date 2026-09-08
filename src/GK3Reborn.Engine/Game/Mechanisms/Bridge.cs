@@ -9,31 +9,6 @@ namespace GK3Reborn.Game.Mechanisms;
 /// <summary>
 /// TE5: the bridge that is not there.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Nine tiles across a chasm, and each of them is only solid some of the time. A tile
-/// <em>glints</em> to say it can be jumped to, <em>glows</em> while Gabriel is standing on
-/// it, and then goes out — and if he is still on it when it does, he falls. Getting across
-/// is reading the pattern and moving before the floor stops existing.
-/// </para>
-/// <para>
-/// <b>The whole puzzle is code.</b> The scene file declares nine hidden props and the room
-/// has no idea where they go; the grid, the timings, which jump animation goes with which
-/// direction and what a wrong jump costs are all here. What the scripts own is the
-/// spoken part — the cutscene at the near end, the two ways of dying, the one at the far
-/// end — and those are called by name.
-/// </para>
-/// <para>
-/// <b>Nothing turns on a timer the player cannot see.</b> A tile's state has a duration
-/// and the duration comes from the animation the artists drew for it, so the rhythm the
-/// player learns is the rhythm the art states. The one set of numbers invented here is the
-/// staggered sleep that starts the pattern off, which the reference's author also had to
-/// invent and says so.
-/// </para>
-/// <para>
-/// Adapted from G-Engine's <c>Bridge</c> under GPL-3, attributed in NOTICE.
-/// </para>
-/// </remarks>
 public sealed class Bridge : SceneMechanism
 {
     /// <summary>How many tiles the bridge has.</summary>
@@ -55,10 +30,6 @@ public sealed class Bridge : SceneMechanism
     private const float Near = 20f;
 
     /// <summary>Where each tile sits on the grid, across and along.</summary>
-    /// <remarks>
-    /// The path, as the artists laid it: two steps right and back to the left, a gap, and
-    /// then a run down the far side. Nothing about it is derivable — it is the puzzle.
-    /// </remarks>
     private static readonly (int Across, int Along)[] Grid =
     [
         (1, 0), (2, 1), (0, 2), (0, 4), (1, 5), (2, 7), (0, 8), (0, 9), (1, 10),
@@ -82,16 +53,6 @@ public sealed class Bridge : SceneMechanism
         /// <summary>
         /// Stood on once, and solid from then on.
         /// </summary>
-        /// <remarks>
-        /// <b>A deliberate divergence, and the only one in this room.</b> The original puts
-        /// a tile out again a few seconds after Gabriel lands on it and drops him if he is
-        /// still there, which makes the crossing a sequence of timed jumps: the player must
-        /// read the pattern ahead <em>and</em> keep moving, and a moment's thought about
-        /// where to go next is fatal. The reading is the puzzle; the hurrying is a reaction
-        /// test laid over it. This keeps the first and drops the second — a plate he has
-        /// found stays found, and the tiles he has not reached yet still come and go, so
-        /// there is still a pattern to read and still a wrong jump to make.
-        /// </remarks>
         Held,
     }
 
@@ -126,11 +87,6 @@ public sealed class Bridge : SceneMechanism
     private bool _jumping;
 
     /// <summary>Which way he is looking, kept between jumps.</summary>
-    /// <remarks>
-    /// Only ever read where a jump has no direction to take one from, which is a jump of no
-    /// distance -- something the move table cannot produce, and a value rather than a throw
-    /// if it ever does.
-    /// </remarks>
     private float _facing;
 
     /// <summary>Whether the opening cutscene has been played.</summary>
@@ -158,11 +114,6 @@ public sealed class Bridge : SceneMechanism
     public override bool Perform(string asked) => false;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The tiles are declared with no position at all, so laying them on their grid is the
-    /// first thing that has to happen: without it all nine are stacked at the room's origin
-    /// and the bridge is a single flickering square in the wrong place.
-    /// </remarks>
     public override void Begin()
     {
         for (int i = 0; i < Count; i++)
@@ -279,53 +230,6 @@ public sealed class Bridge : SceneMechanism
     /// </summary>
     /// <param name="eye">Where the camera is, for sorting.</param>
     /// <returns>The sprites, farthest first.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The bridge asks the player to read a pattern they cannot see.</b> A tile that is
-    /// out is drawn as nothing at all, so the chasm gives away neither the shape of the path
-    /// nor the fact that there is one. This puts a trace of them back: enough to say
-    /// <em>something is here</em>, not enough to say <em>stand on it</em>.
-    /// </para>
-    /// <para>
-    /// <b>Two things, and they do different jobs.</b> A body of cloud says where the plate
-    /// would be and has no shape worth reading; an outline says what shape it is, and is the
-    /// half that has to look like glass rather than like smoke. Drawn in that order, so the
-    /// edge sits in front of its own haze.
-    /// </para>
-    /// <para>
-    /// <b>Smoke, not embers.</b> The particle pass draws a sprite two ways and the choice is
-    /// the sprite's additiveness: at or above a half it is a plain soft disc, which is what
-    /// an ember wants and is why the first attempt at this read as a grid of glowing dots.
-    /// Below a half the fragment stage cuts two octaves of value noise out of the disc — see
-    /// <c>ParticleShaders</c> — and overlapping sprites stop being circles and become one
-    /// body of cloud. The cloud is on that side of the line and the outline is on the other,
-    /// which is the whole of why one looks like fog and the other like a lit edge.
-    /// </para>
-    /// <para>
-    /// <b>The flatness is in the layout, not in the sprite.</b> Every sprite faces the
-    /// camera, so no arrangement of them is a flat plate seen edge-on — but a mat of them
-    /// lying in the tile's own plane reads as haze lying in the chasm, which is how ground
-    /// fog is drawn anywhere it is drawn with sprites at all. A tile-shaped translucent quad
-    /// carrying a shader of its own would be the other way to do it, and would mean a second
-    /// blended pipeline in both backends to draw what this pass already blends.
-    /// </para>
-    /// <para>
-    /// <b>Nothing here is still.</b> Each puff creeps round its own slow ellipse, rises and
-    /// sinks on its own beat, swells and shrinks, and turns — the noise is cut in the
-    /// sprite's own frame, so turning it churns the cloud from inside rather than sliding it
-    /// across the screen. The rates deliberately do not divide each other: anything that does
-    /// comes back into step and starts to pulse, and a pulse reads as a mechanism.
-    /// </para>
-    /// <para>
-    /// <b>It ends the moment the plate is real.</b> Only a tile that is out or sleeping is
-    /// haunted; one catching the light, one lit under his feet and one he has already found
-    /// are drawn as geometry, and a haze over any of them would blunt the one signal the
-    /// puzzle has. Nothing here may be mistaken for a glint — so it is cold, dim and drifting
-    /// where a glint is warm, bright and a hard-edged slab of lit geometry, and it stays
-    /// under the alpha at which a cloud stops looking like air and starts looking like a
-    /// surface.
-    /// </para>
-    /// </remarks>
     public override IReadOnlyList<Particle> Particles(Vector3 eye)
     {
         var ghost = new List<Particle>(Count * (Puffs + RimPoints));
@@ -422,24 +326,6 @@ public sealed class Bridge : SceneMechanism
     /// <param name="where">The middle of the tile.</param>
     /// <param name="tide">How far through the travelling swell this tile is.</param>
     /// <param name="tile">Which tile, so no two edges catch the light together.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>Fully additive, so it is light and not fog.</b> That also puts it back on the
-    /// smooth-disc side of the fragment stage's test, which is what makes it read as glass:
-    /// an edge caught by a light is clean, and the noise that makes the cloud look like
-    /// cloud would make this look like more cloud.
-    /// </para>
-    /// <para>
-    /// <b>What sells the glass is the highlight running round it.</b> A square drawn at one
-    /// brightness is a neon sign; a square with a bright point travelling round its
-    /// perimeter is something with a surface, catching a light that is moving relative to
-    /// it. Raised to a high power so the highlight is a short arc rather than a slow bulge.
-    /// </para>
-    /// <para>
-    /// And the edge is not rigid: it lifts and settles along its length on a wave that is
-    /// not the perimeter's own period, so the outline never holds one shape.
-    /// </para>
-    /// </remarks>
     private void Rim(List<Particle> into, Vector3 where, float tide, int tile)
     {
         for (int point = 0; point < RimPoints; point++)
@@ -491,38 +377,18 @@ public sealed class Bridge : SceneMechanism
     }
 
     /// <summary>How many puffs make up one tile's cloud.</summary>
-    /// <remarks>
-    /// Sixteen, with twenty-four more round the edge, and at most nine tiles are out at once
-    /// — 360 sprites at the very worst against a buffer that holds eight hundred. They have
-    /// to overlap several deep to read as one body: the first attempt used nine, spaced
-    /// further apart than they were wide, and looked like nine dots because that is exactly
-    /// what it was.
-    /// </remarks>
     private const int Puffs = 16;
 
     /// <summary>And how many points trace the outline.</summary>
-    /// <remarks>
-    /// Six a side. Fewer and the corners are the only thing the eye finds; many more and the
-    /// travelling highlight stops being a point of light and becomes a lit segment.
-    /// </remarks>
     private const int RimPoints = 24;
 
     /// <summary>The angle a spiral turns by so that it never lines up with itself.</summary>
     private const float GoldenAngle = 2.39996323f;
 
     /// <summary>How far out the cloud spreads, as a fraction of a tile's pitch.</summary>
-    /// <remarks>
-    /// Wider than the plate, and wider than the outline, so the edge is drawn over its own
-    /// haze rather than beside it.
-    /// </remarks>
     private const float Reach = 0.58f;
 
     /// <summary>How far the outline sits from the middle.</summary>
-    /// <remarks>
-    /// A little inside the pitch: the plates do not touch, and an outline drawn at the full
-    /// spacing would make the bridge look like a paved floor with the paving missing rather
-    /// than like nine separate things.
-    /// </remarks>
     private const float Edge = Spacing * 0.40f;
 
     /// <summary>How wide one puff of cloud is.</summary>
@@ -544,11 +410,6 @@ public sealed class Bridge : SceneMechanism
     private const float Above = 3f;
 
     /// <summary>How thick the cloud is at its thickest.</summary>
-    /// <remarks>
-    /// Low. Sixteen of these lie over each other, so what one puff contributes is nothing
-    /// like what the tile shows — and the cloud has to stay under the alpha at which it
-    /// stops looking like air and starts looking like a surface somebody could stand on.
-    /// </remarks>
     private const float CloudAlpha = 0.085f;
 
     /// <summary>And how bright the outline is.</summary>
@@ -573,7 +434,6 @@ public sealed class Bridge : SceneMechanism
     private const float SpinRate = 0.11f;
 
     /// <summary>How many times the outline waves over one lap of itself.</summary>
-    /// <remarks>Not a whole number, so the wave never closes on itself.</remarks>
     private const float RimWaves = 2.6f;
 
     /// <summary>How fast that wave runs along it.</summary>
@@ -588,21 +448,11 @@ public sealed class Bridge : SceneMechanism
     /// <summary>
     /// How much of an ember there is in the cloud, which is what picks the sprite's shape.
     /// </summary>
-    /// <remarks>
-    /// Just under the half the fragment stage tests against, so the cloud noise is cut out of
-    /// it while it stays very nearly a light rather than a fog. Take it over a half and every
-    /// puff becomes the smooth disc this began as.
-    /// </remarks>
     private const float Cloudy = 0.46f;
 
     /// <summary>
     /// The colour where the cloud is thinnest.
     /// </summary>
-    /// <remarks>
-    /// Cold and faint on purpose. The glint the tiles use is the room's own warm gold, and
-    /// the two must not be confusable at a glance — a player who reads this as "solid" walks
-    /// into the chasm.
-    /// </remarks>
     private static readonly Vector3 Thin = new(0.13f, 0.19f, 0.30f);
 
     /// <summary>And where it is thickest.</summary>
@@ -664,12 +514,6 @@ public sealed class Bridge : SceneMechanism
         _under = under?.Name ?? string.Empty;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <b>The bridge takes every click while Gabriel is on it.</b> There is no walking out
-    /// there — the floor is nine squares that come and go — so a click is a jump, a jump
-    /// back, or a step into the chasm, and nothing else may have it. Off the bridge the
-    /// room behaves normally, except that clicking the first tile is how the puzzle begins.
-    /// </remarks>
     public override bool TakesClick(ScenePick? under)
     {
         if (_jumping)
@@ -757,12 +601,6 @@ public sealed class Bridge : SceneMechanism
     /// <param name="index">
     /// The tile, <c>-1</c> for the near end, or <see cref="Count"/> for the far side.
     /// </param>
-    /// <remarks>
-    /// <b>A jump too far is a death, not a refusal.</b> Gabriel can reach a square, a
-    /// diagonal or a knight's move and no further; asking for more is the player getting it
-    /// wrong, and the game lets them find out. The one exception is the first jump, which
-    /// can only be onto tile one.
-    /// </remarks>
     private void Jump(int index)
     {
         (int Across, int Along) to = index switch
@@ -876,28 +714,6 @@ public sealed class Bridge : SceneMechanism
     /// <summary>
     /// Which clip carries Gabriel a given distance, or null when nothing does.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Four kinds of jump exist and no more: one square along, two squares along, a
-    /// diagonal, and a knight's move. Anything else is a jump he cannot make.
-    /// </para>
-    /// <para>
-    /// <b>The shape decides the clip and the heading decides the direction</b>, which is
-    /// why a diagonal has a clip of its own and a jump backwards has none. The original
-    /// keeps a table of every move on the board — twenty-one of them, eleven distinct — and
-    /// they pair off exactly: the entry for going one square forward and the entry for
-    /// going one square back are two different entries, and the game ships one animation.
-    /// The same holds for the diagonal, for the two-square hop and for both knight's moves,
-    /// and there are only ever four clips. So a clip is authored along whichever way Gabriel
-    /// is looking, and turning him to look at the tile he is jumping to is what makes it
-    /// carry him there.
-    /// </para>
-    /// <para>
-    /// <c>GABTE5JUMP45</c> is the diagonal, and was going unused: diagonals were being sent
-    /// through the one-square clip, which is authored for a shorter jump. Three of the eight
-    /// moves along the path are diagonals.
-    /// </para>
-    /// </remarks>
     private static string? Leap(int across, int along)
     {
         int sideways = Math.Abs(across);
@@ -916,12 +732,6 @@ public sealed class Bridge : SceneMechanism
     /// <summary>
     /// Starts the tiles going, once Gabriel is on the first of them.
     /// </summary>
-    /// <remarks>
-    /// Eight staggered sleeps, so that the tiles do not all come back at once and there is
-    /// a pattern to read. These durations are invented — the original's are not recoverable
-    /// from anything it ships — and the reference's author says the same of its own. They
-    /// are chosen so that a player moving promptly always has somewhere to go.
-    /// </remarks>
     private void Pattern()
     {
         double[] staggered = [0, 5.0, 3.0, 6.0, 3.2, 0.5, 2.0, 0.01, 0.8];
@@ -936,10 +746,6 @@ public sealed class Bridge : SceneMechanism
     /// Gabriel falls.
     /// </summary>
     /// <param name="inTheAir">Whether he was mid-jump rather than standing on a tile.</param>
-    /// <remarks>
-    /// The two have different animations and different lines, which is why the scripts keep
-    /// them apart. Either way the bridge is put back and the player starts again.
-    /// </remarks>
     private void Fall(bool inTheAir)
     {
         _jumping = true;

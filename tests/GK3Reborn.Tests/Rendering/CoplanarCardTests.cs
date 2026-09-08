@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for giving a zero-thickness card a thickness.
 /// </summary>
-/// <remarks>
-/// A great deal of GK3's scenery is one quad with a different picture on each side, and
-/// both sides are drawn: the depth test cannot choose between two surfaces at exactly the
-/// same depth, so the two pictures interleave. Reported as the Blanchefort signpost's
-/// lettering striped through with the bare wood of its own back.
-/// </remarks>
 public sealed class CoplanarCardTests
 {
     /// <summary>A quad, wound so its normal is the cross product of its first two edges.</summary>

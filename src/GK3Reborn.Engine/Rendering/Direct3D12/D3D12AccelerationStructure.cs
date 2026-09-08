@@ -27,29 +27,6 @@ public readonly record struct TraceablePart(
 /// <summary>
 /// The acceleration structure the ray queries trace against.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Two levels, as both APIs have them: a bottom-level structure per piece of geometry, and
-/// one top-level structure holding an instance of each with its transform. The division is
-/// the same as Vulkan's and so is the reason for it — the bottom level is the expensive
-/// part and does not change when something moves, so a moving object is a new transform in
-/// the top level rather than a rebuilt tree.
-/// </para>
-/// <para>
-/// Three buffers per structure and all three matter. The result is what the rays read and
-/// lives in a state of its own that nothing else uses. The scratch is working space the
-/// build needs and is <em>not</em> free afterwards on any driver that overlaps builds — it
-/// is kept alive until the build has been waited for. The instance buffer is upload-heap
-/// memory holding the top level's descriptions, read by the device during the build, so it
-/// cannot be a stack array.
-/// </para>
-/// <para>
-/// The transform rows are the trap. Direct3D wants a three-by-four row-major matrix, which
-/// is the transpose of the four-by-four this engine carries everywhere else, and a
-/// transform written the wrong way round does not fail: it puts the geometry somewhere
-/// plausible and wrong, and the shadows land in the wrong place with nothing to say why.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12AccelerationStructure : IDisposable
 {
     private readonly List<ComPtr<ID3D12Resource>> _owned = [];
@@ -87,11 +64,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <summary>Says where a piece now stands.</summary>
     /// <param name="part">Which piece. Zero is the room, which never moves.</param>
     /// <param name="transform">Where it stands.</param>
-    /// <remarks>
-    /// Recorded, not done. The top level is rebuilt in <see cref="Settle"/>, once, however
-    /// many things moved — rebuilding it per movement would be a queue stall per character
-    /// per frame.
-    /// </remarks>
     public void Move(int part, Matrix4x4 transform)
     {
         if (!_instanceOf.TryGetValue(part, out int at) || _transforms[at] == transform)
@@ -106,10 +78,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <summary>Says whether a piece is in the picture at all.</summary>
     /// <param name="part">Which piece.</param>
     /// <param name="traced">Whether rays should see it.</param>
-    /// <remarks>
-    /// A hidden piece keeps its place in the list and is given an instance mask of zero, so
-    /// that the indices every caller holds stay the indices they were.
-    /// </remarks>
     public void SetTraced(int part, bool traced)
     {
         if (!_instanceOf.TryGetValue(part, out int at) || _traced[at] == traced)
@@ -123,11 +91,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
 
     /// <summary>Makes everything recorded since the last one true.</summary>
     /// <exception cref="D3D12Exception">The rebuild failed.</exception>
-    /// <remarks>
-    /// Must be called after the frame fence and before anything traces — rebuilding a
-    /// structure the device is still reading is the same hazard as rewriting a vertex buffer
-    /// it has not finished with.
-    /// </remarks>
     public void Settle()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -208,13 +171,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <param name="list">The list the frame's rebuilds are being recorded into.</param>
     /// <param name="piece">The piece.</param>
     /// <exception cref="D3D12Exception">Its vertices could not be written.</exception>
-    /// <remarks>
-    /// Built rather than refitted. A refit keeps the tree the first build chose and only
-    /// moves its boxes, which is cheaper and degrades as the geometry stops resembling what
-    /// it was built from — and a GK3 character's vertices are rewritten outright by every
-    /// clip, so what it was built from is a different shape altogether. Into the same
-    /// destination buffer, which is legal because the inputs have the same size they had.
-    /// </remarks>
     private void Rebuild(ID3D12GraphicsCommandList4* list, Piece piece)
     {
         void* mapped;
@@ -259,19 +215,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <summary>Says that a deforming piece has a new shape.</summary>
     /// <param name="key">Which animated batch.</param>
     /// <param name="positions">Its vertices now.</param>
-    /// <remarks>
-    /// <para>
-    /// Recorded, not done: <see cref="Settle"/> rewrites the vertex buffer and rebuilds that
-    /// piece's bottom level, once for however many of a character's meshes were posed.
-    /// </para>
-    /// <para>
-    /// This is the one thing here that is more than bookkeeping. A GK3 character has no
-    /// skeleton — an <c>.ACT</c> clip rewrites its vertices outright — so there is no
-    /// transform that could stand for a raised arm, and a structure that ignored this held
-    /// the pose the model was authored in: rays leaving an animated shoulder started inside
-    /// a rest-pose body, and a character's shadow was cast by their bind pose.
-    /// </para>
-    /// </remarks>
     public void Reshape(int key, ReadOnlySpan<Vector3> positions)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -433,12 +376,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <summary>Writes a shader resource view of this structure into a descriptor slot.</summary>
     /// <param name="context">The device.</param>
     /// <param name="where">Where to write it.</param>
-    /// <remarks>
-    /// The one view in Direct3D made from an address rather than from a resource: the
-    /// resource pointer must be null and the address goes in the description. Passing the
-    /// resource as well is a validation error, which is a helpful way to be told, since
-    /// every other view in the API works the other way round.
-    /// </remarks>
     public void Describe(D3D12Context context, CpuDescriptorHandle where)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -459,12 +396,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     /// <summary>
     /// The identity component mapping, which every view that does not swizzle must state.
     /// </summary>
-    /// <remarks>
-    /// <c>D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING</c>, which is a macro rather than a
-    /// constant and so does not survive into any binding. Leaving it zero maps every
-    /// channel to red, and a texture that comes out grey is a long way from a mapping
-    /// nobody set.
-    /// </remarks>
     public const uint DefaultComponentMapping = (0 << 0) | (1 << 3) | (2 << 6) | (3 << 9) | (1 << 12);
 
     /// <inheritdoc/>
@@ -724,12 +655,6 @@ public sealed unsafe class D3D12AccelerationStructure : IDisposable
     }
 
     /// <summary>Writes a transform into the three-by-four row-major form Direct3D wants.</summary>
-    /// <remarks>
-    /// The engine's matrices are row-vector, so a point is <c>p * M</c> and the translation
-    /// is the fourth row. Direct3D's instance transform is column-vector — <c>M * p</c> —
-    /// with the translation in the fourth column, so this is a transpose and not a copy.
-    /// Getting it wrong puts the geometry somewhere plausible and wrong.
-    /// </remarks>
     private static void WriteTransform(Matrix4x4 transform, float* rows)
     {
         rows[0] = transform.M11; rows[1] = transform.M21; rows[2] = transform.M31; rows[3] = transform.M41;

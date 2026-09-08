@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the scripts that drive a room, and everybody in it, when nobody is asking.
 /// </summary>
-/// <remarks>
-/// 502 scripts and 25 keywords. The one that matters most is the smallest: <c>ONEOF</c> is
-/// 1,559 of the corpus's instructions, and a <em>run</em> of them is one choice rather than
-/// several — which is the whole difference between an idle that reads as a person and one
-/// that plays every fidget a character has, in order, for ever.
-/// </remarks>
 public sealed class GasFileTests
 {
     private static GasFile Parse(string text) => GasFile.Parse(Encoding.Latin1.GetBytes(text));

@@ -11,14 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for what a person may be asked about.
 /// </summary>
-/// <remarks>
-/// A topic is written exactly like a verb — <c>BUTHANE, T_TOUR_GROUP, CASE, script={…}</c>
-/// — and only <c>VERBS.TXT</c> says which is which. The two rules that follow from being a
-/// topic are both about <em>disappearing</em>, and neither is written down in the action
-/// files: a topic is said once, and its <c>ALL</c> line is the last thing said rather than
-/// something always available. Miss them and a conversation offers the same thing for ever
-/// and offers its closing line from the start.
-/// </remarks>
 public sealed class TopicTests
 {
     /// <summary>The shape of a real VERBS.TXT, cut down to what is read.</summary>

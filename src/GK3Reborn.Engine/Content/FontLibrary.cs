@@ -7,40 +7,12 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// The game's 137 bitmap fonts, read on demand.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A font is two files that have to be found together: the <c>.FON</c> that lists its
-/// characters and the bitmap they are cut from. Most name their bitmap outright; the nine
-/// that do not are called the same thing as the definition.
-/// </para>
-/// <para>
-/// <b>The definition is read in the chosen language's code page, not UTF-8 and not
-/// Latin-1.</b> The <c>Font=</c> line is a run of characters in the sheet's own order and a
-/// third of them are above 127; read as UTF-8 they become replacement characters, and read
-/// as the wrong single-byte page they become the <em>wrong letters</em> — which is worse,
-/// because it fails silently. Polish is where that showed: its sheets carry ą ć ę ł ń ś ź ż
-/// at Windows-1250 positions, so under Latin-1 the ą glyph was filed under <c>¹</c> and the
-/// ń glyph under <c>ñ</c>, and Polish text — correctly decoded — then asked for letters no
-/// font admitted to having and got the unknown-glyph box.
-/// </para>
-/// <para>
-/// The one byte every release uses in the C1 range is <c>0x9D</c>, which is both the last
-/// slot of the <c>Font=</c> line and the <c>Default Char</c>, so it maps to the same
-/// character under any page and the fallback keeps working. No <c>.FON</c> in any of the
-/// seven releases uses another.
-/// </para>
-/// </remarks>
 public sealed class FontLibrary
 {
     private readonly GameArchives _archives;
     private readonly Dictionary<string, FontFile?> _read = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Forgets every font it has read, for a language change.</summary>
-    /// <remarks>
-    /// Two of the game's fonts are re-cut per language — French's <c>SID_TEXT_14_WHT</c>
-    /// carries the accented letters English's does not — so a cache keyed on the name goes
-    /// on answering with the wrong one.
-    /// </remarks>
     public void Forget() => _read.Clear();
 
     /// <summary>Creates a library over a set of archives.</summary>
@@ -86,11 +58,6 @@ public sealed class FontLibrary
     /// <summary>Reads the first of several fonts that is there.</summary>
     /// <param name="names">Names to try, in order of preference.</param>
     /// <returns>The first one found, or null.</returns>
-    /// <remarks>
-    /// The interface asks for a size it would like and takes what the installation has,
-    /// rather than failing because one particular font is missing from one particular
-    /// release.
-    /// </remarks>
     public FontFile? Any(params string[] names)
     {
         ArgumentNullException.ThrowIfNull(names);
@@ -113,20 +80,6 @@ public sealed class FontLibrary
     /// <param name="wantedHeight">How tall a capital should be, in pixels.</param>
     /// <param name="names">The ladder, in any order.</param>
     /// <returns>The nearest one that loads, or null when none of them does.</returns>
-    /// <remarks>
-    /// <para>
-    /// A bitmap font has one size and there is no scaling it: drawing a 17-pixel sheet at
-    /// 34 pixels is a blurry 17-pixel sheet. So "make the text bigger" means picking a
-    /// different sheet, and GK3 shipped the ladder to pick from — its caption font exists
-    /// at 16, 20 and 26 point, which cut to 20, 26 and 33 pixel letters.
-    /// </para>
-    /// <para>
-    /// Reading a candidate to measure it is the only way to know how tall it is: the height
-    /// is not in the <c>.FON</c>, it is the sheet divided by the row count. They are a few
-    /// kilobytes each and the answer is cached, so the ladder costs one read per rung for
-    /// the life of the process.
-    /// </para>
-    /// </remarks>
     public FontFile? Nearest(int wantedHeight, params string[] names)
     {
         ArgumentNullException.ThrowIfNull(names);

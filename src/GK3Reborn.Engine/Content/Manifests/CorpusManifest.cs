@@ -81,9 +81,6 @@ public sealed record CorpusManifest
     /// <summary>
     /// How many distinct extensions each kind appears under.
     /// </summary>
-    /// <remarks>
-    /// The number that shows why classification cannot go by name.
-    /// </remarks>
     public required IReadOnlyDictionary<string, int> ExtensionsByKind { get; init; }
 
     /// <summary>Unclassified assets, capped for readability.</summary>

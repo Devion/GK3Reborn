@@ -8,19 +8,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// A graphics pipeline drawing a single coloured triangle.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The smallest thing that proves the whole chain works: HLSL compiles, SPIR-V loads, a
-/// pipeline builds against the swapchain's format, and a draw reaches the screen. Every
-/// later pass is this plus vertex buffers, descriptors and more interesting shaders.
-/// </para>
-/// <para>
-/// Vertices are generated in the vertex shader from <c>SV_VertexID</c> rather than read
-/// from a buffer. That is deliberate for this step: it means a failure here is a shader,
-/// pipeline or render-target problem and cannot be a buffer or memory problem, which
-/// makes the first bring-up debuggable.
-/// </para>
-/// </remarks>
 public sealed unsafe class TrianglePipeline : IDisposable
 {
     private const string Source = """

@@ -20,29 +20,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Gathers a room's improved objects back into the one file the game reads.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The directory of per-object files is the shape the work is done in; it is not the
-/// shape the work ships in. A pack key carries no directory, and the corpus repeats
-/// itself — a location has a geometry file per timeblock, holding the same furniture at
-/// the same coordinates under a different surface numbering — so the composed form is a
-/// flat pool of glTF files addressed by the hash of their own geometry, plus a manifest
-/// saying which rooms draw which of them and what each room calls its surfaces.
-/// </para>
-/// <para>
-/// Measured over the corpus that is 2,054 shapes for 2,721 improved objects: a fifth of
-/// the set was being shipped more than once. Hashing what is actually in the file, rather
-/// than trusting two rooms to agree, also keeps the sharing honest by itself — an object
-/// somebody edits in one room stops matching and quietly gets a shape of its own.
-/// </para>
-/// <para>
-/// <b>Everything this refuses, it refuses loudly.</b> A composed room whose surface
-/// indices belong to a different build of the geometry is not a slightly wrong room: it
-/// is every lightmap on the wrong surface. So the source is hashed, the triangles are
-/// checked against the surfaces they claim, and an object that has wandered outside the
-/// box the original occupied is dropped with its numbers reported rather than shipped.
-/// </para>
-/// </remarks>
 public sealed class SceneComposeStage
 {
     private readonly Action<string> _log;
@@ -62,34 +39,12 @@ public sealed class SceneComposeStage
     public const string ManifestName = "scene-geometry.json";
 
     /// <summary>How much of a shape's hash names its file.</summary>
-    /// <remarks>
-    /// Sixteen hex digits is sixty-four bits, which over a pool of a few thousand shapes
-    /// is a collision every few hundred million corpora. The rest of the digits would buy
-    /// nothing but a wider directory listing.
-    /// </remarks>
     public const int ShapeNameLength = 16;
 
     /// <summary>
     /// How far outside the original object's box a replacement may reach, as a fraction of
     /// that box's longest edge.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Refining a curve does reach outside the authored hull, and is supposed to: an
-    /// interpolating scheme leaves every authored vertex alone and bows the surface
-    /// between them out to the curve their normals describe, which on the coarsest thing
-    /// in the corpus that is meant to read as round — an eight-sided lantern, turning 45°
-    /// at each of its own sides — is about eight per cent of that curve's radius. A
-    /// bevel then only ever cuts inward. A quarter is comfortably above the one and
-    /// nowhere near the other.
-    /// </para>
-    /// <para>
-    /// What this is really for is the mistake that produces no error anywhere else: a
-    /// modelling tool exporting with a different up axis or unit scale. That is not off
-    /// by a fraction, it is off by a whole multiple, and it comes back as a room-sized
-    /// chair standing on its side.
-    /// </para>
-    /// </remarks>
     public const float Drift = 0.25f;
 
     /// <summary>Composes every room that has anything to compose.</summary>

@@ -5,28 +5,6 @@ namespace GK3Reborn.Foundation;
 /// <summary>
 /// Where the game may read from and where it may write, given where it was installed.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Everything the game reaches for is derived from <see cref="AppContext.BaseDirectory"/>
-/// - content, saves, the shader cache. That works on Windows and Linux, where a game is a
-/// directory somebody unpacked and owns. It does not work on macOS, where an installed
-/// application is a signed, read-only <c>.app</c> bundle in <c>/Applications</c>: writing
-/// into it either fails outright or breaks the signature, and the executable does not even
-/// sit at the root of the tree but three levels down in <c>Contents/MacOS</c>.
-/// </para>
-/// <para>
-/// So there are two roots rather than one. <see cref="BundleResources"/> is the read-only
-/// half - the bundle's own <c>Contents/Resources</c>, where a packaged build puts whatever
-/// it ships. <see cref="UserData"/> is the writable half, per user and outside any install,
-/// which is where settings have always gone and where saves and the shader cache go when
-/// the game cannot write beside itself.
-/// </para>
-/// <para>
-/// Nothing here is macOS-only in effect. A Windows or Linux game still finds its writable
-/// directories beside the executable, because that is where they are writable; the fallback
-/// simply stops being hypothetical on a Mac.
-/// </para>
-/// </remarks>
 public static class InstallPaths
 {
     private const string ApplicationName = "GK3Reborn";
@@ -36,14 +14,6 @@ public static class InstallPaths
     /// <summary>
     /// The per-user directory for anything the game writes that is not a saved game.
     /// </summary>
-    /// <remarks>
-    /// <c>%AppData%\GK3Reborn</c> on Windows and <c>~/.config/GK3Reborn</c> on Linux, both
-    /// of which are what <see cref="Environment.SpecialFolder.ApplicationData"/> gives.
-    /// On macOS that same folder is also <c>~/.config</c>, which is not where a Mac keeps
-    /// per-application state - <c>~/Library/Application Support</c> is, and a file put
-    /// anywhere else is invisible to Time Machine's migration and to the user. Named
-    /// explicitly for that reason rather than trusted to the BCL's Unix mapping.
-    /// </remarks>
     public static string UserData { get; } = OperatingSystem.IsMacOS()
         ? Path.Combine(
             Environment.GetFolderPath(
@@ -71,7 +41,6 @@ public static class InstallPaths
     /// The directory a loose file the game writes belongs in: the executable's own when
     /// that can be written to, and <see cref="UserData"/> when it cannot.
     /// </summary>
-    /// <remarks>The directory returned exists by the time it is returned.</remarks>
     public static string WritableRoot
     {
         get
@@ -93,13 +62,6 @@ public static class InstallPaths
     /// </summary>
     /// <param name="name">Directory name, such as <c>shader-cache</c>.</param>
     /// <returns>An absolute path to a directory that exists and can be written to.</returns>
-    /// <remarks>
-    /// Beside the executable first because that keeps an unpacked install self-contained:
-    /// somebody who moves the folder takes their shader cache with them. The probe is a
-    /// real write rather than a permissions check, because a permissions check answers a
-    /// different question than the one being asked on a read-only volume, an unsigned
-    /// bundle or a directory behind a consent prompt nobody is there to answer.
-    /// </remarks>
     public static string WritableDirectory(string name)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -156,13 +118,6 @@ public static class InstallPaths
     /// </summary>
     /// <param name="baseDirectory">The executable's own directory.</param>
     /// <returns>The bundle's resources directory, or null.</returns>
-    /// <remarks>
-    /// The shape of the path is the test, not the operating system: a bundle laid out on a
-    /// Windows machine by the macOS publish profile is still a bundle, and being able to
-    /// reason about one without a Mac is the difference between this being testable and
-    /// not. Public for that reason - <see cref="BundleResources"/> is the answer for this
-    /// process, and this is the answer for any path.
-    /// </remarks>
     public static string? FindBundleResources(string baseDirectory)
     {
         if (string.IsNullOrEmpty(baseDirectory))

@@ -10,14 +10,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests the plane a polished floor is reflected about.
 /// </summary>
-/// <remarks>
-/// Reported as "the tile floor in the hotel, the tile floor in the church don't reflect
-/// much at all". They reflected nothing at all, and could not: the screen-space march can
-/// only return what is already in the frame, and what a floor shows is mostly what is above
-/// the camera. The answer is the pass the mirrors already use — the room drawn a second
-/// time from under the floor — and the whole of what makes it cheap to sample is that a
-/// point on the plane lands on the same pixel in both renders.
-/// </remarks>
 public sealed class FloorReflectionTests
 {
     /// <summary>A flat square of floor at a height, in world units.</summary>
@@ -151,11 +143,6 @@ public sealed class FloorReflectionTests
 /// <summary>
 /// Tests that the artists' baking scaffolding can be switched off outright.
 /// </summary>
-/// <remarks>
-/// Asked for as "an option to disable most of the fake lights and try to go realism by only
-/// allowing daylight and/or lamp sources to light the environment". The classification
-/// already existed for turning them <em>down</em>; this is the same rule taken to nought.
-/// </remarks>
 public sealed class RealisticLightingTests
 {
     /// <summary>A light with a name and a brightness, which is all this rule reads.</summary>

@@ -15,26 +15,6 @@ public enum SamplerAddressing
 /// <summary>
 /// The handful of samplers the renderer actually uses, made once and shared.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Vulkan makes a sampler an object and the texture path creates one per texture, which is
-/// wasteful and harmless. Direct3D makes it a descriptor in a heap of its own, and the
-/// heaps are the scarce thing: one sampler heap may be bound at a time and it holds at most
-/// two thousand and forty-eight descriptors. A sampler per texture would exhaust that in a
-/// room.
-/// </para>
-/// <para>
-/// So they are shared. There are only ever a few distinct ones — the axis of variation is
-/// how a texture tiles and nothing else — and every texture in a scene points at whichever
-/// of them it wants. The heap is small, permanent, and bound for the life of the renderer.
-/// </para>
-/// <para>
-/// Anisotropy is asked for unconditionally, which Vulkan cannot do. There, asking for
-/// filtering the device did not enable is invalid rather than ignored; here sixteen-times
-/// anisotropic filtering is required of every Direct3D 12 device, so there is nothing to
-/// check and no fallback to carry.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Samplers : IDisposable
 {
     private readonly D3D12DescriptorHeap _heap;
@@ -85,12 +65,6 @@ public sealed unsafe class D3D12Samplers : IDisposable
     /// <param name="context">The device.</param>
     /// <param name="addressing">Which one.</param>
     /// <param name="where">Where to put it.</param>
-    /// <remarks>
-    /// For the tables that mix a texture and its sampler. A combined image sampler in GLSL
-    /// becomes a texture and a sampler in HLSL at the same register index, so the sampler
-    /// has to be at a known place in the pass's own sampler table rather than at a known
-    /// place in this heap.
-    /// </remarks>
     public void CopyInto(
         D3D12Context context, SamplerAddressing addressing, CpuDescriptorHandle where)
     {

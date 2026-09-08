@@ -9,12 +9,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the managed AAC-LC decoder.
 /// </summary>
-/// <remarks>
-/// The decoder replaces FFmpeg for the movies' audio, so the bar is not "sounds fine"
-/// but "matches FFmpeg". The self-contained tests cover configuration parsing and a
-/// few frames of a synthetic tone encoded by ffmpeg's own AAC encoder; the reference
-/// comparison against the game's clips runs only where ffmpeg and the clips exist.
-/// </remarks>
 public sealed class AacDecoderTests
 {
     // AudioSpecificConfig: AAC-LC (2), 48 kHz (index 3), stereo (2), 1024-sample frames.

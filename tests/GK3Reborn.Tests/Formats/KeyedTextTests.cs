@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the game's prose files.
 /// </summary>
-/// <remarks>
-/// The reason this reader exists rather than reusing the scene one is the first test here.
-/// A <c>.SIF</c> line is a list of comma-separated settings; these files hold English
-/// sentences, and English sentences have commas in them. Reading one with the other reader
-/// turns a paragraph of Grace's mail into forty settings, silently.
-/// </remarks>
 public sealed class KeyedTextTests
 {
     [Fact]

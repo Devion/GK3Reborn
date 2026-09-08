@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for reading the walkthrough the journal is built out of.
 /// </summary>
-/// <remarks>
-/// The file is the one piece of story data in the project that nothing else can check: a
-/// scene file is checked by loading the scene, and a score name is checked against the
-/// corpus, but a walkthrough is prose. What it does carry is a running total beside every
-/// scored line, and that is enough to catch a line read twice or missed.
-/// </remarks>
 public sealed class WalkthroughTests
 {
     [Fact]
@@ -32,10 +26,6 @@ public sealed class WalkthroughTests
     }
 
     /// <summary>Every point in the story the game has is walked through.</summary>
-    /// <remarks>
-    /// Seventeen headings, one per timeblock, in the order the story runs. A missing one is
-    /// a stretch of the game the journal would have nothing to say about.
-    /// </remarks>
     [Fact]
     public void Every_point_in_the_story_is_covered()
     {

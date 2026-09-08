@@ -9,12 +9,6 @@ using GK3Reborn.Formats.Rebarn;
 namespace GK3Reborn.Content;
 
 /// <summary>Which towns the dressing has geometry for.</summary>
-/// <remarks>
-/// One flag per town rather than one switch for all of them, because the two are packed,
-/// installed and rebuilt separately: a workspace half way through a rebuild of Couiza
-/// still has Rennes-les-Bains, and taking neither because one is missing would empty a
-/// room that has everything it needs.
-/// </remarks>
 [Flags]
 public enum DressedTowns
 {
@@ -33,13 +27,6 @@ public static class SceneDressing
     /// <summary>
     /// A model each town cannot be installed without.
     /// </summary>
-    /// <remarks>
-    /// One piece of each set, standing for the rest. A finer check — every name in the
-    /// table — would be answering a question nobody asked: a set is built, packed and
-    /// installed as one thing, so a workspace holding half of one is a workspace somebody
-    /// is in the middle of rebuilding, and the per-model diagnostic already covers that
-    /// case exactly.
-    /// </remarks>
     private static readonly (DressedTowns Town, string Model)[] Sentinels =
     [
         (DressedTowns.Couiza, "RBN_CZ_ROW_A"),

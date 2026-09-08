@@ -6,25 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The two stages of a graphics pipeline have to agree about their varyings.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Vulkan links stages by location and does not mind a vertex shader writing something its
-/// fragment shader ignores. Direct3D does mind, and not in a way anybody would guess: each
-/// stage is compiled on its own and DXC packs its varyings into consecutive hardware
-/// registers, so one unread output leaves every varying after it in a different register in
-/// one stage than in the other. The pipeline is then refused with <c>Semantic 'TEXCOORD' is
-/// defined for mismatched hardware registers</c>, which names a semantic that appears six
-/// times and no location at all.
-/// </para>
-/// <para>
-/// That is a bad afternoon, and it is entirely avoidable: a varying nobody reads is a defect
-/// on both backends, because the vertex stage is computing and interpolating it anyway. The
-/// mesh shader had one — a clip position written and never read — and the composite had
-/// another: a texture coordinate the fragment stage ignores, because it reads its targets by
-/// pixel instead. Both had been interpolated for nothing on Vulkan for as long as they had
-/// existed, and this is what would have found either in a second.
-/// </para>
-/// </remarks>
 public sealed class ShaderInterfaceTests
 {
     /// <summary>Every pair of stages that are linked into one pipeline.</summary>

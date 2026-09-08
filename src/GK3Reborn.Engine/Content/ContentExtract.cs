@@ -7,32 +7,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Writes what the game would read back out as files, so that it can be replaced.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The other half of <see cref="ContentOverrides"/>. Overriding a texture means knowing
-/// what is there to override — its name, its size, what it looks like — and a fifteen-
-/// gigabyte pack and a set of 1999 archives are not things anybody can open in a paint
-/// program. This unpacks either into the layout the override layer reads back, so the
-/// round trip is: extract, edit in place, run.
-/// </para>
-/// <para>
-/// <strong>The directory structure comes from the kind, not from the pack.</strong> A pack
-/// stores no paths — an entry answers to its kind and its bare name, which is the whole
-/// point of the format — but <see cref="RebarnFormat.DirectoryOf"/> is the same mapping
-/// <c>enhanced/</c> uses and the same one <see cref="ContentOverrides"/> reads, so
-/// <c>textures/R25WALLS.dds</c> comes out where <c>textures/R25WALLS.dds</c> goes back in.
-/// Nothing has to be moved and no manifest has to be kept.
-/// </para>
-/// <para>
-/// <strong>PNG is a real conversion, not a rename.</strong> Asked for it, a block-
-/// compressed texture is decoded and its channels are put back the way the source had
-/// them: a BC5 normal map has lost its blue, which is reconstructed from the other two,
-/// and a BC4 height map is one channel that the source stored as grey across three. A
-/// straight dump of what the blocks decode to would give a normal map that is black in
-/// blue and a height map that is red, both of which load, and neither of which is the
-/// picture that was compressed.
-/// </para>
-/// </remarks>
 public static class ContentExtract
 {
     /// <summary>What one run wrote.</summary>
@@ -184,13 +158,6 @@ public static class ContentExtract
     /// </summary>
     /// <param name="image">What the blocks decoded to.</param>
     /// <returns>An image that can be edited and packed again.</returns>
-    /// <remarks>
-    /// BC5 keeps two channels and BC4 one, so what comes out of the decoder is not the
-    /// picture that went in: a normal map's blue is gone and a height map's grey is in red
-    /// alone. Both are reversible — the blue of a unit normal is fixed by the other two,
-    /// and the height maps were measured to be grey stored as RGB across the whole corpus,
-    /// which is why they are BC4 in the first place. Anything else is left alone.
-    /// </remarks>
     private static DecodedImage Readable(CompressedImage image)
     {
         DecodedImage decoded = BlockDecoder.Decode(image);
@@ -229,12 +196,6 @@ public static class ContentExtract
     /// <param name="name">Only assets with this bare name, or null for all of them.</param>
     /// <param name="say">Receives a line per failure.</param>
     /// <returns>What was written.</returns>
-    /// <remarks>
-    /// Flat, and under a directory of its own. These are the 1999 assets, matched by their
-    /// whole file name rather than by a kind, so no directory would tell the override layer
-    /// anything it does not already know from the extension — and putting forty thousand
-    /// files beside a dozen texture directories would bury them.
-    /// </remarks>
     public static Result FromGame(
         GameArchives archives,
         string output,

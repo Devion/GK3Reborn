@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for finding a scene's terrain set from its sky.
 /// </summary>
-/// <remarks>
-/// The reconstructed terrain sets are named after the skybox sets they were built from —
-/// <c>BMB_A</c>, <c>ARM_N</c> — and a scene only names its six face textures. The link
-/// between the two is the game's own naming convention, <c>&lt;set&gt;_512&lt;side&gt;</c>,
-/// and if reading it drifts, every scene quietly keeps its painted horizon with nothing
-/// saying why.
-/// </remarks>
 public sealed class TerrainBackdropTests
 {
     private static SkyboxDefinition Sky(

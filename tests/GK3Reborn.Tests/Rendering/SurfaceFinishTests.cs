@@ -13,11 +13,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for what the renderer is told about a surface.
 /// </summary>
-/// <remarks>
-/// The interesting behaviour is not the numbers themselves but which source wins: a
-/// classifier's guess, a generated map's measurement, or a person's correction. Getting
-/// that order wrong is what made every character's hair look like moulded plastic.
-/// </remarks>
 public sealed class SurfaceFinishTests
 {
     private static MaterialDefinition Material(

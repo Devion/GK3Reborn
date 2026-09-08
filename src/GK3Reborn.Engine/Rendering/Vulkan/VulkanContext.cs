@@ -7,19 +7,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Owns the Vulkan device and the operations everything else needs from it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Memory allocation, one-shot command submission and layout transitions are needed by
-/// buffers, textures and every render path, and duplicating them is how subtly different
-/// versions of the same barrier end up scattered through a renderer.
-/// </para>
-/// <para>
-/// Allocation here is one <c>VkDeviceMemory</c> per resource, which is the wrong shape
-/// for a shipping renderer — drivers guarantee only a few thousand allocations, and a
-/// scene of GK3's size would approach that. A sub-allocator belongs here later; the
-/// interface is deliberately narrow so that change stays local.
-/// </para>
-/// </remarks>
 public sealed unsafe class VulkanContext : IDisposable
 {
     private readonly bool _owned;
@@ -58,20 +45,10 @@ public sealed unsafe class VulkanContext : IDisposable
     public bool SupportsRayTracing { get; private set; }
 
     /// <summary>What this device offers of what the renderer would like to use.</summary>
-    /// <remarks>
-    /// Read by the texture path, which uploads the content pipeline's blocks as they are
-    /// where the device has BC and expands them on the host where it does not.
-    /// </remarks>
     public DeviceCapabilities Capabilities { get; private set; } =
         new(BlockCompression: true, AnisotropicFiltering: true, AstcCompression: false, Etc2Compression: false);
 
     /// <summary>The extensions ray tracing needs, in the order they must be requested.</summary>
-    /// <remarks>
-    /// Ray query itself has no host-side functions — it exists only inside shaders — so
-    /// only its name is needed. Acceleration structures bring in deferred host operations
-    /// as a hard dependency; requesting one without the other is a validation error rather
-    /// than a silent downgrade.
-    /// </remarks>
     public static IReadOnlyList<string> RayTracingExtensions { get; } =
     [
         "VK_KHR_acceleration_structure",
@@ -108,35 +85,6 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <summary>Loads the Vulkan API, reporting a missing loader as a Vulkan failure.</summary>
     /// <returns>The API. <b>Never dispose it.</b></returns>
     /// <exception cref="VulkanException">No loader is present.</exception>
-    /// <remarks>
-    /// A machine with no loader at all throws out of Silk.NET's own loading rather than
-    /// returning anything, and what it throws is not a type any caller here would think to
-    /// catch: a headless macOS build agent, which has no MoltenVK, failed a ray-tracing
-    /// test with a FileNotFoundException instead of skipping it. Everything that decides
-    /// "this machine cannot render" keys off <see cref="VulkanException"/>, so an absent
-    /// loader is reported as one. <c>VulkanDeviceSelector.Survey</c> says the same thing in
-    /// its own way, by returning a report rather than throwing.
-    /// </remarks>
-    /// <remarks>
-    /// <para>
-    /// <b>The handle this returns is never released, by anyone.</b> Silk.NET's
-    /// <c>GetApi</c> opens <c>libvulkan</c> and its <c>Dispose</c> closes it, and when the
-    /// last handle closes the library is unloaded — which the loader is not built for. It
-    /// opens the machine's ICDs and layers itself, and those are what leave process-exit
-    /// handlers behind pointing into an image that is no longer mapped. Windows and macOS
-    /// hide it; glibc does not, and a suite that unloaded and reloaded a native library
-    /// through a run is what made the Linux build die with SIGSEGV after its last test had
-    /// passed. <c>Rendering/Shaders/ShaderToolchain.cs</c> carries the whole account.
-    /// </para>
-    /// <para>
-    /// Each caller still gets a handle of its own rather than one shared instance. A Silk
-    /// <c>Vk</c> is not just a table of function pointers: it remembers which instance and
-    /// which device it was last used with, and two contexts sharing one would resolve each
-    /// other's device functions. That was tried, and it faulted as soon as two test classes
-    /// created contexts at the same time. One handle each, none of them released, and the
-    /// library is loaded once and stays.
-    /// </para>
-    /// </remarks>
     internal static Vk LoadApi()
     {
         try
@@ -152,11 +100,6 @@ public sealed unsafe class VulkanContext : IDisposable
 
     /// <summary>Creates a headless context, with no surface and no presentation.</summary>
     /// <returns>The context.</returns>
-    /// <remarks>
-    /// Ray tracing is enabled where the device offers it. Doing so costs nothing when no
-    /// rays are traced, and deciding at device-creation time avoids having to tear the
-    /// device down again when the quality setting changes.
-    /// </remarks>
     public static VulkanContext CreateHeadless()
     {
         var context = new VulkanContext(LoadApi());
@@ -190,12 +133,6 @@ public sealed unsafe class VulkanContext : IDisposable
     /// What the caller enabled, where it knows. Read from the device where it does not.
     /// </param>
     /// <returns>The context.</returns>
-    /// <remarks>
-    /// The windowed renderer creates its own device because it has to match the surface.
-    /// Wrapping it lets textures, buffers and pipelines be built the same way there as in
-    /// the headless path, rather than through a second set of helpers that drift.
-    /// Disposing an adopted context frees nothing: the caller still owns everything.
-    /// </remarks>
     public static VulkanContext Adopt(
         Vk api,
         Instance instance,

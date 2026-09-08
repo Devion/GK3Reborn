@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for how large the interface's letters come out.
 /// </summary>
-/// <remarks>
-/// The complaint this answers is that the menu is too big on a large window, and the reason
-/// it was too big is a cap: past about 1440 lines the share of the window stops growing and
-/// every larger display gets the same 36-pixel em. So the test that matters is not that a
-/// multiplier multiplies — it is that the multiplier is felt <em>on the far side of that
-/// cap</em>, which is the only place a player would ever reach for it.
-/// </remarks>
 public sealed class TextSizingTests
 {
     private const int Fullhd = 1080;

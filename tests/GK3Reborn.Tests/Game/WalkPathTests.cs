@@ -8,22 +8,11 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for finding a way across a walk boundary.
 /// </summary>
-/// <remarks>
-/// The boundaries here are drawn as text, one character per texel and the first row at the
-/// top of the image, because a pathfinding fixture written as an array of bytes is
-/// unreadable and a test you cannot read is a test nobody will fix. Each texel is ten
-/// scene units square, so texel (2, 3) is the world point (25, 0, 35) in a five-row map.
-/// </remarks>
 public sealed class WalkPathTests
 {
     /// <summary>
     /// Builds a boundary from a drawing.
     /// </summary>
-    /// <remarks>
-    /// <c>#</c> is wall, <c>.</c> is the middle of the floor, and a digit is that region —
-    /// the gradient that says how near a wall a texel is. <c>D</c> is region 200, one of
-    /// the regions a script may open and shut.
-    /// </remarks>
     private static WalkBoundary Map(params string[] rows)
     {
         int width = rows[0].Length;
@@ -54,13 +43,6 @@ public sealed class WalkPathTests
         [.. route.Points.Select(boundary.ToTexel)];
 
     /// <summary>Every texel the route actually crosses, corners included.</summary>
-    /// <remarks>
-    /// The straight line between corners, because that is what the walker walks: it heads
-    /// at each corner in turn and does not care what the bitmap looks like on the way. This
-    /// used to step towards the corner diagonally-then-straight, which for anything but a
-    /// pure axis or a pure diagonal is a different path — so it agreed with a bug in the
-    /// route finder instead of catching it.
-    /// </remarks>
     private static List<(int X, int Y)> Walked(WalkBoundary boundary, WalkRoute route)
     {
         (int X, int Y)[] corners = Corners(boundary, route);

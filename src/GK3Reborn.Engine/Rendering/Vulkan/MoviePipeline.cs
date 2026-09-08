@@ -10,26 +10,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Draws a movie over everything.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One texture, one triangle, one draw, and no vertex buffer at all: the corners come from
-/// the vertex index and the letterboxing comes from a push constant, because a movie is
-/// always the same shape and only ever needs to know how much of the window it should
-/// cover.
-/// </para>
-/// <para>
-/// <b>Letterboxed rather than stretched.</b> GK3's movies are 4:3 — 320x240 originally, and
-/// larger where they have been re-upscaled — and a modern window is not. Filling it would
-/// make everybody in the cutscene short and wide, so the picture is fitted to whichever
-/// dimension runs out first and the rest is left black. The scans and the parchment
-/// close-ups are not 4:3 at all, which is the other reason to fit rather than assume.
-/// </para>
-/// <para>
-/// Sampled linearly and clamped. A movie is a photograph rather than a bitmap font, so
-/// filtering it is what a player expects; clamping keeps the edge pixels from wrapping
-/// round into the letterbox.
-/// </para>
-/// </remarks>
 public sealed unsafe class MoviePipeline : IDisposable
 {
     private readonly Vk _vk;
@@ -58,10 +38,6 @@ public sealed unsafe class MoviePipeline : IDisposable
     public bool HasFrame => _picture is not null && _bound;
 
     /// <summary>What the swapchain wants written into it.</summary>
-    /// <remarks>
-    /// Set by the renderer. Standard by default, which is the sRGB target the hardware
-    /// encodes and where the film is written exactly as it always was.
-    /// </remarks>
     public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>Builds the pass.</summary>
@@ -101,12 +77,6 @@ public sealed unsafe class MoviePipeline : IDisposable
 
     /// <summary>Hands over the frame to draw next.</summary>
     /// <param name="frame">The picture, four bytes a pixel.</param>
-    /// <remarks>
-    /// The texture is created on the first frame and refreshed on every one after, so a
-    /// movie costs one allocation rather than one a frame. A movie of a different size —
-    /// the game's are anything from 41x51 to 1440x1080 — gets a new texture, which is what
-    /// changing movies does.
-    /// </remarks>
     public void SetFrame(DecodedImage frame)
     {
         ArgumentNullException.ThrowIfNull(frame.Pixels);
@@ -142,11 +112,6 @@ public sealed unsafe class MoviePipeline : IDisposable
 
     /// <summary>Hands over a still that is already in blocks.</summary>
     /// <param name="picture">The compressed image.</param>
-    /// <remarks>
-    /// For the title screen, which in a shipped game comes out of a pack and is therefore
-    /// BC7 rather than pixels. Nothing decompresses it on the way past: the blocks go to
-    /// the device as they are, the same as every texture in a room.
-    /// </remarks>
     public void SetPicture(CompressedImage picture)
     {
         if (picture.Blocks.IsEmpty || picture.Width <= 0 || picture.Height <= 0)
@@ -185,18 +150,12 @@ public sealed unsafe class MoviePipeline : IDisposable
     /// <summary>
     /// Whether to fill the window rather than fit inside it.
     /// </summary>
-    /// <remarks>
-    /// Off for a cutscene, which is letterboxed: filling the window would make everybody in
-    /// it short and wide. On for a still behind the menu, where there is nothing to distort
-    /// and black bars down both sides of the title art look like a fault.
-    /// </remarks>
     public bool Cover { get; set; }
 
     /// <summary>Where the picture lands in the window, in pixels.</summary>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <returns>Left, top, width and height, or all noughts when there is no picture.</returns>
-    /// <remarks>See <see cref="PictureFit.Rectangle"/>: a covered picture overruns the window.</remarks>
     public Vector4 Rectangle(int width, int height) =>
         HasFrame ? PictureFit.Rectangle(_width, _height, width, height, Cover) : Vector4.Zero;
 

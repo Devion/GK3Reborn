@@ -13,21 +13,6 @@ namespace GK3Reborn.Tests.UI;
 /// Tests that the settings screen stays still as its sections are walked, and that a
 /// slider is drawn as three separate things across its row.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Both were reported together and both come from the same habit: the page measured itself
-/// against the section that happened to be showing. Fitted to its own rows the panel was a
-/// different size on every section and, being centred, it moved — so clicking a name in the
-/// sidebar took the sidebar out from under the pointer. And a slider's row was measured as
-/// a label and a reading with nothing between them, so the bar was drawn across the middle
-/// of whatever width that came to, which on the Sound page was the middle of the words.
-/// </para>
-/// <para>
-/// Checked through what the page says it drew and what a click on it does, rather than
-/// against the layout arithmetic. A test that works the layout out for itself only proves
-/// the two agree.
-/// </para>
-/// </remarks>
 public sealed class MenuSettingsTests
 {
     private const int Width = 1920;
@@ -36,12 +21,6 @@ public sealed class MenuSettingsTests
     /// <summary>
     /// A font of fixed four-pixel characters, covering everything these pages say.
     /// </summary>
-    /// <remarks>
-    /// Its own rather than the one the other menu tests share, which carries the alphabet
-    /// and four lower-case letters. What is being measured here is what fits beside what,
-    /// and a font that measures "Music and cutscenes" as if it were "Mucacd" answers a
-    /// question about a shorter page than the one the player has in front of them.
-    /// </remarks>
     private static OverlayAtlas Font()
     {
         const string Characters =

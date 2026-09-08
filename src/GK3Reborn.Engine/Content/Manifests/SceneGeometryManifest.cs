@@ -21,11 +21,6 @@ public sealed record SceneGeometryObject
     /// <summary>
     /// This room's surface index for each of the shape's slots, in slot order.
     /// </summary>
-    /// <remarks>
-    /// The whole of what a room adds to a shape it shares. A chair is surfaces 104, 105
-    /// and 106 in one room and 88, 89 and 90 in another, while the triangles are the same
-    /// triangles; putting the numbering here is what lets the triangles be shipped once.
-    /// </remarks>
     public required IReadOnlyList<int> Surfaces { get; init; }
 
     /// <summary>Triangles in the shape.</summary>
@@ -41,12 +36,6 @@ public sealed record SceneGeometryRoom
     /// <summary>
     /// SHA-256 of the original geometry the replacement was cut from.
     /// </summary>
-    /// <remarks>
-    /// Checked at load, and a mismatch refuses the whole room. A surface index is a
-    /// position in a file: an overlay built against a different build of that file puts
-    /// every lightmap on the wrong surface, and the result draws perfectly and is lit by
-    /// somebody else's lighting.
-    /// </remarks>
     public required string SourceSha256 { get; init; }
 
     /// <summary>What those objects came to before they were improved.</summary>
@@ -65,25 +54,6 @@ public sealed record SceneGeometryRoom
 /// <summary>
 /// What improved scene geometry exists, room by room, over a pool of shared shapes.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Optional in the strongest sense: a game with no manifest, no manifest entry for a
-/// room, or no shape for one of its objects draws that much of the room exactly as it
-/// shipped. Nothing here is load-bearing for collision, navigation, camera bounds or
-/// lighting, all of which stay with the original geometry however much of the picture is
-/// replaced.
-/// </para>
-/// <para>
-/// <b>Shapes are shared because the corpus repeats itself.</b> A location has a geometry
-/// file per timeblock — <c>DIN</c>, <c>DIN_302A</c> and <c>DIN_303P</c> are one dining
-/// room lit three ways — and the furniture in them is the same furniture at the same
-/// coordinates with a different surface numbering. Measured over the corpus, 2,721
-/// improved objects are 2,054 distinct shapes: a fifth of the set was being shipped more
-/// than once. Addressing a shape by the hash of its own geometry ships it once, reads it
-/// once per session, and costs nothing to keep honest — two objects that stop being
-/// identical stop sharing, without anybody having to notice.
-/// </para>
-/// </remarks>
 public sealed record SceneGeometryManifest
 {
     /// <summary>Schema version.</summary>

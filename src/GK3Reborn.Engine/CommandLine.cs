@@ -3,18 +3,6 @@
 /// <summary>
 /// What can be typed after the executable's name, and what each thing means.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The switches themselves are read where they are used — <see cref="Application"/> asks
-/// for each at the moment it matters, and that is the right place for the reading — so
-/// this is the one place they are all written down. A switch that is not in
-/// <see cref="Usage"/> is a switch nobody can find, and a test holds the two together.
-/// </para>
-/// <para>
-/// No arguments has to be how a player starts the game, so nothing here is required and
-/// nothing is substituted; the defaults belong where they can be read, in the settings.
-/// </para>
-/// </remarks>
 public static class CommandLine
 {
     /// <summary>The spellings that ask for the usage text.</summary>
@@ -34,12 +22,6 @@ public static class CommandLine
     /// <param name="args">The command line.</param>
     /// <param name="name">The switch, with its dashes.</param>
     /// <returns>The word after it, or null if the switch is absent or has no word.</returns>
-    /// <remarks>
-    /// The next switch is not this one's value. <c>--start --rt high</c> means "start
-    /// where the game starts, and trace at high", not "open the room called --rt" — and
-    /// taking it as a room name is a failure a long way from the mistake, after a window
-    /// has opened and a menu has been sat through.
-    /// </remarks>
     public static string? Value(string[] args, string name)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -63,13 +45,6 @@ public static class CommandLine
     /// was typed. Not parsed: <see cref="Rendering.RenderBackends.TryParse"/> does that, so
     /// that a typo is reported rather than resolved.
     /// </returns>
-    /// <remarks>
-    /// <c>--vulkan</c> and <c>--d3d12</c> are the shorthands, and their single-dash
-    /// spellings too, because <c>-vulkan</c> is what somebody types when a Direct3D machine
-    /// will not start and they have been told to try the other renderer. Before this they
-    /// were ignored without a word, and the game went on failing in Direct3D. <c>--backend</c>
-    /// outranks a shorthand when both are given, being the one that names what it means.
-    /// </remarks>
     public static string? BackendAsked(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);

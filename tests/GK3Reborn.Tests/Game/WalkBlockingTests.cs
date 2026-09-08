@@ -11,13 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for putting something in an actor's way.
 /// </summary>
-/// <remarks>
-/// A boundary is painted once, before anybody knows where the van will park or which
-/// wardrobe door will be standing open, so what occupies the floor at a given moment is
-/// kept beside the bitmap rather than in it. CS3's wardrobe is the case that names itself:
-/// opening it runs <c>WalkerBoundaryBlockModel("cs3_wrdb_dr_r")</c> and closing it undoes
-/// exactly that.
-/// </remarks>
 public sealed class WalkBlockingTests
 {
     /// <summary>A ten-by-ten room of open floor, each texel ten units square.</summary>

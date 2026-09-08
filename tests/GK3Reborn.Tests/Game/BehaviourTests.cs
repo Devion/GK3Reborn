@@ -15,23 +15,11 @@ namespace GK3Reborn.Tests.Game;
 /// Tests for running behaviour scripts: scenery, and what a character does when nobody is
 /// telling them to do anything.
 /// </summary>
-/// <remarks>
-/// Everything here is observed through <em>which animation was asked for</em>, because that
-/// is the only thing a behaviour script actually produces. The animation library is a
-/// function, so a test can record every name the player asks it for and read the script's
-/// decisions off that.
-/// </remarks>
 public sealed class BehaviourTests
 {
     /// <summary>
     /// Every animation the player has started, in order.
     /// </summary>
-    /// <remarks>
-    /// Read out of the diagnostics rather than out of the animation library, and the
-    /// difference matters: the library caches, so a script that plays the same fidget forty
-    /// times reads it once. Every play of an animation that names no clip reports itself,
-    /// which for these scripts is every play.
-    /// </remarks>
     private static List<string> Played(SceneUpdate update) =>
         [.. update.Diagnostics.Items
             .Where(d => string.Equals(d.Code, "GK3R3313", StringComparison.Ordinal))

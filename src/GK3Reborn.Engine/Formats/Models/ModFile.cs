@@ -12,13 +12,6 @@ public sealed record ModSubmesh
     /// <summary>
     /// What to call this group's material, when that is not simply its texture.
     /// </summary>
-    /// <remarks>
-    /// Null for a model, where a material <em>is</em> its picture and one per texture is
-    /// the right number. Scene geometry needs the two separated: a room draws the same
-    /// panelling on forty surfaces, each with its own lightmap and its own flags, and the
-    /// material name is the only channel that survives a round trip through a modelling
-    /// tool. See <c>SceneObjectGlb</c>, which puts the surface index there.
-    /// </remarks>
     public string? MaterialName { get; init; }
 
     /// <summary>Tint colour. The stored alpha is always zero and is ignored.</summary>
@@ -58,33 +51,12 @@ public sealed record ModMesh
     /// <summary>
     /// What the mesh is called, where anything named it.
     /// </summary>
-    /// <remarks>
-    /// Empty for a MOD file, which names nothing below the model. Written to the glTF
-    /// node so a room opens in a modelling tool as a named outliner tree rather than as
-    /// forty copies of "Mesh"; nothing at runtime depends on it, and a tool that renames
-    /// an object breaks nothing.
-    /// </remarks>
     public string Name { get; init; } = string.Empty;
 }
 
 /// <summary>
 /// Reader for GK3's model format.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Documented from G-Engine's <c>Model::ParseFromData</c>. Tags are stored
-/// little-endian, so they read reversed on disk: <c>LDOM</c> for the file,
-/// <c>HSEM</c> per mesh, <c>PRGM</c> per submesh — the game called those "mesh
-/// groups" — <c>KDOL</c> for level-of-detail blocks and <c>XDOM</c> for the trailing
-/// section.
-/// </para>
-/// <para>
-/// Two oddities are handled rather than explained, because the reference
-/// implementation does not explain them either: each triangle carries a fourth
-/// 16-bit value of unknown meaning after its three indices, and each LODK block holds
-/// three counted arrays whose contents are unidentified. Both are skipped by size.
-/// </para>
-/// </remarks>
 public sealed class ModFile
 {
     private ModFile(string name, bool billboard, IReadOnlyList<ModMesh> meshes)
@@ -97,10 +69,6 @@ public sealed class ModFile
     /// <summary>
     /// Builds a model from meshes that did not come from a MOD file.
     /// </summary>
-    /// <remarks>
-    /// Lets the scene exporter present a room as meshes and reuse the glTF writer,
-    /// rather than duplicating accessor and buffer handling for a second format.
-    /// </remarks>
     /// <param name="name">Name for the produced model.</param>
     /// <param name="meshes">The meshes.</param>
     /// <param name="billboard">Whether it draws as a billboard.</param>

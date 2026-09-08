@@ -8,36 +8,6 @@ public readonly record struct TimeblockCompletion(Timeblock Next, string? Locati
 /// <summary>
 /// When a point in the story is over.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The game advances the clock when the player has done everything a timeblock requires,
-/// checked on every change of location. Nothing in the shipped data holds these rules: no
-/// script in the eight barns calls <c>SetTime</c> or <c>SetLocationTime</c> at all, because
-/// the original carried them inside its executable. What they are is written down in the
-/// design document the game shipped with, <c>TIMEBLOCKBIBLE.TXT</c>, one "Completion Rules"
-/// list per timeblock.
-/// </para>
-/// <para>
-/// Adapted from G-Engine's <c>Assets/Timeblocks.shp</c> by Clark Kromenaker
-/// (https://github.com/kromenak/gengine), GNU General Public License version 3. See NOTICE.
-/// Its form there is a Sheep script the engine compiles at startup, and that is not the form
-/// here: a compiled Sheep script is a <c>.shp</c>, every <c>.shp</c> in existence is original
-/// game data, and this repository refuses that extension in <c>.gitignore</c> and again in the
-/// CI check. Carrying the rules as source in an assembly that cannot hold the file was a
-/// contradiction; carrying them as code is not, and it is checked by the compiler besides.
-/// </para>
-/// <para>
-/// Every condition below reads the same <see cref="GameState"/> the Sheep functions of the
-/// same name read — <c>GetNounVerbCount</c> is <see cref="GameState.GetNounVerbCount(string, string)"/>,
-/// <c>GetFlag</c> is <see cref="GameState.GetFlag"/> — so the rules still ask the game the
-/// questions the game's own scripts ask, and stay checkable against the corpus.
-/// </para>
-/// <para>
-/// Nothing here changes the clock. Deciding and acting are separate so that a rule can be
-/// asked what it thinks without moving the story; <see cref="Application"/> is what applies
-/// the answer.
-/// </para>
-/// </remarks>
 public static class TimeblockRules
 {
     /// <summary>Asks whether this point in the story is over.</summary>
@@ -79,11 +49,6 @@ public static class TimeblockRules
     }
 
     /// <summary>The blocks this class knows the rules for, in story order.</summary>
-    /// <remarks>
-    /// Sixteen of them, which is every block the game has rules for; the seventeenth,
-    /// <c>309P</c>, is where the story ends and nothing follows it. Exposed so that a start-up
-    /// check can say how many rules were carried without running any of them.
-    /// </remarks>
     public static IReadOnlyList<string> Known { get; } =
     [
         "110A", "112P", "102P", "104P", "106P",
@@ -96,18 +61,6 @@ public static class TimeblockRules
     /// </summary>
     /// <param name="timeblock">The point in the story.</param>
     /// <returns>Its place in <see cref="Known"/>, and the end of the story past that.</returns>
-    /// <remarks>
-    /// <para>
-    /// Story order and not clock order, which are not the same thing: Day 2 begins at seven
-    /// in the morning and ends at two the next, so <c>202A</c> comes after <c>205P</c> and
-    /// a comparison of hours would put it first. Anything asking "has the story got as far
-    /// as ..." has to ask this rather than compare timeblocks.
-    /// </para>
-    /// <para>
-    /// <c>309P</c> is the seventeenth and is not in the list — nothing follows it, so it has
-    /// no rule — and answers with the end of the story, which is after everything.
-    /// </para>
-    /// </remarks>
     public static int Order(Timeblock timeblock)
     {
         string code = timeblock.ToString();
@@ -229,11 +182,6 @@ public static class TimeblockRules
     /// <summary>
     /// How many of the two afternoon threads the player has finished.
     /// </summary>
-    /// <remarks>
-    /// Two blocks read this and want different answers from it: 102P ends once either has
-    /// been done, 104P once both have. In the Sheep original it is a function writing a
-    /// script-global, which is why it is one thing rather than two.
-    /// </remarks>
     private static int TrainStationAndLarryActions(GameState state)
     {
         int count = 0;
@@ -594,10 +542,6 @@ public static class TimeblockRules
     /// <summary>The Sheep <c>SetTime</c> and <c>SetLocationTime</c>, as a decision.</summary>
     /// <param name="code">The timeblock code to move to.</param>
     /// <param name="location">The room to open with it, or null to stay put.</param>
-    /// <remarks>
-    /// Every caller passes a literal from the design document, so a code that will not
-    /// parse is a mistake in this file rather than anything the game did.
-    /// </remarks>
     private static TimeblockCompletion Then(string code, string? location = null) =>
         Timeblock.TryParse(code, out Timeblock next)
             ? new TimeblockCompletion(next, location)

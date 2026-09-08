@@ -84,13 +84,6 @@ internal sealed class D3D12GeometryTexture : IGeometryTexture
 /// <summary>
 /// A run of descriptors a batch draws with, as a scene refers to one.
 /// </summary>
-/// <remarks>
-/// Where Vulkan has a descriptor set object, Direct3D has a place in a heap. So a material
-/// here is a number: the index of the first of five contiguous descriptors, which the draw
-/// turns into a GPU handle and binds as a table. Keeping the index rather than the handle is
-/// deliberate — a heap that is reset and refilled between rooms gives out the same indices
-/// and different handles.
-/// </remarks>
 internal sealed class D3D12GeometryMaterial : IGeometryMaterial
 {
     internal D3D12GeometryMaterial(uint first) => First = first;
@@ -169,56 +162,12 @@ internal sealed class D3D12GeometryUploads : IGeometryUploads
 /// <summary>
 /// Puts a scene's geometry and textures on a Direct3D device.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D half of <see cref="IGeometryDevice"/>. It answers the same questions as the
-/// Vulkan half and keeps almost nothing in common with it, because the two APIs disagree
-/// about what a bound texture <em>is</em>.
-/// </para>
-/// <para>
-/// Vulkan allocates a descriptor set out of a pool and writes five images into it. Direct3D
-/// has no such object: there is one shader-visible heap, a material is five contiguous slots
-/// in it, and what a draw binds is the address of the first. So the heap is made once and
-/// sized for the room, materials are handed out of it in order, and the whole thing is reset
-/// when the room is unloaded — which is exactly the lifetime a bump allocator suits and the
-/// reason <see cref="D3D12DescriptorHeap"/> is one.
-/// </para>
-/// <para>
-/// <b>One heap, and everything a draw binds has to be in it.</b> A command list may have one
-/// shader-visible heap of each kind bound at a time, so a frame's own descriptors cannot live
-/// in a heap of their own beside the materials' — the second table bound would come from the
-/// wrong heap and Direct3D refuses it. That is why <see cref="Reserve"/> and the allocation
-/// below are public to the backend: the frame set takes its slots from here rather than
-/// opening a heap of its own. It was written the other way first, and the debug layer said so
-/// in one line while the picture said only that it was black.
-/// </para>
-/// <para>
-/// <b>The samplers are one run, shared by every material.</b> They cannot be per material:
-/// Direct3D keeps samplers in a heap of their own and a shader-visible one holds two thousand
-/// and forty-eight descriptors, so five apiece would run out at four hundred and nine batches
-/// — which a room reaches. They need not be, either. Which sampler each of the five textures
-/// wants is a property of what the texture <em>is</em> — a lightmap and a height map are read
-/// once across a surface and must not wrap; a wall and a floor tile — and that is the same
-/// for every material in the game. So there is exactly one run of five, and every batch binds
-/// it.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
 {
     /// <summary>How many textures one material binds.</summary>
-    /// <remarks>
-    /// Colour, lightmap, normal, occlusion-roughness-metalness, height. The same five as the
-    /// Vulkan side, because it is the same material and the same shader.
-    /// </remarks>
     public const uint TexturesPerMaterial = 5;
 
     /// <summary>How many materials the heap holds.</summary>
-    /// <remarks>
-    /// A room is a few hundred batches and a face repainting adds a few hundred more over a
-    /// conversation. Direct3D allows a million descriptors in a shader-visible view heap, so
-    /// this is generous on purpose: running out is a thrown exception rather than a stall,
-    /// and there is nothing to be saved by being tight.
-    /// </remarks>
     private const uint MaterialCapacity = 4096;
 
     private readonly D3D12Context _context;
@@ -256,22 +205,11 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     internal GpuDescriptorHandle SamplerTable => _samplers.Gpu(0);
 
     /// <summary>Where the frame set's own one sampler is, for a draw to bind beside it.</summary>
-    /// <remarks>
-    /// The reflection a mirror reads is a combined image sampler like every other texture,
-    /// and Direct3D has no such object: SPIRV-Cross splits it into a texture and a sampler at
-    /// the same register index, so set 0 has a sampler table of its own with exactly one
-    /// entry in it. Clamped, because the glass reads by screen position and a mirror at the
-    /// edge of the frame reads a little past it.
-    /// </remarks>
     internal GpuDescriptorHandle ReflectionSamplerTable => _samplers.Gpu(TexturesPerMaterial);
 
     /// <summary>Takes a run of slots in the one shader-visible view heap.</summary>
     /// <param name="count">How many, which must be contiguous.</param>
     /// <returns>The index of the first.</returns>
-    /// <remarks>
-    /// For whatever else a frame binds beside its materials. There is one heap and everything
-    /// bound together has to come from it; see the note on the class.
-    /// </remarks>
     internal uint AllocateViews(uint count) => _views.Allocate(count);
 
     /// <summary>Where a view slot is, for the host to write.</summary>
@@ -296,11 +234,6 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     public bool SupportsRayTracing => _context.SupportsRayTracing;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Always. BC1 through BC7 are required of every Direct3D 12 device, so unlike the Vulkan
-    /// path there is no case here for expanding the blocks on the host — that exists on the
-    /// other backend only for Apple silicon, which has no Direct3D.
-    /// </remarks>
     public bool BlockCompression => true;
 
     /// <summary>Creates a device.</summary>
@@ -434,21 +367,9 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Nothing to do. Vulkan sizes a descriptor pool in advance and pays for getting it
-    /// wrong; here the heap was made once, at a size no room reaches, and a material is the
-    /// next five slots in it.
-    /// </remarks>
     public void Reserve(int materials) => _ = materials;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The heap is a bump allocator, so this is the allocator winding back to where the
-    /// room's materials began. Nothing is destroyed - a descriptor is a slot, and the
-    /// textures it described belong to the cache, which outlives the room - and the caller
-    /// has already waited for the device to go idle, which is the one hazard: overwriting a
-    /// slot a command list in flight is still reading.
-    /// </remarks>
     public void ReleaseMaterials()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -544,12 +465,6 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
             : throw new ArgumentException("That texture is not on this device.", nameof(texture));
 
     /// <summary>Writes the one run of samplers every material binds.</summary>
-    /// <remarks>
-    /// In the order the shader declares its textures: colour, lightmap, normal,
-    /// occlusion-roughness-metalness, height. The lightmap and the height map are read across
-    /// a whole surface exactly once and must not wrap; the other three are wall and floor
-    /// textures that tile.
-    /// </remarks>
     private void WriteSamplers()
     {
         uint first = _samplers.Allocate(TexturesPerMaterial + 1);

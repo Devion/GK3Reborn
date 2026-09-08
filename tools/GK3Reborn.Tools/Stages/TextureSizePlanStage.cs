@@ -62,46 +62,6 @@ public sealed record TextureSizePlan(
 /// <summary>
 /// Decides what size each enhanced texture is worth packing at.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Nearly every enhanced texture is 2048 on its longest edge, whatever it depicts. A wall
-/// that fills a room and a lipstick cap two centimetres across were upscaled by the same
-/// rule, and the second one is 5.6 MB of block data for something that is never more than a
-/// few dozen pixels on screen. This works out which is which.
-/// </para>
-/// <para>
-/// The signal is <c>worldArea</c> and <c>densityTarget</c> from <c>surface-analysis.json</c>,
-/// which is what the corpus measured for exactly this question: how many texels of a texture
-/// fall across one world unit. <c>densityTarget</c> is the size at which a texture reaches
-/// the corpus <em>median</em> density — a 1999 yardstick — so the plan multiplies it to
-/// choose how much better than the original the remake wants to be, and rounds up to a power
-/// of two. Reference counts are deliberately not used: they favour door latches over the
-/// wallpaper that fills a frame.
-/// </para>
-/// <para>
-/// <strong>Nothing is demoted without positive evidence.</strong> A texture the surface
-/// analysis never saw keeps the size it has, because "not measured" is not "not important".
-/// Three classes are protected outright on top of that, each of which is drawn far larger
-/// than its world area suggests:
-/// </para>
-/// <list type="bullet">
-/// <item><description>
-/// <strong>Face patches.</strong> Eyelids, blinks, winks and mouths are blitted into a
-/// character's face bitmap at offsets in that bitmap's own coordinates — see
-/// <c>docs/formats/faces.md</c>. They have to stay in scale with the face.
-/// </description></item>
-/// <item><description>
-/// <strong>Inventory sprites.</strong> Named by the game's own <c>INVENTORYSPRITES.TXT</c>.
-/// These are drawn as 2D art filling much of the screen in a close-up, and their world area
-/// on room geometry says nothing about that. The 3D model textures for the same objects —
-/// <c>LIPSTKCAP</c>, <c>RAZORFRNT</c> — are a different set and are sized normally.
-/// </description></item>
-/// <item><description>
-/// <strong>Anything worn by a character.</strong> Faces and clothing are looked at in
-/// conversation close-ups.
-/// </description></item>
-/// </list>
-/// </remarks>
 public sealed class TextureSizePlanStage
 {
     private readonly Action<string> _log;
@@ -118,13 +78,6 @@ public sealed class TextureSizePlanStage
     public const string ManifestPath = "manifests/pack-sizes.json";
 
     /// <summary>Hand corrections, applied last and never overwritten.</summary>
-    /// <remarks>
-    /// A plain map of name to longest edge. It exists because no measurement sees everything:
-    /// a thing the player walks up to and reads has a small world area and needs its pixels
-    /// anyway, and there is no signal in the corpus for an in-world close-up camera. Same
-    /// convention as <c>material-library.materials.edits.json</c> — the generated file is
-    /// regenerated, the edits beside it survive.
-    /// </remarks>
     public const string OverridesPath = "manifests/pack-rules.json";
 
     /// <summary>Works out the plan and writes it.</summary>
@@ -266,11 +219,6 @@ public sealed class TextureSizePlanStage
     /// <summary>
     /// Whether a name is a patch blitted into a face bitmap rather than a texture of its own.
     /// </summary>
-    /// <remarks>
-    /// By name, because nothing else records it: <c>FACES.TXT</c> names the offsets and sizes
-    /// but not which bitmaps are patches. The prefixes are the character codes, so matching
-    /// the suffix is what generalises across all forty-one of them.
-    /// </remarks>
     private static bool IsFacePatch(string name) =>
         name.Contains("EYELID", StringComparison.Ordinal)
         || name.Contains("_BLINK", StringComparison.Ordinal)
@@ -296,21 +244,6 @@ public sealed class TextureSizePlanStage
     /// <param name="workspace">The content workspace root.</param>
     /// <param name="source">The game's Data directory.</param>
     /// <returns>Their names.</returns>
-    /// <remarks>
-    /// <para>
-    /// GK3 marks transparency with magenta, and a block-compressed texture cannot be keyed
-    /// at runtime — <see cref="TextureKeying"/> works on texels and these are blocks. The
-    /// enhanced set resolves the magenta into a real alpha channel, so nearly every keyed
-    /// texture is safe to pack; the handful whose replacement came back opaque are not, and
-    /// the loader has to go on reading the original for those.
-    /// </para>
-    /// <para>
-    /// Decided with the engine's own decoder and the engine's own
-    /// <see cref="TextureKeying.NeedsKey"/>, so the answer here is the same answer the
-    /// loader will reach. Working it out any other way invites the two to disagree, and a
-    /// disagreement shows up as one texture in a room quietly being the 1999 one.
-    /// </para>
-    /// </remarks>
     private HashSet<string> ReadUnresolvedKeys(string workspace, string? source)
     {
         var unresolved = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -524,12 +457,6 @@ public sealed class TextureSizePlanStage
     }
 
     /// <summary>The base names the inventory screen draws, from the game's own list.</summary>
-    /// <remarks>
-    /// The values in <c>INVENTORYSPRITES.TXT</c> are base names — <c>binocs_</c>,
-    /// <c>Manu</c> — which the sprites suffix with a variant. Matching by prefix is therefore
-    /// the right test, and the trailing underscore has to come off first or nothing matches.
-    /// Names shorter than four characters are dropped: they would match half the corpus.
-    /// </remarks>
     private HashSet<string> ReadInventorySprites(string? source)
     {
         var sprites = new HashSet<string>(StringComparer.Ordinal);

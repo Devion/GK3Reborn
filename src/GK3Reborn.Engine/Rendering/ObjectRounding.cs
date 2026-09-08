@@ -39,44 +39,6 @@ public readonly record struct CurvedTriangle(
 /// <summary>
 /// Rounds a whole scene object off, across every surface it is made of.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Why not the head's subdivision.</b> <see cref="Formats.Models.LoopSubdivision"/>
-/// rounds a character's head and cannot round a bell, for a structural reason: it pins
-/// boundary vertices, and a lathed object is strips and caps whose vertices are <b>all</b>
-/// on a boundary — the rim between the side of the bell and its top belongs to two
-/// surfaces, so refining each surface alone sees it as an edge to hold still, and the
-/// hexagonal silhouette survives any amount of subdivision. So this welds the whole object
-/// by <em>position</em> first, and carries texture coordinates per corner rather than per
-/// vertex, so a seam where two textures meet stays a seam.
-/// </para>
-/// <para>
-/// <b>Why not Loop's rules either, once welded.</b> That was tried, and it wrecked what it
-/// touched: a lamp shade's panels sagged inward between their ribs and its rim came out
-/// spiked. Loop is an <em>approximating</em> scheme — every original vertex moves toward the
-/// average of its neighbours — and on a dense mesh that is invisible, while on a
-/// twelve-sided shade it is the shape. Approximation also has no idea which edges are
-/// creases, so it rounds off the rim of a lamp exactly as enthusiastically as it rounds the
-/// lamp.
-/// </para>
-/// <para>
-/// <b>What this does instead: PN triangles.</b> An <em>interpolating</em> scheme. Every
-/// original vertex stays exactly where the artists put it, and the surface between them is
-/// a cubic patch whose shape comes from the corner normals: the panels of a shade bow
-/// outward to the cylinder their normals describe, and nothing anywhere can move inward
-/// from the authored hull by more than the curve the normals imply. It cannot sag, because
-/// there is no averaging in it.
-/// </para>
-/// <para>
-/// <b>The normals it curves along stop at creases.</b> A single smoothed normal per position
-/// is what made the earlier attempt shade a bell's rim as though the metal turned over
-/// smoothly there. Faces are gathered into smoothing groups across edges they meet gently
-/// at, a position carries one normal per group, and an edge between two groups is a crease:
-/// it stays straight, and both sides agree that it does, so a crease cannot open a crack.
-/// That one rule is also what keeps a flat cap flat — its normals stand perpendicular to
-/// its own edges, and a perpendicular normal asks for no curvature at all.
-/// </para>
-/// </remarks>
 public static class ObjectRounding
 {
     /// <summary>Positions closer together than this are the same point.</summary>
@@ -85,15 +47,6 @@ public static class ObjectRounding
     /// <summary>
     /// How gently two faces must meet to be treated as one smooth surface, in degrees.
     /// </summary>
-    /// <remarks>
-    /// Sixty degrees, which is chosen against the objects this actually runs on rather than
-    /// as a general default. They are named by hand (<c>SceneGeometry.RoundNames</c>) and
-    /// they are all lathes: a lathe of twelve sides turns thirty degrees at each, of eight
-    /// forty-five, of six sixty. At forty — the usual figure — the reception bell, which is
-    /// eight-sided, was creased at every one of its own sides and came out exactly as
-    /// faceted as it went in. What must still crease is the fold where a lathe meets its own
-    /// cap or foot, and those are seventy degrees and over.
-    /// </remarks>
     public const float CreaseDegrees = 60f;
 
     /// <summary>
@@ -148,13 +101,6 @@ public static class ObjectRounding
     /// <param name="positions">Its position pool.</param>
     /// <param name="creaseDegrees">How gently two faces must meet to be smoothed together.</param>
     /// <returns>Three normals per triangle, in the order A, B, C.</returns>
-    /// <remarks>
-    /// Faces are unioned across every edge they meet gently at, and a position then carries
-    /// one normal per group rather than one in all. Two faces that share a smooth edge are
-    /// in the same group by construction, so they agree about that edge's normals exactly —
-    /// which is what <see cref="Curve"/> needs to bend the edge the same way from both
-    /// sides.
-    /// </remarks>
     public static Vector3[] Creased(
         IReadOnlyList<RoundedTriangle> triangles,
         IReadOnlyList<Vector3> positions,
@@ -209,14 +155,6 @@ public static class ObjectRounding
     /// <param name="levels">How many times to halve each edge; two is sixteen pieces.</param>
     /// <param name="creaseDegrees">How gently two faces must meet to be smoothed together.</param>
     /// <returns>The rounded triangles, with their own positions, normals and coordinates.</returns>
-    /// <remarks>
-    /// One cubic Bezier patch per triangle, in the form Vlachos gives: the corners are the
-    /// authored vertices, each edge carries two control points placed by projecting the
-    /// straight edge onto the plane of its end's normal, and the middle point is lifted to
-    /// keep the patch from flattening. A crease edge — one whose two faces are in different
-    /// smoothing groups, or which has only one face — takes the straight control points
-    /// instead, which both of its sides compute identically.
-    /// </remarks>
     public static List<CurvedTriangle> Curve(
         IReadOnlyList<RoundedTriangle> triangles,
         IReadOnlyList<Vector3> positions,
@@ -440,12 +378,6 @@ public static class ObjectRounding
     /// <param name="triangles">The mesh.</param>
     /// <param name="positions">Its pool.</param>
     /// <returns>One normal per pooled position.</returns>
-    /// <remarks>
-    /// The flat version of <see cref="Creased"/>, kept for the case where an object is to be
-    /// shaded smooth without being reshaped. The cross products are taken the same way round
-    /// as the scene's flat path takes them, so the shading sign agrees with what the
-    /// surfaces had before they were rounded.
-    /// </remarks>
     public static Vector3[] Normals(
         IReadOnlyList<RoundedTriangle> triangles, IReadOnlyList<Vector3> positions)
     {

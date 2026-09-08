@@ -15,13 +15,6 @@ namespace GK3Reborn.Game;
 /// Whether the room drew this tree's bole as well as its leaves, so that the site covers a
 /// whole tree from the ground up rather than a crown hanging in the air.
 /// </param>
-/// <remarks>
-/// <see cref="Trunked"/> is what settles an argument between a room and a scene file that
-/// describe the same tree. RC1 draws the hotel maple twice: <c>rc1_vegitation</c> carries a
-/// modelled bole with leaf cards on it, and <c>rc1_hoteltreeleavesff</c> is a flat
-/// <c>MAPLESIDE1</c> card of the same tree standing in the same place. Only the room's copy
-/// knows where the ground is, so it is the one that gets grown and the prop is put away.
-/// </remarks>
 public readonly record struct TreeSite(
     TreeSpecies Species,
     Vector3 Foot,
@@ -34,50 +27,16 @@ public readonly record struct TreeSite(
 /// <param name="Named">The geometry object whose cards it replaces, and whose noun it answers to.</param>
 /// <param name="Tree">The grown tree, in the space it was built in.</param>
 /// <param name="Standing">Where it stands in the room.</param>
-/// <remarks>
-/// Kept after loading for the same reason the placed props are: what the renderer holds
-/// cannot answer a click. A room's grown trees are not props — nothing places them, nothing
-/// hides them and nothing moves them — so they have no <c>PlacedModel</c> to be found
-/// through, and without this they are drawn and not there.
-/// </remarks>
 public readonly record struct GrownStand(string Named, ModFile Tree, Matrix4x4 Standing);
 
 /// <summary>
 /// Finds the trees hiding in a scene's flat foliage cards.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 draws a tree as a picture of one on a quad, or on two quads crossed at the trunk.
-/// The picture is the tree's whole description: how tall it is, how wide it spread, and
-/// which species it was meant to be. So a card is not thrown away and guessed at — it is
-/// measured, and what replaces it is grown to the size the artist drew.
-/// </para>
-/// <para>
-/// The species comes from the texture rather than from the model's name, because the names
-/// do not agree with each other and the textures do. <c>WOD_BIGDTREEFF</c>,
-/// <c>CSE_FFTREE03</c> and <c>PL6_FFTREE01</c> are the same broadleaf under three
-/// conventions, and all three draw <c>TREE00</c>.
-/// </para>
-/// </remarks>
 public static class Foliage
 {
     /// <summary>
     /// Foliage bitmaps that are a hillside rather than a tree.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Painted strips of distant woodland, whole ridges of it on one quad. There is no
-    /// single tree in one to measure and nothing sensible to put in its place, so they are
-    /// left drawn — but they must not stop the <em>real</em> trees beside them being
-    /// replaced, which is what they were doing: an object holding two trees and one of
-    /// these was refused whole, and nineteen objects across the corpus are shaped that way.
-    /// </para>
-    /// <para>
-    /// Named here rather than in the tree manifest because this is a fact about the 1999
-    /// corpus and not about anything that has been grown. A species says which sprites it
-    /// stands in for; this says which sprites are nobody's job.
-    /// </para>
-    /// </remarks>
     private static readonly HashSet<string> Backdrops = new(StringComparer.OrdinalIgnoreCase)
     {
         "TREEGROUP01", "TREEGROUP02", "TREEGROUP03",
@@ -90,47 +49,15 @@ public static class Foliage
     /// <summary>
     /// The bitmaps a modelled bole or limb is painted with.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Four textures, and between them they are what used to make a tree untouchable.
-    /// <c>rc1_vegitation</c> is a maple: a bole in <c>Woodbark</c>, leaf cards in
-    /// <c>maple1trileaf</c>, and nothing else. Refusing it because the bark is not foliage
-    /// left the room drawing a 1999 trunk while the scene file's card of the same tree grew
-    /// a modelled one beside it — two trunks through each other, which is the shape of the
-    /// bug this list removes.
-    /// </para>
-    /// <para>
-    /// Measured rather than guessed: across the corpus, 77 objects mix foliage with
-    /// something else and <b>108 of those mixtures are one of these four</b> —
-    /// <c>NewBranch</c> 38, <c>Woodbark</c> 33, <c>Trunk01</c> 26, <c>Trunk02</c> 11. What
-    /// is left over is bushes and buildings, and those still refuse the object.
-    /// </para>
-    /// <para>
-    /// Bark alone says nothing. A surface is only taken away when a <em>crown of leaves
-    /// stands over it</em> — see <see cref="Claims"/> — so a fence or a telegraph pole in
-    /// the same object as a tree keeps its wood.
-    /// </para>
-    /// </remarks>
     private static readonly HashSet<string> Barks = new(StringComparer.OrdinalIgnoreCase)
     {
         "TRUNK01", "TRUNK02", "WOODBARK", "NEWBRANCH",
     };
 
     /// <summary>The smallest card worth replacing, in scene units.</summary>
-    /// <remarks>
-    /// Gabriel is 76 units tall. Anything under half of him is a shrub or a scrap of
-    /// undergrowth rather than a tree, and a grown trunk with a crown on it is the wrong
-    /// shape for it.
-    /// </remarks>
     private const float SmallestTree = 40f;
 
     /// <summary>How far a grown tree may be stretched or squeezed to match a card's width.</summary>
-    /// <remarks>
-    /// A tree is not a rectangle and the two do not have to agree exactly, but a maple card
-    /// is square where a grown maple is broader than it is tall, and left alone the crown
-    /// would overhang the path the card kept clear. Clamped, because a tree squashed to
-    /// half its width stops reading as that species at all.
-    /// </remarks>
     private const float LeastSqueeze = 0.75f;
 
     /// <summary>The other end of <see cref="LeastSqueeze"/>.</summary>
@@ -140,18 +67,6 @@ public static class Foliage
     /// <param name="model">The parsed prop.</param>
     /// <param name="trees">The grown trees available to stand in for it.</param>
     /// <returns>Where a tree goes, or null when this prop is not a tree.</returns>
-    /// <remarks>
-    /// <para>
-    /// Every submesh has to be foliage, and they all have to be the same species. A model
-    /// that is a tree <em>and</em> something else — a lantern hung in one, a sign nailed to
-    /// one — would lose the something else, and there is no way to put it back from here.
-    /// </para>
-    /// <para>
-    /// The box is the model's own, in its own space, because that is the space it will be
-    /// placed in: GK3's props carry their scene position in their vertices rather than in a
-    /// transform, so a card's box is already where the tree goes.
-    /// </para>
-    /// </remarks>
     public static TreeSite? SiteFor(ModFile model, TreeLibrary trees)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -233,15 +148,6 @@ public static class Foliage
     }
 
     /// <summary>A hash that is the same in every process, which is the whole point of it.</summary>
-    /// <remarks>
-    /// FNV-1a, written out, and deliberately not <see cref="HashCode"/>: that one is seeded
-    /// randomly once per process, so a wood hashed with it would be a different wood every
-    /// time the game was started. The property being protected is that a room comes out the
-    /// same on every load — a stand that reshuffles itself when the player walks out and
-    /// back in is worse than a stand of identical trees, and it makes two renders of one
-    /// scene impossible to compare. The test for it can only see one process, so the reason
-    /// has to be written down here.
-    /// </remarks>
     private static int Mix(int x, int z, int height, string species)
     {
         const uint Prime = 16777619;
@@ -274,11 +180,6 @@ public static class Foliage
     /// <param name="Surfaces">
     /// Which surfaces of the room these trees replace, and so which must stop being drawn.
     /// </param>
-    /// <remarks>
-    /// By surface rather than by name, because an object is not always all foliage.
-    /// <c>pou_trees01</c> is two trees and a painted strip of distant hillside; the trees
-    /// are replaced and the strip is left exactly where it is.
-    /// </remarks>
     public readonly record struct FoliageObject(
         string Named,
         IReadOnlyList<TreeSite> Sites,
@@ -292,43 +193,6 @@ public static class Foliage
     /// <param name="scene">The parsed room.</param>
     /// <param name="trees">The grown trees available to stand in for its cards.</param>
     /// <returns>One entry per object that is entirely foliage, largest first.</returns>
-    /// <remarks>
-    /// <para>
-    /// The rooms hold <b>5,760</b> drawn foliage cards, 3,790 of them inside 64 objects —
-    /// <c>wod_treeshadowcasters</c>, <c>lhm_treeshadowcasters</c>,
-    /// <c>rc1_pleavesshadowcasters</c> — that contain nothing else.
-    /// </para>
-    /// <para>
-    /// Most of those turn out to be the <em>same</em> trees the scene file places as props,
-    /// drawn a second time, so what this actually adds is small: across the twenty-five
-    /// outdoor scenes measured it is 24 trees, sixteen of them in BAL and two in LHE, where
-    /// the room carries trees no prop does. It is worth having for those and it is not
-    /// where the bulk of the foliage is.
-    /// </para>
-    /// <para>
-    /// <b>Foliage, bark, and nothing else.</b> An object holding a wall or a gravestone as
-    /// well is refused whole, because what it draws in place of the cards cannot be worked
-    /// out from here. Bark is the exception and it is the important one: an object that is
-    /// leaves on a modelled bole is a <em>whole tree</em>, and the tree that replaces it
-    /// stands on the ground the bole stood on rather than hanging where the leaves were.
-    /// Only bark with a crown of leaves over it is taken — see <see cref="Claims"/> — so a
-    /// fence sharing an object with a tree keeps its wood and the tree is still replaced.
-    /// </para>
-    /// <para>
-    /// <b>A card is a surface, never a polygon.</b> A room's geometry has been through a BSP
-    /// splitter, and what that leaves is not the faces an artist drew: one 320-unit spruce
-    /// card in LHM arrives as five polygons, sliced across at whatever heights the tree's
-    /// planes happened to cut it. Clustering those directly turns a single tree into half a
-    /// dozen — and a slice taken from between 300 and 378 units up is a tree that grows in
-    /// mid-air, with its own trunk, above the real one. LHM's 1,023 polygons are 190 drawn
-    /// faces, and 190 is the number this works from.
-    /// </para>
-    /// <para>
-    /// The clustering is then simple, because the reconstructed data is: one tree is two or
-    /// three cards crossed at the same spot, and their centres agree to within about three
-    /// units where the trees themselves stand a couple of hundred apart.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<FoliageObject> InGeometry(BspFile scene, TreeLibrary trees)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -517,7 +381,6 @@ public static class Foliage
     }
 
     /// <summary>One drawn face of a room's foliage or bark, before its tree is known.</summary>
-    /// <remarks>The species is null for bark, which belongs to whichever crown stands over it.</remarks>
     private readonly record struct Card(
         TreeSpecies? Species, Vector3 Least, Vector3 Most, int Surface);
 
@@ -543,19 +406,6 @@ public static class Foliage
     /// <param name="crowns">The trees found in the same object.</param>
     /// <param name="bole">The bark surface.</param>
     /// <returns>Its crown's index, or -1 when nothing stands over it.</returns>
-    /// <remarks>
-    /// <para>
-    /// Under the leaves and reaching up towards them. Both halves are needed: horizontal
-    /// position alone would claim a fence running past the foot of a tree, and height alone
-    /// would claim a rafter in the same object.
-    /// </para>
-    /// <para>
-    /// The margin is generous because the two measurements are of the same tree drawn by
-    /// the same artist — RC1's maple has its bole's centre <b>thirteen units</b> from its
-    /// crown's, where the crown is 283 units across — and because the cost of missing is
-    /// only that the bole stays drawn under a tree that also has one.
-    /// </para>
-    /// </remarks>
     private static int Claims(List<Crown> crowns, Card bole)
     {
         var foot = new Vector2(
@@ -597,21 +447,6 @@ public static class Foliage
     /// Folds every crown standing inside a bole's own crown into it.
     /// </summary>
     /// <param name="crowns">The trees found in one object, boles already claimed.</param>
-    /// <remarks>
-    /// <para>
-    /// The 1999 way to draw a broad tree is a few horizontal discs stacked up the trunk
-    /// with side sprays hung off the branches — CEM's maples, PLO's five, RC1's hotel tree.
-    /// Clustering sees the discs and the sprays as separate crowns, because they are: they
-    /// do not touch, and no rule written from the cards alone can tell one tree drawn in
-    /// pieces from two trees standing close together without also gathering a stand of
-    /// spruces into one spruce six trees wide, which is a mistake this has made before.
-    /// </para>
-    /// <para>
-    /// A bole settles it. It says where one tree stands and how far up it goes, so anything
-    /// inside its crown belongs to it — and the crowns that have no bole under them, the
-    /// conifer stands, are left exactly as the clustering found them.
-    /// </para>
-    /// </remarks>
     private static void Absorb(List<Crown> crowns)
     {
         for (int small = crowns.Count - 1; small >= 0; small--)
@@ -762,14 +597,6 @@ public static class Foliage
     /// How far off the ground a thing has to be before a tree is around it rather than
     /// over it.
     /// </summary>
-    /// <remarks>
-    /// About ankle height on a man of seventy-six units. Everything a scene leaves lying
-    /// under a tree — a dirt mark scratched into the ground, a pile of spoil, a dropped
-    /// tool — sits on the ground the tree grows out of, and the 1999 cards hung over it
-    /// exactly as the grown crown does. What is <em>off</em> the ground and still inside
-    /// the trunk's column is a different thing entirely, and there is only one of it in
-    /// the game.
-    /// </remarks>
     private const float Underfoot = 10f;
 
     /// <summary>Whether a grown tree standing here would close over something.</summary>
@@ -777,22 +604,6 @@ public static class Foliage
     /// <param name="least">Lower corner of the thing's box, in the room's own space.</param>
     /// <param name="most">Upper corner of it.</param>
     /// <returns>True when the tree would be built around it.</returns>
-    /// <remarks>
-    /// <para>
-    /// The site's own cylinder, which is what <see cref="Standing"/> fits the tree into:
-    /// its radius across, from the ground it stands on to the top of it. The box is tested
-    /// whole rather than by its middle, because a model's box is not always a tight fit
-    /// round the thing it draws — MCF's note measures sixty-four units across a note the
-    /// size of a hand — and the middle of a loose box is nowhere in particular.
-    /// </para>
-    /// <para>
-    /// <b>What rests on the ground is under the tree, not in it.</b> That is the whole of
-    /// the distinction and it separates the two cases in the corpus by a wide margin:
-    /// MCF's clue note hangs thirty-seven units clear of the ground its maple stands on,
-    /// and L'Ermitage's dirt marks and spoil heap — which sit inside the same cylinder,
-    /// near its rim — start at or below theirs. See <see cref="Underfoot"/>.
-    /// </para>
-    /// </remarks>
     public static bool Buries(TreeSite site, Vector3 least, Vector3 most)
     {
         // On the ground the tree grows out of, so the tree is over it. Or clear above the
@@ -815,20 +626,6 @@ public static class Foliage
     /// <param name="site">The site.</param>
     /// <param name="tree">The variant chosen for it.</param>
     /// <returns>A transform for the normalised tree.</returns>
-    /// <remarks>
-    /// <para>
-    /// A grown tree stands on the origin and is exactly one unit tall, so the height is the
-    /// whole of the vertical scale. The horizontal scale starts there too and is then
-    /// nudged towards the card's own width, within limits: a grown maple is wider than it
-    /// is tall and the square card it replaces is not, and a crown that overhangs by half
-    /// its width reaches over walls the card never touched.
-    /// </para>
-    /// <para>
-    /// The turn about the vertical is what stops four variants from looking like four
-    /// copies. It comes from the site's seed rather than from a counter, so a wood is the
-    /// same wood every time the room is loaded.
-    /// </para>
-    /// </remarks>
     public static Matrix4x4 Standing(TreeSite site, GrownTree tree)
     {
         ArgumentNullException.ThrowIfNull(tree);

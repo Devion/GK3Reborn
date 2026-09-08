@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the game's own names for places and times.
 /// </summary>
-/// <remarks>
-/// The file is the only thing in the content that says what a location is called, and the
-/// interface had been drawing three-letter codes instead. What matters here is that a
-/// missing name never turns into a blank corner or a crash, and that the exits get the name
-/// of what is on the other side of them.
-/// </remarks>
 public sealed class GameStringsTests
 {
     private const string File = """

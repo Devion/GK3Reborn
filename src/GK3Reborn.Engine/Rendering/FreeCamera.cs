@@ -6,19 +6,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// A camera the player can fly around a scene with.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Not how the game will present a scene — GK3 cuts between fixed viewpoints rather than
-/// letting the player roam. It exists because being able to move through a scene is the
-/// only practical way to check that geometry, textures and lighting are right everywhere
-/// rather than only where a room camera happens to point.
-/// </para>
-/// <para>
-/// Speed scales with the scene's size. GK3's units put a character at about 70 tall and a
-/// street scene in the thousands, so a fixed speed is either unusably slow in one and
-/// uncontrollable in the other.
-/// </para>
-/// </remarks>
 public sealed class FreeCamera
 {
     private const float PitchLimit = (MathF.PI / 2f) - 0.01f;
@@ -35,11 +22,6 @@ public sealed class FreeCamera
     /// <summary>
     /// Where the camera is looking, in degrees: heading across, pitch up and down.
     /// </summary>
-    /// <remarks>
-    /// Degrees rather than the radians it keeps inside, because the two things that read
-    /// this are the game's own data — the binoculars' rectangles of sky and the scene
-    /// files' camera angles — and both are written in degrees.
-    /// </remarks>
     public Vector2 Aim
     {
         get => new(
@@ -65,19 +47,6 @@ public sealed class FreeCamera
     /// <summary>
     /// What decides how far a step is allowed to get, or null to let it go anywhere.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Given where the camera is and the offset it wants to move by; answers where it ends
-    /// up, which may be short of the offset and off to one side of it — a camera stopped
-    /// dead by every wall it brushed would be unusable, so what stops it is expected to
-    /// let it slide along instead.
-    /// </para>
-    /// <para>
-    /// A hook rather than the thing itself. What the camera may not pass through is a
-    /// question about the room, and the room belongs to the game rather than to the
-    /// renderer; see <c>Game.Navigation.CameraBounds</c>, which is what fills this in.
-    /// </para>
-    /// </remarks>
     public Func<Vector3, Vector3, Vector3>? Confine { get; set; }
 
     /// <summary>Which way the camera looks.</summary>

@@ -13,13 +13,6 @@ using GK3Reborn.Rendering.Shaders;
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>Puts the room back together from its parts.</summary>
-/// <remarks>
-/// The mesh pass writes the two halves of the lighting separately and shadows neither of
-/// them: what a lamp would give a pixel with nothing in the way, and what the bake and the
-/// ambient give it with nothing above it. Both occlusion terms are traced and filtered
-/// afterwards, by which time the geometry is long gone, so the multiply happens here — one
-/// triangle over the whole frame, four samples a pixel.
-/// </remarks>
 internal sealed unsafe class CompositePipeline : IDisposable
 {
     private static string Vertex => CompositeShaders.Vertex;
@@ -283,10 +276,6 @@ internal sealed unsafe class CompositePipeline : IDisposable
     /// <param name="reflections">
     /// The two buffers reflections alternate between, most recent first each frame.
     /// </param>
-    /// <remarks>
-    /// Two sets, because the reflection pass writes its answer into whichever of its two
-    /// buffers was not the last frame's. Everything else is the same in both.
-    /// </remarks>
     public void Bind(
         ImageView indirect,
         ImageView direct,

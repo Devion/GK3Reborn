@@ -9,30 +9,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// The fog pass, in GLSL.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One triangle over the finished room, a ray marched through the layer for every pixel of
-/// it, and what the room's own lamps put into each step gathered along the way. It is the
-/// same rig the walls are lit by, read out of the same three buffers by the same grid
-/// lookup, which is the whole reason a lamp standing in the mist has a halo round it that is
-/// the colour the artists gave the lamp.
-/// </para>
-/// <para>
-/// <b>The march is clipped to the layer rather than run over the ray.</b> A cellar's damp is
-/// a metre deep in a room forty metres long, so a march spread evenly over the ray would put
-/// one sample in the fog and thirty-one in clear air above it. Both ends of the interval are
-/// found first — the near one where the ray drops below the height there is no longer enough
-/// fog to matter at, the far one at whatever the room put in front of the pixel — and the
-/// steps are spread over that. Thirty-two of them then resolve the layer rather than the
-/// room.
-/// </para>
-/// <para>
-/// <b>Nothing here varies with the frame.</b> The dither that hides the banding is a
-/// function of the pixel and not of the clock, and the noise drifts on the same seconds the
-/// flames flicker on — which a headless render leaves at nought. Two renders of one room are
-/// the same picture, which is the basis on which everything in this project is compared.
-/// </para>
-/// </remarks>
 public static class FogShaders
 {
     /// <summary>The march, and what it gathers.</summary>

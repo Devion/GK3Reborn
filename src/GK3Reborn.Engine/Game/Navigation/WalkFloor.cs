@@ -6,52 +6,15 @@ namespace GK3Reborn.Game.Navigation;
 /// <summary>
 /// How high the ground is under a point.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The walk boundary is a picture of the floor seen from above: it says where an actor may
-/// stand and nothing whatever about how high the floor is there. Nothing else did either,
-/// so a walk held whatever height the actor set off at — which is right for a flat room and
-/// wrong for every ramp, step and slope in the game.
-/// </para>
-/// <para>
-/// The height comes from the room's own geometry. A scene names the object its floor is —
-/// <c>floor=rc1_floor</c> — and every room's general <c>.SIF</c> does, so this is a lookup
-/// rather than a guess. The named object's triangles are dropped into a uniform grid keyed
-/// on X and Z, and a query tests the handful in one cell.
-/// </para>
-/// <para>
-/// <b>Rooms are not single-storey.</b> A stairwell's floor object covers the same ground
-/// twice, a balcony over a hall covers it a third time, and an outdoor room's floor often
-/// carries the hillside it stands on as well as the ground walked on, so "the triangle
-/// under this point" is several triangles. The <b>highest</b> one within a step up and a
-/// fall down of the actor wins — the reference drops a ray from the sky and keeps the
-/// first surface it meets, and this is that with the storeys above and below rejected.
-/// Failing all of them, the nearest of any. See <see cref="Choose"/>.
-/// </para>
-/// </remarks>
 public sealed class WalkFloor
 {
     /// <summary>How far above an actor the floor may be and still be theirs, in units.</summary>
-    /// <remarks>
-    /// A step up. Gabriel is 76 units tall, so this is a little under knee height: enough
-    /// for a kerb or a stair tread, not enough to reach the landing above.
-    /// </remarks>
     private const float Rise = 30f;
 
     /// <summary>How far below an actor the floor may be and still be theirs, in units.</summary>
-    /// <remarks>
-    /// Deliberately larger than <see cref="Rise"/>: walking off a step is ordinary and
-    /// walking up onto one is not, and an actor whose feet are a shade above the ramp they
-    /// are on must not be handed the storey below.
-    /// </remarks>
     private const float Drop = 60f;
 
     /// <summary>How wide one bucket of the lookup grid is, in scene units.</summary>
-    /// <remarks>
-    /// About Gabriel's height. Floors are big flat triangles, so most cells hold a couple
-    /// and the ones over a staircase hold a dozen — either way a query is a short loop
-    /// rather than a sweep of the room.
-    /// </remarks>
     private const float Cell = 80f;
 
     private readonly List<Vector3> _triangles;
@@ -74,13 +37,6 @@ public sealed class WalkFloor
     /// </summary>
     /// <param name="at">Where the actor is standing.</param>
     /// <returns>The texture's name, or null when the point is off the floor.</returns>
-    /// <remarks>
-    /// The same search <see cref="Height"/> makes, answering with the surface rather than
-    /// with its height. A room's floor is one object painted with a dozen textures — the
-    /// lobby's is eight — and which one is underfoot is the whole of what decides whether a
-    /// step sounds like carpet or like tile. It has to be the same triangle the height came
-    /// from, or a footstep on the ruins at CD1 is answered by the hillside underneath them.
-    /// </remarks>
     public string? Surface(Vector3 at) =>
         Choose(at) is { } chosen && chosen.Triangle / 3 < Textures.Count
             ? Textures[chosen.Triangle / 3]
@@ -94,12 +50,6 @@ public sealed class WalkFloor
     /// The BSP object the scene calls its floor, or null when it names none.
     /// </param>
     /// <returns>The lookup, or null when there is no floor to look up.</returns>
-    /// <remarks>
-    /// Returning null rather than falling back to the whole room, on purpose. Every surface
-    /// in a BSP is a candidate floor if you let it be, and the ceiling of the room below is
-    /// a perfectly good horizontal plane; a scene that names no floor is better left doing
-    /// what it did before than confidently standing its actors on the furniture.
-    /// </remarks>
     public static WalkFloor? From(BspFile? geometry, string? floorObject)
     {
         if (geometry is null || string.IsNullOrWhiteSpace(floorObject))
@@ -198,24 +148,6 @@ public sealed class WalkFloor
     public float? Height(Vector3 at) => Choose(at)?.Height;
 
     /// <summary>Which triangle of the floor an actor at a point is standing on.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The highest surface they could have climbed onto, not the nearest.</b> The
-    /// reference walker asks this by dropping a ray from ten thousand units up and keeping
-    /// the first thing it meets, so what an actor stands on is always the topmost floor
-    /// over their feet. The rule here is that with the storey rejected: a surface more than
-    /// a step above them is not theirs, and neither is one a fall below.
-    /// </para>
-    /// <para>
-    /// Nearest-to-their-feet was the rule before, and it is wrong wherever a room's floor
-    /// object carries the ground it is built on as well as the ground walked on. CD1 — the
-    /// ruins of Chateau de Blanchefort — is 35% such: the hillside runs on underneath the
-    /// paved ruins about eleven units below them and forty below the tower platform, and
-    /// nearest handed an actor stepping off the path the hillside every time, because it
-    /// was the nearer of the two. Gabriel walked the ruins knee-deep in them and the tower
-    /// up to his chest, sinking further the higher the floor above him rose.
-    /// </para>
-    /// </remarks>
     private (int Triangle, float Height)? Choose(Vector3 at)
     {
         if (!_grid.TryGetValue((Bucket(at.X), Bucket(at.Z)), out List<int>? cell))
@@ -256,11 +188,6 @@ public sealed class WalkFloor
     }
 
     /// <summary>The height of one triangle under a point, when the point is over it.</summary>
-    /// <remarks>
-    /// Barycentric in the horizontal plane, which is both the containment test and the
-    /// interpolation: the same three weights that say whether the point is inside say how
-    /// to mix the corners' heights, so a slope reads as a slope rather than as steps.
-    /// </remarks>
     private float? Under(Vector3 at, int i)
     {
         Vector3 a = _triangles[i];

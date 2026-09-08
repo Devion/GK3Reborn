@@ -15,25 +15,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Works out what each model is for, so the enhancement pipeline knows what to touch.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Names cannot be trusted for this and neither can any single signal. <c>CS2_CAMBNDS</c>
-/// is declared as a scene's camera bounds yet carries 92 meshes and seven textured
-/// materials of actual furniture, while <c>LBYCAMERABOUNDS</c> is 31 meshes with no
-/// texture at all — a genuine invisible volume. A model can hold several roles at once.
-/// </para>
-/// <para>
-/// So roles come from the scene initialisation files, which declare them explicitly:
-/// <c>cameraBounds=</c>, <c>boundary=</c>, <c>floor=</c>, and <c>model=…, type=</c> with
-/// values <c>scene</c>, <c>prop</c>, <c>gasprop</c>, <c>hittest</c> and <c>noclick</c>,
-/// plus models named in an <c>[ACTORS]</c> section. Those declarations are then weighed
-/// against what the geometry actually contains.
-/// </para>
-/// <para>
-/// The output is a recommendation, not a verdict. Anything ambiguous is marked for
-/// review rather than silently included or skipped.
-/// </para>
-/// </remarks>
 public sealed partial class ModelRoleStage
 {
     private readonly Action<string> _log;
@@ -173,13 +154,6 @@ public sealed partial class ModelRoleStage
     /// <summary>
     /// Decides what the enhancement pipeline should do with a model.
     /// </summary>
-    /// <remarks>
-    /// A visible declaration wins outright. Collision-only geometry is left alone: it is
-    /// never drawn, and the plan requires the original navigation and collision to survive
-    /// even where visible geometry is replaced. The awkward case is a model declared only
-    /// as collision that nonetheless carries textures, which is exactly what happens when
-    /// one asset does both jobs — that goes to review rather than being guessed at.
-    /// </remarks>
     public static ModelDisposition Decide(IReadOnlySet<string> roles, bool animated, bool textured)
     {
         ArgumentNullException.ThrowIfNull(roles);

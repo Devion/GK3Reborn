@@ -9,12 +9,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading animations, and for finding the one a script meant.
 /// </summary>
-/// <remarks>
-/// The format itself is easy — an INI file with a frame count. What is not easy is the
-/// naming: a script says <c>StartVoiceOver("0NQIB44QR1", 2)</c> and means two files, called
-/// something else, in a directory of 7,400. Getting that wrong made every one of the
-/// game's 4,642 voice-overs instantaneous, so it is what these mostly check.
-/// </remarks>
 public sealed class AnimationFileTests
 {
     private static AnimationFile Parse(string text, DiagnosticBag? bag = null) =>

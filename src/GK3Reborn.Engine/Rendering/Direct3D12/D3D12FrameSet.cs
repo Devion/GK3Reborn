@@ -9,54 +9,14 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// What a frame is, bound once for all of it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D counterpart of <c>FrameUniformSet</c>, and it holds the same four things
-/// because the shader reads the same four: the camera and the frame's own numbers in a
-/// constant buffer, the light rig, the grid that says which lights reach which cell, and the
-/// list of which lights those are. With ray tracing compiled in there is a fifth, the
-/// acceleration structure.
-/// </para>
-/// <para>
-/// The rig and the grid are storage buffers rather than constant ones for a reason worth
-/// keeping: a constant buffer has to be sized when the shader is compiled and only sixteen
-/// kilobytes of it are guaranteed, which is what once put a limit of sixty-four lights on a
-/// scene. A raw buffer is unsized on both sides and the loop is bounded by the cell rather
-/// than by the array.
-/// </para>
-/// <para>
-/// One set per frame in flight. Everything here is written by the host each frame, so a
-/// single set would be rewritten while the device was still reading it for the frame before
-/// — a room lit by two frames at once, which reads as a flicker rather than as a bug.
-/// </para>
-/// <para>
-/// <b>The descriptors live in the geometry device's heap rather than one of their own.</b> A
-/// command list may bind one shader-visible heap of each kind at a time, so a frame table and
-/// a material table that came from different heaps could not both be bound — the second is
-/// refused. This was written with its own heap first; the picture came out black and the
-/// debug layer said exactly why in one line.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12FrameSet : IDisposable
 {
     /// <summary>How many descriptors one frame's set takes.</summary>
-    /// <remarks>
-    /// The constant buffer, the rig, the cells, the lights that reach them, the acceleration
-    /// structure and the reflection a mirror reads. Six whether or not the structure is
-    /// filled: a table is a run of slots, and leaving a hole in it would mean two table
-    /// shapes to bind.
-    /// </remarks>
     private const uint DescriptorsPerFrame = 6;
 
     /// <summary>
     /// Where in one frame's run the reflection's view goes, which the tracing setting moves.
     /// </summary>
-    /// <remarks>
-    /// <b>Not a constant.</b> The root signature's ranges come from the layout, and the
-    /// layout leaves the acceleration structure out entirely on a device that cannot trace —
-    /// so the reflection is the fifth descriptor of the table there and the sixth here. The
-    /// heap always reserves six; only which slot the shader will look in moves.
-    /// </remarks>
     private uint ReflectionSlot => _rayTracing ? 5u : 4u;
 
     private readonly D3D12Context _context;
@@ -112,13 +72,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     public int Count => _uniforms.Length / PassesPerFrame;
 
     /// <summary>How many passes of one frame read constants of their own.</summary>
-    /// <remarks>
-    /// Two: the room as the player sees it, and the room as this frame's mirror sees it.
-    /// They are recorded into one command list and read their constants when the GPU
-    /// reaches the draw rather than when it is recorded, so they cannot share a buffer —
-    /// whichever was written last is what both of them would see, and what that looks like
-    /// is the room drawn twice from inside the mirror.
-    /// </remarks>
     public const int PassesPerFrame = 2;
 
     /// <summary>Which slot one pass of one frame uses.</summary>
@@ -192,10 +145,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 
     /// <summary>Points the ray-tracing paths at the scene they trace against.</summary>
     /// <param name="scene">The acceleration structure.</param>
-    /// <remarks>
-    /// Written into every frame's set rather than one, because a set is bound by whichever
-    /// frame is being recorded and the scene does not change between them.
-    /// </remarks>
     public void SetScene(IGeometryAccelerationStructure scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -217,12 +166,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
 
     /// <summary>Points every frame's set at the picture a mirror reads.</summary>
     /// <param name="reflection">The target the reflection is drawn into.</param>
-    /// <remarks>
-    /// Written into every frame's set rather than one, for the same reason the acceleration
-    /// structure is: a set is bound by whichever frame is being recorded, and the image does
-    /// not change between them. Rewritten when the window changes size, because the target
-    /// is remade at the new size and the old descriptor names an image that is gone.
-    /// </remarks>
     public void SetReflection(D3D12Texture reflection)
     {
         ArgumentNullException.ThrowIfNull(reflection);
@@ -239,23 +182,11 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <summary>The buffer of lights one frame reads.</summary>
     /// <param name="frame">Which frame.</param>
     /// <returns>The rig.</returns>
-    /// <remarks>
-    /// The tracing pass reads the same rig the shading pass does, and reads it through a
-    /// binding of its own rather than through the frame table, so it needs the buffer rather
-    /// than a descriptor of it.
-    /// </remarks>
     public D3D12Buffer Rig(int frame) => _rig[SlotFor(frame, reflection: false)];
 
     /// <summary>Where each cell of the light grid's list starts, for one frame.</summary>
     /// <param name="frame">Which frame.</param>
     /// <returns>The cells.</returns>
-    /// <remarks>
-    /// The fog pass walks the grid exactly as the shading does, through a table of its own
-    /// rather than through the frame's — the frame's holds the constant buffer and the
-    /// acceleration structure between the parts it wants, and a descriptor table is a
-    /// contiguous run. Both halves are handed out rather than rebuilt, because a second copy
-    /// of a grid is a second answer to which lights reach a point.
-    /// </remarks>
     public D3D12Buffer Cells(int frame) => _cells[SlotFor(frame, reflection: false)];
 
     /// <summary>Which lights are in each of those cells, for one frame.</summary>
@@ -336,12 +267,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// frame's two slots — see <see cref="PassesPerFrame"/> — and leaves the motion history
     /// to the frame.
     /// </param>
-    /// <remarks>
-    /// The same numbers the Vulkan path writes, in the same order, because it is the same
-    /// shader reading them. The projection carries a Y flip for Vulkan's clip space and the
-    /// translation to HLSL takes it back out, so what goes in here is the matrix the Vulkan
-    /// path would use rather than one built for Direct3D. See <c>HlslTranspiler</c>.
-    /// </remarks>
     public void Write(
         int frame, Camera camera, float aspect, int width, int height, bool reflection = false)
     {
@@ -413,12 +338,6 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <summary>
     /// The mirror this set's pass reflects about, or zero for the pass that draws the room.
     /// </summary>
-    /// <remarks>
-    /// See <see cref="FrameUniforms.MirrorPlane"/>. The reflection is drawn from its own
-    /// constant buffer rather than this one being rewritten between the two passes: both are
-    /// recorded into one command list and read their constants when the GPU reaches the
-    /// draw, so a shared buffer would hand both of them whichever was written last.
-    /// </remarks>
     public Vector4 MirrorPlane { get; set; }
 
     /// <inheritdoc/>

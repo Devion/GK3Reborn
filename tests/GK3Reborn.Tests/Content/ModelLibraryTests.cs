@@ -7,14 +7,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for the library that supplies prop geometry the game never had.
 /// </summary>
-/// <remarks>
-/// One property carries the whole design and the rest follow from it: this may only answer
-/// for names the 1999 archives have no <c>.MOD</c> for. A library that could stand in front
-/// of the game's own props would replace every chair and lamp in the game the moment a
-/// content workspace happened to hold a mesh of the same name — and the workspace does hold
-/// several hundred of exactly those, because the mesh-enhancement pass writes them into the
-/// same directory.
-/// </remarks>
 public sealed class ModelLibraryTests : IDisposable
 {
     private readonly string _root = Path.Combine(

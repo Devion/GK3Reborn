@@ -6,67 +6,18 @@ namespace GK3Reborn.Game.Navigation;
 /// <summary>
 /// The shell that keeps the camera inside the room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A room's own geometry is the wrong thing to collide against. It is a box seen from the
-/// inside with holes in it: doorways stand open, a wall meets a ceiling with a seam, and a
-/// backdrop hangs beyond the window with nothing between. A camera pushed against any of
-/// those finds its way through, and what it sees on the other side is the room turned
-/// inside out — walls from behind, a floor with nothing under it, the black between the
-/// scenery.
-/// </para>
-/// <para>
-/// The game's artists solved this in 1999 and the answer is in the data. 114 models in the
-/// corpus are camera bounds: closed, invisible shells authored around the space the camera
-/// may occupy, named by <c>cameraBounds=</c> in the scene's initialisation file and drawn
-/// by nothing. Every one of the game's 78 locations names at least one. Colliding against
-/// those rather than against the room gives a camera that stops at the doorway it is meant
-/// to stop at and is allowed through the one it is meant to go through.
-/// </para>
-/// <para>
-/// The movement is resolved rather than merely blocked. A camera that simply stopped dead
-/// on contact would be unusable along a wall — every wall would be flypaper — so what is
-/// left of the move is projected onto the surface and tried again, which is what makes a
-/// camera slide along a wall instead of sticking to it. Two passes: the first turns the
-/// move along the wall, the second stops it in a corner, and a third would only chase the
-/// last thousandth of a unit.
-/// </para>
-/// <para>
-/// A shell is a few hundred triangles — the largest in the corpus is 2,233 — and there are
-/// one or two of them, so every triangle is tested every frame. A tree would save nothing
-/// worth the code at that size.
-/// </para>
-/// </remarks>
 public sealed class CameraBounds
 {
     /// <summary>How wide a berth the camera keeps, in scene units.</summary>
-    /// <remarks>
-    /// The reference implementation's radius. A camera treated as a point would put its
-    /// near plane through the wall it is touching, which shows as the wall vanishing while
-    /// the camera is still nominally inside the room.
-    /// </remarks>
     public const float Radius = 16f;
 
     /// <summary>How many times a blocked move is redirected before what is left is dropped.</summary>
     private const int Passes = 2;
 
     /// <summary>How far clear of a surface a freed sphere is left, in scene units.</summary>
-    /// <remarks>
-    /// Settling it exactly touching leaves the next frame's arithmetic to decide whether it
-    /// is a hair inside or a hair outside, and a hair inside is a step refused outright. A
-    /// fortieth of a unit is under a millimetre of game world and puts the question beyond
-    /// the reach of a float.
-    /// </remarks>
     private const float Skin = 0.025f;
 
     /// <summary>How many times a trapped sphere is pushed before best effort is accepted.</summary>
-    /// <remarks>
-    /// Out of one surface and into another is the ordinary case in a corner, so once is not
-    /// enough; four clears a corner of three walls with a pass to spare. It stops rather
-    /// than looping because somewhere in the game a gap is narrower than the camera and no
-    /// number of pushes will satisfy both of its sides — there, moving it as far as one pass
-    /// gets is better than hanging.
-    /// </remarks>
     private const int Nudges = 4;
 
     /// <summary>Below this a move is not worth resolving.</summary>
@@ -76,12 +27,6 @@ public sealed class CameraBounds
 
     /// <summary>Builds bounds from the shells a scene names.</summary>
     /// <param name="models">The bounds models, already loaded.</param>
-    /// <remarks>
-    /// Every mesh's own transform is applied and nothing else. A bounds model stands at the
-    /// world origin — the original notes the local-to-world matrix is the identity for
-    /// these and the corpus bears it out — so a mesh's <see cref="ModMesh.MeshToLocal"/>
-    /// is the whole of the journey into the room.
-    /// </remarks>
     public CameraBounds(IEnumerable<ModFile> models)
     {
         ArgumentNullException.ThrowIfNull(models);
@@ -111,10 +56,6 @@ public sealed class CameraBounds
     }
 
     /// <summary>How many triangles the scene's own shell contributed.</summary>
-    /// <remarks>
-    /// Everything past this came from a script, and unblocking one takes it back off. The
-    /// shell itself cannot be removed: it is the room.
-    /// </remarks>
     private readonly int _shell;
 
     private readonly Dictionary<string, List<Vector3>> _blocked =
@@ -127,12 +68,6 @@ public sealed class CameraBounds
     /// <param name="model">The model, in the space the room places it.</param>
     /// <param name="placement">Where the room places it.</param>
     /// <returns>True when it added anything.</returns>
-    /// <remarks>
-    /// <c>CameraBoundaryBlockModel</c>, 48 calls. The artists draw one shell per room and
-    /// then a script adds a van, a lorry, a door that has swung open — anything that
-    /// arrives after the room was authored and that the camera should not be able to see
-    /// through.
-    /// </remarks>
     public bool Block(string name, ModFile model, Matrix4x4 placement)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -210,13 +145,6 @@ public sealed class CameraBounds
     /// <param name="from">Where it is now.</param>
     /// <param name="movement">Where it is trying to go, as an offset.</param>
     /// <returns>Where it ends up.</returns>
-    /// <remarks>
-    /// A camera that has somehow got outside — placed there by a scene's own viewpoint, or
-    /// left there by bounds that arrived after it did — is not trapped. Only a move
-    /// <em>towards</em> a surface's front is refused, so the way back in is always open;
-    /// this is the reference's rule and it is what stops a bad starting position from
-    /// making a room unusable.
-    /// </remarks>
     public Vector3 Resolve(Vector3 from, Vector3 movement)
     {
         if (_triangles.Length == 0)
@@ -264,35 +192,6 @@ public sealed class CameraBounds
     /// </summary>
     /// <param name="centre">Where it is.</param>
     /// <returns>Where it should be, clear of the shell.</returns>
-    /// <remarks>
-    /// <para>
-    /// Sweeping a sphere along a step decides what a move is allowed to do. It says nothing
-    /// about a sphere that is already overlapping something when the step begins, and one
-    /// arrives there often enough: a scene cuts to a viewpoint the artists placed against
-    /// the room's own walls rather than against a shell sixteen units thick,
-    /// <c>CameraBoundaryBlockModel</c> parks a van where the camera is standing, or a step
-    /// settles a fraction inside and the fractions accumulate.
-    /// </para>
-    /// <para>
-    /// Once it overlaps, every step towards that wall is refused and every step along it is
-    /// allowed, so the camera slides along inside the wall indefinitely — which is what
-    /// being stuck in the geometry looks like from the player's chair. Pushing it back out
-    /// is the whole of the fix, and it belongs at both ends of a step: at the start because
-    /// that is where a bad position arrives from elsewhere, and at the end because that is
-    /// where the sweep's own arithmetic leaves one.
-    /// </para>
-    /// <para>
-    /// Out of the deepest overlap first, then look again, rather than adding up every push
-    /// at once. Summing them overshoots in a corner — two walls each asking for their own
-    /// full clearance send the camera out through the third — where taking the worst one at
-    /// a time converges on the point that satisfies both.
-    /// </para>
-    /// <para>
-    /// A camera on the far side of the shell is left where it is. It is outside and is meant
-    /// to be able to come back in, which is the rule the sweep follows too, and pushing it
-    /// "clear" of a surface it is already behind would only push it further away.
-    /// </para>
-    /// </remarks>
     public Vector3 Free(Vector3 centre)
     {
         Vector3 at = centre;
@@ -351,11 +250,6 @@ public sealed class CameraBounds
     }
 
     /// <summary>The point of a triangle nearest to somewhere else.</summary>
-    /// <remarks>
-    /// Dropped onto the plane first. If it lands inside the triangle that is the answer;
-    /// otherwise the nearest point is on one of the three edges, and the ends of those are
-    /// the corners, so testing the three segments covers every remaining case.
-    /// </remarks>
     private static Vector3 Closest(Vector3 point, Vector3 a, Vector3 b, Vector3 c, Vector3 normal)
     {
         Vector3 on = point - (normal * Vector3.Dot(point - a, normal));
@@ -400,20 +294,6 @@ public sealed class CameraBounds
     /// <summary>Whether a point is inside the shell.</summary>
     /// <param name="point">The point, in world space.</param>
     /// <returns>True when it is enclosed.</returns>
-    /// <remarks>
-    /// <para>
-    /// Counted crossings along a ray: a shell is closed, so a line out of it meets an odd
-    /// number of its surfaces from inside and an even number from outside. The direction is
-    /// a fixed awkward one rather than an axis, because a shell built of axis-aligned walls
-    /// has whole faces lying in the planes an axis-aligned ray would graze, and a graze
-    /// counts once or twice depending on the last bit of a float.
-    /// </para>
-    /// <para>
-    /// Asked once when a room opens rather than every frame. It is what tells the player
-    /// that a scene's own viewpoint sits outside its bounds, which is otherwise invisible
-    /// until they try to move and find the walls behaving backwards.
-    /// </para>
-    /// </remarks>
     public bool Contains(Vector3 point)
     {
         if (_triangles.Length == 0)
@@ -495,20 +375,6 @@ public sealed class CameraBounds
     /// How far along a step a sphere gets before it meets one triangle.
     /// </summary>
     /// <returns>A fraction of the step, or null when it never meets it.</returns>
-    /// <remarks>
-    /// <para>
-    /// Three things can stop the sphere and all three are tested, because the nearest of
-    /// them is the one that matters: the face itself, one of its three edges, and one of
-    /// its three corners. Testing only the face lets a camera slip through the seam
-    /// between two triangles, which on a shell built of quads is every second join.
-    /// </para>
-    /// <para>
-    /// The face test moves the plane out by the radius and finds where the centre crosses
-    /// it; the edges and corners are the classic reduction of a swept sphere to a ray
-    /// against a cylinder and a ball. A fraction below zero means the sphere was already
-    /// touching, which is reported as zero rather than as a move backwards.
-    /// </para>
-    /// </remarks>
     private static float? Sweep(Vector3 centre, Vector3 movement, Vector3 a, Vector3 b, Vector3 c)
     {
         Vector3 normal = Normal(a, b, c);
@@ -609,10 +475,6 @@ public sealed class CameraBounds
     }
 
     /// <summary>Where a moving sphere first touches a line segment.</summary>
-    /// <remarks>
-    /// The infinite cylinder around the segment, then a check that the touch happened
-    /// between the two ends. The ends themselves are the corners, tested separately.
-    /// </remarks>
     private static float? Cylinder(Vector3 centre, Vector3 movement, Vector3 from, Vector3 to)
     {
         Vector3 edge = to - from;

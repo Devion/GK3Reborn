@@ -13,21 +13,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Pipeline stage C2: classifies every asset and maps what references what.
 /// </summary>
-/// <remarks>
-/// <para>
-/// C1 proves the archives can be read. C2 answers what is in them. Both questions have
-/// to be settled before anything downstream can claim completeness, and the second one
-/// is where the surprises are: the corpus appears to hold 2,775 file types but really
-/// holds about a dozen, because most audio assets carry a three-character dialogue code
-/// as their extension instead of <c>.WAV</c>.
-/// </para>
-/// <para>
-/// The reference scan is deliberately shallow. It reads the text assets - scenes,
-/// action sets, animation scripts, soundtracks - and resolves every asset-shaped token
-/// against the corpus index. That finds dangling references without needing a parser
-/// for each format, and it is honest about what it is: candidates, not a parse.
-/// </para>
-/// </remarks>
 public sealed partial class CorpusInventoryStage
 {
     private readonly Action<string> _log;
@@ -232,10 +217,6 @@ public sealed partial class CorpusInventoryStage
     /// <summary>
     /// Records how many distinct extensions each kind hides behind.
     /// </summary>
-    /// <remarks>
-    /// This is the number that shows why classification cannot go by name: audio spans
-    /// thousands of extensions, while every other kind is essentially well behaved.
-    /// </remarks>
     private static Dictionary<string, int> ExtensionsPerKind(IEnumerable<CorpusAsset> assets)
     {
         Dictionary<string, HashSet<string>> extensions = new(StringComparer.Ordinal);
@@ -258,10 +239,6 @@ public sealed partial class CorpusInventoryStage
     /// <summary>
     /// Matches an asset-shaped token: a name followed by one of the known extensions.
     /// </summary>
-    /// <remarks>
-    /// Audio is deliberately absent. Its extensions are dialogue codes rather than a
-    /// fixed set, so including them would match arbitrary words followed by a period.
-    /// </remarks>
     [GeneratedRegex(
         @"\b[A-Za-z0-9_\-]{1,32}\.(?:BMP|MOD|ACT|ANM|YAK|MUL|BSP|SIF|SCN|NVC|SHP|GAS|SEQ|FON|CUR|STK|TXT|HTM|HTML|WAV)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]

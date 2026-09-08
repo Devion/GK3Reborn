@@ -6,13 +6,6 @@ namespace GK3Reborn.Formats.Bitmaps;
 /// <summary>
 /// Writes PNG files.
 /// </summary>
-/// <remarks>
-/// A deliberately small encoder rather than an imaging library. The pipeline needs one
-/// thing - lossless RGB or RGBA out - and PNG's container is simple enough that writing
-/// it directly avoids taking a dependency with its own licence terms on a GPL project,
-/// and avoids shipping an image library in the runtime that only the importer uses.
-/// Deflate comes from the BCL.
-/// </remarks>
 public static class PngWriter
 {
     private static readonly byte[] Signature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];

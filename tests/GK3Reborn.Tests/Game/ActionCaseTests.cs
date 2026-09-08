@@ -11,12 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the cases the engine answers itself.
 /// </summary>
-/// <remarks>
-/// A case the resolver does not recognise is treated as unavailable, so a missing built-in
-/// does not fail — it quietly takes the action out of the game. That is how
-/// <c>TIME_BLOCK_OVERRIDE</c> went unnoticed until a sweep of the whole corpus counted 918
-/// actions naming a case nothing defined.
-/// </remarks>
 public sealed class ActionCaseTests
 {
     private static ActionResolver Resolver(GameState state, params string[] files)

@@ -7,30 +7,9 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// What the neural rendering settings mean by the time they reach the network.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The network is <c>nvngx_dlssnr.dll</c>, which the driver will not load until the blank
-/// entry in its feature table is filled in — see <c>NgxFeatureTable</c>. Nothing here can
-/// talk to it: that needs a GeForce, the file, a driver and a frame. What is tested is
-/// everything on this side of the boundary — that a settings file somebody edited cannot put
-/// a value into the network meaning something other than what it says, that the one sentinel
-/// the network defines survives the trip, and that the rung it is given is the only one it
-/// will accept.
-/// </para>
-/// <para>
-/// Worth testing for the reason the rest of this integration is documented so heavily: every
-/// number below is passed by name into somebody else's DLL, which reads it, believes it and
-/// says nothing. A strength that arrives as a not-a-number comes back as a frame of nothing.
-/// </para>
-/// </remarks>
 public sealed class NeuralUpliftTests
 {
     /// <summary>Nothing is on until somebody turns it on.</summary>
-    /// <remarks>
-    /// The one default worth asserting. This changes how the game looks rather than fixing
-    /// how it looks, and a port whose business is the 1999 picture must not restyle it for
-    /// somebody who never asked.
-    /// </remarks>
     [Fact]
     public void The_network_is_off_until_it_is_asked_for()
     {
@@ -65,12 +44,6 @@ public sealed class NeuralUpliftTests
     }
 
     /// <summary>A strength that is not a number becomes the full one rather than nothing.</summary>
-    /// <remarks>
-    /// Full, because nought is not "leave the picture alone" for this network — it is asking
-    /// it to do none of what it does, which it does not answer by passing the frame through.
-    /// A settings file that has gone wrong should land on the value somebody who set nothing
-    /// would have had.
-    /// </remarks>
     [Theory]
     [InlineData(float.NaN)]
     [InlineData(float.PositiveInfinity)]
@@ -81,11 +54,6 @@ public sealed class NeuralUpliftTests
     }
 
     /// <summary>Negative one is how the network is told to follow the general strength.</summary>
-    /// <remarks>
-    /// The sentinel is the network's, not this project's, and it is the reason the page has a
-    /// toggle rather than a slider that runs below nought: "follow the other setting" and
-    /// "none at all" are different answers and one slider cannot say both.
-    /// </remarks>
     [Fact]
     public void Skin_follows_the_general_strength_through_a_negative_one()
     {
@@ -96,11 +64,6 @@ public sealed class NeuralUpliftTests
     }
 
     /// <summary>The sentinel survives being clamped.</summary>
-    /// <remarks>
-    /// <see cref="NeuralUplift.SkinStructure"/> is clamped to the ordinary range and the
-    /// sentinel is produced by the toggle, so sanity checking a record cannot destroy it —
-    /// which it would if the two shared one field.
-    /// </remarks>
     [Fact]
     public void Making_a_record_sane_does_not_lose_the_sentinel()
     {
@@ -156,19 +119,6 @@ public sealed class NeuralUpliftTests
     }
 
     /// <summary>Turning the network on draws the room at the size the window is.</summary>
-    /// <remarks>
-    /// <para>
-    /// Not a preference: the network refuses every frame it is asked to scale. The plugin
-    /// that drives it sets no scaling ratio for it — the parameter names for one are not even
-    /// in the plugin — so it is handed an input the size it was not built for and answers
-    /// with an invalid-parameter error, once a frame, for ever. What the player would see is
-    /// the small picture stretched.
-    /// </para>
-    /// <para>
-    /// Pinned here rather than in the renderer so that the size the room is drawn at, the
-    /// size the settings page reports, and the size the network is given cannot disagree.
-    /// </para>
-    /// </remarks>
     [Theory]
     [InlineData(UpscalerQuality.Performance)]
     [InlineData(UpscalerQuality.Quality)]
@@ -211,21 +161,6 @@ public sealed class NeuralUpliftTests
     /// <summary>
     /// The parameter names reach NGX with the terminating nought it reads to.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>This is the assumption the whole parameter block rests on.</b> Names are UTF-8
-    /// literals so that taking their address costs nothing — the alternative is marshalling a
-    /// managed string forty-odd times a frame — and that is only safe because such a literal
-    /// is laid down with a nought after it that its length does not count. NGX is handed the
-    /// address and reads until it finds one.
-    /// </para>
-    /// <para>
-    /// If a future language version stopped appending it, nothing would fail to compile and
-    /// nothing would warn: NGX would read whatever followed in the assembly's data and look
-    /// up a parameter under a name nobody set, which is a network that quietly ignores every
-    /// texture it was given.
-    /// </para>
-    /// </remarks>
     [Fact]
     public unsafe void A_parameter_name_is_terminated_where_it_says_it_ends()
     {

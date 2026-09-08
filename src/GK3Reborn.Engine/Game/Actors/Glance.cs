@@ -19,30 +19,12 @@ public readonly record struct Glance(string Actor, string? Target, Vector3 Point
 /// <summary>
 /// Who is looking at what.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A glance is the smallest thing that makes a room feel inhabited: somebody turns their
-/// head when you come in, or looks at the thing they are talking about. GK3's scripts ask
-/// for it constantly — <c>LookitActor</c>, <c>LookitModel</c>, <c>TurnHead</c> — and in
-/// the reference implementation every one of those functions is an empty body that returns
-/// zero, so none of it has ever happened.
-/// </para>
-/// <para>
-/// It is scene state, not story state. Who somebody is looking at means nothing once the
-/// room has changed, and there is no save in the game that records it.
-/// </para>
-/// </remarks>
 public sealed class Glances
 {
     private readonly Dictionary<string, Glance> _looking = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, double> _remaining = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>How far round a head will turn, in radians.</summary>
-    /// <remarks>
-    /// Eighty degrees. A person can manage rather more with their shoulders, but a head on
-    /// its own that goes past this reads as broken rather than as attentive, and the mesh
-    /// has no neck to stretch. Anything further is simply looked at as far as possible.
-    /// </remarks>
     public const float YawLimit = 80f * (MathF.PI / 180f);
 
     /// <summary>How far up or down, in radians.</summary>
@@ -63,10 +45,6 @@ public sealed class Glances
     /// the five left Emilio watching Gabriel over his shoulder for the rest of the scene —
     /// through standing up, through the whole of his walk to the hotel door.
     /// </param>
-    /// <remarks>
-    /// One at a time: an actor asked to look somewhere else stops looking where they were,
-    /// which is what a person does.
-    /// </remarks>
     public void Look(Glance glance, double seconds = 0)
     {
         _looking[glance.Actor] = glance;
@@ -83,11 +61,6 @@ public sealed class Glances
 
     /// <summary>Lets the timed glances run out.</summary>
     /// <param name="seconds">How long has passed.</param>
-    /// <remarks>
-    /// An expired glance is removed rather than zeroed, and the head then eases back to
-    /// straight ahead on its own: the turning code aims at nothing-in-particular the same
-    /// way it aims at a target.
-    /// </remarks>
     public void Tick(double seconds)
     {
         foreach (string actor in _remaining.Keys.ToList())
@@ -140,11 +113,6 @@ public sealed class Glances
     /// <param name="eyes">How far above their feet their head is.</param>
     /// <param name="target">What they are looking at.</param>
     /// <returns>Yaw and pitch for the head, both already clamped to what a neck allows.</returns>
-    /// <remarks>
-    /// Relative to the body, because the head is a child of it: an actor already facing the
-    /// thing turns their head not at all. Something directly overhead or underfoot gives no
-    /// meaningful direction to turn towards, so the head stays where it is.
-    /// </remarks>
     public static (float Yaw, float Pitch) Turn(
         Vector3 standing, float facing, float eyes, Vector3 target)
     {
@@ -169,11 +137,6 @@ public sealed class Glances
     }
 
     /// <summary>Brings an angle back into the half-turn either side of straight ahead.</summary>
-    /// <remarks>
-    /// Without this, something a little to the left of an actor facing north reads as
-    /// almost a full turn to the right, and the clamp then holds the head at its limit
-    /// facing the wrong way.
-    /// </remarks>
     private static float Wrap(float radians)
     {
         while (radians > MathF.PI)

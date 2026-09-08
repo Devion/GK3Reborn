@@ -9,19 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the recording a licence plate implies when the YAK names none.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A YAK called <c>E1395D0LCW1</c> carries <c>A1395D0L.CW1</c> — first seven, a stop, last
-/// three — and 6,606 of the corpus's YAKs name exactly that. The ones whose recording was
-/// deleted name nothing at all, so a line restored by putting audio back under the 1999
-/// name had nobody asking for it: fourteen spoken lines sat in the pack and never played.
-/// </para>
-/// <para>
-/// The derived name is only ever reached where the YAK names none, which is what keeps it
-/// honest. 683 YAKs deliberately point at a different recording — a line said twice and
-/// recorded once — and those must go on doing so.
-/// </para>
-/// </remarks>
 public sealed class RestoredVoiceTests
 {
     /// <summary>A device that plays nothing and remembers what it was handed.</summary>
@@ -151,10 +138,6 @@ public sealed class RestoredVoiceTests
     }
 
     /// <summary>And a stated recording is never displaced by the implied one.</summary>
-    /// <remarks>
-    /// <c>E01LIQ44QR1</c> plays <c>A01LED44.QR1</c> in the shipped game, which is a line
-    /// written twice and recorded once. 683 YAKs do something of the sort.
-    /// </remarks>
     [Fact]
     public void A_yak_that_names_its_own_recording_keeps_it()
     {
@@ -189,11 +172,6 @@ public sealed class RestoredVoiceTests
     }
 
     /// <summary>A name that is not a licence plate implies nothing.</summary>
-    /// <remarks>
-    /// <c>StartYak</c> names an animation outright — <c>CIRCUSEMILIO</c> — and reaches the
-    /// same queue. Deriving an asset from one of those would ask for a file that cannot
-    /// exist, so the length is checked rather than assumed.
-    /// </remarks>
     [Fact]
     public void A_name_that_is_not_a_plate_implies_no_recording()
     {

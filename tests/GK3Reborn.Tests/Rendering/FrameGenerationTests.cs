@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// How a factor a player recognises becomes a count a runtime wants.
 /// </summary>
-/// <remarks>
-/// The two numbers are not the same and never can be: a player picks how many frames they
-/// see for each one drawn, and the runtime is told how many to make. Four times is three
-/// generated. Everywhere the two are confused the result is off by one in the direction
-/// that costs a whole factor.
-/// </remarks>
 public sealed class FrameGenerationTests
 {
     [Theory]
@@ -28,11 +22,6 @@ public sealed class FrameGenerationTests
     /// <summary>
     /// Nought is off rather than a count, because the runtime refuses a count of nought.
     /// </summary>
-    /// <remarks>
-    /// The plugin says so by name — "numFramesToGenerate must be greater than 0" — so
-    /// turning generation off is a mode rather than a count, and nothing here may hand it a
-    /// nought and expect it to mean anything.
-    /// </remarks>
     [Fact]
     public void Off_generates_nothing()
     {
@@ -68,11 +57,6 @@ public sealed class FrameGenerationTests
     /// <summary>
     /// A setting written out and read back is the setting that was written.
     /// </summary>
-    /// <remarks>
-    /// Settings are stored by name, which is why the two-times value is still called
-    /// <c>Interpolated</c>: renaming it would be every existing player's choice failing to
-    /// read back. This is the check that keeps somebody from tidying the name later.
-    /// </remarks>
     [Fact]
     public void The_two_times_setting_keeps_the_name_it_was_saved_under()
     {

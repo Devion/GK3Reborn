@@ -14,26 +14,6 @@ public readonly record struct Glyph(int X, int Y, int Width, int Height);
 /// <summary>
 /// One of GK3's 137 bitmap fonts.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A <c>.FON</c> is a handful of keys and one long <c>Font=</c> line listing, in order,
-/// every character the sheet contains. The sheet itself is an ordinary texture. What is
-/// not written down anywhere is where each character starts and stops: the top row of the
-/// sheet carries a marker colour at the left edge of every glyph, and the width of a
-/// character is the distance to the next marker.
-/// </para>
-/// <para>
-/// So reading a font means scanning a row of pixels. The first pixel of the sheet is the
-/// background; the first pixel along the top row that is not the background is the marker;
-/// and from there each run between markers is one character, taken in the order the
-/// <c>Font=</c> line gives them.
-/// </para>
-/// <para>
-/// Some sheets stack several rows of glyphs, which <c>Line Count</c> gives. The top pixel
-/// of each row is the marker strip and not part of the letter, so a glyph is one pixel
-/// shorter than the row that holds it.
-/// </para>
-/// </remarks>
 public sealed class FontFile
 {
     private readonly Dictionary<char, Glyph> _glyphs = [];
@@ -142,29 +122,6 @@ public sealed class FontFile
     /// <summary>
     /// Walks the marker strip and cuts the sheet into characters.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The marker colour is whatever the first non-background pixel of the top row is —
-    /// most fonts use pure red, but not all of them do, and a couple are a few units off
-    /// it, so the comparison allows a little slack rather than demanding an exact match.
-    /// </para>
-    /// <para>
-    /// <b>A row's last marker may be a terminator rather than a glyph.</b> On a sheet with
-    /// one row the last letter ends at the sheet's right edge and nothing has to say so; on
-    /// a sheet with several, the rows are different lengths and each needs a mark saying
-    /// where its last letter stops, with padding after it. Counting that mark as a glyph
-    /// costs the row one character and shifts every character after it — which is why the
-    /// caption sheets, the only multi-row fonts the interface draws with, wrote
-    /// <c>Gabqiel Lnnk</c> where they meant <c>Gabriel Look</c>.
-    /// </para>
-    /// <para>
-    /// Which of the two a sheet is doing is decided by counting rather than guessing: the
-    /// <c>Font=</c> line says how many characters there are, so a sheet with exactly that
-    /// many markers has no terminators and one with that many plus a marker per row has one
-    /// each. Neither, and each row is judged on whether there is any ink after its last
-    /// mark. Across the corpus the count settles 112 of the 136 fonts outright.
-    /// </para>
-    /// </remarks>
     private void Cut(string characters, int lines, DiagnosticBag diagnostics)
     {
         int rowHeight = Sheet.Height / lines;
@@ -254,11 +211,6 @@ public sealed class FontFile
     }
 
     /// <summary>Where the markers along one row's top edge are.</summary>
-    /// <remarks>
-    /// The starts of runs, not every marked pixel: a marker two pixels wide is one marker.
-    /// The scan begins where the first row's did, because a row whose first letter is
-    /// narrower than another's still starts in the same column.
-    /// </remarks>
     private List<int> Marks(
         (byte R, byte G, byte B) marker, int y, int start)
     {
@@ -311,11 +263,6 @@ public sealed class FontFile
     /// <summary>
     /// Reads the key/value lines.
     /// </summary>
-    /// <remarks>
-    /// Not the INI reader: keys have spaces in them, the <c>Font=</c> value is a run of
-    /// characters that includes <c>;</c> and <c>,</c> and everything else the reader would
-    /// treat as punctuation, and the whole point is to take it exactly as written.
-    /// </remarks>
     private static Dictionary<string, string> Keys(string definition)
     {
         Dictionary<string, string> keys = new(StringComparer.OrdinalIgnoreCase);

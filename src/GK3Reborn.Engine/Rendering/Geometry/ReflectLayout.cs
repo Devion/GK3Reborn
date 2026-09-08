@@ -11,27 +11,15 @@ using System.Runtime.InteropServices;
 namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>What the reflection passes bind, declared once for both backends.</summary>
-/// <remarks>
-/// Two compute shaders and one layout. The downsample builds a min-depth pyramid a level at
-/// a time and the march casts a ray a pixel over it; they read the same six textures and
-/// write the same two, and which of the two each one means is a push constant rather than a
-/// binding. One layout is one thing to keep in step with the shaders instead of two.
-/// </remarks>
 public static class ReflectLayout
 {
     /// <summary>How many levels the depth pyramid has, the full-size one included.</summary>
-    /// <remarks>
-    /// Six halvings takes a 1280 by 720 frame down to 40 by 23, which is coarse enough that
-    /// a ray crossing empty space clears it in a step or two.
-    /// </remarks>
     public const int Levels = 7;
 
     /// <summary>How many bytes of push constants each stage takes.</summary>
-    /// <remarks>The size of the level being written, and which level it is.</remarks>
     public const uint LevelConstantBytes = 12;
 
     /// <summary>How far behind a surface a hit may land and still be that surface.</summary>
-    /// <remarks>In scene units, where a hotel room is about a thousand across.</remarks>
     public const float Thickness = 250f;
 
     /// <summary>What both stages bind.</summary>

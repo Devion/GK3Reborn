@@ -12,32 +12,6 @@ namespace GK3Reborn.Game.Story;
 /// <summary>
 /// Who the player has been introduced to.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A question the original never had to answer, because it drew no label under the
-/// pointer. This one does, and a scene names its people by their surnames — <c>BUTHANE</c>,
-/// <c>BUCHELLI</c>, <c>WILKES</c> — so a label that reads them back names every suspect in
-/// the game the moment the player first sees one. It is the leak the second-floor doors
-/// had, in a place where there is no room number to fall back on.
-/// </para>
-/// <para>
-/// <b>Every condition is the game's own.</b> They are copied out of the <c>[LOGIC]</c>
-/// sections of the action files — <c>MET_BUTHANE</c>, <c>MET_WILKES</c>,
-/// <c>INTRODUCED_EMILIO</c> — and evaluated exactly as an action's case is, against the
-/// same host. Which is what bounds the list: a character the shipped data never asks "have
-/// we met" about is not in it and keeps their name. See
-/// <c>Assets/Story/Introductions.txt</c>, which says which file each line came from.
-/// </para>
-/// <para>
-/// Anyone not listed is treated as known. That is the safe way round: a name shown early
-/// is a small spoiler, and a name withheld from somebody the player has been talking to
-/// for two days is a bug they cannot work around.
-/// </para>
-/// <para>
-/// <b>The table also says when each of them enters the story</b>, which is what a save the
-/// original game wrote needs. See <see cref="MetBy"/>.
-/// </para>
-/// </remarks>
 public sealed class Introductions
 {
     private readonly Dictionary<string, string> _conditions =
@@ -134,22 +108,6 @@ public sealed class Introductions
     /// </summary>
     /// <param name="when">The timeblock the save stands in.</param>
     /// <returns>The nouns to treat as introduced, whatever the story can show.</returns>
-    /// <remarks>
-    /// <para>
-    /// For the saves the 1999 game wrote, which answer none of the conditions above: a
-    /// <c>.gk3</c> carries the timeblock, the room and the score, and not one topic count,
-    /// so an import two days into the story would draw <c>Woman</c> under Madeleine
-    /// Buthane. The reasoning is the one the score events are recovered by — a point in the
-    /// story implies everything behind it — and it errs the way the table errs, towards
-    /// showing a name rather than withholding one.
-    /// </para>
-    /// <para>
-    /// A day beyond the first is everybody, rather than everybody the roster happens to
-    /// name. Every introduction in the game is on day one, so the two answers are the same
-    /// today; they would stop being the same the moment somebody adds a line, and the wrong
-    /// one to be left holding then is the shorter.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<string> MetBy(Timeblock when)
     {
         if (when.Day > 1)
@@ -177,11 +135,6 @@ public sealed class Introductions
     /// True for anybody the table says has been introduced, and for anybody it does not
     /// mention at all.
     /// </returns>
-    /// <remarks>
-    /// A condition that cannot be evaluated answers "known" rather than being reported. It
-    /// is a label, and the worst a wrong answer here can do is show a name a little early;
-    /// raising a diagnostic every frame the pointer rests on somebody would cost more.
-    /// </remarks>
     public bool Knows(string? noun, Gk3SheepApi? api)
     {
         if (noun is not { Length: > 0 } ||

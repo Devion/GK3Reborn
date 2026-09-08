@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for what makes a character walk rather than slide.
 /// </summary>
-/// <remarks>
-/// <c>CHARACTERS.TXT</c> names the animation and gives the height; the height is also what
-/// decides how far short of a thing somebody stops. Both are read from real data at runtime,
-/// so what is pinned here is the shape of the answers rather than the answers themselves.
-/// </remarks>
 public sealed class CharacterLibraryTests
 {
     [Fact]

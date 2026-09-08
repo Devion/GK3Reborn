@@ -6,28 +6,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A descriptor heap, and a bump allocator over it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Vulkan hands out descriptor sets from a pool and the renderer holds the sets. Direct3D
-/// has no such object: a descriptor is a slot in a heap, identified by where it is, and a
-/// shader reaches a group of them through a table that points at a starting slot. So the
-/// thing worth wrapping is not a set but the heap and the arithmetic — a handle is the
-/// heap's base plus an index times a size the device chooses and never states in a header.
-/// </para>
-/// <para>
-/// A bump allocator rather than a free list, deliberately. Descriptors here are made when a
-/// scene is loaded and released when it is unloaded, all together; nothing frees one
-/// descriptor in the middle of a frame. A free list would be machinery for a case that does
-/// not arise, and the case that does arise — a room change — is served by resetting the
-/// whole heap at once.
-/// </para>
-/// <para>
-/// Shader-visible heaps are the ones a command list binds and are limited to one of each
-/// kind at a time, which is why they are large and shared rather than small and numerous.
-/// Render target and depth views live in heaps that are never bound at all: they are read
-/// by the CPU when a pass begins, so they can be as small as the count of targets.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12DescriptorHeap : IDisposable
 {
     private readonly uint _stride;
@@ -81,12 +59,6 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
     /// <param name="shaderVisible">Whether a command list can bind it.</param>
     /// <returns>The heap.</returns>
     /// <exception cref="D3D12Exception">The heap could not be created.</exception>
-    /// <remarks>
-    /// Render target, depth and sampler heaps have their own rules about visibility, and
-    /// the runtime refuses rather than ignores a request that breaks one: a render target
-    /// heap may never be shader-visible. Asking for it anyway is a device removal on some
-    /// drivers and a validation error on others, so the request is corrected here.
-    /// </remarks>
     public static D3D12DescriptorHeap Create(
         ID3D12Device5* device,
         DescriptorHeapType type,
@@ -125,12 +97,6 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
     /// <param name="count">How many, which must be contiguous.</param>
     /// <returns>The index of the first.</returns>
     /// <exception cref="D3D12Exception">The heap is full.</exception>
-    /// <remarks>
-    /// A full heap is a bug rather than a condition, so it throws rather than returning a
-    /// failure nobody would check. The capacities are chosen from what a scene actually
-    /// needs, and a scene that outgrows one has outgrown an assumption worth revisiting
-    /// rather than a limit worth raising in silence.
-    /// </remarks>
     public uint Allocate(uint count = 1)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -147,25 +113,11 @@ public sealed unsafe class D3D12DescriptorHeap : IDisposable
     }
 
     /// <summary>Forgets every descriptor handed out.</summary>
-    /// <remarks>
-    /// What a room change does. Nothing is destroyed — the descriptors are slots, and the
-    /// resources they described are freed by their own owners — so this is only the
-    /// allocator going back to the start. Calling it while the device is still reading the
-    /// heap is the hazard, which is why the renderer waits for idle before it unloads a
-    /// scene.
-    /// </remarks>
     public void Reset() => _used = 0;
 
     /// <summary>Forgets every descriptor handed out after a point.</summary>
     /// <param name="mark">A value <see cref="Used"/> once had.</param>
     /// <exception cref="ArgumentOutOfRangeException">The mark is above the high-water mark.</exception>
-    /// <remarks>
-    /// A room change, where the heap also holds something older than the room. The frame's
-    /// own descriptors are taken once when the pipeline is built and are still bound by the
-    /// next room, so unloading one has to go back to where its materials began rather than
-    /// to the start. Winding back to a mark is all a bump allocator can offer and all this
-    /// needs: the run being forgotten is the newest one.
-    /// </remarks>
     public void Reset(uint mark)
     {
         ArgumentOutOfRangeException.ThrowIfGreaterThan(mark, _used);

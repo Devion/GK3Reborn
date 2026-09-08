@@ -11,23 +11,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// A layer of fog lying in a room, as whichever backend is drawing takes it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One layer, described by a height rather than by a box. Every fog worth having in this
-/// game is the same shape — something that pools at the bottom of a space and thins out
-/// above it — and a height and a falloff say that in two numbers where a box needs six and
-/// then has corners the player can walk round. Damp in a cellar and murk in a chasm are the
-/// same statement with the plane at a different level; see <see cref="Game.SceneFog"/>.
-/// </para>
-/// <para>
-/// <b>Nothing here is a colour the fog is drawn in.</b> <see cref="Colour"/> is what the
-/// fog does to light, not what it looks like: the pass marches the ray, gathers what the
-/// room's own lamps put into each step, and tints that. A fog with a colour of its own is
-/// the flat grey wash <c>docs/rendering.md</c> already rejected for the horizon — it paints
-/// the lit end of a corridor and the dark end the same, which is the one thing that stops
-/// fog reading as depth.
-/// </para>
-/// </remarks>
 /// <param name="Colour">
 /// How much of each channel a scattering event returns, from nought to one. Water vapour is
 /// very nearly white and slightly cool; a tint is how a cellar's damp is told from a
@@ -92,18 +75,8 @@ public readonly record struct FogVolume(
     public static FogVolume None { get; }
 
     /// <summary>Whether there is anything here to draw.</summary>
-    /// <remarks>
-    /// Read before the pass is built as well as before it is recorded: a room with no fog in
-    /// it should not pay for a pipeline, and two hundred of them have none.
-    /// </remarks>
     public bool Any => Density > 0f && Steps > 0;
 
     /// <summary>The height above which there is not enough fog left to be worth marching.</summary>
-    /// <remarks>
-    /// Six falloffs, where a quarter of a percent of the density is left. The march is
-    /// clipped to the part of the ray below this, which is what lets thirty-two steps
-    /// resolve a layer a metre deep in a room forty metres long — spread over the whole ray
-    /// the same thirty-two would put two of them in the fog and the rest in clear air.
-    /// </remarks>
     public float Ceiling => Top + (6f * MathF.Max(Falloff, 0.001f));
 }

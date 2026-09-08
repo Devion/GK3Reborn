@@ -6,10 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for the texture slots an enhanced material carries.
 /// </summary>
-/// <remarks>
-/// A patch has to be able to say three different things about a map — leave it alone, use
-/// this one, go back to having none — and null alone can only say two of them.
-/// </remarks>
 public sealed class NormalMapMaterialTests
 {
     private static MaterialDefinition Material(string? normal = null, string? orm = null) =>

@@ -30,28 +30,6 @@ public sealed record SidneyTranslation(
 /// <summary>
 /// Sidney's translate screen: what may be translated, out of what, and into what.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>None of this is invented.</b> <c>ESIDNEY.TXT</c>'s translate section carries the four
-/// languages the screen offers, the refusals it gives, and both halves of every piece of
-/// text the story needs turned into English — the Abbé's telephone call in French, Buchelli's
-/// in Italian, and the Latin off the tomb. The screen said "Not implemented yet" only
-/// because nothing had read them.
-/// </para>
-/// <para>
-/// <b>The from-language is a real choice and a real refusal.</b> The screen asks what the
-/// text is written in before it will translate it, and answering wrongly gets
-/// <c>WrongFrom</c> — which is the game's own text, and the reason the screen has a menu of
-/// languages rather than a single button.
-/// </para>
-/// <para>
-/// <b>Et in Arcadia Ego is the one that is not a translation.</b> Turning it into English
-/// gives an unfinished sentence, and the machine offers to add to it; the word that finishes
-/// it is <c>Sum</c>, which the player has to have found, and the completed line is the point
-/// of the puzzle. That exchange is written into the same section as <c>Incomplete</c>,
-/// <c>Input</c> and <c>BadInput1</c>.
-/// </para>
-/// </remarks>
 public sealed class SidneyTranslator
 {
     /// <summary>What the screen calls the section these strings live in.</summary>
@@ -85,19 +63,6 @@ public sealed class SidneyTranslator
     /// <summary>
     /// The languages the screen offers to translate out of.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// English is one of them, and translating English into English is a refusal the game
-    /// wrote — so it stays on the menu.
-    /// </para>
-    /// <para>
-    /// <b>Each carries its key beside its label.</b> The screen matches what was chosen
-    /// against what the file is written in, and every release relabels these four: the
-    /// German one calls <c>English</c> "Deutsch", and the Italian one has <c>Latin</c> as
-    /// "Inglese" and <c>Italian</c> as "Latino". Matching the words would depend on that
-    /// shuffle; matching the keys is what the original did.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<SidneyChoice> Languages =>
     [
         .. Named
@@ -188,11 +153,6 @@ public sealed class SidneyTranslator
     /// <param name="file">The file being translated.</param>
     /// <param name="typed">What the player typed.</param>
     /// <returns>What the machine says back, and what it produced when the word was right.</returns>
-    /// <remarks>
-    /// Matched against the one word that completes it and nothing cleverer, ignoring case
-    /// and surrounding space. The player has to have read <c>Sum</c> somewhere — that is the
-    /// puzzle — and accepting anything that merely looks Latin would hand it over.
-    /// </remarks>
     public SidneyResult Append(SidneyFile? file, string? typed)
     {
         if (Find(file) is not { Incomplete: true })

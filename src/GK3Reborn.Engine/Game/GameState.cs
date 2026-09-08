@@ -9,18 +9,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The game's observable state: what scripts read and write.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Everything here is what the plan's differential harness compares between
-/// implementations. Presentation — camera cuts, animations, dialogue — is recorded as
-/// events rather than held as state, because two engines can draw a scene differently
-/// and still be equivalent, while disagreeing about a flag means the game diverges.
-/// </para>
-/// <para>
-/// Names are case-insensitive throughout, matching the language: the specification says
-/// upper and lower case are the same, and scripts spell the same flag several ways.
-/// </para>
-/// </remarks>
 public sealed class GameState
 {
     private readonly Dictionary<string, int> _variables = new(StringComparer.OrdinalIgnoreCase);
@@ -34,25 +22,11 @@ public sealed class GameState
     private readonly HashSet<string> _sidneyFiles = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Which inventory items have been through the scanner.</summary>
-    /// <remarks>
-    /// Beside the file names rather than derived from them. The story asks about the
-    /// <em>file</em> — <c>DoesSidneyFileExist("fileParchment1")</c> — and Sidney's own store
-    /// has to show the <em>item</em> it came from, with its name and what may be done to it.
-    /// Reversing a file name back to an item would mean the naming rule had to stay
-    /// invertible for ever, which is a promise not worth making for one set of strings.
-    /// </remarks>
     private readonly HashSet<string> _sidneyScans = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// People the player is to be treated as having met, whatever the story can show.
     /// </summary>
-    /// <remarks>
-    /// Only ever filled from a save, and only where the save cannot answer the question
-    /// itself: the labels normally read the game's own conditions, and a game played
-    /// through leaves the topic counts those conditions ask about. A save the 1999 game
-    /// wrote leaves none of them, so what it does say — the point in the story it stands at
-    /// — is turned into names here. See <see cref="Story.Introductions.MetBy"/>.
-    /// </remarks>
     private readonly HashSet<string> _introduced = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly DeterministicRandom _random = new(DefaultRandomSeed);
@@ -60,12 +34,6 @@ public sealed class GameState
     /// <summary>
     /// Where the game's luck starts.
     /// </summary>
-    /// <remarks>
-    /// Fixed, and the sequence is reproducible from it, because ADR 0004 forbids ambient
-    /// nondeterminism in engine code and the differential harness compares two runs of the
-    /// same story. A script asking for a random number is asking the state for one, and how
-    /// many it has asked for is part of what makes two runs comparable.
-    /// </remarks>
     private const ulong DefaultRandomSeed = 0x9E3779B97F4A7C15;
 
     /// <summary>What each character is carrying.</summary>
@@ -74,62 +42,26 @@ public sealed class GameState
     /// <summary>
     /// Which of the scene's cameras the view is at, or empty for the scene's default.
     /// </summary>
-    /// <remarks>
-    /// A name rather than a position, because that is what the scripts deal in and what
-    /// survives a scene being rebuilt. Cleared on changing location, where the names belong
-    /// to a room that is no longer there.
-    /// </remarks>
     public string CameraAngle { get; set; } = string.Empty;
 
     /// <summary>
     /// What the view is looking at closely, or empty when it is looking at the room.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Inspecting is a camera, not a screen. <c>InspectObject</c> moves the view to the
-    /// close-up the scene declares for a thing and <c>UnInspect</c> brings it back —
-    /// there is nothing drawn over the room and nothing modal about it, which is why
-    /// modelling it as one of <see cref="ScreenLayers"/> left the verb doing nothing
-    /// visible at all.
-    /// </para>
-    /// <para>
-    /// It sits beside <see cref="CameraAngle"/> rather than replacing it, and that is what
-    /// makes coming back free: the angle the story left the view at is still there
-    /// underneath, so clearing this returns to it without anything having to remember it.
-    /// </para>
-    /// </remarks>
     public string Inspecting { get; set; } = string.Empty;
 
     /// <summary>
     /// Whether the last camera move was asked to take a moment.
     /// </summary>
-    /// <remarks>
-    /// A cut and a glide end in the same place, so this is the only thing that separates
-    /// them once <see cref="CameraAngle"/> has changed. Not in the state hash: where the
-    /// view ends up is a fact about the story, how it got there is not, and two runs that
-    /// disagree only about that have not diverged.
-    /// </remarks>
     public bool CameraGliding { get; set; }
 
     /// <summary>
     /// Whether the story may cut the camera about even with cinematics turned off.
     /// </summary>
-    /// <remarks>
-    /// <c>SetForcedCameraCuts</c>: a script about to show something the player has to see
-    /// says so, and the preference gives way for as long as it holds.
-    /// </remarks>
     public bool ForcedCameraCuts { get; set; }
 
     /// <summary>
     /// Whether the player wants the story moving the camera at all.
     /// </summary>
-    /// <remarks>
-    /// A preference the original also has, and one that changes what a script does:
-    /// <c>CutToCameraAngle</c> only cuts when this or <see cref="ForcedCameraCuts"/> is on,
-    /// while <c>ForceCutToCameraAngle</c> ignores both. It is in the state hash for that
-    /// reason — two runs made with different answers to it will diverge, and the harness
-    /// should see why rather than wonder.
-    /// </remarks>
     public bool CinematicsEnabled { get; set; } = true;
 
     /// <summary>The flag the game's own easter-egg content is written against.</summary>
@@ -138,19 +70,6 @@ public sealed class GameState
     /// <summary>
     /// Whether the game's easter-egg content is switched on.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A player's preference kept as a story flag, because a flag is where the game itself
-    /// looks: <c>EGG</c> is a built-in action case, and Sidney's sixth email is written
-    /// against <c>GetFlag("Egg")</c>. Reading it through a property rather than leaving
-    /// everybody to spell the flag gives it one name and one place.
-    /// </para>
-    /// <para>
-    /// Which means it can arrive in a save, and it must not: it is what this player asked
-    /// for, not something the story earned. <see cref="Restore"/> puts the current answer
-    /// back over whatever the save had, so loading somebody else's game does not turn it on.
-    /// </para>
-    /// </remarks>
     public bool EasterEggs
     {
         get => GetFlag(EasterEggFlag);
@@ -171,44 +90,15 @@ public sealed class GameState
     /// <summary>
     /// Whether nothing the story does is allowed to kill Gabriel.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A preference, and one that changes what a script does — which is why it sits here
-    /// beside <see cref="CinematicsEnabled"/> rather than being read out of the settings
-    /// wherever it is wanted, and why it is in the state hash. Two runs made with different
-    /// answers to it diverge, and the harness should be able to see why.
-    /// </para>
-    /// <para>
-    /// Not a story flag, unlike <see cref="EasterEggs"/>: nothing in the game's own data
-    /// asks about it, because the game's own data has never heard of it. And like the
-    /// easter eggs it must not arrive in a save — it is what this player asked for, not
-    /// something the story earned — so <see cref="Restore"/> puts the current answer back.
-    /// </para>
-    /// </remarks>
     public bool PlotArmour { get; set; }
 
     /// <summary>Whether Gabriel catches TE3's blade himself.</summary>
-    /// <remarks>
-    /// A preference, held and restored exactly like <see cref="PlotArmour"/>: the player
-    /// asked for it, the story did not earn it, and a save made with it on must not turn it
-    /// on for somebody who loads that save with it off. See
-    /// <see cref="Settings.CatchesPendulum"/> for what it costs the puzzle.
-    /// </remarks>
     public bool CatchesPendulum { get; set; }
 
     /// <summary>Actions the story has asked for later.</summary>
-    /// <remarks>
-    /// Story state rather than scene state: a minute set in the lobby has to still be
-    /// counting in the hall, which is why the original saves them.
-    /// </remarks>
     public GameTimers Timers { get; } = new();
 
     /// <summary>What is in front of the room.</summary>
-    /// <remarks>
-    /// State rather than presentation: scripts ask what is showing — <c>IsTopLayerInventory</c>
-    /// is a real question in the data — and behave differently by the answer, so two runs
-    /// that disagree about it have diverged.
-    /// </remarks>
     public ScreenLayers Screens { get; } = new();
 
     /// <summary>The current timeblock, such as <c>110A</c>.</summary>
@@ -217,43 +107,19 @@ public sealed class GameState
     /// <summary>
     /// The camera a conversation falls back to, or null for whatever the scene names.
     /// </summary>
-    /// <remarks>
-    /// A scene's <c>[DIALOGUE_CAMERAS]</c> marks one camera per conversation as the
-    /// <c>initial</c> one, and a script may override it for the exchange it is about to
-    /// start — <c>SetDefaultDialogueCamera("GabMadWide")</c> before a chat with Madeline.
-    /// Clearing it puts the scene's own choice back.
-    /// </remarks>
     public string? DefaultDialogueCamera { get; set; }
 
     /// <summary>
     /// A field of view a script has asked for, in radians, or null for the scene's own.
     /// </summary>
-    /// <remarks>
-    /// The original renders at sixty degrees and the scene files override it per camera —
-    /// <c>fov=20</c> on a close-up. This is the other override: a script narrowing the view
-    /// for a moment. Null rather than sixty degrees, so that "nobody has asked" and "somebody
-    /// asked for the default" stay distinguishable.
-    /// </remarks>
     public float? CameraFieldOfView { get; set; }
 
     /// <summary>
     /// Hit tests a script has switched off, by name.
     /// </summary>
-    /// <remarks>
-    /// A hit test is a volume the player can click and never see — a doorway's clickable
-    /// area, the patch of desk a note lies on. Scripts turn them off while something else
-    /// is happening and on again afterwards, which is how a scene stops the player clicking
-    /// through a cutscene.
-    /// </remarks>
     public ISet<string> BlockedHitTests { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Three-letter code of the current location.</summary>
-    /// <remarks>
-    /// Moving remembers where you moved from, whoever does the moving. A script says
-    /// <c>SetLocation("mop")</c> and the room loop follows with the arrival, so two
-    /// separate places set this — and each of them treating the other as the one that
-    /// records the change is how <see cref="LastLocation"/> stayed empty for ever.
-    /// </remarks>
     public string Location
     {
         get => _location;
@@ -270,56 +136,12 @@ public sealed class GameState
     }
 
     /// <summary>Three-letter code of the location before this one.</summary>
-    /// <remarks>
-    /// Scenes are built differently depending on where the player came from — which door
-    /// stands open, which backdrop is visible through it — so this is state a scene reads,
-    /// not a breadcrumb. It is also what decides <em>where the player is standing</em> on
-    /// arrival: a room's <c>SCENE:ENTER</c> asks <c>WasLastLocation</c> and stands them at
-    /// the matching spot. Left empty, every arrival is the room's default.
-    /// </remarks>
     public string LastLocation { get; private set; } = string.Empty;
 
     /// <summary>
     /// Rides the moped somewhere, arriving from the driving map.
     /// </summary>
     /// <param name="location">The room the chosen place loads.</param>
-    /// <remarks>
-    /// <para>
-    /// The map is a location in the original rather than a panel over one, so a ride is two
-    /// moves: out of the room, onto the map, and off it again into the next room. Doing it
-    /// as two moves rather than one is the whole of this method, and it is what leaves
-    /// <see cref="LastLocation"/> saying <c>MAP</c> — which is the question the game's own
-    /// data asks about a ride.
-    /// </para>
-    /// <para>
-    /// <b>What went wrong without it.</b> Riding to Larry Chester's house set the location
-    /// straight to <c>LHE</c> from wherever the player had been, so the room was built as
-    /// though they had walked in from that room instead. <c>LHE.SIF</c> declares Gabriel's
-    /// moped under <c>WasLastLocation("Map")</c> and the yard had no moped in it; the
-    /// scene's only way back to the map is an <c>EXIT</c> guarded by the moped being
-    /// there, so there was no way out; and the room names no <c>FR_MOP</c>, so the player
-    /// stood at the origin rather than at <c>FR_MAP</c>. Ten more of the game's scene
-    /// scripts place the player by the same question.
-    /// </para>
-    /// <para>
-    /// <b>And the moped is now parked there.</b> Six of the game's scene files draw it from
-    /// <c>BikeLocation</c> and three of its action files let the player leave on it only
-    /// when that number is the room they are standing in, so a ride that does not move it
-    /// strands them: Blanchefort was reported exactly that way. See
-    /// <see cref="DrivingMap.ParkedAt"/> for what the number is and why the original never
-    /// wrote it.
-    /// </para>
-    /// <para>
-    /// Written before the room is built, which is what makes it count: a scene file's
-    /// conditions are decided as it is read, and the two scripts that set this variable
-    /// themselves do it from an arrival script that runs afterwards.
-    /// </para>
-    /// <para>
-    /// Passing through is not visiting: only the room loop records a location as somewhere
-    /// the player has been, so a ride does not put the map itself into the places they have
-    /// been to.
-    /// </para>
-    /// </remarks>
     public void RideTo(string location)
     {
         ArgumentNullException.ThrowIfNull(location);
@@ -344,11 +166,6 @@ public sealed class GameState
     /// <summary>
     /// Whether the action chooser is insisting on an answer.
     /// </summary>
-    /// <remarks>
-    /// <c>SetVerbModal</c> in the data: the story has asked a question and wants one of the
-    /// offered actions rather than a shrug. The flag is kept faithfully because scripts set
-    /// and clear it around moments that depend on it.
-    /// </remarks>
     /// <seealso href="Plan/03-gameplay-ui-audio.md">
     /// Section 2.1 requires that no puzzle action fire because the engine guessed, so a
     /// chooser the player cannot leave must still offer a way out that chooses <em>nothing</em>
@@ -359,20 +176,9 @@ public sealed class GameState
     public bool MustChooseAnAction { get; set; }
 
     /// <summary>How many random numbers scripts have drawn.</summary>
-    /// <remarks>
-    /// Observable state, not a statistic: two runs that have drawn a different number of
-    /// times will disagree about everything random from then on, and a differential run
-    /// should see that immediately rather than at the first visible consequence.
-    /// </remarks>
     public int RandomDraws { get; private set; }
 
     /// <summary>The files the player has gathered in Sidney, in a stable order.</summary>
-    /// <remarks>
-    /// Sidney is the in-game computer, and its files are evidence: a photograph scanned in,
-    /// a shape traced off a map, a text translated. Scripts ask whether one is there before
-    /// letting the story move on. Nothing puts them there yet — that is the analysis screen
-    /// — so this reads as an investigation nobody has started.
-    /// </remarks>
     public IReadOnlyList<string> SidneyFiles =>
         [.. _sidneyFiles.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)];
 
@@ -403,19 +209,6 @@ public sealed class GameState
     /// <summary>
     /// How many times the player has done a verb to a noun.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// GK3 gates a great deal of dialogue on these counts — the second time you ask about
-    /// something you get a different answer — so they are game state, not statistics.
-    /// </para>
-    /// <para>
-    /// Counted <em>per character</em>. Gabriel and Grace investigate the same places and
-    /// what one of them has already looked at says nothing about the other, so
-    /// <c>1ST_TIME</c> means the first time for whoever is being played. The game has a
-    /// function whose only purpose is to set both at once, <c>SetNounVerbCountBoth</c>,
-    /// which is what gives the distinction away.
-    /// </para>
-    /// </remarks>
     public int GetNounVerbCount(string noun, string verb) => GetNounVerbCount(Ego, noun, verb);
 
     /// <summary>How many times one character has done a verb to a noun.</summary>
@@ -455,12 +248,6 @@ public sealed class GameState
     /// <param name="topic">The topic.</param>
     /// <param name="condition">The case under which that line applies.</param>
     /// <returns>True when it has been said before.</returns>
-    /// <remarks>
-    /// Keyed by the case as well as the topic, because a topic is written as several lines
-    /// under different conditions and each is said once. The count alone cannot say which:
-    /// two conditions may both hold, and asking again should give the one not yet heard
-    /// rather than the first one again.
-    /// </remarks>
     public bool HasSaid(string noun, string topic, string condition) =>
         _saidTopics.Contains(Line(noun, topic, condition));
 
@@ -475,22 +262,11 @@ public sealed class GameState
         $"{noun}\u0001{topic}\u0001{condition}";
 
     /// <summary>The conversation the player is in, or null when they are not in one.</summary>
-    /// <remarks>
-    /// Set by <c>SetConversation</c> and cleared by <c>EndConversation</c>. While it is set
-    /// the interface offers topics rather than verbs, and the scene may use its dialogue
-    /// cameras.
-    /// </remarks>
     public string? Conversation { get; set; }
 
     /// <summary>
     /// Whether an exchange is under way, so that its camera is chosen once.
     /// </summary>
-    /// <remarks>
-    /// A conversation is many calls — a topic's script says several lines and each is its
-    /// own <c>StartDialogue</c> — and cutting on every one of them would make the camera
-    /// jump each time somebody drew breath. Cleared when the conversation ends and when the
-    /// player does anything else.
-    /// </remarks>
     public bool Talking { get; set; }
 
     /// <summary>Where an actor currently is.</summary>
@@ -518,11 +294,6 @@ public sealed class GameState
     /// <summary>Everywhere an actor has ever been, in any timeblock.</summary>
     /// <param name="actor">The actor.</param>
     /// <returns>The location codes, without repeats.</returns>
-    /// <remarks>
-    /// Read out of the visit counts rather than kept separately, so there is one answer to
-    /// "has this actor been here" and the driving map cannot offer somewhere the story does
-    /// not think they have been.
-    /// </remarks>
     public IReadOnlyList<string> VisitedLocations(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -565,13 +336,6 @@ public sealed class GameState
     /// </summary>
     /// <param name="actor">The actor arriving.</param>
     /// <param name="location">Three-letter location code.</param>
-    /// <remarks>
-    /// Call this <em>after</em> the scene has been built, not before. The original does the
-    /// same and says why: a SIF asks <c>GetEgoCurrentLocationCount() &lt; 1</c> to mean "the
-    /// first time here", so while the scene is being assembled the count must still be the
-    /// number of <em>previous</em> visits. Scripts that run once the scene is up check for
-    /// one instead. Incrementing first turns every first visit into a second.
-    /// </remarks>
     public void EnterLocation(string actor, string location)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -608,17 +372,6 @@ public sealed class GameState
     /// <param name="name">The event, as a script names it.</param>
     /// <param name="worth">What it is worth, or null when nothing knows.</param>
     /// <returns>True when it scored, false when it had already been earned or is unknown.</returns>
-    /// <remarks>
-    /// <para>
-    /// <c>ChangeScore</c> takes a name and not a number — <c>ChangeScore("e_110a_lby_read_register")</c>
-    /// — which is easy to misread, and reading it as a number awards zero every time.
-    /// </para>
-    /// <para>
-    /// The set of events earned is part of the state and part of a save. It is what makes
-    /// the score stable across a reload, and it is a record of what the player has actually
-    /// done rather than only of how many points they have.
-    /// </para>
-    /// </remarks>
     public bool AwardScore(string name, int? worth)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -635,20 +388,6 @@ public sealed class GameState
     /// <summary>
     /// Whether the clock is being moved on, and to when.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set by <c>SetTime</c> and cleared once the new timeblock has been started. It exists
-    /// because a timeblock change is not a room change with a different clock: the room
-    /// being left is unloaded, the timeblock's closing film plays, the player is shown where
-    /// they have got to, and only then is the next room built. Whatever asked to change
-    /// rooms has to stand aside for all of that, which is what the original's
-    /// <c>IsChangingTimeblock</c> is for.
-    /// </para>
-    /// <para>
-    /// Not in the state hash: it is true for the length of a transition and never while the
-    /// game is sitting still.
-    /// </para>
-    /// </remarks>
     public Timeblock? ChangingTo { get; private set; }
 
     /// <summary>Whether the clock is on its way somewhere.</summary>
@@ -660,11 +399,6 @@ public sealed class GameState
     /// <param name="timeblock">Where the clock is going.</param>
     /// <param name="location">Where the player will be, or null to leave that to the caller.</param>
     /// <returns>True when the clock actually moved.</returns>
-    /// <remarks>
-    /// Asking for the timeblock the game is already in does nothing, which is what the
-    /// original does and what keeps a completion rule that fires twice from playing the
-    /// closing film twice.
-    /// </remarks>
     public bool ChangeTimeblock(Timeblock timeblock, string? location = null)
     {
         if (timeblock == Timeblock)
@@ -695,21 +429,11 @@ public sealed class GameState
     /// <summary>
     /// Whether the camera is fenced in by the room's shell.
     /// </summary>
-    /// <remarks>
-    /// On unless a script says otherwise, and a script saying otherwise means it only
-    /// until the next room: the original notes that turning them off does not survive a
-    /// scene load, and 35 calls rely on that rather than turning them back on.
-    /// </remarks>
     public bool CameraBoundaries { get; set; } = true;
 
     /// <summary>The expression somebody is wearing, or null.</summary>
     /// <param name="actor">Their model name.</param>
     /// <returns>The mood.</returns>
-    /// <remarks>
-    /// State rather than presentation: a mood is worn until something clears it, and what
-    /// clears it is an animation that has to know which one to play. It survives a save for
-    /// the same reason — a character reloaded mid-scene should still look how they looked.
-    /// </remarks>
     public string? MoodOf(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -761,24 +485,11 @@ public sealed class GameState
     /// What is on Sidney's map: the places marked, the figures laid over them and the
     /// ruling.
     /// </summary>
-    /// <remarks>
-    /// <b>Here rather than on the map itself, because the story is what a save records.</b>
-    /// The map puzzle runs over several sittings — mark a village, go and read a painting's
-    /// geometry, come back and lay the figure it saved — and a map that forgot itself when
-    /// the game was closed would make the whole of it one sitting long. The machine writes
-    /// through to this after every change and reads it back when a save is loaded.
-    /// </remarks>
     public SavedMap SidneyMap { get; set; } = new([], [], 0);
 
     /// <summary>How many hints the player has asked for about one objective.</summary>
     /// <param name="objective">What it is filed under.</param>
     /// <returns>The count, nought when they have never asked.</returns>
-    /// <remarks>
-    /// The journal's one piece of state. Everything else it shows is read from the score
-    /// events the story already records, so it cannot drift out of step with the game — but
-    /// how much of the answer somebody has asked to be told is theirs, and it has to survive
-    /// closing the game or the hint button starts again from the top every session.
-    /// </remarks>
     public int HintsAsked(string objective)
     {
         ArgumentNullException.ThrowIfNull(objective);
@@ -822,13 +533,6 @@ public sealed class GameState
 
     /// <summary>Takes somebody as met, whatever the story can still show.</summary>
     /// <param name="noun">The noun a scene gives them.</param>
-    /// <remarks>
-    /// For a save that cannot answer the question the labels normally ask; see
-    /// <see cref="_introduced"/>. Nothing in the game's own data calls this, and nothing
-    /// should: an introduction that happens in front of the player is recorded by the topic
-    /// or the verb the game itself counts, and inventing a second record of it would give
-    /// the two ways to be wrong.
-    /// </remarks>
     public void Introduce(string noun)
     {
         ArgumentNullException.ThrowIfNull(noun);
@@ -847,20 +551,6 @@ public sealed class GameState
     /// </summary>
     /// <param name="title">What to call it.</param>
     /// <returns>The save.</returns>
-    /// <remarks>
-    /// <para>
-    /// The composite keys go across whole rather than being taken apart and rebuilt. They
-    /// are this class's own private encoding — an actor, a noun and a verb joined by a
-    /// separator no name contains — and a save that decomposed them would have to agree
-    /// with that encoding for ever. Copying them keeps the round trip exact by
-    /// construction, which is what makes the hash test meaningful rather than circular.
-    /// </para>
-    /// <para>
-    /// Compare with <see cref="ComputeHash"/>: the two enumerate the same things, and they
-    /// have to. Anything the hash counts as part of the game and this leaves out is
-    /// something a loaded game would have lost.
-    /// </para>
-    /// </remarks>
     public SaveGame Capture(string title = "")
     {
         (ulong s0, ulong s1, ulong s2, ulong s3) = _random.CaptureState();
@@ -915,13 +605,6 @@ public sealed class GameState
     /// Puts a saved game back, throwing away whatever was here.
     /// </summary>
     /// <param name="save">The save.</param>
-    /// <remarks>
-    /// <b>Everything is cleared first.</b> Loading into a state that still holds the
-    /// previous game's flags is the classic save bug: the story reads a flag nobody set in
-    /// this run and takes a branch the player never earned, and it only shows up hours
-    /// later. Setting is not enough; unsetting has to happen too, and a save records only
-    /// what is set.
-    /// </remarks>
     public void Restore(SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
@@ -1077,12 +760,6 @@ public sealed class GameState
     /// <param name="lower">Smallest value it may take.</param>
     /// <param name="upper">Largest value it may take.</param>
     /// <returns>The number.</returns>
-    /// <remarks>
-    /// Both ends are inclusive because the original's documentation says so, which is worth
-    /// stating because the generator underneath is upper-exclusive like every other. A
-    /// range the wrong way round yields its lower bound rather than throwing: scripts pass
-    /// computed bounds, and a crash is a worse answer than a dull one.
-    /// </remarks>
     public int NextRandom(int lower, int upper)
     {
         RandomDraws++;
@@ -1093,11 +770,6 @@ public sealed class GameState
     /// <summary>
     /// A hash of everything observable, for comparing runs.
     /// </summary>
-    /// <remarks>
-    /// Ordering is made explicit before hashing. Dictionary enumeration order is not
-    /// guaranteed, and a state hash that changed between runs of the same build would be
-    /// useless for exactly the comparison it exists to support.
-    /// </remarks>
     public string ComputeHash()
     {
         var builder = new StringBuilder();
@@ -1160,10 +832,6 @@ public sealed class GameState
     }
 
     /// <summary>Whether a name refers to the actor the player is controlling.</summary>
-    /// <remarks>
-    /// Scripts spell ego several ways — <c>GABRIEL</c>, <c>GAB</c>, <c>Gabe</c> — so this
-    /// matches on the prefix the two names share rather than on equality.
-    /// </remarks>
     private bool IsEgo(string actor) =>
         Key(actor).StartsWith(Key(Ego)[..Math.Min(3, Key(Ego).Length)], StringComparison.Ordinal);
 
@@ -1172,12 +840,6 @@ public sealed class GameState
     /// <summary>
     /// The key a visit is counted under.
     /// </summary>
-    /// <remarks>
-    /// Counts are per timeblock, because that is the question the scripts ask: a SIF wants
-    /// to know whether this is the first time here <em>this afternoon</em>, not the first
-    /// time in the game. <see cref="WasEverInLocation"/> is the across-all-timeblocks form
-    /// and matches on the prefix, which is why the timeblock goes last.
-    /// </remarks>
     private static string LocationKey(string actor, string location, string timeblock) =>
         $"{Key(actor)}|{Key(location)}|{timeblock}";
 

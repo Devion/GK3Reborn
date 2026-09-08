@@ -40,38 +40,11 @@ public readonly record struct WalkRoute(bool ReachedGoal, IReadOnlyList<Vector3>
 /// <summary>
 /// Finds a way across a scene's walk boundary.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The algorithm is G-Engine's <c>WalkerBoundary::FindPath</c>: a breadth-first search
-/// over the boundary's texels, then two passes of conditioning to make the result look
-/// like something a person would walk. G-Engine's note on why it is not A* is worth
-/// keeping — the graph is enormous and its edges are effectively unweighted, so the
-/// heuristic buys nothing that the queue was not already giving.
-/// </para>
-/// <para>
-/// The search runs on a sparse lattice first, taking every fourth texel, and halves that
-/// only when it fails. Most walks are across open floor and find their way at the coarsest
-/// setting; a doorway three texels wide is what forces the full grid. Intermediate texels
-/// are still tested when stepping between lattice nodes, so a sparse search cannot walk
-/// through a wall — it can only fail to find a gap.
-/// </para>
-/// <para>
-/// Then the gradient earns its keep. Regions 0-7 measure distance from a wall, so the
-/// interior nodes of the route are nudged towards lower indices until they are comfortably
-/// clear of one, and the route is string-pulled: where three consecutive nodes have open
-/// floor between the first and the third, the middle one is not doing any work. Without
-/// both, a BFS path scrapes the walls and turns on every texel.
-/// </para>
-/// </remarks>
 public static class WalkPath
 {
     /// <summary>
     /// The order neighbours are considered in: the four sides, then the four corners.
     /// </summary>
-    /// <remarks>
-    /// The order decides which of several equally short routes comes out, so it is part of
-    /// the behaviour rather than an implementation detail. This is G-Engine's order.
-    /// </remarks>
     private static readonly (int X, int Y)[] Neighbours =
         [(0, 1), (0, -1), (1, 0), (-1, 0), (1, 1), (1, -1), (-1, 1), (-1, -1)];
 
@@ -79,26 +52,12 @@ public static class WalkPath
     private const int InitialNodeSkip = 4;
 
     /// <summary>The region a conditioned node is happy to sit on.</summary>
-    /// <remarks>
-    /// Far enough from the wall that an actor of ordinary width clears it. Pushing all the
-    /// way to zero would drag every route to the middle of the room.
-    /// </remarks>
     private const int ClearOfWalls = 4;
 
     /// <summary>The highest region a string-pulled shortcut may cross.</summary>
-    /// <remarks>
-    /// A shortcut is a straight line with no conditioning of its own, so it is held to a
-    /// tighter standard than a node the search chose: 7 and 8 are close enough to a wall
-    /// that cutting a corner across them clips it.
-    /// </remarks>
     private const int ShortcutCeiling = 6;
 
     /// <summary>How many nodes may be dropped from one place before moving along.</summary>
-    /// <remarks>
-    /// String pulling with no limit collapses a route to a single straight line wherever
-    /// it can, which loses the shape of a room — the way a corridor bends, or a route that
-    /// goes around a table rather than at it.
-    /// </remarks>
     private const int MaxErasures = 3;
 
     /// <summary>Finds a way from one point to another.</summary>
@@ -157,11 +116,6 @@ public static class WalkPath
     /// <param name="skip">How many texels a step covers.</param>
     /// <param name="path">Receives the route, start first, replacing whatever it held.</param>
     /// <returns>True if the goal was reached.</returns>
-    /// <remarks>
-    /// A failed search still fills <paramref name="path"/>, with the route to whichever
-    /// node came closest to the goal. That is the difference between an actor who walks as
-    /// far as the locked door and one who stands still when you click past it.
-    /// </remarks>
     private static bool Search(
         WalkBoundary boundary,
         (int X, int Y) start,
@@ -284,10 +238,6 @@ public static class WalkPath
     }
 
     /// <summary>Whether a straight step between two texels stays on open ground.</summary>
-    /// <remarks>
-    /// Only matters when the search is stepping several texels at a time: a lattice node
-    /// on either side of a wall is no use if the wall is between them.
-    /// </remarks>
     private static bool IsClear(WalkBoundary boundary, int fromX, int fromY, int toX, int toY) =>
         Crosses(boundary, (fromX, fromY), (toX, toY), ceiling: 0);
 
@@ -301,28 +251,6 @@ public static class WalkPath
     /// The highest ordinary region the line may cross, or zero for any walkable one.
     /// </param>
     /// <returns>True when an actor may walk it.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The line has to be the line.</b> This used to walk towards the far end one texel
-    /// at a time, moving diagonally while both axes differed and straight afterwards — which
-    /// for anything but a pure axis or a pure diagonal is a different path from the one it
-    /// is meant to be testing. From (0,0) to (10,2) it went diagonally to (2,2) and then
-    /// straight along the row, so a wall standing across the middle of the real line was
-    /// never sampled and the shortcut was allowed. The actor then walked the real line,
-    /// through the wall.
-    /// </para>
-    /// <para>
-    /// Stepping the dominant axis one texel at a time and rounding the other is exact
-    /// enough: no texel along the line is skipped, because neither axis can advance by more
-    /// than one in a step.
-    /// </para>
-    /// <para>
-    /// <b>A diagonal step must not slip between two blocked texels that meet at a corner.</b>
-    /// Both of the texels it passes between have to be open, or the line goes through the
-    /// join — which is a wall with no gap in it as far as anybody looking at the room is
-    /// concerned.
-    /// </para>
-    /// </remarks>
     private static bool Crosses(
         WalkBoundary boundary, (int X, int Y) from, (int X, int Y) to, int ceiling)
     {
@@ -381,11 +309,6 @@ public static class WalkPath
     }
 
     /// <summary>Nudges the route's interior off the walls.</summary>
-    /// <remarks>
-    /// The ends are left exactly where they were. They are where an actor is standing and
-    /// where it was told to go, and moving either of those is a bug rather than a polish
-    /// — an actor asked to stand on a mark has to stand on the mark.
-    /// </remarks>
     private static void AwayFromWalls(WalkBoundary boundary, List<(int X, int Y)> path)
     {
         for (int i = 1; i < path.Count - 1; i++)
@@ -430,12 +353,6 @@ public static class WalkPath
     }
 
     /// <summary>Drops nodes the route does not need.</summary>
-    /// <remarks>
-    /// Given three consecutive nodes, if the walk from the first to the third is clear then
-    /// the second was an artefact of the grid. G-Engine's limit on how many may go at once
-    /// is kept, and reset each time the window moves, so the route keeps the shape of the
-    /// room instead of collapsing onto the longest straight line available.
-    /// </remarks>
     private static void PullString(WalkBoundary boundary, List<(int X, int Y)> path)
     {
         int first = 0;
@@ -462,10 +379,6 @@ public static class WalkPath
     }
 
     /// <summary>Whether a straight walk between two texels is comfortable.</summary>
-    /// <remarks>
-    /// Stricter than <see cref="IsClear"/>: a shortcut also has to keep clear of the walls,
-    /// or string pulling would undo the conditioning that just moved the route off them.
-    /// </remarks>
     private static bool IsWalkableLine(
         WalkBoundary boundary, (int X, int Y) from, (int X, int Y) to) =>
         Crosses(boundary, from, to, ShortcutCeiling);

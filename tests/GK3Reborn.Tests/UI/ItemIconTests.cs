@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for fitting an item's picture into the square a list leaves for it.
 /// </summary>
-/// <remarks>
-/// The pictures are not all one shape — a passport is wider than it is tall, a dagger the
-/// other way about — so the square is what the layout reserves and the picture is what
-/// goes in the middle of it. Filling the square instead is how a list ends up showing a
-/// squashed picture of the thing the player is trying to recognise.
-/// </remarks>
 public sealed class ItemIconTests
 {
     [Fact]

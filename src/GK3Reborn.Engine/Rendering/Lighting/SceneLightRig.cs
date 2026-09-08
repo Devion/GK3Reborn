@@ -55,12 +55,6 @@ public sealed record SceneLightPatch
 }
 
 /// <summary>One light in a scene's rig.</summary>
-/// <remarks>
-/// Derived lights are produced by pipeline stage C4b, which back-projects lightmap
-/// luminance into world space to guess where the 1999 artists put their lights. That
-/// guess is a starting point: every field can be corrected, and lights can be added
-/// or deleted outright, through the edit layer. See ADR 0002 and ADR 0006.
-/// </remarks>
 public sealed record SceneLight : IAuthorable<SceneLight, SceneLightPatch>
 {
     /// <summary>Stable identifier within the scene.</summary>
@@ -170,10 +164,6 @@ public sealed record SceneLightRig
 /// <summary>
 /// Hand-authored corrections to a scene's derived lighting rig.
 /// </summary>
-/// <remarks>
-/// Stored beside the generated rig as <c>&lt;SCENE&gt;.lighting.edits.json</c> and never
-/// written by the generator, so re-running C4b cannot destroy an artist's work.
-/// </remarks>
 public sealed record SceneLightEdits
 {
     /// <summary>Schema version.</summary>

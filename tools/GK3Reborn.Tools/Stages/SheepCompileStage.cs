@@ -20,20 +20,6 @@ public readonly record struct SheepCompileSummary(
 /// <summary>
 /// Compiles Sheep source into the bytecode the game's own machine runs.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The end of P4's front end, and the thing that makes the rest of it checkable: source in,
-/// a <c>.SHP</c> out, disassembled beside it so that what was emitted can be read rather
-/// than assumed.
-/// </para>
-/// <para>
-/// Signatures come from the game when it is to hand. Every compiled script carries an
-/// import table saying what each function it calls takes and returns, so the 224 shipped
-/// scripts describe all 139 functions the game uses — which is the difference between
-/// <c>SetTimerSeconds(2)</c> compiling to a converted int, as the original does, and
-/// compiling to an integer the callee reads as a float.
-/// </para>
-/// </remarks>
 public sealed class SheepCompileStage
 {
     private readonly Action<string> _log;

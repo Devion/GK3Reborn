@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for which action files a scene brings into scope.
 /// </summary>
-/// <remarks>
-/// The name of a file is the condition on it — <c>R25_23ALL.NVC</c> applies on days two
-/// and three — so getting the grammar wrong does not fail loudly. It gives an object verbs
-/// it should not have yet, or takes away the one the puzzle needed.
-/// </remarks>
 public sealed class ActionSetTests
 {
     private static Timeblock At(string code)

@@ -9,30 +9,6 @@ namespace GK3Reborn.Game.Actors;
 /// <summary>
 /// The faces in a room, and what each of them is doing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's characters have no facial geometry. A head is one mesh wearing one bitmap, and
-/// every expression the game has — a word, a blink, a raised brow — is a small picture
-/// pasted into a copy of that bitmap while the game runs. <c>FACES.TXT</c> says where each
-/// region goes; the animations say which picture and when.
-/// </para>
-/// <para>
-/// So this is a compositor with a clock. Three regions are tracked per character — mouth,
-/// eyelids, forehead — and whenever any of them changes, the four bitmaps are pasted
-/// together into a face, given to the renderer under a name of its own, and the character's
-/// head is repainted with it. Compositions are cached by what they are made of, because a
-/// sentence comes back to the same eight mouth shapes over and over and a blink is the same
-/// two pictures every time.
-/// </para>
-/// <para>
-/// Two things drive it. <b>Lip sync</b> comes from the line being spoken: a <c>.YAK</c>
-/// carries the recording in its <c>[SOUNDS]</c> and the mouth shapes in its <c>[GK3]</c>,
-/// against the same frame numbers, so the mouth follows the words by construction rather
-/// than by analysis. <b>Blinking</b> runs on its own: every character has two blink
-/// animations and a frequency in <c>FACES.TXT</c>, and one is drawn at random every five to
-/// twelve seconds. Without that, a room full of people stares.
-/// </para>
-/// </remarks>
 public sealed class Faces
 {
     private readonly FaceLibrary _library;
@@ -40,37 +16,12 @@ public sealed class Faces
     /// <summary>The three letters a character's own bitmaps and animations are named after.</summary>
     /// <param name="model">Their model name, which may carry a clothing variant with it.</param>
     /// <returns>The code, or null when nothing in FACES.TXT is about them.</returns>
-    /// <remarks>
-    /// Not always the model name. The lobby places Simone as <c>sim_</c> and her face is
-    /// listed under <c>SIM</c>, so an animation built from the model name — <c>sim_sleepon</c>
-    /// — names nothing at all. It is the same code the mouth and eyelid bitmaps use.
-    /// </remarks>
     public string? CodeFor(string model) =>
         _library.Of(model)?.Identifier;
 
     /// <summary>
     /// Whose artwork a character's face is composed from, where it is not their own.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Both sides are the three-letter code <c>FACES.TXT</c> lists a character under, and
-    /// the substitute has to be one the file describes and whose bitmaps are in the
-    /// archives — a name with nothing behind it leaves the face as its own rather than
-    /// blank. The face is still <em>painted onto</em> the character's own texture, so the
-    /// model itself is untouched: it is the picture that changes and not the person.
-    /// </para>
-    /// <para>
-    /// There is one of these, and it is the moustache. <c>GA3</c> is the game's own
-    /// moustached Gabriel — the disguised actor standing offstage in the moped shop — and
-    /// its face bitmap is Gabriel's own with a moustache painted into it, on the same
-    /// layout, with a matching mouth for all eight lip-sync shapes and its own blinks. See
-    /// <see cref="Assists.MoustachedFace"/>.
-    /// </para>
-    /// <para>
-    /// Set before anybody is added, because a face is composed the moment it is taken on.
-    /// Empty is the ordinary case and the game as it shipped.
-    /// </para>
-    /// </remarks>
     public IDictionary<string, string> ComposedFrom { get; } =
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     private readonly GameArchives _archives;
@@ -117,10 +68,6 @@ public sealed class Faces
     public int Count => _order.Count;
 
     /// <summary>How many distinct faces have been composed and uploaded.</summary>
-    /// <remarks>
-    /// A measure of what the effect costs: eight mouth shapes and a couple of blink
-    /// states make a few dozen over a conversation, each a copy of a 256-square bitmap.
-    /// </remarks>
     public int Composed => _composed.Count;
 
     /// <summary>Whether anybody is talking.</summary>
@@ -129,23 +76,12 @@ public sealed class Faces
     /// <summary>
     /// Whose line is running, by model name, or null when nobody is speaking.
     /// </summary>
-    /// <remarks>
-    /// The line names its own actor, so this is known without anybody being told. It is
-    /// what decides whether a character runs their talking script or their listening one:
-    /// lip sync is half of speaking and the gestures are the other half.
-    /// </remarks>
     public string? Speaking =>
         _order.Find(f => f.Line is not null)?.Model.Name;
 
     /// <summary>Takes charge of a character's face, if they have one.</summary>
     /// <param name="model">The character, as the scene placed them.</param>
     /// <returns>True when the face was taken on.</returns>
-    /// <remarks>
-    /// Three things have to line up: <c>FACES.TXT</c> has to describe the character, the
-    /// archives have to hold their face bitmap, and the model actually has to be painted
-    /// with it. Anything else is a model that only looks like a person — a portrait, a
-    /// waxwork, the demon — and is left alone.
-    /// </remarks>
     public bool Add(PlacedModel model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -191,12 +127,6 @@ public sealed class Faces
     /// <c>LIPSYNCH</c> nodes names the actor it belongs to, so nothing here has to be told
     /// who is speaking.
     /// </param>
-    /// <remarks>
-    /// Anything a previous line left on a mouth is put back first. A line cut short —
-    /// which is what starting a conversation over does — otherwise leaves the speaker
-    /// holding whatever shape they were on, and a face frozen mid-word is worse than one
-    /// that never moved.
-    /// </remarks>
     public void Say(AnimationFile? line)
     {
         foreach (Face face in _order)
@@ -248,11 +178,6 @@ public sealed class Faces
     /// <param name="actor">Their noun or their model name.</param>
     /// <param name="part">Which region.</param>
     /// <returns>The bitmap's name, or null when there is no such face here.</returns>
-    /// <remarks>
-    /// The read side of <see cref="Paint(string, FacePart, string?)"/>. A face's regions are
-    /// worn rather than momentary — a mood holds one until its "off" animation takes it back
-    /// — so what is on one is state, and state nothing can read is state nothing can check.
-    /// </remarks>
     public string? Wearing(string actor, FacePart part)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -277,12 +202,6 @@ public sealed class Faces
     }
 
     /// <summary>Moves a mouth to wherever the line being spoken has got to.</summary>
-    /// <remarks>
-    /// The cues are absolute frame numbers from the start of the line, so the last one at
-    /// or before now is the shape — not the next one along. A frame that took longer than a
-    /// fifteenth of a second therefore skips shapes rather than falling behind the sound,
-    /// which is the whole reason the mouth is driven by the clock and not by a cursor.
-    /// </remarks>
     private void Speak(Face face, double seconds)
     {
         if (face.Line is not { } line)
@@ -333,12 +252,6 @@ public sealed class Faces
     /// </summary>
     /// <param name="animation">The animation a script asked for.</param>
     /// <returns>True when somebody's face took it on.</returns>
-    /// <remarks>
-    /// Most of GK3's expressions are animations with no clip in them at all —
-    /// <c>ABEANGRY</c> is two frames of brow bitmaps and nothing else — so an animation
-    /// that moves no geometry is not necessarily an animation that does nothing. It goes
-    /// through the same path a blink does, because a blink <em>is</em> one of these.
-    /// </remarks>
     public bool Perform(AnimationFile animation)
     {
         ArgumentNullException.ThrowIfNull(animation);
@@ -374,33 +287,6 @@ public sealed class Faces
     /// <summary>
     /// Runs whatever expression a face is wearing, and counts down to the next blink.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A blink animation is nothing but <c>FACETEX</c> nodes on the eyelids — three or six
-    /// frames of it — so playing one is walking its nodes by frame, exactly as lip sync
-    /// walks its own, and exactly as a raised eyebrow does. One loop covers all three.
-    /// </para>
-    /// <para>
-    /// <b>An expression that has run is not an expression taken off.</b> Every blink in the
-    /// corpus ends on an <c>UNFACETEX</c> — <c>xxx_BLINK_01</c>, <c>_02</c>, <c>_01</c>,
-    /// clear — which is the animation putting the eyelids back itself, and the same is true
-    /// of the "off" half of every mood. So an animation reaching its last frame stops here
-    /// and changes nothing: whatever its final node said is what the face keeps.
-    /// </para>
-    /// <para>
-    /// That is not a nicety, because the moods are two animations and only the first of
-    /// them runs when the mood goes on. <c>SIMSLEEPON.ANM</c> is one <c>FACETEX</c> holding
-    /// Simone's eyelids at <c>SIM_BLINK_02</c> — shut — and no <c>UNFACETEX</c> at all,
-    /// against <c>SIMSLEEPOFF.ANM</c>, which is the <c>UNFACETEX</c> on its own. Clearing
-    /// the face when the "on" ended opened her eyes two frames after the lobby put her to
-    /// sleep, and she then blinked through the small hours face down on the reception desk.
-    /// </para>
-    /// <para>
-    /// The mouth is the exception, and only for lip sync. A <c>LIPSYNCH</c> shape has no
-    /// node that puts it back — there is no <c>UNLIPSYNCH</c> — so a mouth left on the last
-    /// shape of a word is a face frozen mid-word, and that one is restored.
-    /// </para>
-    /// </remarks>
     private void Blink(Face face, double seconds)
     {
         if (face.Playing is { } playing)
@@ -486,12 +372,6 @@ public sealed class Faces
         [FacePart.Forehead, FacePart.Eyelids, FacePart.Mouth];
 
     /// <summary>Whether a region is the character's own rather than something put on it.</summary>
-    /// <remarks>
-    /// The resting bitmaps are named by convention off the character's three letters, so
-    /// "nothing is painted here" is a comparison and does not need remembering. Which is
-    /// what makes the sleeping test above cost nothing to keep true: the "off" animation
-    /// puts the eyelids back by name and this reads as rested again straight away.
-    /// </remarks>
     private static bool Rested(Face face, FacePart part) =>
         Worn(face, part).Equals(
             face.Config.RestingTexture(part), StringComparison.OrdinalIgnoreCase);
@@ -510,12 +390,6 @@ public sealed class Faces
     /// <param name="frame">How far in, in frames.</param>
     /// <param name="texture">Its bitmap, or null where the node was an <c>UNFACETEX</c>.</param>
     /// <returns>Whether the animation says anything about this region by now at all.</returns>
-    /// <remarks>
-    /// The return and the out are two different questions and both matter. A region an
-    /// animation never touches is left as it was; a region it clears with an
-    /// <c>UNFACETEX</c> goes back to the character's own. Answering both with a null
-    /// texture is what made a blink put a mood back.
-    /// </remarks>
     private static bool Says(
         AnimationFile animation, FacePart part, double frame, out string? texture)
     {
@@ -540,11 +414,6 @@ public sealed class Faces
     }
 
     /// <summary>The last mouth shape an animation asked for at or before a moment.</summary>
-    /// <remarks>
-    /// Only this character's. An animation may carry the lip sync for a whole scene — a
-    /// cutscene <c>.YAK</c> is everybody's lines at once — and reading somebody else's
-    /// cues would put their words in this mouth.
-    /// </remarks>
     private string? LatestShape(AnimationFile animation, Face face, double frame)
     {
         string? found = null;
@@ -618,12 +487,6 @@ public sealed class Faces
         config.BlinkFrom + (_random.NextDouble() * Math.Max(0, config.BlinkTo - config.BlinkFrom));
 
     /// <summary>Composes a face from its parts and puts it on the character's head.</summary>
-    /// <remarks>
-    /// Order matters and is the order the regions overlap in: the forehead sits above the
-    /// eyes and its bitmap reaches down over them, so the eyelids go on after it. A
-    /// composition that has been made before is only named again — the pictures are already
-    /// on the device.
-    /// </remarks>
     private void Paint(Face face)
     {
         string name = $"__FACE:{face.Config.Identifier}:{face.Forehead}:{face.Eyelids}:{face.Mouth}";
@@ -665,18 +528,6 @@ public sealed class Faces
     /// Composes every face again, after a change to what they are composed from.
     /// </summary>
     /// <returns>How many faces changed.</returns>
-    /// <remarks>
-    /// <para>
-    /// A face is composed when it is taken on, which is once a room. Without this, changing
-    /// <see cref="ComposedFrom"/> from the pause menu would wait for the next door — and a
-    /// switch the player cannot see working is a switch they will assume is broken.
-    /// </para>
-    /// <para>
-    /// The three regions go back to resting, because what is on them is named for whoever's
-    /// artwork was in use a moment ago. A mouth mid-word is put back on the next cue, which
-    /// is a fifteenth of a second away.
-    /// </para>
-    /// </remarks>
     public int Recompose()
     {
         int changed = 0;
@@ -703,11 +554,6 @@ public sealed class Faces
     }
 
     /// <summary>Whose bitmaps a character's face is composed from.</summary>
-    /// <remarks>
-    /// Their own unless somebody has asked otherwise and the substitute is real: a code
-    /// <c>FACES.TXT</c> does not describe, or one whose face bitmap is not in the archives,
-    /// leaves the character looking like themselves rather than like nothing.
-    /// </remarks>
     private FaceConfig Artwork(FaceConfig own) =>
         ComposedFrom.TryGetValue(own.Identifier, out string? other) &&
         _library.Of(other) is { } instead &&
@@ -718,14 +564,6 @@ public sealed class Faces
     /// <summary>
     /// A patch's name under the artwork actually being used.
     /// </summary>
-    /// <remarks>
-    /// The three regions are usually named by the character's own code and resolved through
-    /// their config, so they follow a substitution on their own. An animation is the
-    /// exception: <c>GABSMILE.ANM</c> names <c>GAB_SMILE_01</c> outright, and pasting that
-    /// onto a moustached Gabriel would shave him for the length of the smile. So a bitmap
-    /// named for the face it was painted for is looked for under the artwork in use first,
-    /// and kept as it is when there is no such picture.
-    /// </remarks>
     private string Painted(Face face, string texture)
     {
         string own = face.Own.Identifier;
@@ -750,13 +588,6 @@ public sealed class Faces
     /// eyelids have one: they are a soft edge against the skin rather than a cut-out, and
     /// pasted without it they read as a strip of paint across the eyes.
     /// </param>
-    /// <remarks>
-    /// The patches are keyed rather than authored with an alpha channel — a forehead's
-    /// corners are magenta — and the decoder has already turned that into transparency, so
-    /// this is an ordinary blend. Anything hanging off the edge of the face is dropped: the
-    /// offsets are the artists' and a bad one should paste a smaller picture, not wrap
-    /// round to the far side of somebody's head.
-    /// </remarks>
     private void Over(DecodedImage face, string texture, FaceSpot at, string? alpha)
     {
         if (Bitmap(texture) is not { } patch)
@@ -815,11 +646,6 @@ public sealed class Faces
     }
 
     /// <summary>Reads and decodes a bitmap, once.</summary>
-    /// <remarks>
-    /// Misses are remembered as well as hits. A character whose brow bitmap is missing
-    /// would otherwise be looked up in every archive on every frame their expression
-    /// changed.
-    /// </remarks>
     private DecodedImage? Bitmap(string name)
     {
         if (_bitmaps.TryGetValue(name, out DecodedImage? known))
@@ -861,18 +687,9 @@ public sealed class Faces
         public PlacedModel Model { get; } = model;
 
         /// <summary>The character as <c>FACES.TXT</c> lists them.</summary>
-        /// <remarks>
-        /// What the model is painted with, and so what the composition replaces. The same
-        /// object as <see cref="Config"/> unless somebody has asked for another face's
-        /// artwork.
-        /// </remarks>
         public FaceConfig Own { get; } = own;
 
         /// <summary>Whose bitmaps and offsets the composition is made of.</summary>
-        /// <remarks>
-        /// Settable, because the player may change it in the pause menu without leaving the
-        /// room. See <see cref="Faces.Recompose"/>.
-        /// </remarks>
         public FaceConfig Config { get; set; } = artwork;
 
         public required string Mouth { get; set; }

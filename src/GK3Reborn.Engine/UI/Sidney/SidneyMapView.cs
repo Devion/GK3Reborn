@@ -12,13 +12,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// Sidney's map, its marks and whatever has been laid over it.
 /// </summary>
-/// <remarks>
-/// The survey of the Rennes country the whole puzzle is about, with the Paris meridian down
-/// it. Clicking marks a place; four places that fall on a circle are what the story is
-/// waiting to be told. The picture is drawn at whatever size the window affords and every
-/// mark is kept in the map's own 1,368 pixels, so the marks and the hit test cannot drift
-/// apart at any window size.
-/// </remarks>
 public static class SidneyMapView
 {
     /// <summary>What the machine's longer notes are broken into lines by.</summary>
@@ -374,13 +367,6 @@ public static class SidneyMapView
     /// <summary>
     /// The figures that may be laid, as pictures down the side of the map.
     /// </summary>
-    /// <remarks>
-    /// <b>A shape is a thing, so it is drawn rather than named.</b> The first pass had a
-    /// USE SHAPE button that opened a list of words over the map, which is two steps and a
-    /// covered map to do what one look at a row of outlines does. Each one is the figure
-    /// itself; clicking it lays that figure, and clicking it again takes it off, so several
-    /// can be stacked and unstacked without a menu.
-    /// </remarks>
     private static float Figures(
         SidneySurface surface, SidneyMachine machine, Vector4 map, float column)
     {
@@ -553,12 +539,6 @@ public static class SidneyMapView
     /// <summary>
     /// Rules the map, or the figure laid on it, into cells.
     /// </summary>
-    /// <remarks>
-    /// <b>Inside the figure it follows the figure.</b> The chessboard the Gemini and Cancer
-    /// passages are about is eight by eight ruled inside the tilted square, and a grid that
-    /// can only run north-south across the whole map cannot draw it. Ruled between opposite
-    /// sides rather than in map coordinates, so it turns with the square it is in.
-    /// </remarks>
     private static void Rule(
         SidneySurface surface,
         SidneyMachine machine,
@@ -623,12 +603,6 @@ public static class SidneyMapView
     /// <param name="to">The other.</param>
     /// <param name="extent">How big the map is, in its own pixels.</param>
     /// <returns>The two ends, or nothing when there is no line to draw.</returns>
-    /// <remarks>
-    /// The line is what matters, not the segment: what the puzzle asks is what else the join
-    /// between two villages passes through, and a line stopping at the second of them
-    /// answers nothing. Clipped by walking the four edges and keeping the two crossings that
-    /// fall inside, which handles a line at any angle without four special cases.
-    /// </remarks>
     private static Vector2[] Across(Vector2 from, Vector2 to, float extent)
     {
         Vector2 along = to - from;

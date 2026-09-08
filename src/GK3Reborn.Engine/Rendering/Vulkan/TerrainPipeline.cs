@@ -11,26 +11,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// Draws the reconstructed horizon: real terrain, its forest, and a generated sky with
 /// procedural cloud cover, where the painted skybox was.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The buffers, the textures and the four pipelines. What is drawn — the mesh, the forest,
-/// which trees are near enough to be models, and the two constant blocks a frame is drawn
-/// with — is <see cref="TerrainPlan"/>, which both backends share, and the stages themselves
-/// are <see cref="Shaders.TerrainShaders"/>. Nothing about the horizon's recipe is here.
-/// </para>
-/// <para>
-/// When this draws, the painted cubemap does not: its mountains are baked into the picture
-/// and would double-expose against the reconstructed ridge. The sky here is an atmosphere
-/// and cloud layer with the scene's own sun in it, near-black when the hour has no sun, and
-/// the cubemap survives only as the fallback for a backdrop that would not build.
-/// </para>
-/// <para>
-/// Four pipelines against one descriptor set: the ground, the impostor forest and the near
-/// band of modelled trees all read the same six textures and the same push block, and the
-/// sky reads neither. The modelled trees take a second set as well, for the one sheet a part
-/// is painted with.
-/// </para>
-/// </remarks>
 public sealed unsafe class TerrainPipeline : IDisposable
 {
     /// <summary>Floats per placed tree: where it is, how big, which way round, which shape.</summary>
@@ -474,11 +454,6 @@ public sealed unsafe class TerrainPipeline : IDisposable
     /// Puts the modelled trees, and the sheets they are painted with, onto the device.
     /// </summary>
     /// <param name="backdrop">The backdrop, for the textures the plan does not hold.</param>
-    /// <remarks>
-    /// One texture and one descriptor set apiece. There are four of them at most — a trunk
-    /// and three sprays — so a set each is simpler than an array of samplers and asks
-    /// nothing of the device that a 1.0 driver does not already offer.
-    /// </remarks>
     private void UploadTreeModels(TerrainBackdrop backdrop)
     {
         if (_plan.Models.Length == 0)

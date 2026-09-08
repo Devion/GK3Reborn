@@ -8,37 +8,11 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Block-compressed textures, standing in front of everything else.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The same enhanced textures as <see cref="EnhancedTextures"/>, compressed to BC7 and
-/// their normal maps to BC5 by the content pipeline. It is the cheapest form there is:
-/// the file goes to the device without being decoded, the mip chain is already built, and
-/// it takes a quarter of the video memory. `PbrLab` measures the pilot set at 13.71 GiB
-/// uncompressed against 3.43 GiB compressed, at 45.5–47.0 dB, which nobody can see.
-/// </para>
-/// <para>
-/// One thing it cannot do is carry a colour key. <see cref="Rendering.TextureKeying"/>
-/// works on texels and these are blocks, so a texture whose original uses GK3's magenta
-/// has to take the decoded path — three of the 324 in the pilot set do. Deciding that is
-/// the loader's business, because only the loader has the original to look at.
-/// </para>
-/// <para>
-/// Names are matched without their extension and without regard to case, the same as every
-/// other texture layer: a surface refers to <c>R25WALLS</c>, the archive holds
-/// <c>R25WALLS.BMP</c>, and this holds <c>R25WALLS.dds</c>.
-/// </para>
-/// </remarks>
 public sealed class CompressedTextures
 {
     /// <summary>
     /// The path that means "this one comes from the language pack".
     /// </summary>
-    /// <remarks>
-    /// The empty path already means "from the shared pack" and a real path means a loose
-    /// file, so a third source needs a third value. A NUL is the one character no file
-    /// system on any platform the game runs on allows in a name, which is what makes this
-    /// impossible to confuse with somebody's directory.
-    /// </remarks>
     private const string FromLanguage = "\0language";
 
     private readonly Dictionary<string, string> _colour = new(StringComparer.OrdinalIgnoreCase);
@@ -47,10 +21,6 @@ public sealed class CompressedTextures
     private readonly Dictionary<string, string> _height = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The names the player's own <c>overrides/</c> answer for.</summary>
-    /// <remarks>
-    /// A path alone cannot say this: an override and a <c>build/</c> DDS are both real
-    /// paths, and only one of them is somebody's decision about that texture.
-    /// </remarks>
     private readonly HashSet<string> _overridden = new(StringComparer.OrdinalIgnoreCase);
 
     private RebarnContent? _packs;
@@ -84,23 +54,12 @@ public sealed class CompressedTextures
     public int FromFiles => Volatile.Read(ref _fromFiles);
 
     /// <summary>How many reads this set has served out of the language's own pack.</summary>
-    /// <remarks>
-    /// Worth counting separately from the rest. A picture with words painted into it is the
-    /// one kind of texture whose being wrong is a bug rather than a preference, and a run
-    /// where the language pack answered nothing at all looks on screen exactly like a run
-    /// where it answered everything — until somebody reads a road sign.
-    /// </remarks>
     public int FromLanguagePack => Volatile.Read(ref _fromLanguage);
 
     /// <summary>
     /// Where each set's entries come from, for a startup report.
     /// </summary>
     /// <returns>One line, or null when there is nothing at all.</returns>
-    /// <remarks>
-    /// Worth saying out loud because the two sources are indistinguishable once a texture is
-    /// on screen, and a run that silently used a stale <c>build/</c> directory instead of the
-    /// pack looks exactly like a run that used the pack.
-    /// </remarks>
     public string? Describe()
     {
         if (_colour.Count == 0 && _normal.Count == 0 && _orm.Count == 0 && _height.Count == 0)
@@ -150,10 +109,6 @@ public sealed class CompressedTextures
     /// <c>normals</c> and <c>orm</c> beside each other.
     /// </param>
     /// <returns>The set, empty when the directory does not exist.</returns>
-    /// <remarks>
-    /// A missing directory is not an error, the same as the enhanced set: the game runs
-    /// from a legally obtained installation and this is an addition to it.
-    /// </remarks>
     public static CompressedTextures Open(string directory) => Open(directory, null, null);
 
     /// <summary>Indexes a build directory and a set of ReBarn packs.</summary>
@@ -175,13 +130,6 @@ public sealed class CompressedTextures
     /// What the player has dropped into <c>overrides/</c>, or null for none.
     /// </param>
     /// <returns>The set, empty when none of them has anything.</returns>
-    /// <remarks>
-    /// Packs are indexed first and loose files overwrite them, so a texture recompressed
-    /// into <c>build/</c> during a session is what gets drawn without the pack having to be
-    /// rebuilt. That is the same way round as PNG beating DDS, and for the same reason: the
-    /// looser and more recent thing wins while a set is still moving. The overrides go last
-    /// and beat both, because they are the player saying which file they want.
-    /// </remarks>
     public static CompressedTextures Open(
         string directory, RebarnContent? packs, ContentOverrides? overrides) =>
         Open(directory, packs, overrides, null);
@@ -192,14 +140,6 @@ public sealed class CompressedTextures
     /// <param name="overrides">What the player dropped into <c>overrides/</c>, or null.</param>
     /// <param name="localized">The language pack, or null when there is none.</param>
     /// <returns>The set, empty when none of them has anything.</returns>
-    /// <remarks>
-    /// <b>The language goes above the loose build directory and below the overrides.</b>
-    /// It is the one layer here that is not an improvement on the layer under it: a
-    /// texture with French words painted into it is not a better <c>SIDBUTTON</c>, it is a
-    /// different one, and a stale <c>build/</c> DDS shadowing it would put English words on
-    /// a French screen with nothing to say why. The overrides still win, because they are
-    /// the player saying which file they want.
-    /// </remarks>
     public static CompressedTextures Open(
         string directory,
         RebarnContent? packs,
@@ -313,13 +253,6 @@ public sealed class CompressedTextures
     /// True when <c>Reborn_&lt;CODE&gt;.rebarn</c> is what would answer, rather than the
     /// shared volume or a loose file.
     /// </returns>
-    /// <remarks>
-    /// The loader asks this to tell "the set has a picture for this sign" from "the set has
-    /// <em>this language's</em> picture for this sign". The two are the same question for
-    /// almost every texture in the game and a different one for the hundred or so that have
-    /// words painted into them, which is exactly the set where getting it wrong is a bug
-    /// rather than a preference. See <see cref="Game.SceneLoader"/>.
-    /// </remarks>
     public bool IsLocalized(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -383,12 +316,6 @@ public sealed class CompressedTextures
     /// <param name="name">The colour texture's name.</param>
     /// <param name="diagnostics">Receives a diagnostic when one will not read.</param>
     /// <returns>The map, or null when there is none or it is unreadable.</returns>
-    /// <remarks>
-    /// Three channels rather than two, so BC7 rather than BC5 — and linear either way. An
-    /// ORM uploaded through the sRGB path comes back with every roughness pulled towards
-    /// one end of its range, which reads as a material problem rather than as the colour
-    /// space bug it is.
-    /// </remarks>
     public CompressedImage? ReadOrm(string name, DiagnosticBag? diagnostics = null) =>
         Read(_orm, RebarnKind.Orm, name, "ORM map", diagnostics);
 
@@ -399,11 +326,6 @@ public sealed class CompressedTextures
     public CompressedImage? ReadHeight(string name, DiagnosticBag? diagnostics = null) =>
         Read(_height, RebarnKind.Height, name, "height map", diagnostics);
 
-    /// <remarks>
-    /// A file that will not read falls back rather than failing the load, exactly as the
-    /// enhanced set does: generated content is a draft until somebody has looked at it, and
-    /// one bad file in a set of hundreds should cost that texture and nothing else.
-    /// </remarks>
     private CompressedImage? Read(
         Dictionary<string, string> from,
         RebarnKind kind,

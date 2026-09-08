@@ -16,21 +16,11 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for playing a vertex animation's rigid half.
 /// </summary>
-/// <remarks>
-/// Three names have to line up and none of them is the one the script said: a script names
-/// an <c>.ANM</c>, whose <c>[ACTIONS]</c> names an <c>.ACT</c>, whose header names the model
-/// it moves. Getting any of them wrong makes nothing happen, which looks exactly like
-/// nothing having been asked for — so these check the chain rather than the arithmetic.
-/// </remarks>
 public sealed class ClipPlaybackTests
 {
     /// <summary>
     /// Records what the renderer was told to do, and measures nothing.
     /// </summary>
-    /// <remarks>
-    /// Wrapped around the headless sink rather than reimplemented, so that adding a member
-    /// to the contract does not silently give this one a different idea of what a scene is.
-    /// </remarks>
     private sealed class Sink : ISceneSink
     {
         private readonly HeadlessSceneSink _inner = new();
@@ -288,11 +278,6 @@ public sealed class ClipPlaybackTests
         ]);
 
     /// <summary>A world with one thing in it and one animation to play on it.</summary>
-    /// <remarks>
-    /// An actor by default, because the correction — the interesting part — is theirs. A
-    /// prop is placed by the identity and its clips are already in the room's coordinates,
-    /// so there is nothing to correct; see <c>SceneUpdate.Playing.Correction</c>.
-    /// </remarks>
     private static (SceneUpdate Update, Sink Sink) World(
         string animation,
         string clipName,
@@ -354,11 +339,6 @@ public sealed class ClipPlaybackTests
     /// <summary>
     /// A world where the model also runs a behaviour script of its own.
     /// </summary>
-    /// <remarks>
-    /// A prop rather than an actor, because a prop's clips play exactly as authored — see
-    /// <c>SceneUpdate.Playing.Correction</c> — so where its mesh ends up says which of the
-    /// two clips is driving it, which is the whole question here.
-    /// </remarks>
     private static (SceneUpdate Update, Sink Sink) Idling()
     {
         var sink = new Sink();
@@ -827,11 +807,6 @@ public sealed class ClipPlaybackTests
     /// <summary>
     /// An actor the scene stood nowhere, opened by an absolute pose and idling afterwards.
     /// </summary>
-    /// <remarks>
-    /// RC3's cat, in miniature: <c>model=cat, noun=cat, initanim=gabPetsCat,
-    /// idle=catIdle.gas</c> — no <c>pos=</c> anywhere, an opening pose that carries its own
-    /// coordinates, and a fidget script that does not.
-    /// </remarks>
     private static (SceneUpdate Update, Sink Sink) Unplaced()
     {
         var sink = new Sink();
@@ -979,11 +954,6 @@ public sealed class ClipPlaybackTests
     /// <summary>
     /// A moment: an animation that speaks and frames itself.
     /// </summary>
-    /// <remarks>
-    /// ECOFFEEPOT.MOM, cut down to the three nodes this is about. The spit take in the
-    /// hotel dining room is the beat these were found through — see
-    /// <see cref="GK3Reborn.Formats.Animation.AnimationDialogue"/>.
-    /// </remarks>
     private static SceneUpdate Moment(string? nodes = null)
     {
         var sink = new Sink();

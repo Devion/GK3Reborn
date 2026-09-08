@@ -9,54 +9,14 @@ namespace GK3Reborn.Game.Sidney;
 /// <summary>
 /// Every word Sidney draws, in the language the game is being played in.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Almost all of it is already translated and was being ignored.</b> <c>ESIDNEY.TXT</c>
-/// is one of the ten text assets Sierra re-cut for every localisation, and it carries the
-/// menus, the screen names, the buttons and the refusals in each of them. The port read it
-/// for the long paragraphs — a parchment's analysis, a suspect's refusal — and then wrote
-/// its buttons out in English beside them, so a German game had a German analysis under an
-/// English <c>START ANALYSIS</c>.
-/// </para>
-/// <para>
-/// <b>The keys are the same in every release and only the values change.</b> The file says
-/// so in its own header — "Only translate English to the right of = sign" — and every
-/// release here obeys it. So everything on this screen is asked for by the 1999 key, which
-/// is also why the *choices* the machine offers carry a key beside their label: the French
-/// release labels the wrong answer to the parchment question <c>OCCITAN</c>, and an engine
-/// that matched on the word FRENCH would refuse the right one for ever. See
-/// <see cref="SidneyChoice"/>.
-/// </para>
-/// <para>
-/// <b>What is left is the port's own.</b> A dozen sentences the 1999 game never had a place
-/// for — the empty lists, the scanner with nothing to take, the aid that finishes the map —
-/// and those are in <see cref="Table"/>, one row a phrase and one column a language. They
-/// are translations rather than extractions, which is the thing <c>docs/localization.md</c>
-/// says the rest of the port's interface still needs; Sidney has them because Sidney is a
-/// screen the story cannot be finished without.
-/// </para>
-/// </remarks>
 public sealed class SidneyWords
 {
     /// <summary>The order the columns of <see cref="Table"/> are in.</summary>
-    /// <remarks>
-    /// English first because it is what a run with no language pack gets, then the five
-    /// Sierra releases that have been built, alphabetically by code. A language not here
-    /// reads the first column, which is the same rule the rest of the port follows: what a
-    /// player loses by not having a translation is that translation, not the screen.
-    /// </remarks>
     private static readonly string[] Codes = ["en", "de", "es", "fr", "it", "pt"];
 
     /// <summary>
     /// The sentences Sidney says that the 1999 game has no string for.
     /// </summary>
-    /// <remarks>
-    /// One row a phrase, one column a language, in <see cref="Codes"/> order. Kept as a
-    /// table rather than as six files because it is sixteen phrases: a file format, a
-    /// loader and a pack entry for sixteen phrases would cost more to read than the phrases
-    /// do. <c>SidneyLanguageTests</c> checks every row is as wide as the header and that no
-    /// column of it is quietly English.
-    /// </remarks>
     private static readonly Dictionary<string, string[]> Table = new(StringComparer.Ordinal)
     {
         ["NotOn"] =
@@ -247,12 +207,6 @@ public sealed class SidneyWords
     public string Home => Game("MenuName", "Main Screen", "SIDNEY");
 
     /// <summary>What the file store is called.</summary>
-    /// <remarks>
-    /// The original's main menu has no row for it — its file list lives on the front screen
-    /// — so there is no <c>ScreenName</c> to read. What it does have is the name of the
-    /// list itself, in every screen that shows one, and that is set in sentence case where
-    /// every other screen's name is capitals: this is a title in a row of titles.
-    /// </remarks>
     public string Files => Game("FileList", "AddData Screen", "FILES").ToUpperInvariant();
 
     /// <summary>The search screen's own button.</summary>
@@ -262,10 +216,6 @@ public sealed class SidneyWords
     public string Match => Game("Menu3Item4", "Suspects Screen", "MATCH ANALYSIS");
 
     /// <summary>What the game writes where a fact is not known yet.</summary>
-    /// <remarks>
-    /// The Abbé's vehicle, which nobody ever finds out. Taken from there rather than
-    /// written here because it is the same word in the same screen.
-    /// </remarks>
     public string Unknown => Game("VehicleID4", "Suspects Screen", "Unknown");
 
     /// <summary>The light that says something has not been read.</summary>
@@ -304,11 +254,6 @@ public sealed class SidneyWords
     /// </summary>
     /// <param name="action">The operation.</param>
     /// <returns>Its name, in the game's own words where it has any.</returns>
-    /// <remarks>
-    /// The keys are the four menus <c>ESIDNEY.TXT</c> groups them into, and the numbering
-    /// is the file's own inconsistency: the first menu writes its rows as
-    /// <c>MenuItem<i>n</i></c> and the rest as <c>Menu<i>n</i>Item<i>m</i></c>.
-    /// </remarks>
     public string Action(SidneyAction action) => action switch
     {
         SidneyAction.Analyse => Menu("MenuItem2", "START ANALYSIS"),
@@ -334,13 +279,6 @@ public sealed class SidneyWords
     /// </summary>
     /// <param name="kind">What the file is.</param>
     /// <returns>Its category, in the game's own words.</returns>
-    /// <remarks>
-    /// <b>The original's own six directories</b>, which is what its file list sorts into:
-    /// images, fingerprints, audio, text, licences and shapes. The port used to write
-    /// "parchment", "painting" and "licence plate" here, which is a taxonomy nobody
-    /// translated because nobody but the port has ever had one — and it says little the
-    /// file's own name does not already say now that the name is the game's.
-    /// </remarks>
     public string Kind(SidneyKind kind) => kind switch
     {
         SidneyKind.KnownPrint or SidneyKind.UnknownPrint =>
@@ -357,11 +295,6 @@ public sealed class SidneyWords
     /// </summary>
     /// <param name="shape">The figure.</param>
     /// <returns>Its name, in the game's own words where it has one.</returns>
-    /// <remarks>
-    /// <b>Not <see cref="SidneyMap.NameOf"/>, which must not move.</b> That one is what a
-    /// save writes and what a click on a figure's button answers to, so it is English in
-    /// every language on purpose; this is the word a player reads.
-    /// </remarks>
     public string Shape(MapShape shape) => shape switch
     {
         MapShape.Circle => Menu("ShapeCircle", "Circle"),

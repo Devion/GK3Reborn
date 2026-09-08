@@ -7,20 +7,6 @@ namespace GK3Reborn.Formats.Rebarn;
 /// <summary>
 /// Writes a ReBarn pack.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One streaming pass. Sources are added by path or by bytes, then <see cref="Write"/>
-/// copies each one into the volume in turn, recording where it landed, and finishes with
-/// the name table, the index and a rewritten header. Nothing is held in memory but the
-/// index — fifteen gigabytes of textures go through a one-megabyte buffer.
-/// </para>
-/// <para>
-/// The order entries are written in is the order they were added, and the index is sorted
-/// by key hash afterwards, so a pack built twice from the same inputs is byte for byte the
-/// same file. That is what lets a build be compared, and what stops a rebuild looking like
-/// a change to anything watching the directory.
-/// </para>
-/// </remarks>
 public sealed class RebarnBuilder
 {
     private readonly List<Source> _sources = [];
@@ -45,11 +31,6 @@ public sealed class RebarnBuilder
     /// </param>
     /// <param name="compression">How to store it; <see cref="RebarnCompression.Store"/> by default.</param>
     /// <returns>True when it was added, false when the same key was already present.</returns>
-    /// <remarks>
-    /// A duplicate key is refused rather than overwriting, because the two candidates are
-    /// two different files on disk and picking one silently is how a pack comes to hold
-    /// something nobody chose. The caller decides which to keep.
-    /// </remarks>
     public bool AddFile(
         RebarnKind kind,
         string path,

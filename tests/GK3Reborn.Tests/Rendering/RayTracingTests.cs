@@ -13,23 +13,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Checks that ray tracing changes the picture in the way it is supposed to.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A ray-traced render that merely looks plausible proves nothing: a shader whose rays all
-/// miss produces a perfectly reasonable unshadowed image. These build a scene where the
-/// right answer is known — a wall standing between a light and a floor — and check that
-/// adding the wall darkens the floor with rays and does not darken it without them.
-/// </para>
-/// <para>
-/// The camera looks straight down, so the wall is edge-on and hides almost none of the
-/// floor. That is what makes the difference between the two renders evidence of shadowing
-/// rather than of the occluder simply being in the way.
-/// </para>
-/// <para>
-/// They skip on hardware without the extensions, so a machine that cannot ray trace still
-/// reports a green run.
-/// </para>
-/// </remarks>
 public sealed class RayTracingTests
 {
     private static bool HasRayTracing()
@@ -94,21 +77,6 @@ public sealed class RayTracingTests
     }
 
     /// <summary>The floor, as the room's own geometry rather than as a model.</summary>
-    /// <remarks>
-    /// <para>
-    /// It has to be the room. A shadow ray leaving a model traces the room and skips every
-    /// other model, because GK3's people are a dozen overlapping shells and a ray leaving
-    /// the shirt hits the arm inside it — so a floor built out of a <c>.MOD</c> is a floor
-    /// that nothing standing on it can ever shadow, and these tests measured exactly that
-    /// for as long as they were written that way.
-    /// </para>
-    /// <para>
-    /// The case they are about is the real one: something placed in a room, laying a
-    /// shadow on the room. Wound anticlockwise seen from above so the plane normal comes
-    /// out along +Y, since a BSP carries no normals and each triangle is given its own
-    /// plane's.
-    /// </para>
-    /// </remarks>
     private static BspFile FloorScene(float half) => BspFile.FromParts(
         "floor",
         ["floor"],
@@ -132,13 +100,6 @@ public sealed class RayTracingTests
     /// <summary>A floor with a wall of the room's own standing across the light.</summary>
     /// <param name="half">Half the floor's width.</param>
     /// <param name="height">How tall the wall stands.</param>
-    /// <remarks>
-    /// One BSP rather than two, because a second <c>AddScene</c> repacks the lightmap
-    /// atlas and unlights the first. The wall reaches from edge to edge and stands tall
-    /// enough that <see cref="SideLight"/> grazes its top a thousand units beyond the far
-    /// edge of the floor: everything past it is in shadow, which is the case these are
-    /// about.
-    /// </remarks>
     private static BspFile ShadedRoom(float half, float height) => BspFile.FromParts(
         "shaded",
         ["floor", "wall"],
@@ -180,12 +141,6 @@ public sealed class RayTracingTests
         -Vector3.UnitZ);
 
     /// <summary>A flat panel, face up, standing a little above the floor.</summary>
-    /// <remarks>
-    /// A <em>model</em>, which is the point of it: a pixel on a model is the one the trace
-    /// stage treats differently, and a floor built out of a <c>.MOD</c> is what these tests
-    /// were originally and wrongly written with. Here it is the thing being shadowed rather
-    /// than the room, so a model is exactly right.
-    /// </remarks>
     private static ModFile Panel(float half, float height) => Quad(
         "white",
         [
@@ -203,12 +158,6 @@ public sealed class RayTracingTests
     /// False for the same wall the other way round — something standing between the panel
     /// and the light, which must shadow it.
     /// </param>
-    /// <remarks>
-    /// The two differ in winding and in nothing else: the same four corners, the same
-    /// shading normal, and the mesh pipeline culls no faces, so both are drawn identically —
-    /// and the camera looks straight down, so both are the same edge-on line either way.
-    /// Any difference between the two renders is the traced ray and can be nothing else.
-    /// </remarks>
     private static ModFile Cover(float half, float height, bool shell)
     {
         Vector3[] corners =
@@ -221,13 +170,6 @@ public sealed class RayTracingTests
 
     /// <summary>A bake dim enough to shape the ambient term without blowing the floor out.</summary>
     /// <param name="surfaces">How many surfaces the room has; a lightmap goes to each.</param>
-    /// <remarks>
-    /// An eighth of full. The mesh pass shapes the ambient floor by
-    /// <c>0.30 + 3 x baked</c> and calls everything above the 0.30 the bake's own, so this
-    /// leaves about half of the shaped term as the share a moving thing may take - enough
-    /// to measure, and dim enough that the lit floor stays short of white, which it must:
-    /// a saturated floor cannot be seen to darken.
-    /// </remarks>
     private static MulFile Baked(int surfaces) => MulFile.FromParts(
         "bake",
         [.. Enumerable.Range(0, surfaces).Select(_ => Grey(32))]);
@@ -324,11 +266,6 @@ public sealed class RayTracingTests
     /// A light too faint to change a pixel, but with a reach long enough that the rig
     /// sorts it ahead of the one that matters.
     /// </summary>
-    /// <remarks>
-    /// This is what a GK3 scene looks like from indoors: the rig is ordered by brightness
-    /// times reach, so the sun and the streetlights come first and the lamp in the room
-    /// comes last.
-    /// </remarks>
     private static AuthoredLight DistantLight(int index) => new(
         $"distant{index}",
         AuthoredLightKind.Point,
@@ -366,12 +303,6 @@ public sealed class RayTracingTests
     }
 
     /// <summary>A keyed texture of upright bars: a fence, in miniature.</summary>
-    /// <remarks>
-    /// Four texels drawn and four keyed away, so exactly half the light through it should
-    /// arrive. That is the number these tests are about, and it is why the pattern is this
-    /// coarse: a fence whose shadow is a smooth grey is a fence whose shadow could be
-    /// anything.
-    /// </remarks>
     private static DecodedImage Bars()
     {
         const int Size = 64;
@@ -396,22 +327,6 @@ public sealed class RayTracingTests
     /// <summary>A floor with a keyed fence of the room's own standing across the light.</summary>
     /// <param name="half">Half the floor's width.</param>
     /// <param name="height">How tall the fence stands.</param>
-    /// <remarks>
-    /// <para>
-    /// The same shape as <see cref="ShadedRoom"/> and a different question. That wall is
-    /// opaque and has always cast a shadow; this one is a picture of a fence on a quad with
-    /// the gaps keyed out, which is what most of GK3's railings, fences, chains and window
-    /// mullions are — and keyed geometry was kept out of the acceleration structure
-    /// altogether, because there is no any-hit shader to tell a baluster from the gap beside
-    /// it and a keyed triangle in the structure would cast the shadow of its whole quad.
-    /// </para>
-    /// <para>
-    /// The texture is tiled eight times along the fence, which is what keeps the bars thin
-    /// in the room rather than merely thin in the drawing. That distinction is the
-    /// measurement the whole pass turns on, and a card that failed it would be left flat and
-    /// take these tests with it.
-    /// </para>
-    /// </remarks>
     private static BspFile FencedRoom(float half, float height) => BspFile.FromParts(
         "fenced",
         ["floor", "fence"],
@@ -452,12 +367,6 @@ public sealed class RayTracingTests
     /// <param name="fence">Whether to stand the fence in the room at all.</param>
     /// <param name="shadows">Whether the fence is given a silhouette to cast.</param>
     /// <param name="baked">Whether the room carries a 1999-style lightmap.</param>
-    /// <remarks>
-    /// Both switches, because the two failures they separate look nothing alike in the code
-    /// and identical in a picture. With <paramref name="shadows"/> off the fence is still
-    /// thickened and still drawn; only the opaque copy the rays are pointed at is missing,
-    /// which is exactly the state every build before this one was in.
-    /// </remarks>
     private static DecodedImage Fenced(
         SceneRenderer renderer, bool fence, bool shadows = true, bool baked = false)
     {
@@ -493,12 +402,6 @@ public sealed class RayTracingTests
     /// True for the half the fence stands between and the light, false for the half the
     /// light shines on directly.
     /// </param>
-    /// <remarks>
-    /// <see cref="Overlooking"/> looks straight down with +Z up the screen and the light
-    /// stands at negative z, so the shadow falls across the top half of the picture and the
-    /// bottom half is the control: the same floor, the same bake, the same rig, and nothing
-    /// between it and the lamp.
-    /// </remarks>
     private static float HalfLuminance(DecodedImage image, bool beyond)
     {
         int rows = image.Height / 2;
@@ -657,23 +560,6 @@ public sealed class RayTracingTests
     /// <summary>
     /// A model shadows the room from where it was placed, not from where it was modelled.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A model's triangles go into the acceleration structure in the model's own space and
-    /// are placed by an instance transform. Every other test here stands its wall at the
-    /// model's own origin, so all of them passed while that transform was never applied at
-    /// all: the structure was built with every instance at identity and only
-    /// <c>MoveModel</c> ever put one right. Nothing moves a prop after a room has loaded,
-    /// so every van, bench and signpost in the game traced from (0, 0, 0) — and an actor
-    /// did too, until the story first walked them somewhere.
-    /// </para>
-    /// <para>
-    /// The wall is placed five thousand units away, well outside both the floor and the
-    /// far plane. It should shadow nothing and be drawn nowhere, so the picture should be
-    /// the empty room's. Placed at identity it shadows half the floor, which is what this
-    /// used to render.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void A_model_shadows_the_room_from_where_it_is_placed()
     {
@@ -710,11 +596,6 @@ public sealed class RayTracingTests
     /// <param name="renderer">The renderer.</param>
     /// <param name="shaded">Whether the room stands a wall of its own across the light.</param>
     /// <param name="model">Whether to stand a model in the half beyond that wall.</param>
-    /// <remarks>
-    /// The model is shorter and narrower than the room's wall and stands behind it, so
-    /// every part of the floor it could shadow is a part the room has shadowed already.
-    /// Anything it takes off that floor is light that was not arriving.
-    /// </remarks>
     private static float Sheltered(SceneRenderer renderer, bool shaded, bool model)
     {
         using SceneGeometry geometry = renderer.CreateGeometry();
@@ -743,28 +624,6 @@ public sealed class RayTracingTests
     /// <summary>
     /// Somebody standing in the shadow the room already casts takes nothing more away.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The two shadows are traced separately — the room's, which the bake already
-    /// contains, and the moving one, which is subtracted from the result — and the moving
-    /// one used to be traced without reference to the other. So a person standing on
-    /// ground a building shades was blocking a sun that does not reach that ground, and
-    /// the composite spent the answer on the bake-shaped part of the pixel: a second
-    /// shadow, hard-edged, laid inside the first.
-    /// </para>
-    /// <para>
-    /// It showed outside the hotel on RC1 at 110A, where the hotel's own wall stands
-    /// between the square and the morning sun. Gabriel and the van cast full shadows onto
-    /// ground with no light left on it, and onto the hotel's door beside them.
-    /// </para>
-    /// <para>
-    /// Measured against the same model in the open, which is what makes this about the
-    /// double count rather than about shadows in general: in the light it must take a
-    /// great deal, and in the room's shadow next to nothing. Next to nothing rather than
-    /// nothing at all because the model still occludes the ambient term around it, which
-    /// is a contact shadow and is meant to be there.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void A_model_in_the_room_s_own_shadow_takes_no_more_light_away()
     {
@@ -803,14 +662,6 @@ public sealed class RayTracingTests
     /// <param name="quality">Which ray budget to render at.</param>
     /// <param name="build">What to place besides the panel, if anything.</param>
     /// <returns>How bright the panel came out.</returns>
-    /// <remarks>
-    /// <b>No room, and that is deliberate.</b> These measure what a model does to a model,
-    /// and a floor would fill most of the frame with a surface that is shadowed by the same
-    /// occluder through the other half of the structure — where no face is culled, because
-    /// a ray leaving the room may hit either side of anything. Its brightness would swamp
-    /// the panel's and move with the occluder in every case, including the ones that are
-    /// supposed to be identical.
-    /// </remarks>
     private static float Panelled(
         SceneRenderer renderer, RayTracingQuality quality, Action<SceneGeometry>? build = null)
     {
@@ -831,20 +682,6 @@ public sealed class RayTracingTests
     /// <summary>
     /// One model shadows another, and a model shadows itself.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Both used to be refused outright — a shadow ray leaving a model traced the room and
-    /// skipped every model, its own included — because GK3's people are a stack of
-    /// overlapping shells and a surface inside one hits it before the ray has gone
-    /// anywhere. Which side of a triangle the ray arrives at is what tells the two apart,
-    /// so the wall's front face still shadows and a shell's back face no longer does.
-    /// </para>
-    /// <para>
-    /// The wall is placed as its own model in one case and built into the same model as
-    /// the panel in the other, which is the whole difference between shadowing a
-    /// neighbour and shadowing oneself.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void A_model_is_shadowed_by_another_model_and_by_itself()
     {
@@ -880,12 +717,6 @@ public sealed class RayTracingTests
     /// <summary>
     /// A shell around a surface is not a shadow on it.
     /// </summary>
-    /// <remarks>
-    /// The other half of the rule, and the one that stops a character being covered in hard
-    /// dark patches: a shirt around a torso, a sleeve around an arm, a collar around a
-    /// neck. The ray meets those from within, and what it meets is the reason the whole
-    /// signal used to be thrown away.
-    /// </remarks>
     [Fact]
     public void A_shell_around_a_model_does_not_shadow_it()
     {
@@ -954,23 +785,6 @@ public sealed class RayTracingTests
     /// The floor is darker where it meets the wall once occlusion is traced, and not
     /// before.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Medium against Medium with its occlusion rays given no reach, so the two renders
-    /// differ in that and nothing else. The reach rather than the ray count, because it is
-    /// the reach the occlusion pass is handed — <c>AmbientOcclusionRays</c> only tells the
-    /// mesh shader that occlusion is being traced at all. Comparing two tiers, which is what this used to do, stopped
-    /// meaning anything once Medium gave up the baked lightmaps: the tiers now differ in
-    /// what lights the room as well as in how many rays they spend, and Medium came out the
-    /// brighter of the two for reasons that had nothing to do with occlusion.
-    /// </para>
-    /// <para>
-    /// Measured where the floor meets the wall on the lit side. The shadow the wall throws
-    /// lands on the other side and is not in the band at all, so what is left for occlusion
-    /// to explain is the near contact — the line under the wall that a shadow ray toward a
-    /// single lamp cannot produce.
-    /// </para>
-    /// </remarks>
     [Fact]
     public void Occlusion_darkens_the_floor_where_it_meets_the_wall()
     {
@@ -1006,12 +820,6 @@ public sealed class RayTracingTests
     /// </summary>
     /// <param name="picture">A render of the floor with the wall standing on it.</param>
     /// <returns>The ratio. Below one because the far band is nearer the lamp.</returns>
-    /// <remarks>
-    /// The camera looks straight down with its up along positive z and the wall runs along
-    /// x through the origin, so the wall is a horizontal line across the middle of the
-    /// picture. The light is on the negative z side, which is the bottom half — so that half
-    /// is the lit one, and the shadow the wall throws lands in the other.
-    /// </remarks>
     private static float Contact(DecodedImage picture)
     {
         float near = MeanRows(picture, picture.Height / 2, (picture.Height / 2) + 12);

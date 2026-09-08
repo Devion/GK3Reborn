@@ -19,31 +19,6 @@ public readonly record struct MovieFrame(int Width, int Height, ReadOnlyMemory<b
 /// <summary>
 /// A movie, opened and decoded on demand.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Decoded by the engine's own H.264 and AAC decoders, so a movie plays wherever the
-/// engine runs — Windows, Linux, a Mac — with nothing installed beside the executable and
-/// nothing to version. FFmpeg used to do this; it was sixty megabytes of shared libraries
-/// per platform, a different set of names for every generation, and no build at all for
-/// Apple silicon. The managed decoders are compared sample for sample against FFmpeg's in
-/// the tests, so what is lost is speed, not pictures.
-/// </para>
-/// <para>
-/// Video is decoded ahead of the clock on its own thread and pulled frame by frame as the
-/// clock asks; the sound is decoded whole when the movie opens. The two are treated
-/// differently because they are used differently: a frame is wanted once and thrown away,
-/// and the sound has to be handed to the audio device as one buffer for the device to be
-/// the clock. GK3's longest movie is three and a half minutes, which is forty megabytes of
-/// PCM — worth spending to have the picture follow the sound rather than the other way
-/// round.
-/// </para>
-/// <para>
-/// The decode thread runs a few frames ahead and no further, so a 320x240 movie costs
-/// nothing to speak of and a 1440x1080 one keeps one core busy without piling up frames it
-/// will never show. A frame that is not ready when the clock reaches it is skipped, which
-/// the player treats as leaving the last one on screen.
-/// </para>
-/// </remarks>
 public sealed class Movie : IDisposable
 {
     /// <summary>How many decoded frames are kept ahead of the clock.</summary>
@@ -56,13 +31,6 @@ public sealed class Movie : IDisposable
     /// <summary>
     /// Where the sound is read from: the movie itself, or the language's own track.
     /// </summary>
-    /// <remarks>
-    /// Two fields rather than a reader that knows about languages, because the difference
-    /// is one file handle. Thirteen of GK3's sixteen spoken movies are the same footage in
-    /// every language, so a French game plays the shared picture with a French soundtrack
-    /// beside it; where the two are the same file these hold the same objects and every
-    /// path below is the path it always was. See <see cref="VideoLibrary.OpenSound"/>.
-    /// </remarks>
     private readonly Mp4File _soundFile;
     private readonly Stream _soundStream;
     private readonly bool _ownsSound;
@@ -131,11 +99,6 @@ public sealed class Movie : IDisposable
     public bool HasAudio => _audio is not null || _soundWave is not null;
 
     /// <summary>Whether the sound came from somewhere other than the movie.</summary>
-    /// <remarks>
-    /// True when a language pack supplied the soundtrack for a shared picture. Reported in
-    /// the log because it is otherwise invisible: a movie playing in the wrong language
-    /// looks exactly like a movie playing in the right one until somebody listens.
-    /// </remarks>
     public bool SoundIsSeparate => _ownsSound;
 
     /// <summary>
@@ -253,13 +216,6 @@ public sealed class Movie : IDisposable
     /// <returns>
     /// The container and its audio track, or the raw bytes when it is a RIFF WAVE.
     /// </returns>
-    /// <remarks>
-    /// Two forms, decided from the bytes rather than the extension. The import writes an
-    /// <c>.m4a</c> — the AAC track copied out of the localised movie without re-encoding —
-    /// which is an MP4 with no video in it and reads exactly like one. A RIFF WAVE is the
-    /// other thing somebody may reasonably produce by hand, and
-    /// <see cref="WavFile"/> already decodes every form GK3 itself uses.
-    /// </remarks>
     private static (Mp4File? File, byte[]? Wave, Mp4Track? Audio) Soundtrack(
         Stream stream, string name)
     {
@@ -292,11 +248,6 @@ public sealed class Movie : IDisposable
     /// <param name="at">How far into the movie the clock is.</param>
     /// <param name="frame">The frame.</param>
     /// <returns>True when there is a new picture for that moment; false when there is none yet, or the movie has run out.</returns>
-    /// <remarks>
-    /// By time rather than by count, so a dropped frame is a frame skipped rather than the
-    /// picture drifting behind the sound for the rest of the movie. The frame handed back
-    /// is the latest one whose time has come; earlier ones still waiting are discarded.
-    /// </remarks>
     public bool TryReadFrame(TimeSpan at, out MovieFrame frame)
     {
         frame = default;
@@ -344,13 +295,6 @@ public sealed class Movie : IDisposable
 
     /// <summary>Decodes the whole soundtrack.</summary>
     /// <returns>The sound, or null when the movie is silent or its sound will not decode.</returns>
-    /// <remarks>
-    /// Whole rather than streamed, so that it can be handed to the audio device as one
-    /// buffer and the device can be the clock the picture follows. The import resamples
-    /// every movie to the mixer's own rate, so nothing here has to. The encoder's priming
-    /// delay, which the file records as an edit, is trimmed so that the first sample is the
-    /// first sample of the movie rather than a thousand samples of warm-up.
-    /// </remarks>
     public WavFile? ReadSound()
     {
         // A soundtrack somebody supplied as a RIFF WAVE is already what this returns.

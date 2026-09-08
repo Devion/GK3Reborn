@@ -6,14 +6,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading a height map as numbers rather than as a picture.
 /// </summary>
-/// <remarks>
-/// Two things here are silent when wrong. A field that clamps instead of wrapping flattens
-/// the relief along the far edge of every tile, which on a street the game tiles thirty
-/// times is thirty smears nobody can trace back to a sampler. And BC4's second endpoint
-/// order reserves two of its eight codes for the ends of the range rather than
-/// interpolating them, which is the part of the format that gets written wrong and which
-/// shows up as speckle rather than as a failure.
-/// </remarks>
 public sealed class HeightFieldTests
 {
     /// <summary>A grey image whose red channel is what the callback says.</summary>

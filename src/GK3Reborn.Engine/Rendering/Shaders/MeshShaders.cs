@@ -3,22 +3,6 @@
 /// <summary>
 /// The mesh shaders, in GLSL.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GLSL rather than the HLSL the plan chose, and for exactly one reason: glslang — which
-/// is what shaderc uses for both languages — implements ray query only in its GLSL front
-/// end. Its HLSL front end does not know <c>RaytracingAccelerationStructure</c> and fails
-/// at the declaration. The alternative is DXC, which would reintroduce the Vulkan SDK
-/// prerequisite that shaderc was chosen to avoid. See ADR 0008.
-/// </para>
-/// <para>
-/// One source serves both the raster and the ray-traced pipeline; the ray-tracing paths
-/// are behind <c>RAY_TRACING</c>, defined by <see cref="Compose"/>. A device without the
-/// extensions gets a shader that cannot reference an acceleration structure at all, which
-/// matters because Vulkan requires every statically used binding to be valid whether the
-/// branch runs or not.
-/// </para>
-/// </remarks>
 public static class MeshShaders
 {
     /// <summary>Declarations both stages share.</summary>

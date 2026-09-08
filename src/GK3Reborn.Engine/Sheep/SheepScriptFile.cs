@@ -21,19 +21,6 @@ public readonly record struct SheepVariable(string Name, SheepValueKind Kind, in
 /// <summary>
 /// Reader for compiled Sheep bytecode.
 /// </summary>
-/// <remarks>
-/// <para>
-/// 224 of these hold the game's logic. The file opens with <c>GK3Sheep</c> and a header
-/// listing offsets to named sections — <c>SysImports</c>, <c>StringConsts</c>,
-/// <c>Variables</c>, <c>Functions</c> and <c>Code</c> — each of which repeats its own
-/// size and an offset table before its contents.
-/// </para>
-/// <para>
-/// Documented from G-Engine's <c>SheepScript::ParseFromData</c>. The language and its
-/// runtime API are specified by the original team in <c>SHEEP ENGINE.DOC</c>, which the
-/// archives contain; the compiled layout is not covered there and comes from the reader.
-/// </para>
-/// </remarks>
 public sealed class SheepScriptFile
 {
     private SheepScriptFile(
@@ -62,11 +49,6 @@ public sealed class SheepScriptFile
     /// <param name="functions">Its functions and where each one starts.</param>
     /// <param name="bytecode">The code.</param>
     /// <returns>The script, ready to run or to write out.</returns>
-    /// <remarks>
-    /// The reader's own product, built by hand. <see cref="SheepCompiler"/> produces one of
-    /// these so that a script it compiled is the same kind of thing as a script the game
-    /// shipped: the same machine runs it and the same writer puts it on disk.
-    /// </remarks>
     public static SheepScriptFile FromParts(
         string name,
         IReadOnlyList<SheepImport> imports,
@@ -311,12 +293,6 @@ public sealed class SheepScriptFile
     }
 
     /// <summary>Reads a 16-bit length-prefixed string.</summary>
-    /// <remarks>
-    /// The field occupies two bytes of length, then that many bytes, then one further
-    /// byte. Consuming only the counted bytes leaves the reader one short, and because
-    /// every subsequent field then reads from one byte early, the failure appears much
-    /// later as an absurd length rather than at the string itself.
-    /// </remarks>
     private static string ReadLengthPrefixedString(ref SpanReader reader)
     {
         int length = reader.ReadUInt16();

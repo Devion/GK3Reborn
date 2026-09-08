@@ -24,12 +24,6 @@ public readonly record struct ActionSurveySummary(
 /// <summary>
 /// Reads every action file and exercises the resolver against it.
 /// </summary>
-/// <remarks>
-/// Two things get tested at once. The file reader has to cope with 390 files of
-/// hand-written content, and the expression reader has to evaluate every condition those
-/// files define — which is the first real workout for the recursive-descent approach the
-/// full Sheep compiler will use.
-/// </remarks>
 public sealed class ActionSurveyStage
 {
     private readonly Action<string> _log;

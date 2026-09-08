@@ -12,40 +12,12 @@ public readonly record struct RefinedMesh(
 /// <summary>
 /// Loop subdivision, for rounding off a 1999 silhouette.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's characters are already shaded smoothly — their vertex normals are welded and
-/// agree to within a rounding error, across texture seams included — so what makes a head
-/// read as low-polygon is not its shading but its outline. Grace's hair is twenty
-/// triangles and Madeline's is thirteen, and no amount of work in texture space moves the
-/// edge of a twenty-sided shape. Subdivision is the only thing that does.
-/// </para>
-/// <para>
-/// <b>Boundary vertices are pinned rather than smoothed.</b> The textbook rule moves them
-/// along the boundary curve, and where two submeshes meet — the hairline, the ear — that
-/// would be fine, because both sides move identically and the seam stays shut. The rim at
-/// the neck is the problem: it is the edge of the head shell, nothing on the other side is
-/// being refined with it, and a rim that shrinks opens a hole in someone's throat. Pinning
-/// costs a slightly flatter surface within one row of triangles of a boundary and cannot
-/// open a gap anywhere.
-/// </para>
-/// <para>
-/// Texture coordinates are interpolated linearly rather than subdivided. The face texture
-/// is a composited surface — <c>FaceController</c> blits eyes and a mouth onto it at
-/// coordinates <c>CHARACTERS.TXT</c> gives in pixels — so the mapping has to stay where it
-/// was put. Smoothing the UVs as well would move a character's mouth.
-/// </para>
-/// </remarks>
 public static class LoopSubdivision
 {
     /// <summary>How many vertices one refinement of a mesh would produce.</summary>
     /// <param name="positions">How many vertices it has now.</param>
     /// <param name="indices">Its triangles.</param>
     /// <returns>The vertex count after one level.</returns>
-    /// <remarks>
-    /// Asked before refining rather than discovered after, because indices are 16-bit and
-    /// a level that would overflow has to be declined rather than wrapped.
-    /// </remarks>
     public static int Predict(int positions, ReadOnlySpan<ushort> indices)
     {
         HashSet<(int, int)> edges = [];
@@ -137,12 +109,6 @@ public static class LoopSubdivision
     }
 
     /// <summary>Moves the original vertices onto the limit surface.</summary>
-    /// <remarks>
-    /// Warren's weights. A vertex of valence <c>n</c> keeps <c>1 − nβ</c> of itself and
-    /// shares <c>β</c> with each neighbour, and β is chosen so the limit surface is smooth
-    /// at every valence rather than only at six. A vertex on a boundary, or one whose
-    /// neighbourhood is not a fan at all, is left exactly where it is.
-    /// </remarks>
     private static void Smooth(
         ReadOnlySpan<Vector3> positions,
         Dictionary<(int, int), Span> edges,

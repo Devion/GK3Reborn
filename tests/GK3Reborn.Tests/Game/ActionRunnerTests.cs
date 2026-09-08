@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for carrying out an action.
 /// </summary>
-/// <remarks>
-/// An action's script is a much smaller language than Sheep — across the corpus every one
-/// of its 6,842 statements is a function call — so the runner reads statements rather than
-/// compiling. What matters is that it performs exactly what the file says, in order, and
-/// refuses anything else out loud instead of guessing at it.
-/// </remarks>
 public sealed class ActionRunnerTests
 {
     private static NvcAction Action(string script, string verb = "LOOK", string noun = "PAINTING") =>
@@ -269,10 +263,6 @@ public sealed class ActionRunnerTests
     /// <summary>
     /// A script whose one function waits on a timer and then sets a flag.
     /// </summary>
-    /// <remarks>
-    /// The shape of every cutscene an action calls into: a wait block over something that
-    /// takes real time, and the rest of the function on the other side of it.
-    /// </remarks>
     private static SheepScriptFile Cutscene(string flag) =>
         TestScripts.Build("CS6_ALL.SHP", builder =>
         {
@@ -296,11 +286,6 @@ public sealed class ActionRunnerTests
         });
 
     /// <summary>The room's half of a wait on a script, without a room.</summary>
-    /// <remarks>
-    /// <see cref="SceneUpdate.Until"/> keeps the work beside the threads and asks the
-    /// scheduler on every tick whether any of them is still parked. That is the whole of
-    /// it, and this is the same two lines with the tick made explicit.
-    /// </remarks>
     private sealed class Room(SheepScheduler scheduler)
     {
         private readonly List<(IReadOnlyList<SheepThread> Until, Action Work)> _held = [];

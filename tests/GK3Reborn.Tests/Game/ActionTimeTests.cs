@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the rules the resolver withholds because they belong to another moment.
 /// </summary>
-/// <remarks>
-/// An action file is named for when it applies and hands off to a script that is named the
-/// same way, and the two do not always agree — which is the whole of what is tested here.
-/// Both halves fail silently: a rule withheld is a verb that is simply not on the bar, and
-/// there is nothing to see except a character who cannot be asked about anything.
-/// </remarks>
 public sealed class ActionTimeTests
 {
     /// <summary>The shape of a real VERBS.TXT, cut down to what is read.</summary>

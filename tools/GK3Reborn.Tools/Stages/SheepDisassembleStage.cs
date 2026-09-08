@@ -28,26 +28,6 @@ public readonly record struct SheepDisassemblySummary(
 /// <summary>
 /// Disassembles every compiled Sheep script.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The listings are the first readable form of the game's logic, and the run doubles as a
-/// check on the instruction set: an unknown opcode or a miscounted operand desynchronises
-/// the stream, so a script that decodes end to end is evidence the decoding is right.
-/// Scripts that stop early are counted separately rather than quietly truncated.
-/// </para>
-/// <para>
-/// It also checks the <em>writer</em>, which is the only way to check it: every script is
-/// written back out and read again, and everything about the two has to agree. A container
-/// half-understood reads the game's own files perfectly well and produces something nothing
-/// else can open, and there is no way to notice that from the reader alone.
-/// </para>
-/// <para>
-/// And it gathers the signature catalogue the compiler needs. The game's import tables say
-/// what every function it calls takes and returns, which is the one authoritative source
-/// for that in the content: the specification has it too, but the specification is a Word
-/// document.
-/// </para>
-/// </remarks>
 public sealed class SheepDisassembleStage
 {
     private readonly Action<string> _log;
@@ -204,13 +184,6 @@ public sealed class SheepDisassembleStage
     /// <summary>
     /// Writes a script back out, reads it again, and says whether the two agree.
     /// </summary>
-    /// <remarks>
-    /// Not byte-for-byte against the original file: the offset tables the reader skips are
-    /// free to differ, and matching them would be reproducing something nothing reads. What
-    /// has to agree is everything a script <em>is</em> — its imports and their signatures,
-    /// its string pool at the offsets the bytecode names, its variables, where each function
-    /// starts, and the code.
-    /// </remarks>
     private static bool Survives(SheepScriptFile script, string name, DiagnosticBag diagnostics)
     {
         SheepScriptFile again;

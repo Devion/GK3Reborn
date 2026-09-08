@@ -9,39 +9,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws a room into the G-buffer.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D twin of <c>MeshPipeline</c>, and the shaders are not twins at all: they are
-/// the same shaders. <c>MeshShaders.Compose</c> produces the GLSL, the compiler takes it
-/// through SPIR-V and HLSL to DXIL, and what differs between the backends is which object
-/// the result is put into.
-/// </para>
-/// <para>
-/// Four colour targets and a depth: the lit picture, the normal and roughness, the motion
-/// vector, and — with ray tracing compiled in — the direct light the tracing pass will
-/// filter. All of them, always. A rendering scope that binds fewer attachments than its
-/// pipeline writes is not a smaller frame, it is undefined behaviour, and Direct3D says so
-/// only if the debug layer is on.
-/// </para>
-/// <para>
-/// The vertex layout is two streams of the same shape: this pose and the one before it.
-/// SPIRV-Cross has no name to give a GLSL vertex input but <c>TEXCOORD</c> plus its location,
-/// so every element is a TEXCOORD and the semantic index is the location — see
-/// <see cref="ShaderBindings.VertexInputSemantic"/>. Eight attributes, four per stream, and a
-/// stride that disagreed with the shader would not fail: it would read the previous pose from
-/// halfway through a vertex and report movement nothing made.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12MeshPass : IDisposable
 {
     /// <summary>How many bytes one vertex takes in either stream.</summary>
-    /// <remarks>
-    /// Position, normal, texture coordinate, lightmap coordinate: twelve, twelve, eight and
-    /// eight. Taken from the struct rather than written down, because a stride that disagrees
-    /// with it does not fail — the second stream is the previous pose, so the vertex shader
-    /// reads it from part-way through a vertex and reports movement nothing made, and the
-    /// first stream simply draws nothing anybody can recognise.
-    /// </remarks>
     private static readonly uint VertexStride =
         (uint)System.Runtime.InteropServices.Marshal.SizeOf<MeshVertex>();
 
@@ -174,11 +144,6 @@ public sealed unsafe class D3D12MeshPass : IDisposable
     /// Whether this is the mirror's pass. Its view is reflected, so a culled draw within it
     /// wants the opposite front face; nothing else about the pass changes.
     /// </param>
-    /// <remarks>
-    /// The heaps are bound here rather than per draw. Direct3D allows one shader-visible
-    /// heap of each kind at a time and changing either is a pipeline flush on some hardware,
-    /// so the whole room draws out of the one heap its materials were allocated from.
-    /// </remarks>
     public void Begin(
         ID3D12GraphicsCommandList4* list,
         D3D12GeometryDevice geometry,
@@ -242,11 +207,6 @@ public sealed unsafe class D3D12MeshPass : IDisposable
     /// <param name="list">The list to record into, already bound by <see cref="Begin"/>.</param>
     /// <param name="geometry">The device the materials were made on.</param>
     /// <param name="draws">What to draw, from <c>SceneGeometry.Draws</c>.</param>
-    /// <remarks>
-    /// Nothing here decides anything. Which pose is current, whether the lightmap applies and
-    /// how many shells of fur stand over a skin were all settled before the draws arrived,
-    /// which is what lets the same reasoning serve the Vulkan backend.
-    /// </remarks>
     public void Record(
         ID3D12GraphicsCommandList4* list,
         D3D12GeometryDevice geometry,

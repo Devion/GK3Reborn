@@ -8,20 +8,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Finds the Vulkan devices on the machine and works out what each can do.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is the first thing the renderer needs and the last thing that should guess.
-/// <c>Plan/01-architecture.md</c> section 5.1 requires feature tiers to be selected from
-/// *queried* capabilities rather than from vendor or version assumptions: ray tracing and
-/// HDR must never prevent raster play, so the tier a device reaches has to be derived from
-/// what it actually advertises.
-/// </para>
-/// <para>
-/// It runs without a window or a surface, which makes it usable as a diagnostic on a
-/// machine that cannot run the game and testable on a build agent that has no GPU at all.
-/// A missing loader is a reported condition, not a crash.
-/// </para>
-/// </remarks>
 public sealed class VulkanDeviceSelector
 {
     private const string RayTracingPipeline = "VK_KHR_ray_tracing_pipeline";
@@ -38,12 +24,6 @@ public sealed class VulkanDeviceSelector
     /// <param name="vk">The Vulkan API.</param>
     /// <param name="instance">An instance the caller owns and keeps.</param>
     /// <returns>The report.</returns>
-    /// <remarks>
-    /// The renderer has an instance by the time anybody wants to read this, and building a
-    /// second one to look through costs 145 ms of the time to a first frame. Building it on
-    /// another thread to hide that cost is worse than paying it: two instances being created
-    /// at once enumerated only one of this machine's two devices about one run in six.
-    /// </remarks>
     public static DeviceReport Survey(Vk vk, Instance instance)
     {
         ArgumentNullException.ThrowIfNull(vk);
@@ -120,12 +100,6 @@ public sealed class VulkanDeviceSelector
     /// </summary>
     /// <param name="devices">Candidates.</param>
     /// <returns>The chosen device, or null when none can render.</returns>
-    /// <remarks>
-    /// A device that cannot present is not a candidate at all, however capable it is
-    /// otherwise. Beyond that the ordering prefers more capability, then discrete
-    /// hardware, then more memory — deliberately not vendor or device name, which is how
-    /// renderers acquire quiet hardware-specific behaviour.
-    /// </remarks>
     public static AdapterInfo? Choose(IReadOnlyList<AdapterInfo> devices)
     {
         ArgumentNullException.ThrowIfNull(devices);

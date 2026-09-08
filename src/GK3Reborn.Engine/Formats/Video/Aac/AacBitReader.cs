@@ -5,12 +5,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// <summary>
 /// MSB-first bit reader over one AAC access unit.
 /// </summary>
-/// <remarks>
-/// AAC syntax is a stream of fields from one to twenty-odd bits wide, so the reader
-/// works on a 32-bit window that is refilled from the bytes on demand. Peeking past
-/// the end returns zero bits (Huffman lookups peek further than the code they end up
-/// consuming); actually consuming past the end is a corrupt frame and throws.
-/// </remarks>
 internal ref struct AacBitReader
 {
     private readonly ReadOnlySpan<byte> _data;

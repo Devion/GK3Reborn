@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for where a movie comes from.
 /// </summary>
-/// <remarks>
-/// Two sources and one rule between them: <c>--rebarn</c> means the packs and nothing else,
-/// and without it the loose <c>enhanced/video</c> directory is read as well and wins. That
-/// is the same way round as every other enhanced kind, and getting it backwards is the sort
-/// of thing nobody notices until a re-imported cutscene refuses to change.
-/// </remarks>
 public sealed class VideoLibraryTests : IDisposable
 {
     private readonly string _root = Path.Combine(
@@ -128,11 +122,6 @@ public sealed class VideoLibraryTests : IDisposable
 /// <summary>
 /// Tests for reading a movie out of memory somebody else owns.
 /// </summary>
-/// <remarks>
-/// A movie in a pack is a window onto a mapping, and a decoder wants a stream. The
-/// framework has no read-only stream over <see cref="ReadOnlyMemory{T}"/>, so this is one —
-/// and a stream that seeks wrongly gives a decoder a file that looks corrupt.
-/// </remarks>
 public sealed class MappedStreamTests
 {
     private static MappedStream Over(params byte[] bytes) => new(bytes);

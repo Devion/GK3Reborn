@@ -24,19 +24,9 @@ public enum ScreenKind
     /// <summary>
     /// The hose, aimed at something until it comes down.
     /// </summary>
-    /// <remarks>
-    /// The interface the cut crow's-nest puzzle ends in. A panel over the room like the
-    /// binoculars, not somewhere else like the map: the player is standing in the street
-    /// holding a hose. See <see cref="Game.WaterAiming"/>.
-    /// </remarks>
     Water,
 
     /// <summary>The quest log: what the player is trying to do, and what they have done.</summary>
-    /// <remarks>
-    /// The port's own, with nothing behind it in the original. A 1999 adventure game will
-    /// let a player wander for an hour with no idea what it wants of them, and
-    /// <c>Plan/03</c> section 3 asks for an interface easier than that one's.
-    /// </remarks>
     Journal,
 }
 
@@ -51,23 +41,11 @@ public readonly record struct Screen(ScreenKind Kind, string? Subject = null)
     /// <summary>
     /// Whether this screen takes the player's ordinary controls away.
     /// </summary>
-    /// <remarks>
-    /// Driving is the only one that does: the player is somewhere else entirely, steering
-    /// on a map, and the room they left is not theirs to act in. Everything else is a panel
-    /// over the room — the inventory, an item held up to the light, the binoculars — and
-    /// leaving it puts the player back exactly where they were.
-    /// </remarks>
     public bool TakesOverInput => Kind == ScreenKind.Driving;
 
     /// <summary>
     /// What the binoculars' subject reads while they are showing somewhere else.
     /// </summary>
-    /// <remarks>
-    /// The prefix of <c>zoomed:PL1</c>, whose tail is the sight being looked at. The screen
-    /// is the same screen and what it is doing differs: raised, it pans the room and offers
-    /// a closer look at what it finds; leaning in, it holds a view the game's own data
-    /// framed and offers only the way back. See <see cref="Game.BinocularView"/>.
-    /// </remarks>
     public const string Zoomed = "zoomed";
 
     /// <inheritdoc/>
@@ -77,33 +55,6 @@ public readonly record struct Screen(ScreenKind Kind, string? Subject = null)
 /// <summary>
 /// What is in front of the room, and how the player gets out of it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 has a lot of modal screens — the inventory, an item held up close, the binoculars,
-/// the fingerprint kit, the driving map, Sidney — and in the original each arrived with
-/// its own way in and its own way out. <c>Plan/03-gameplay-ui-audio.md</c> section 3 asks
-/// for the opposite: that they "share navigation, back behavior and scaling conventions",
-/// so the player learns the way out once and it works everywhere. This is that stack.
-/// </para>
-/// <para>
-/// One rule for leaving: <see cref="Back"/> closes whatever is on top and puts the player
-/// back where they were. It never closes two things, never lands somewhere they have not
-/// been, and is the same gesture whichever screen they are looking at.
-/// </para>
-/// <para>
-/// One rule for the inventory: <see cref="InventoryReachable"/> says whether a dedicated
-/// binding should open it right now, and the answer is yes unless the player is somewhere
-/// their pockets are not — which is only the driving map. The original made the inventory
-/// a small target to click at the edge of the screen; there is nothing to be gained by
-/// reproducing that.
-/// </para>
-/// <para>
-/// Scripts can ask what is showing — <c>IsTopLayerInventory</c> is a real question in the
-/// data — so this is game state rather than presentation, and part of the state hash. What
-/// it is not is a widget: nothing here draws anything, and a screen being open is a fact
-/// about the game rather than about a window.
-/// </para>
-/// </remarks>
 public sealed class ScreenLayers
 {
     private readonly List<Screen> _open = [];
@@ -120,11 +71,6 @@ public sealed class ScreenLayers
     /// <summary>
     /// Whether a dedicated inventory binding should work right now.
     /// </summary>
-    /// <remarks>
-    /// True in the room, true over any panel that leaves the player where they were, and
-    /// true when the inventory is itself on top so that the same binding shuts it again.
-    /// False only where the player's pockets are not: the driving map.
-    /// </remarks>
     public bool InventoryReachable => !_open.Exists(s => s.TakesOverInput);
 
     /// <summary>Whether a screen of some kind is open.</summary>
@@ -139,11 +85,6 @@ public sealed class ScreenLayers
 
     /// <summary>Changes what the screen on top is about, without stacking another.</summary>
     /// <param name="screen">The same screen, with a different subject.</param>
-    /// <remarks>
-    /// For the inventory, where clicking an item makes the page about that item and does not
-    /// open a second page. Going back from it should leave the inventory, not step through
-    /// one entry per thing the player poked at on the way.
-    /// </remarks>
     public void Replace(Screen screen)
     {
         if (_open.Count > 0)
@@ -157,11 +98,6 @@ public sealed class ScreenLayers
 
     /// <summary>Opens a screen, or brings it forward if it is already open.</summary>
     /// <param name="screen">The screen.</param>
-    /// <remarks>
-    /// Brought forward rather than opened twice, so asking for the inventory while it is
-    /// buried under an inspect panel does what the player meant instead of stacking a
-    /// second copy they would then have to close twice.
-    /// </remarks>
     public void Show(Screen screen)
     {
         _open.RemoveAll(s => s.Kind == screen.Kind);
@@ -175,11 +111,6 @@ public sealed class ScreenLayers
 
     /// <summary>Closes whatever is on top.</summary>
     /// <returns>The screen that closed, or null if the player was in the room already.</returns>
-    /// <remarks>
-    /// The one gesture the player has to learn. It closes exactly one thing, so backing
-    /// out of an item held up close returns to the inventory it came from rather than all
-    /// the way to the room.
-    /// </remarks>
     public Screen? Back()
     {
         if (_open.Count == 0)
@@ -193,9 +124,5 @@ public sealed class ScreenLayers
     }
 
     /// <summary>Closes everything and puts the player back in the room.</summary>
-    /// <remarks>
-    /// For changing location, where a screen left open would belong to a room that is no
-    /// longer there.
-    /// </remarks>
     public void CloseAll() => _open.Clear();
 }

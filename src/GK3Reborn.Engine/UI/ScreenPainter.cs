@@ -95,33 +95,6 @@ public readonly record struct ScreenView(
 /// <summary>
 /// The screens that go in front of the room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The inventory, an item held up close, the binoculars, the driving map and Sidney. In the
-/// original each arrived with its own way in and its own way out; <c>Plan/03</c> section 3
-/// asks for the opposite, so they share their chrome, their way back and their scaling, and
-/// the player learns the way out once.
-/// </para>
-/// <para>
-/// <b>Drawn rather than blitted.</b> The house style since the interface stopped using
-/// GK3's bitmap sheets: rectangles and text, laid out fresh every frame. It costs the
-/// original's art and buys a screen that is legible at any resolution, scales with the
-/// font, and needs no second texture in a pipeline built around one. Sidney gains most —
-/// it is a computer terminal, which is what this style draws best.
-/// </para>
-/// <para>
-/// <b>Nothing here is retained</b>, exactly like <see cref="GameHud"/>: a function from what
-/// the game is doing to a list of rectangles, with hit testing reading back the same layout
-/// pass that drew it. There is no widget tree to keep in step with the world, and no way for
-/// a screen to be showing something that stopped being true.
-/// </para>
-/// <para>
-/// <b>What a click means is a string.</b> The painter knows where things are and the caller
-/// knows what they do — <c>item:PARCHMENT_1</c>, <c>sidney:do:Analyse</c>, <c>close</c> —
-/// which keeps every rule about the game out of the drawing and every rule about drawing
-/// out of the game.
-/// </para>
-/// </remarks>
 public sealed class ScreenPainter
 {
     private static readonly Vector4 Shade = new(0.02f, 0.02f, 0.03f, 0.72f);
@@ -159,24 +132,11 @@ public sealed class ScreenPainter
     /// <summary>
     /// What the game calls the player's things, in the player's own language.
     /// </summary>
-    /// <remarks>
-    /// The same table <see cref="GameHud.Names"/> reads, for the same reason and set the
-    /// same way: the inventory screen and the strip along the top of the room name the same
-    /// objects, and two of them disagreeing about what a thing is called would be worse than
-    /// either name on its own.
-    /// </remarks>
     public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
 
     /// <summary>
     /// The port's own words, in the language the game is being played in.
     /// </summary>
-    /// <remarks>
-    /// Beside <see cref="Names"/> and not the same thing: that is GK3's own string table
-    /// and answers what a place, a timeblock or a pocketed thing is called, all of which
-    /// Sierra translated. This is what the port itself says — the screen titles, the way
-    /// out, the sentence under an empty list — none of which the 1999 game had. See
-    /// <see cref="UiText"/>.
-    /// </remarks>
     public UiText Text { get; set; } = UiText.English;
 
     /// <summary>How much bigger than the letters everything else is.</summary>
@@ -345,22 +305,12 @@ public sealed class ScreenPainter
     /// <summary>
     /// What one of the player's things reads as.
     /// </summary>
-    /// <remarks>
-    /// The game's own name for it where there is one, and the tidied identifier otherwise.
-    /// See <see cref="Game.GameStrings.Item"/>.
-    /// </remarks>
     private string Owned(string item) =>
         Names.Item(item) ?? Text.Say("noun." + item.ToUpperInvariant(), Pretty(item));
 
     /// <summary>
     /// What a verb reads as on a screen's own menu.
     /// </summary>
-    /// <remarks>
-    /// The same words the room's menu uses, and for the same reason: GK3 drew its verbs as
-    /// icons and never wrote one down, so the port carries them. These four menus were
-    /// drawing the tidied identifier instead, which left a French close-up offering "Look"
-    /// under a French hover label.
-    /// </remarks>
     private string Verb(string verb) =>
         verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
 
@@ -384,12 +334,6 @@ public sealed class ScreenPainter
     };
 
     /// <summary>Everything the player is carrying, as a grid.</summary>
-    /// <remarks>
-    /// A grid rather than the strip along the bottom of the room, because this is the
-    /// screen for when there is more of it than the strip can show — and the strip already
-    /// covers the common case, which is why the original's separate inventory screen was
-    /// worth replacing rather than reproducing.
-    /// </remarks>
     private void Inventory(ScreenView view, Vector4 body, float top, float unit)
     {
         if (view.Inventory.Count == 0)
@@ -478,11 +422,6 @@ public sealed class ScreenPainter
     /// <param name="slot">Where the item is drawn.</param>
     /// <param name="body">The panel it is in, so the menu stays inside it.</param>
     /// <param name="unit">The interface's scale.</param>
-    /// <remarks>
-    /// The same shape a right click gives in the room: a short column of words where the
-    /// pointer is. The alternative, and what this replaces, was a screen of its own holding
-    /// two options — which is a page for a thing that fits in a corner.
-    /// </remarks>
     private void Beside(ScreenView view, Vector4 slot, Vector4 body, float unit)
     {
         if (view.Verbs is not { Count: > 0 } verbs)
@@ -541,12 +480,6 @@ public sealed class ScreenPainter
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <param name="unit">The interface's scale.</param>
-    /// <remarks>
-    /// Drawn over the room rather than instead of it — the player is standing in the street
-    /// and should be able to see they are — so this is a reticle, a target and a bar, and
-    /// no panel at all. What the water is doing is the whole of the interface: the jet
-    /// trails the pointer, the nest sways, and the bar fills only while the two agree.
-    /// </remarks>
     private void Water(ScreenView view, int width, int height, float unit)
     {
         if (view.Water is not { } water)
@@ -627,11 +560,6 @@ public sealed class ScreenPainter
     /// <param name="body">The card it goes in.</param>
     /// <param name="top">Where the chrome ends.</param>
     /// <param name="unit">The interface's scale.</param>
-    /// <remarks>
-    /// Two steps, which is the ritual reduced to what the story records: brush the surface,
-    /// and lift what shows with the tape. A card rather than a page, for the same reason the
-    /// item close-up is one — the room the object is in should stay most of the screen.
-    /// </remarks>
     private void Fingerprint(ScreenView view, Vector4 body, float top, float unit)
     {
         float x = body.X + (20 * unit);
@@ -676,11 +604,6 @@ public sealed class ScreenPainter
     /// <param name="height">Window height.</param>
     /// <param name="unit">The interface's scale.</param>
     /// <returns>Where to draw it.</returns>
-    /// <remarks>
-    /// Just over a third of the window, a little above centre, so the room it belongs to is
-    /// still most of what is on the screen. An object held up to the light is a small thing
-    /// and should look like one.
-    /// </remarks>
     private static Vector4 Card(int width, int height, float unit)
     {
         float wide = MathF.Min(width - (80 * unit), MathF.Max(320 * unit, width * 0.38f));
@@ -700,22 +623,6 @@ public sealed class ScreenPainter
     /// <param name="body">The panel it goes in.</param>
     /// <param name="top">Where the chrome ends.</param>
     /// <param name="unit">The interface's scale.</param>
-    /// <remarks>
-    /// <para>
-    /// By day and then by point in the story, newest last. <b>Only the block the player is
-    /// in lists its objectives</b>; the ones behind it keep their heading and their tally and
-    /// give up their list. The question the journal answers is "what now", and a morning's
-    /// worth of ticked lines buries it. The tally is what is left of "how far have I come",
-    /// which is worth keeping and is not worth eleven lines.
-    /// </para>
-    /// <para>
-    /// <b>Nothing here says how.</b> The titles are written to say what, and a player who
-    /// wants more asks for it: every unfinished objective carries a button that reveals one
-    /// line of the walkthrough, and asking again reveals the next. Several of this game's
-    /// puzzles are the best things in it, and printing the answer where nobody asked would
-    /// take them away.
-    /// </para>
-    /// </remarks>
     private void JournalPage(ScreenView view, Vector4 body, float top, float unit)
     {
         IReadOnlyList<JournalDay> days = view.Journal ?? [];
@@ -857,12 +764,6 @@ public sealed class ScreenPainter
     }
 
     /// <summary>Breaks a line of prose to fit a width.</summary>
-    /// <remarks>
-    /// A walkthrough line can run to three sentences and the panel is not that wide. Broken
-    /// on words, and a word longer than the whole width is left to overrun rather than cut
-    /// in half, because there is no such word in the file and inventing a hyphenation rule
-    /// for a case that cannot happen is work spent on nothing.
-    /// </remarks>
     private static IEnumerable<string> Wrapped(string text, float width, float unit)
     {
         float perCharacter = 9f * unit;
@@ -899,36 +800,6 @@ public sealed class ScreenPainter
     /// <param name="width">Window width in pixels.</param>
     /// <param name="height">Window height.</param>
     /// <param name="unit">The interface's scale.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The picture is the point.</b> Every item has two pictures in the archives: a
-    /// 94-pixel square for lists, and a <c>6</c> that is the thing itself painted at the
-    /// size it is meant to be looked at — the book of the immortals is 606 by 314 and its
-    /// two pages are meant to be read. Drawing the list square here made a close-up that
-    /// showed nothing, and made every multi-page document in the game illegible.
-    /// </para>
-    /// <para>
-    /// <b>The verbs are the other point.</b> An item's own actions — look at it, think
-    /// about it, read it, scan it into Sidney — are written in <c>INV_ALL.NVC</c> and
-    /// every one of them is guarded by <c>ALL_INV</c>, which asks whether the inventory is
-    /// on top. So this is the only place they can be reached.
-    /// </para>
-    /// <para>
-    /// <b>Turning a page is a verb, so it is drawn as one — beside the page.</b> The book,
-    /// the church pamphlet and the panels of Le Serpent Rouge all page through each other
-    /// with <c>TURN_LEFT</c> and <c>TURN_RIGHT</c>, whose scripts un-inspect one item and
-    /// inspect the next. Left in the row of verbs they read as two more things to do to a
-    /// book; pulled out to arrows either side of it they read as what they are.
-    /// <c>INSPECT_UNDO</c> goes the other way and is dropped: it is the way out, and the
-    /// way out is already in the same corner it occupies on every other screen.
-    /// </para>
-    /// <para>
-    /// The whole window rather than a panel in the middle of it. Reported: a close-up
-    /// drawn as a card read as a modal error box rather than as looking at something, and
-    /// carried a line telling the player to right-click in the room — which is a thing
-    /// this screen has never let them do, because it takes the click itself.
-    /// </para>
-    /// </remarks>
     private void Inspect(ScreenView view, int width, int height, float unit)
     {
         string subject = view.Screen.Subject ?? view.Held ?? string.Empty;
@@ -1104,12 +975,6 @@ public sealed class ScreenPainter
     /// <param name="art">The picture and the shape it was painted at.</param>
     /// <param name="frame">The rectangle to fill.</param>
     /// <returns>Where to draw it, centred in the frame.</returns>
-    /// <remarks>
-    /// Unlike <see cref="ItemIcon.Fit"/>, which fits a square and never grows a picture:
-    /// this one grows it. The close-ups were painted for a 640-pixel screen, and drawn at
-    /// their own size on a modern one they are a postage stamp in the middle of it — which
-    /// is exactly the complaint this screen exists to answer.
-    /// </remarks>
     private static Vector4 Fitted(ItemIcon art, Vector4 frame)
     {
         float scale = MathF.Min(frame.Z / art.Width, frame.W / art.Height);
@@ -1126,11 +991,6 @@ public sealed class ScreenPainter
     /// <summary>
     /// A list of places, for the binoculars and for a map with no art to draw.
     /// </summary>
-    /// <remarks>
-    /// <b>What is clicked is not what is written.</b> A row shows a place's name — "Larry
-    /// Chester's House" — and carries its location code. Carrying the name instead sent the
-    /// game looking for a room called <c>Larry Chester's House</c>, which it did once.
-    /// </remarks>
     private void Places(
         IReadOnlyList<(string Id, string Label)> places,
         Vector4 body,
@@ -1170,22 +1030,6 @@ public sealed class ScreenPainter
     /// <summary>
     /// The binoculars: the room, seen through two circles.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The panorama is the room itself. The binoculars narrow the view and let the player
-    /// pan the camera they already have, so what this draws is a mask over the picture
-    /// rather than a picture of its own — which is also what the data says they are: each
-    /// thing worth seeing is a rectangle in <em>degrees</em>, heading across and pitch up
-    /// and down.
-    /// </para>
-    /// <para>
-    /// <b>The mask is drawn in strips.</b> The overlay draws rectangles, so the two circles
-    /// are cut out of the dark by covering each band of rows either side of them. Four
-    /// pixels to a band, which is invisible against a flat mask and keeps the count bounded
-    /// at any resolution — a row-per-pixel mask on a 4K display is nine thousand rectangles
-    /// and the overlay holds four.
-    /// </para>
-    /// </remarks>
     private void Binoculars(ScreenView view, int width, int height, float unit)
     {
         // Two circles side by side, overlapping in the middle, filling most of the height.
@@ -1318,12 +1162,6 @@ public sealed class ScreenPainter
     /// <summary>
     /// What a place the binoculars can see is called.
     /// </summary>
-    /// <remarks>
-    /// The map's name for it first, because five of the six are places on the map and the
-    /// map's names are the ones the player will be looking for — "Orange Rock" rather than
-    /// <c>loc_pl3</c>'s "Parking Lot". The location table answers for the two that are not
-    /// on it: the Tour Magdala's lookout and Blanchefort's own ruins.
-    /// </remarks>
     private string Landmark(ScreenView view, string scene)
     {
         if (scene.Length == 0)
@@ -1353,21 +1191,6 @@ public sealed class ScreenPainter
     /// <returns>Whether there was anything to point at.</returns>
     /// <param name="radius">Half the height of an eyepiece, which the strip is sized from.</param>
     /// <param name="unit">How much bigger than the letters everything else is.</param>
-    /// <remarks>
-    /// <para>
-    /// The sights are rectangles of sky in degrees and the camera's heading is in the same
-    /// degrees, so the strip is the difference between them: a tick where each sight is,
-    /// with its name, sliding as the player pans and turning gold as the crosshair reaches
-    /// it. A sight outside the strip's own span becomes an arrow at whichever end it lies
-    /// past, so that a player pointing at the wrong half of the valley is told which way to
-    /// turn rather than left to sweep.
-    /// </para>
-    /// <para>
-    /// It says where to look and never what is there: the name is the place's, which the
-    /// player would read anyway on centring it, and nothing about a sight is given away
-    /// before they have looked. See <c>Plan/03-gameplay-ui-audio.md</c> section 3.
-    /// </para>
-    /// </remarks>
     private bool Bearings(
         Panorama? panorama, ScreenView view, float centre, float baseline, float radius, float unit)
     {
@@ -1437,11 +1260,6 @@ public sealed class ScreenPainter
     }
 
     /// <summary>A difference between two headings, brought into plus or minus 180 degrees.</summary>
-    /// <remarks>
-    /// The file's headings run from 1 to 189 and the camera's from 0 to 360, so a sight at
-    /// 10 degrees and a camera at 350 are 20 degrees apart and not 340. Getting this wrong
-    /// puts every tick on the wrong side of the strip once the player turns past north.
-    /// </remarks>
     private static float Wrapped(float degrees)
     {
         float turned = degrees % 360f;
@@ -1460,39 +1278,6 @@ public sealed class ScreenPainter
     /// <summary>
     /// The driving map: the game's own painting of the countryside, with the places on it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Drawn from the art rather than as a list, because the map <em>is</em> the content —
-    /// a 640-by-480 painting of the Rennes-le-Château valley — and a list of place names is
-    /// a table of contents for it rather than the thing itself. Each place's marker is a
-    /// lit copy of that patch of the map, so drawing one over the base is what the original
-    /// does and why the markers look like part of the picture.
-    /// </para>
-    /// <para>
-    /// Scaled to fit the panel and centred, keeping its own proportions: the map is a
-    /// painting and stretching it to an ultrawide window would be visible immediately.
-    /// Everything on it is placed in map pixels and multiplied through, so the hit test and
-    /// the picture cannot drift apart at any window size.
-    /// </para>
-    /// <para>
-    /// <b>The places are named.</b> A marker is a patch of the painting lit a little
-    /// brighter, which tells the player that something is there and nothing whatever about
-    /// what — the original left them to hover each one in turn to find out, and sixteen
-    /// unlabelled smudges of countryside is exactly the interface <c>Plan/03</c> section 3
-    /// asks this port to be better than. So the open places are listed down the side, the
-    /// one under the pointer is named on the map itself, and pointing at either the row or
-    /// the marker lights up both. The names are the game's own, out of <c>ESTRINGS.TXT</c>.
-    /// </para>
-    /// <para>
-    /// The list is dropped when the panel is too narrow to hold one without taking the map
-    /// down to a thumbnail: a window that shape is one where the map wants every pixel, and
-    /// the names on hover are still there.
-    /// </para>
-    /// <para>
-    /// Falls back to a list of names when the art is not loaded — a run against archives
-    /// that do not have it, or before the pictures have been handed over.
-    /// </para>
-    /// </remarks>
     private void Driving(ScreenView view, Vector4 body, float top, float unit)
     {
         IReadOnlyList<DrivingStop> stops = view.Stops ?? [];
@@ -1629,11 +1414,6 @@ public sealed class ScreenPainter
     }
 
     /// <summary>How wide a traveller's marker is, in the map's own pixels.</summary>
-    /// <remarks>
-    /// A face wants to be a face, so this is a good deal larger than the dot the retail
-    /// engine drew — but still small against a 640-pixel painting of a valley, and what
-    /// makes it readable is the ring round it rather than its size. See <see cref="Face"/>.
-    /// </remarks>
     private const float DotWidth = 26f;
 
     /// <summary>
@@ -1645,12 +1425,6 @@ public sealed class ScreenPainter
     /// <param name="scale">How many window pixels one of the map's own is.</param>
     /// <param name="unit">How much bigger than the letters everything else is.</param>
     /// <returns>Whether anybody was drawn.</returns>
-    /// <remarks>
-    /// A dot in their own colour, which is the retail engine's own way of drawing them and
-    /// the only way that works: the map is a painting of a valley and a moped at this size
-    /// is four pixels. Clicking one gives chase, which is what the port adds — see
-    /// <see cref="Game.DrivingTraffic"/>.
-    /// </remarks>
     private bool Traffic(ScreenView view, Vector4 body, Vector2 corner, float scale, float unit)
     {
         if (view.Traffic is not { } traffic || traffic.Riders.Count == 0)
@@ -1704,41 +1478,11 @@ public sealed class ScreenPainter
     /// <summary>
     /// The part of a portrait that is the head.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The portraits are head-and-shoulders on a flat grey, framed for a panel on Sidney's
-    /// screen where there is room for the whole of somebody. A marker on the map is twenty-
-    /// odd pixels across, and at that size a shoulder is half the picture and the face is a
-    /// smudge — so the map takes the square the head is in. The tool frames all eleven of
-    /// them the same way, which is what makes one rectangle enough.
-    /// </para>
-    /// <para>
-    /// <b>Measured off the pictures rather than guessed at.</b> The first numbers here took
-    /// a square from the middle of the frame and cut every chin off with it, which nobody
-    /// saw because the only markers that had a face were two dots crossing a valley. These
-    /// are the box the subject actually occupies in all eleven: they start almost at the top
-    /// of the frame and lean left of centre, because the tool turns the head three-eighths
-    /// of a turn and the face ends up on that side of it.
-    /// </para>
-    /// </remarks>
     private static readonly Vector4 Head = new(0.10f, 0.03f, 0.72f, 0.72f);
 
     /// <summary>
     /// A traveller on the map: their own face, ringed in their own colour.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The portrait is Sidney's, which is the picture the player has been reading their
-    /// name under, so the marker says who rather than merely that somebody is there —
-    /// Gabriel's own included, although he is on nobody's suspect list. The ring is the
-    /// retail engine's colour for them and does the work at a glance: two faces at map size
-    /// are two faces, and two colours are two people.
-    /// </para>
-    /// <para>
-    /// The portraits are enhanced content. An installation without them draws the ring
-    /// filled, which is exactly the coloured square the original drew.
-    /// </para>
-    /// </remarks>
     private void Face(ScreenView view, Traveller who, Vector4 marker)
     {
         float edge = MathF.Max(1.5f, marker.Z / 9f);
@@ -1760,11 +1504,6 @@ public sealed class ScreenPainter
     /// <summary>
     /// The map while somebody is being chased.
     /// </summary>
-    /// <remarks>
-    /// The two of them on the road, and a way to stop watching. Nothing else: the places
-    /// are not offered because the ride is not the player's to steer, and a marker that
-    /// cannot be clicked is worse than no marker.
-    /// </remarks>
     private void Chasing(
         ScreenView view,
         Game.DrivingTraffic traffic,
@@ -1815,11 +1554,6 @@ public sealed class ScreenPainter
         view.Map?.NameOf(stop) ?? stop.Code;
 
     /// <summary>Draws a box around the marker the pointer is on.</summary>
-    /// <remarks>
-    /// Four lines rather than a tint over it: a marker is already a lit copy of the map
-    /// underneath, and lighting it further is a change the eye has nothing to compare
-    /// against, while a box around it is unambiguous over any part of the painting.
-    /// </remarks>
     private void Ring(Vector4 bounds, float unit)
     {
         float thick = MathF.Max(1f, unit);
@@ -1831,11 +1565,6 @@ public sealed class ScreenPainter
     }
 
     /// <summary>Names the marker the pointer is on, beside it and inside the panel.</summary>
-    /// <remarks>
-    /// Under the marker where there is room and over it where there is not, and pushed back
-    /// inside the panel either way: several of the sixteen places sit within a marker's
-    /// width of an edge of the painting, and a name that runs off it is no name at all.
-    /// </remarks>
     private void MarkerName(string name, Vector4 marker, Vector4 body, float unit)
     {
         float padding = 6 * unit;
@@ -1866,12 +1595,6 @@ public sealed class ScreenPainter
     /// <param name="unit">How much bigger than the letters everything else is.</param>
     /// <param name="lit">The place the pointer found on the map, if it found one.</param>
     /// <returns>The place the pointer is on in the list, or null.</returns>
-    /// <remarks>
-    /// Every row is a way to ride there, so a player who knows the name they want never has
-    /// to find it on the painting first. In map order rather than alphabetical: the list is
-    /// a reading of the picture beside it, and two orderings of the same sixteen things is
-    /// one more thing to learn.
-    /// </remarks>
     private DrivingStop? DrivingList(
         ScreenView view,
         IReadOnlyList<DrivingStop> stops,
@@ -1925,20 +1648,10 @@ public sealed class ScreenPainter
     }
 
     /// <summary>How big each of the map's markers is, in the map's own pixels.</summary>
-    /// <remarks>
-    /// The pictures know their own size and the painter cannot ask them — it draws through
-    /// an overlay that takes numbers, not textures — so whoever loads them says so here.
-    /// </remarks>
     public IDictionary<string, (int Width, int Height)> Sizes { get; } =
         new Dictionary<string, (int, int)>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Sidney, whichever of its programs is showing.</summary>
-    /// <remarks>
-    /// Drawn by <see cref="Sidney.SidneyView"/>, which owns the laptop, the desktop and the eight
-    /// programs on it. It is not a panel over the room like the screens around it — Sidney
-    /// is a thing in Grace's hands — so it takes the window rather than the body rectangle
-    /// this painter hands everything else.
-    /// </remarks>
     private void Sidney(ScreenView view, int width, int height, float unit) =>
         _sidney.Draw(Overlay, _hits, view, width, height, _pointer, unit);
 
@@ -1950,10 +1663,6 @@ public sealed class ScreenPainter
     /// </summary>
     /// <param name="at">Where the pointer is, in window pixels.</param>
     /// <returns>The place, in the map's own 1,368 pixels.</returns>
-    /// <remarks>
-    /// Through whatever the map was last drawn at, so it means the same place whether the
-    /// view is at rest or zoomed into a corner of the country.
-    /// </remarks>
     public Vector2 MapAt(Vector2 at)
     {
         Vector4 bounds = MapBounds;

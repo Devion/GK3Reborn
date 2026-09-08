@@ -18,32 +18,9 @@ public readonly record struct FadeConstants(Vector4 Color, DisplayEncode Display
 /// <summary>
 /// A flat colour drawn over the finished picture, at whatever opacity it is given.
 /// </summary>
-/// <remarks>
-/// <para>
-/// What a scene change looks like. Everything else the renderer draws is a thing in the
-/// world or a thing on the interface; this is neither, and it goes over both — a fade that
-/// left the inventory bar showing would be a fade of the room rather than of the picture.
-/// </para>
-/// <para>
-/// No vertex buffer, no descriptors and no texture: one triangle covering the screen,
-/// generated from the vertex index, and a push constant carrying the colour. That makes it
-/// the cheapest pass in the renderer, which matters because it is recorded on every frame of
-/// the game and does nothing on almost all of them.
-/// </para>
-/// <para>
-/// The colour is written as it is given and the blend is straight, so an alpha of one leaves
-/// the target exactly that colour and an alpha of a half leaves it halfway there. The
-/// interface's own colours have to be converted first; this one writes the number it is
-/// handed, and the ramp it is driven along is the caller's business.
-/// </para>
-/// </remarks>
 public static class FadeShaders
 {
     /// <summary>The vertex stage.</summary>
-    /// <remarks>
-    /// GLSL rather than HLSL: a push constant is one unambiguous declaration here and a coin
-    /// toss through shaderc's HLSL front end, which fails by compiling and drawing nothing.
-    /// </remarks>
     public const string Vertex = """
         #version 450
 
@@ -59,7 +36,6 @@ public static class FadeShaders
         """;
 
     /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
-    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
     public static string Fragment => Prelude + "\n" + DisplayEncoding.Glsl + "\n" + Body;
 
     private const string Prelude = """

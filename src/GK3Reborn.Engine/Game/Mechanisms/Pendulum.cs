@@ -12,30 +12,6 @@ namespace GK3Reborn.Game.Mechanisms;
 /// <summary>
 /// TE3: the blade, the turning floor, and the altar in the middle.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Twenty-four platforms turn slowly round a shaft; a blade the height of the room swings
-/// across it, into a slot on either side. Gabriel jumps out onto the ring and rides it,
-/// stepping forward and back to stay out of the blade's way, until he can catch hold of it
-/// as it passes and let go over the altar in the middle.
-/// </para>
-/// <para>
-/// <b>The numbers are in the game, not in the code.</b> <c>PENDULUM.TXT</c> gives the
-/// ring's period, how many platforms pass per swing, the blade's greatest angle and the
-/// two angles between which letting go is survivable. The reference works from remembered
-/// values and says it did not bother reading the file; this reads it, so the puzzle runs at
-/// the speed its designers set.
-/// </para>
-/// <para>
-/// <b>Everything about a platform's position is derived.</b> All twenty-four models sit at
-/// the middle of the room and are <em>turned</em> into place, so asking one where it is
-/// gives the middle of the room — which is why there is a formula here instead. The one
-/// fixed fact it needs is that platform 24 faces the entryway when nothing has turned.
-/// </para>
-/// <para>
-/// Adapted from G-Engine's <c>Pendulum</c> under GPL-3, attributed in NOTICE.
-/// </para>
-/// </remarks>
 public sealed class Pendulum : SceneMechanism
 {
     /// <summary>How many platforms make up the ring.</summary>
@@ -221,12 +197,6 @@ public sealed class Pendulum : SceneMechanism
     /// <summary>
     /// How long the blade takes to swing out and back.
     /// </summary>
-    /// <remarks>
-    /// Not a number anybody wrote down: the file says <em>six platforms pass per swing</em>,
-    /// so the swing is six platforms' worth of the ring's own rotation. Tying the two
-    /// together is what makes the puzzle readable — the blade always arrives on the same
-    /// beat of the floor going round.
-    /// </remarks>
     private double Cycle => PerPlatform / Turning * _per;
 
     /// <inheritdoc/>
@@ -249,19 +219,6 @@ public sealed class Pendulum : SceneMechanism
     /// <summary>
     /// Catches the blade for him, where the player has asked not to have to.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// After <see cref="Swing"/> rather than before it, so that a frame which is both the
-    /// last of the reach and the first of the killing is still the killing: the assistance
-    /// is a pair of hands, not a second kind of plot armour, and a player who has both on
-    /// should see the same room either way round. In practice the reach runs out a platform
-    /// before the blade arrives, so the two never meet.
-    /// </para>
-    /// <para>
-    /// It is the same <see cref="Grab"/> the click performs — the score, the camera cut and
-    /// the climb are all the room's, and none of them is skipped.
-    /// </para>
-    /// </remarks>
     private void Reach()
     {
         if (Story.CatchesPendulum && _doing == Doing.Riding && _danger != 0 && WithinReach())
@@ -333,10 +290,6 @@ public sealed class Pendulum : SceneMechanism
     private int _danger;
 
     /// <summary>Where the blade is now, as an angle off vertical.</summary>
-    /// <remarks>
-    /// Eased rather than linear, because a pendulum is: it hangs at the ends of its arc and
-    /// is quickest through the bottom, and the whole puzzle is timing against that.
-    /// </remarks>
     private float Angle()
     {
         double half = Cycle * 0.5;
@@ -388,10 +341,6 @@ public sealed class Pendulum : SceneMechanism
     }
 
     /// <summary>Where a platform's middle is now.</summary>
-    /// <remarks>
-    /// Half a platform's worth of angle in, because the index counts leading edges and this
-    /// wants the middle to stand on.
-    /// </remarks>
     private Vector3 Where(int platform)
     {
         float angle = (PerPlatform * 0.5f) + (PerPlatform * platform) + _turned;
@@ -403,11 +352,6 @@ public sealed class Pendulum : SceneMechanism
     }
 
     /// <summary>Which platform is at the entryway, or a given number of places past it.</summary>
-    /// <remarks>
-    /// Platform twenty-four faces the door before anything has turned, and one more passes
-    /// every <see cref="PerPlatform"/> radians. The blade's two slots are six platforms
-    /// ahead of the door and six behind it.
-    /// </remarks>
     private int Slot(int past = 0)
     {
         int gone = (int)(Wrapped(_turned) / PerPlatform);
@@ -428,31 +372,12 @@ public sealed class Pendulum : SceneMechanism
         _under = under?.Name ?? string.Empty;
 
     /// <summary>What the player is offered when the blade can be caught.</summary>
-    /// <remarks>
-    /// A verb rather than a noun, because the noun is already on the screen and does not
-    /// change: the blade says PENDULUM whether it is halfway across the room or buried in
-    /// the slot beside you. What the player has no way of knowing is <em>when</em>, and the
-    /// window is a couple of seconds. The reference puts a grab cursor up for the same
-    /// reason; this port has no cursor art, so it says so instead.
-    /// </remarks>
     private const string Grabbing = "GRAB";
 
     /// <summary>And when he is hanging off it over the altar.</summary>
     private const string Dropping = "LET GO";
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <para>
-    /// <b>The blade has a noun and the room has a rule for it.</b> Without this the click
-    /// resolved <c>PENDULUM:LOOK</c> every time and <see cref="TakesClick"/> was never
-    /// reached, so the grab — the only way out of this room — could not be performed.
-    /// </para>
-    /// <para>
-    /// Once he has left the doorway the whole room is claimed, advertised or not. He is on
-    /// a turning platform with a blade coming at him and the scales on the far side are not
-    /// his to poke at; the original claims every click in the room for the same reason.
-    /// </para>
-    /// </remarks>
     public override string? ClaimsClick(ScenePick? under)
     {
         string name = under?.Name ?? _under;
@@ -481,25 +406,6 @@ public sealed class Pendulum : SceneMechanism
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <para>
-    /// <b>Only the drop, and only while he is hanging.</b> Every other move in this room is
-    /// a click on a thing that is plainly there — the platform in front of him, the blade
-    /// coming at him — and putting a button up for those would be answering a question the
-    /// player has not got. The drop is the exception: he is hanging off a blade over a
-    /// shaft, the camera is on <c>LONG_ALTAR</c>, and the only click that does anything is
-    /// on the altar itself, which from up there is a slab of stone among slabs of stone.
-    /// Nothing tells the player that, and a room whose one exit cannot be found is a room
-    /// the game ends in.
-    /// </para>
-    /// <para>
-    /// Live only inside <c>startSafe</c>, which is the same window <see cref="ClaimsClick"/>
-    /// advertises on the altar and the same one <see cref="Drop"/> enforces. So the button
-    /// lighting up is the timing cue and no more than that: it says he may let go, not that
-    /// letting go now lands him on the altar. <c>endSafe</c> is narrower and stays the
-    /// player's to judge, which is the whole tension of the moment.
-    /// </para>
-    /// </remarks>
     public override MechanismButton? Offers =>
         _doing == Doing.Holding
             ? new MechanismButton(Dropping, MathF.Abs(Angle()) < _allowed)
@@ -515,10 +421,6 @@ public sealed class Pendulum : SceneMechanism
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <b>Nothing in this room is walked to.</b> There is no floor to speak of — a doorway,
-    /// a turning ring and a shaft — so every click is a jump, a grab, a drop, or nothing.
-    /// </remarks>
     public override bool TakesClick(ScenePick? under)
     {
         string name = under?.Name ?? _under;
@@ -573,10 +475,6 @@ public sealed class Pendulum : SceneMechanism
         name.Equals("te3_pendulum_center", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether Gabriel is near enough the blade's slot to catch it.</summary>
-    /// <remarks>
-    /// Within two platforms of the slot, and behind it: he reaches forward for it as it
-    /// comes to him rather than sideways as it passes.
-    /// </remarks>
     private bool WithinReach()
     {
         int slot = Slot(_danger > 0 ? 6 : -6);
@@ -613,10 +511,6 @@ public sealed class Pendulum : SceneMechanism
     /// A step to the next platform or the one before it.
     /// </summary>
     /// <returns>True when the click was the mechanism's, which it is on the ring.</returns>
-    /// <remarks>
-    /// Only the two platforms either side answer: the ring is a circle of twenty-four and
-    /// jumping across it is not a thing Gabriel can do.
-    /// </remarks>
     private bool Step(int wanted)
     {
         int ahead = (_on + 1) % Platforms;
@@ -668,12 +562,6 @@ public sealed class Pendulum : SceneMechanism
     }
 
     /// <summary>Lets go, over the altar or over the shaft.</summary>
-    /// <remarks>
-    /// <b>Two angles decide it, and the game states both.</b> <c>startSafe</c> is how far
-    /// off vertical the player is allowed to try at all; <c>endSafe</c> is how far off it
-    /// still lands him on the altar. Between the two he is allowed to jump and misses,
-    /// which is the whole tension of the moment.
-    /// </remarks>
     private void Drop()
     {
         if (MathF.Abs(Angle()) >= _allowed)

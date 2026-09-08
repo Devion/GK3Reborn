@@ -3,26 +3,6 @@ namespace GK3Reborn.Formats.Bitmaps;
 /// <summary>
 /// BC7's partition shapes: which subset each of a block's sixteen texels belongs to.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Sixty-four shapes for a two-subset block and sixty-four more for a three-subset one,
-/// chosen by the partition field the block carries. They are the format's own data, not
-/// a decision this decoder makes, and they are kept apart from the decoder because a
-/// thousand numbers in the middle of it would bury the twenty lines that matter.
-/// </para>
-/// <para>
-/// Each entry holds the subset in its low bits and marks the subset's anchor texel with
-/// the high bit, which is where <see cref="BlockDecoder"/> reads both. Texel zero is the
-/// first subset's anchor in every shape; the others move with the shape.
-/// </para>
-/// <para>
-/// Transcribed from the BC7 specification's tables. Khronos's published copy of them is
-/// known to contain errors, so the values were checked against the shape they describe:
-/// every two-subset row uses exactly the subsets 0 and 1 and marks exactly two anchors,
-/// every three-subset row uses 0, 1 and 2 and marks three, and <c>BlockDecoderTests</c>
-/// pins that.
-/// </para>
-/// </remarks>
 public static partial class BlockDecoder
 {
     /// <summary>How many texels a block holds.</summary>

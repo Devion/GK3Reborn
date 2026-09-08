@@ -7,20 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for Sidney in a language other than English.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Sidney was the most translated screen in the game and the least translated screen in
-/// the port.</b> <c>ESIDNEY.TXT</c> is re-cut for every localisation and carries every one
-/// of its buttons, and the port wrote them out in English beside the paragraphs it did read
-/// — so a German game drew a German analysis under <c>START ANALYSIS</c>.
-/// </para>
-/// <para>
-/// The fixture here is the German release's own text, cut down: the same keys, the German
-/// values. That is what makes these tests worth writing rather than tautological — the keys
-/// are what the engine asks for and the values are what a player sees, and the whole class
-/// of fault this covers is an engine that confuses the two.
-/// </para>
-/// </remarks>
 public sealed class SidneyLanguageTests
 {
     /// <summary>The German release's own strings, under the keys every release shares.</summary>

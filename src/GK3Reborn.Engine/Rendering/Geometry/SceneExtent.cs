@@ -10,20 +10,6 @@ using System.Numerics;
 namespace GK3Reborn.Rendering.Geometry;
 
 /// <summary>What a scene occupies, in world space.</summary>
-/// <remarks>
-/// <para>
-/// Carried alongside the rig for one purpose: telling a light that decays from a light that
-/// was placed outside the room and given a range it could never span. A range is an
-/// authored falloff when it reaches the geometry and leftover data when it cannot, and
-/// nothing but the geometry's own extent can tell the two apart. See
-/// <see cref="GpuLight.IsDistantKey"/>.
-/// </para>
-/// <para>
-/// The default is deliberately "unknown" rather than an empty box at the origin. An empty
-/// box would answer every question confidently and wrongly — every light in the game is
-/// further from a point than its range, so every light would become a sun.
-/// </para>
-/// </remarks>
 public readonly record struct SceneExtent
 {
     private readonly Vector3 _minimum;

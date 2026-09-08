@@ -38,14 +38,6 @@ public enum MenuItemKind
     /// <summary>
     /// Not selectable: the name of a group of settings, with a rule across the page.
     /// </summary>
-    /// <remarks>
-    /// Apart from <see cref="Label"/> because the two are opposites of each other. A label
-    /// is an afterthought under the row it belongs to and is drawn small and dim; a heading
-    /// introduces the rows below it and has to be found at a glance. A page laid out in two
-    /// columns needs them: without a heading the reader has no way to tell where one group
-    /// of settings stopped and the next began, because the eye no longer has a single
-    /// column to follow.
-    /// </remarks>
     Heading,
 }
 
@@ -99,12 +91,6 @@ public readonly record struct MenuItem(
     /// <param name="text">What the binding is for.</param>
     /// <param name="value">What it currently answers to.</param>
     /// <returns>The row.</returns>
-    /// <remarks>
-    /// A button with a reading rather than a choice, and the difference is the arrows. A
-    /// choice draws <c>&lt; this &gt;</c> because it can be stepped left and right through a
-    /// short list; a binding cannot be stepped at all — there are a hundred keys and the way
-    /// to pick one is to press it — so arrows would be the row lying about what it does.
-    /// </remarks>
     public static MenuItem Binding(string id, string text, string value) =>
         new(id, MenuItemKind.Button, text, value);
 
@@ -123,11 +109,6 @@ public readonly record struct MenuItem(
     /// <summary>
     /// Whether this row takes the whole width of the page rather than a column of it.
     /// </summary>
-    /// <remarks>
-    /// A heading introduces everything under it, and an explanation is a sentence: neither
-    /// makes any sense confined to half the page while the other half carries an unrelated
-    /// setting. Everything else pairs up.
-    /// </remarks>
     public bool Spans => Kind is MenuItemKind.Label or MenuItemKind.Heading;
 }
 
@@ -160,26 +141,6 @@ public readonly record struct MenuSection(string Id, string Text);
 /// <summary>
 /// A page of menu, drawn from rectangles and text rather than from the game's own art.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Nothing here uses GK3's interface bitmaps.</b> They are 640x480 art with the button
-/// labels painted into them in one language, at one size, with the pressed and hovered
-/// states baked as separate images. Drawing the interface instead means it is sharp at any
-/// resolution, it grows with the caption ladder like the rest of the interface, it can say
-/// things the original never had a button for — a volume, a walking pace — and it needs no
-/// new art to add a row.
-/// </para>
-/// <para>
-/// The layout and the hit test come from one pass, in the same way <see cref="GameHud"/>
-/// does its verb menu: a row is drawn and its rectangle remembered, so what the player
-/// clicks is necessarily what they saw. The two cannot drift apart because there is only
-/// one of them.
-/// </para>
-/// <para>
-/// Every measurement is in <see cref="Overlay.LineHeight"/>, so the whole page scales with
-/// the font the interface picked for the window. Nothing is in pixels.
-/// </para>
-/// </remarks>
 public sealed class MenuPage
 {
     /// <summary>The panel behind the page.</summary>
@@ -202,33 +163,18 @@ public sealed class MenuPage
     /// <summary>
     /// Where each drawn row went, and which item it was.
     /// </summary>
-    /// <remarks>
-    /// The item's own index is kept because a page that scrolls does not draw its first
-    /// row first: the pointer lands on the fourth thing drawn and that may be the
-    /// seventeenth setting.
-    /// </remarks>
     private readonly List<(int At, string Id, Vector4 Bounds, MenuItemKind Kind)> _rows = [];
 
     /// <summary>Each label's text, already broken to fit the panel.</summary>
     private readonly List<string[]> _wrapped = [];
 
     /// <summary>The bands the rows were laid into, and where each one sits in the page.</summary>
-    /// <remarks>
-    /// A band is one line across the content: either a single row spanning the whole width
-    /// — a heading, an explanation — or a left-hand row and its right-hand partner. It is
-    /// the unit the page scrolls in and the unit a selection is revealed in, because both
-    /// of those questions are about a line of the page rather than about a setting.
-    /// </remarks>
     private readonly List<Band> _bands = [];
 
     /// <summary>Which band each item ended up in.</summary>
     private int[] _bandOf = [];
 
     /// <summary>How wide each row's label and reading come to together.</summary>
-    /// <remarks>
-    /// Kept because it decides two things and they are decided in different places: how
-    /// wide a column wants to be, and whether a particular row will fit in one.
-    /// </remarks>
     private float[] _widths = [];
 
     /// <summary>Where each of the sidebar's entries was drawn.</summary>
@@ -237,13 +183,6 @@ public sealed class MenuPage
     /// <summary>
     /// How much room the sliders on the page need for their labels and their readings.
     /// </summary>
-    /// <remarks>
-    /// One pair of numbers for the whole page rather than one per row, because a bar is
-    /// drawn in the same place on every slider of a page: five volumes whose bars each
-    /// began after their own label would read as five unrelated rows instead of as one
-    /// list. Taken from the longest label and the longest reading on the page, so the bar
-    /// starts clear of the worst of them.
-    /// </remarks>
     private float _sliderLabel;
 
     /// <summary>How wide a slider's reading is allowed to be. See <see cref="_sliderLabel"/>.</summary>
@@ -252,31 +191,11 @@ public sealed class MenuPage
     private Vector4 _panel;
 
     /// <summary>The rectangle the rows are confined to, below the heading.</summary>
-    /// <remarks>
-    /// Kept because a scrolled page draws rows that are partly outside it, and a click on
-    /// the sliver of a row hanging past the bottom edge should do nothing: what the player
-    /// pointed at is what they could see.
-    /// </remarks>
     private Vector4 _content;
 
     /// <summary>
     /// How far down the page has scrolled, in pixels, and where it is heading.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Two numbers rather than one, and both in pixels rather than in rows.</b> The
-    /// first attempt kept a single row index and recomputed it from the selection every
-    /// frame, growing a window outwards from the chosen row — which meant the chosen row
-    /// was always in the middle, so <em>every</em> step of the selection scrolled the whole
-    /// page by one row. The list moved under the player instead of the cursor moving down
-    /// it, which is what "it loves to immediately jump" describes.
-    /// </para>
-    /// <para>
-    /// Now the page only moves when the selection would otherwise leave it, it moves by the
-    /// least it can, and it takes a few frames to get there. A row in the middle of the
-    /// page can be stepped past without the page moving at all.
-    /// </para>
-    /// </remarks>
     private float _scroll;
 
     /// <summary>Where the scroll is going.</summary>
@@ -286,11 +205,6 @@ public sealed class MenuPage
     private float _scrollMax;
 
     /// <summary>The selection the page was last revealed for.</summary>
-    /// <remarks>
-    /// So that revealing only happens when the selection <em>moves</em>. Without this the
-    /// wheel would be undone on the very next frame: the page would scroll away from the
-    /// chosen row and be dragged straight back to it.
-    /// </remarks>
     private int _revealed = -1;
 
     /// <summary>Creates a page.</summary>
@@ -306,10 +220,6 @@ public sealed class MenuPage
 
     /// <summary>Draws with a different sheet of letters.</summary>
     /// <param name="atlas">The new one.</param>
-    /// <remarks>
-    /// For a window that changed size. An outline font is re-cut at the new size rather
-    /// than magnified, which is the whole reason for having one.
-    /// </remarks>
     public void Retarget(OverlayAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(atlas);
@@ -328,38 +238,16 @@ public sealed class MenuPage
     /// <summary>
     /// What is behind the page, and therefore what it has to draw itself.
     /// </summary>
-    /// <remarks>
-    /// The game's own title art is a picture and is left alone: a wash over it to make the
-    /// rows readable would be a wash over the thing the player came to look at, and the
-    /// panel behind the rows already carries that. Without the art there is nothing at all
-    /// behind the page, so it draws its own screen from rectangles. Over a room, a dim.
-    /// </remarks>
     public MenuBehind Behind { get; set; } = MenuBehind.Room;
 
     /// <summary>
     /// The sections listed down the left of the panel, or none for a page that is one list.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set by whoever owns the pages, because which sections there are is a fact about the
-    /// settings and not about how they are drawn. Empty is the ordinary case: the title
-    /// screen, the pause menu and the save slots are each a single list.
-    /// </para>
-    /// <para>
-    /// A page with sections is also a page that lays its rows in two columns and that is
-    /// wide enough to. The two go together — the sidebar costs width, and what pays for it
-    /// is not having to walk into a page and back out again for every group of settings.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<MenuSection> Sections { get; set; } = [];
 
     /// <summary>
     /// The port's own words, in the language the game is being played in.
     /// </summary>
-    /// <remarks>
-    /// The page itself is handed everything it draws, so this is here for the one thing it
-    /// is asked to draw without being told: how to skip a film. See <see cref="UiText"/>.
-    /// </remarks>
     public UiText Text { get; set; } = UiText.English;
 
     /// <summary>Which of them is showing.</summary>
@@ -368,93 +256,44 @@ public sealed class MenuPage
     /// <summary>
     /// Where down the window the page sits, from zero at the top to one at the bottom.
     /// </summary>
-    /// <remarks>
-    /// Low over the title art, which has the game's name across the middle of it and should
-    /// not be covered by its own menu. Centred everywhere else.
-    /// </remarks>
     public float Down { get; set; } = 0.5f;
 
     /// <summary>
     /// Where across the window the page sits, from zero at the left to one at the right.
     /// </summary>
-    /// <remarks>
-    /// Left over the title art, whose lettering is to the right of the angel. A menu that
-    /// covers the name of the game it is the menu for is not a title screen.
-    /// </remarks>
     public float Across { get; set; } = 0.5f;
 
     /// <summary>One row's height, which is what everything else is measured in.</summary>
     private float Row => Overlay.LineHeight * (Overlay.Atlas.Scalable ? 1.5f : 1.9f);
 
     /// <summary>How much of the window a page's preview takes across.</summary>
-    /// <remarks>
-    /// A third of it. The first attempt drew a picture the height of a line of text beside
-    /// every row, which is small enough to be worse than nothing — a room is recognised by
-    /// its shape and its colour, and neither survives being a centimetre wide. One picture,
-    /// of the row the player is on, big enough to answer "is this the save I mean".
-    /// </remarks>
     private const float PreviewWide = 0.34f;
 
     /// <summary>How many rows a page needs before it is worth splitting into two columns.</summary>
-    /// <remarks>
-    /// Below this a second column is worse than no second column: the eye has to cross the
-    /// page to find three rows that would have been under its nose. Above it the page stops
-    /// scrolling, which is the whole reason for the columns.
-    /// </remarks>
     private const int TwoColumnsAbove = 6;
 
     /// <summary>How quickly the page catches up with where it is scrolling to.</summary>
-    /// <remarks>
-    /// An exponential approach rather than a constant speed, so a small correction is quick
-    /// and a jump to the far end of a long page still takes about a fifth of a second. High
-    /// enough that nobody waits for it; low enough that the eye can follow which way the
-    /// page went, which is the entire point of animating it at all.
-    /// </remarks>
     private const float ScrollRate = 18f;
 
     /// <summary>
     /// The narrowest one column of settings may be, in ems.
     /// </summary>
-    /// <remarks>
-    /// Below this a column is too narrow for an ordinary label and its reading, and two of
-    /// them are worse than one of twice the width. Fourteen ems is about "Higher-resolution
-    /// textures  On" at the size the interface cuts its letters for a 1080-line display,
-    /// which is the case this number exists to admit.
-    /// </remarks>
     private const float NarrowestColumn = 14f;
 
     /// <summary>
     /// The narrowest a slider's bar may be, in ems.
     /// </summary>
-    /// <remarks>
-    /// Six, which is about forty steps of a volume at the size the interface cuts its
-    /// letters at. It is here rather than only in the drawing because it is part of how
-    /// wide a slider's row <em>is</em>: a bar that is not measured is a bar that is drawn
-    /// over whatever was measured instead.
-    /// </remarks>
     private const float BarLeast = 6f;
 
     /// <summary>
     /// The widest reading a slider is expected to carry.
     /// </summary>
-    /// <remarks>
-    /// Room is kept for this even while every slider on the page reads something shorter,
-    /// because the alternative is a bar whose right-hand end moves while it is being
-    /// dragged: the readings are what decide where the bars stop, and "100%" is four
-    /// characters where "9%" is two. Every reading these pages use — a percentage, a
-    /// multiplier — is at its widest four characters.
-    /// </remarks>
     private const string WidestReading = "100%";
 
     /// <summary>
     /// One in how many of a page's rows may overflow its column before the columns are
     /// given up.
     /// </summary>
-    /// <remarks>
-    /// A third. Below that the long rows read as the exceptions they are; above it the page
-    /// is mostly full-width rows with the occasional pair, which looks like a grid that has
-    /// failed rather than like a list.
-    /// </remarks>
     private const int TooRagged = 3;
 
     /// <summary>One line across the content: a spanning row, or a left row and its partner.</summary>
@@ -483,10 +322,6 @@ public sealed class MenuPage
     /// over. Nought snaps, which is what a test and a photograph both want: neither has a
     /// second frame for the page to have settled on.
     /// </param>
-    /// <remarks>
-    /// There is no line along the bottom saying which keys work. A menu that tells the
-    /// player what an arrow key does is a menu that thinks they have not used one.
-    /// </remarks>
     public void Build(
         string title,
         IReadOnlyList<MenuItem> items,
@@ -843,21 +678,6 @@ public sealed class MenuPage
     /// <param name="columnWidth">How wide one column came out.</param>
     /// <param name="pad">The room either side of a row inside its column.</param>
     /// <returns>The height of the whole page.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Down one column and then down the next, not across.</b> A grid filled across
-    /// would put the second setting to the right of the first, so pressing Down would skip
-    /// every other row and there would be no key left that moved between the columns — Left
-    /// and Right belong to the values. Filled downwards, the order the keyboard walks is
-    /// the order the eye reads, and the only surprise is one step from the foot of one
-    /// column to the head of the next.
-    /// </para>
-    /// <para>
-    /// Headings and explanations break the run they are in, so a group of settings is
-    /// balanced over its own two columns rather than over the whole page. That is what
-    /// keeps a heading meaning the rows underneath it.
-    /// </para>
-    /// </remarks>
     private float Lay(
         IReadOnlyList<MenuItem> items,
         float[] heights,
@@ -928,11 +748,6 @@ public sealed class MenuPage
     /// <summary>Scrolls the page the least it can to put a row on it.</summary>
     /// <param name="index">The row.</param>
     /// <param name="viewport">How much of the page is showing.</param>
-    /// <remarks>
-    /// With a row's lead above and below, so that stepping onto the last visible row shows
-    /// what is coming rather than leaving the selection against the edge with no warning
-    /// that the page has more on it.
-    /// </remarks>
     private void Reveal(int index, float viewport)
     {
         if (_bands.Count == 0 || index < 0 || index >= _bandOf.Length)
@@ -959,13 +774,6 @@ public sealed class MenuPage
     /// <param name="to">Where it is heading.</param>
     /// <param name="seconds">How long since the last frame.</param>
     /// <returns>Where it has reached.</returns>
-    /// <remarks>
-    /// Framerate-independent: the fraction closed is taken from an exponential of the
-    /// elapsed time rather than being a constant per frame, so the page settles at the same
-    /// speed at 30 and at 300 frames a second. Snapped once it is within half a pixel,
-    /// because an asymptote never arrives and a page that is forever a third of a pixel
-    /// short of where it is going is a page that redraws forever.
-    /// </remarks>
     private static float Approach(float from, float to, float seconds)
     {
         float difference = to - from;
@@ -979,11 +787,6 @@ public sealed class MenuPage
     }
 
     /// <summary>Draws the list of sections down the left of the panel.</summary>
-    /// <remarks>
-    /// Only where there is one. The title screen, the pause menu and the save slots are one
-    /// list each and have nothing to put in a sidebar; the settings are five lists and used
-    /// to be reached by walking into a page and back out of it for every one of them.
-    /// </remarks>
     private void Aside(
         float x, float top, float sidebar, float viewport, float unit, float row, float pad)
     {
@@ -1019,10 +822,6 @@ public sealed class MenuPage
     }
 
     /// <summary>Draws the picture belonging to the row the player is on, beside the list.</summary>
-    /// <remarks>
-    /// One of them rather than one per row: a room is recognised by its shape and its
-    /// colour, and neither survives being drawn the height of a line of text.
-    /// </remarks>
     private void Preview(
         IReadOnlyList<MenuItem> items, float right, float top, float width, float unit)
     {
@@ -1098,12 +897,6 @@ public sealed class MenuPage
     }
 
     /// <summary>Which item the pointer is over, or -1.</summary>
-    /// <remarks>
-    /// Walked over the bands rather than divided, because rows are not all the same height
-    /// and the page no longer starts at its first row. A point outside the content is over
-    /// nothing at all, which is what keeps a click on the sliver of a row hanging past the
-    /// bottom edge from landing on a setting the player cannot see.
-    /// </remarks>
     private int ItemUnder(
         Vector2 point,
         float left,
@@ -1144,12 +937,6 @@ public sealed class MenuPage
     }
 
     /// <summary>Draws the bar that says how much of a long page is showing.</summary>
-    /// <remarks>
-    /// A bar rather than arrows, because it says two things at once — that there is more,
-    /// and how much more — and because it needs no target to click on: this page is stepped
-    /// with the keyboard and the wheel, and a scroll bar nobody drags is a scroll bar that
-    /// only has to be read.
-    /// </remarks>
     private void Scrollbar(float right, float top, float viewport, float total)
     {
         float unit = Overlay.LineHeight;
@@ -1173,12 +960,6 @@ public sealed class MenuPage
     /// <param name="text">The sentence.</param>
     /// <param name="wide">How much room there is across.</param>
     /// <returns>The lines.</returns>
-    /// <remarks>
-    /// On spaces, and never mid-word: a word broken across two lines of a settings page is
-    /// harder to read than a page that is one line taller. A single word wider than the
-    /// panel is left to overhang, which cannot happen with any language this game is in and
-    /// is a better failure than dropping it.
-    /// </remarks>
     private string[] Wrap(string text, float wide)
     {
         if (text.Length == 0 || wide <= 0)
@@ -1245,11 +1026,6 @@ public sealed class MenuPage
 
     /// <summary>Puts the selection on the first row that can be landed on.</summary>
     /// <param name="items">The rows.</param>
-    /// <remarks>
-    /// And puts the page back to the top, without animating it there. This is called when
-    /// the page has <em>changed</em> — a different section, a different screen — and sliding
-    /// a page that is not the page the player was looking at is an animation of nothing.
-    /// </remarks>
     public void Reset(IReadOnlyList<MenuItem> items)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1267,18 +1043,6 @@ public sealed class MenuPage
 
     /// <summary>Scrolls the page by the wheel.</summary>
     /// <param name="notches">How far it turned; positive is away from the player.</param>
-    /// <remarks>
-    /// <para>
-    /// The page and not the selection. Turning the wheel over a long settings page to see
-    /// what is on it should not change what pressing Enter would do, and a wheel that
-    /// stepped the selection could not reach the bottom of a page without walking through
-    /// every row on the way — which is how the wheel used to behave everywhere else in this
-    /// interface and is wrong here.
-    /// </para>
-    /// <para>
-    /// Three rows a notch, which is what the rest of the desktop does.
-    /// </para>
-    /// </remarks>
     public void Wheel(int notches)
     {
         if (notches == 0 || _scrollMax <= 0f)
@@ -1294,11 +1058,6 @@ public sealed class MenuPage
     public bool Scrolls => _scrollMax > 0f;
 
     /// <summary>How far down the page has scrolled, in pixels.</summary>
-    /// <remarks>
-    /// Nought at the top. Read by tests, which is the only way to ask the question that
-    /// matters here — whether the page moved — without reimplementing the layout to find
-    /// out where a row should have been.
-    /// </remarks>
     public float Scrolled => _scroll;
 
     /// <summary>
@@ -1306,11 +1065,6 @@ public sealed class MenuPage
     /// </summary>
     /// <param name="index">Which row, by index into the items last drawn.</param>
     /// <returns>Its rectangle, as x, y, width, height.</returns>
-    /// <remarks>
-    /// The same list the pointer is hit-tested against, so anything that agrees with this
-    /// agrees with what a click will do. A row scrolled off the page has no rectangle, which
-    /// is the honest answer: it was not drawn and cannot be clicked.
-    /// </remarks>
     public Vector4? Where(int index)
     {
         foreach ((int at, _, Vector4 bounds, _) in _rows)
@@ -1347,11 +1101,6 @@ public sealed class MenuPage
     /// <param name="point">Where the pointer is.</param>
     /// <param name="items">The rows as last drawn.</param>
     /// <returns>The action, or <see cref="MenuAction.None"/>.</returns>
-    /// <remarks>
-    /// A click on a slider is a drag to that position, because a player who clicks halfway
-    /// along a volume bar means half. A click anywhere on a choice steps it forward, which
-    /// makes the whole row a target rather than two small arrows.
-    /// </remarks>
     public MenuAction Click(Vector2 point, IReadOnlyList<MenuItem> items)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1398,11 +1147,6 @@ public sealed class MenuPage
     /// <param name="point">Where the pointer went down.</param>
     /// <param name="items">The rows as last drawn.</param>
     /// <returns>The row's index, or minus one where the press was not on a slider.</returns>
-    /// <remarks>
-    /// <b>A drag is a grab, and a grab has to have grabbed something.</b> Asked once, when
-    /// the button goes down, so that what follows moves the bar that was pressed and
-    /// nothing else. See <see cref="Drag"/> for what went wrong without it.
-    /// </remarks>
     public int Grabbed(Vector2 point, IReadOnlyList<MenuItem> items)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1433,21 +1177,6 @@ public sealed class MenuPage
     /// <param name="items">The rows as last drawn.</param>
     /// <param name="row">Which row the drag grabbed, from <see cref="Grabbed"/>.</param>
     /// <returns>The action, or none when the drag grabbed no slider.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>It moves the row the drag began on, not the row the pointer last hovered.</b> It
-    /// used to take <see cref="Index"/>, which the pointer sets by hovering — so with a
-    /// volume row under the pointer, pressing anything outside the content was read as a
-    /// drag of that volume to wherever the press was. Pressing a tab in the sidebar is the
-    /// case somebody hits: the sidebar is left of the bar, so the volume went to nought on
-    /// the way to another page.
-    /// </para>
-    /// <para>
-    /// Found by item rather than taken at the same position, because a page that scrolls
-    /// draws the eleventh setting fourth. Dragging a slider off the top of a scrolled page
-    /// then moved a different one.
-    /// </para>
-    /// </remarks>
     public MenuAction Drag(Vector2 point, IReadOnlyList<MenuItem> items, int row)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -1506,12 +1235,6 @@ public sealed class MenuPage
     /// </param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// A hold rather than a click, because a click is what a player does by accident and
-    /// losing the opening of the game to a stray mouse is worse than holding a button for
-    /// half a second. A hold with nothing on screen is indistinguishable from a hold that
-    /// is not working, so it fills a bar while it counts.
-    /// </remarks>
     public void Skipping(string text, float part, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -1529,11 +1252,6 @@ public sealed class MenuPage
     /// <param name="part">How far through the hold the player is, zero to one.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// <b>One pass because there is one display list.</b> <see cref="Overlay.Begin"/> throws
-    /// away what was there, so drawing the subtitle and the skip hint through two calls
-    /// would show whichever went second.
-    /// </remarks>
     public void Film(
         string? caption, string? speaker, string? skip, float part, int width, int height)
     {
@@ -1553,19 +1271,6 @@ public sealed class MenuPage
     /// <summary>
     /// Draws a film's subtitle across the bottom of the screen.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Centred, over a band, low but clear of the very bottom edge — which is where a
-    /// television would have cut it off and where the skip hint sits. Nothing else is on
-    /// screen during a film, so it has the width to itself.
-    /// </para>
-    /// <para>
-    /// <b>The speaker's name goes above it rather than in front of it.</b> GK3's cutscene
-    /// captions name whoever is talking, and prefixing the line with it would push a long
-    /// sentence onto a third row for a word that is the same on every one of them.
-    /// <c>UNKNOWN</c> is written for a line nobody on screen is saying, and is not drawn.
-    /// </para>
-    /// </remarks>
     private void Subtitle(string caption, string? speaker, int width, int height)
     {
         float unit = Overlay.LineHeight;
@@ -1604,11 +1309,6 @@ public sealed class MenuPage
     }
 
     /// <summary>A speaker's noun, as a person would read it.</summary>
-    /// <remarks>
-    /// The cutscene captions name people the way the action files do — <c>WILKES</c>,
-    /// <c>MOSELY</c>, <c>THE_MAN</c> — so the underscores come out and the shouting is
-    /// turned down. There is no table of character names in the data to look them up in.
-    /// </remarks>
     private static string Named(string noun)
     {
         string text = noun.Replace('_', ' ').Trim();
@@ -1686,12 +1386,6 @@ public sealed class MenuPage
     /// <param name="where">Where it goes, in window pixels.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// No band and nothing centred: the frame is a piece of the painting's own artwork and
-    /// belongs exactly where the artists put it. Placing it is
-    /// <see cref="Game.TimeblockCard.Over"/>'s job, because the offsets are in the card's
-    /// coordinates and this page has never heard of them.
-    /// </remarks>
     public void Announcing(int lettering, Vector4 where, int width, int height)
     {
         Overlay.Begin(width, height);
@@ -1704,12 +1398,6 @@ public sealed class MenuPage
     /// <param name="text">What this part of the day is called.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// Big, centred and over a band, because the whole point of it is to be impossible to
-    /// miss: two hours of the story have just gone by. The band is there for the paintings
-    /// with a bright sky in the middle of them, where white letters on their own would be
-    /// unreadable.
-    /// </remarks>
     public void Announcing(string text, int width, int height)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -1742,12 +1430,6 @@ public sealed class MenuPage
     /// <summary>Fills the screen behind the page, where anything is wanted there.</summary>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// A gradient in bands rather than a picture: sixteen rectangles cost nothing, there is
-    /// no bitmap to ship, and it is right at any size. Over a room it is a single dark wash
-    /// instead, so the player can still see where they are while the game is paused. Over
-    /// the title art it is nothing at all.
-    /// </remarks>
     private void Screen(int width, int height)
     {
         if (Behind == MenuBehind.Picture)
@@ -1886,19 +1568,6 @@ public sealed class MenuPage
     /// <param name="x">The row's left edge.</param>
     /// <param name="width">How wide the row is.</param>
     /// <returns>Where the bar starts and how long it is.</returns>
-    /// <remarks>
-    /// <para>
-    /// Halfway across the row, or clear of the longest label on the page where that is
-    /// further — which is what stops the bar being drawn through the words. The far end is
-    /// short of the widest reading, so a page of sliders has its bars starting and stopping
-    /// in the same two places however long each row's own label happens to be.
-    /// </para>
-    /// <para>
-    /// One place rather than two, because the bar the player drags has to be the bar they
-    /// were shown: the drawing and the hit test used to work this out separately and only
-    /// agreed by coincidence.
-    /// </para>
-    /// </remarks>
     private (float Left, float Width) Bar(float x, float width)
     {
         float unit = Overlay.LineHeight;

@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Unit coverage for the LZO1X decompressor, using hand-encoded streams.
 /// </summary>
-/// <remarks>
-/// The streams here are written by hand rather than produced by a compressor, because
-/// the project has no LZO compressor and none is needed: the archives are read-only.
-/// Bulk validation comes from the real corpus, where 2,340 extracted WAV files carry
-/// RIFF sizes that agree byte-for-byte with their decompressed lengths — a single
-/// wrong byte anywhere in the decoder would break that relationship.
-/// </remarks>
 public sealed class Lzo1xTests
 {
     /// <summary>The three-byte sequence that ends a stream.</summary>

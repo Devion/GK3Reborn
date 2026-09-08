@@ -7,22 +7,6 @@ namespace GK3Reborn.Foundation.Diagnostics;
 /// <summary>
 /// What the game found where, said once at startup.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Almost every report of "it will not start" is a path: content that was never copied,
-/// a native payload that was not unpacked, a directory the player cannot write to. Those
-/// are cheap to diagnose and expensive to guess at, so each one is named in the log
-/// whether it was found or not - a log that only mentions what went wrong cannot be told
-/// apart from a log that stopped before it got there.
-/// </para>
-/// <para>
-/// The case check exists because Windows is the platform this is developed on and Linux
-/// is not. <c>Data</c> and <c>data</c> are the same directory on one and two different
-/// ones on the other, and a player who unpacked an archive that spelled it the other way
-/// gets a missing-content message pointing at a directory they can plainly see. Saying
-/// "there is a directory here that differs only in case" turns that into a fix.
-/// </para>
-/// </remarks>
 public static class StartupReport
 {
     /// <summary>
@@ -32,13 +16,6 @@ public static class StartupReport
     /// The <c>libs/&lt;rid&gt;</c> directory the host resolves native libraries from, or
     /// null when no resolver was installed.
     /// </param>
-    /// <remarks>
-    /// The environment goes to the file alone; a player has not asked which build of the
-    /// runtime they have. The two lines that reach the console are the ones they may need
-    /// to act on: where the log is, and whether the native libraries are missing - which on
-    /// Linux and macOS is the difference between a window opening and a silent exit,
-    /// because GLFW, OpenAL and shaderc are loaded before anything can be drawn.
-    /// </remarks>
     public static void Begin(string? nativeLibraryRoot)
     {
         Log.Info(Log.FilePath is { } file
@@ -89,12 +66,6 @@ public static class StartupReport
     /// <param name="path">Where it was expected, or null when nobody asked for it.</param>
     /// <param name="note">What its absence costs, said on the console when it is absent.</param>
     /// <returns>True when the directory is there.</returns>
-    /// <remarks>
-    /// Absent is not a failure here, so nothing reaches the console unless <paramref
-    /// name="note"/> says the player loses something by it. The file records both cases:
-    /// "the enhanced textures were not where the run expected them" is exactly the kind of
-    /// thing that otherwise gets discovered by looking at screenshots a week later.
-    /// </remarks>
     public static bool Optional(string what, string? path, string? note = null)
     {
         if (path is not { Length: > 0 })
@@ -128,12 +99,6 @@ public static class StartupReport
     /// <param name="what">What goes in it, as a player would name it.</param>
     /// <param name="path">The directory, already chosen by <see cref="InstallPaths"/>.</param>
     /// <returns>True when a file could be written there and removed again.</returns>
-    /// <remarks>
-    /// A save that cannot be written is discovered when somebody tries to save, which is
-    /// after they have played for an hour. The probe costs one file and answers it now.
-    /// This is a warning rather than an error everywhere: a read-only install still plays,
-    /// it just cannot remember anything, and saying so is better than refusing to run.
-    /// </remarks>
     public static bool Writable(string what, string path)
     {
         if (InstallPaths.CanWrite(path))
@@ -161,12 +126,6 @@ public static class StartupReport
     /// <param name="what">What was being looked for.</param>
     /// <param name="candidates">Every path tried, in the order they were tried.</param>
     /// <param name="chosen">The one that answered, or null when none did.</param>
-    /// <remarks>
-    /// File only, and always - including the runs that succeed. The question this answers
-    /// is "why is it reading that copy and not the one I just built", which is asked about
-    /// a run that worked, and there is no way to answer it after the fact from a log that
-    /// only recorded the winner.
-    /// </remarks>
     public static void Searched(string what, IEnumerable<string> candidates, string? chosen)
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -196,21 +155,6 @@ public static class StartupReport
 
     /// <summary>Reports the native payload, which is what a broken Unix install lacks.</summary>
     /// <param name="root">The <c>libs/&lt;rid&gt;</c> directory, or null.</param>
-    /// <remarks>
-    /// <para>
-    /// A published game keeps GLFW, OpenAL and shaderc in <c>libs/&lt;rid&gt;</c>; a build
-    /// straight out of the compiler has not been through the publish that moves them there
-    /// and keeps them in the stock <c>runtimes/&lt;rid&gt;/native</c>, or flat beside the
-    /// executable. All three are fine. Only the fourth case - none of them - is a problem,
-    /// and it is the one worth being loud about: on Linux and macOS it is the commonest way
-    /// a copied install fails, and the process dies inside the first P/Invoke with a
-    /// <c>DllNotFoundException</c> naming a library the player has never heard of.
-    /// </para>
-    /// <para>
-    /// Which is why the empty case is not treated as the missing case. Warning about a
-    /// layout that works would teach whoever reads these logs to skip this line.
-    /// </para>
-    /// </remarks>
     private static void NativeLibraries(string? root)
     {
         if (root is not { Length: > 0 })
@@ -285,12 +229,6 @@ public static class StartupReport
 
     /// <summary>Says as much about a path that is not there as the filesystem knows.</summary>
     /// <param name="path">The path that was expected.</param>
-    /// <remarks>
-    /// Two things are worth saying and neither is obvious from the path alone: how far up
-    /// the tree exists at all, which separates "wrong directory" from "nothing was
-    /// installed", and whether the missing name is sitting right there under a different
-    /// case, which is the one failure a Windows build never reproduces.
-    /// </remarks>
     private static void Explain(string? path)
     {
         if (path is not { Length: > 0 })
@@ -320,11 +258,6 @@ public static class StartupReport
     /// </summary>
     /// <param name="path">The path that was expected.</param>
     /// <returns>An existing directory on the way to it, or null.</returns>
-    /// <remarks>
-    /// Public so it can be checked without arranging a broken install, on the same grounds
-    /// as <see cref="InstallPaths.FindBundleResources"/>: it is a question about a path,
-    /// and a question about a path has an answer on any machine.
-    /// </remarks>
     public static string? Nearest(string path)
     {
         try
@@ -350,12 +283,6 @@ public static class StartupReport
     /// </summary>
     /// <param name="path">The directory that was expected and is not there.</param>
     /// <returns>The near miss, or null when there is none.</returns>
-    /// <remarks>
-    /// The failure this catches cannot happen on the machine this is developed on - NTFS
-    /// answers to either spelling - so it is public for the same reason the bundle check
-    /// is: being able to check it from Windows is the difference between it being tested
-    /// and being hoped for.
-    /// </remarks>
     public static string? OtherCase(string path)
     {
         try

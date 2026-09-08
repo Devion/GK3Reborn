@@ -17,11 +17,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// A look at the three fires, written out as pictures.
 /// </summary>
-/// <remarks>
-/// Explicit, because it asserts nothing: it exists so that a change to the flame shader can
-/// be looked at rather than guessed at. <c>-explicit only -method "*Photograph*"</c> runs it
-/// and leaves the images in GK3REBORN_FLAME_OUT.
-/// </remarks>
 public sealed class FlameLookTests
 {
     [Fact(Explicit = true)]

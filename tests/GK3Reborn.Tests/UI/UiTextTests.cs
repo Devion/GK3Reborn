@@ -18,24 +18,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the port's own interface in a language other than English.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's own strings are read out of the archives through the language pack and were
-/// already right. Everything the port added — the main menu, the five settings sections,
-/// the toolbar, the journal, the way out of every screen, and the ninety verbs the
-/// original drew as icons rather than words — had no 1999 counterpart to read, so it was
-/// English in every language.
-/// </para>
-/// <para>
-/// The two checks that matter here are not about the words. One is that <b>every file
-/// holds exactly the same keys</b>: a key present in all but one of them is a row that
-/// quietly reads English in one language and in no other, which nobody sees until they
-/// are playing in it. The other is that <b>the English in the file is the
-/// English in the source</b>, because the call sites carry their own fallback so that the
-/// code can be read — and a duplicated string that nothing compares is a duplicated string
-/// that drifts.
-/// </para>
-/// </remarks>
 public sealed partial class UiTextTests
 {
     /// <summary>The languages the port carries words for.</summary>

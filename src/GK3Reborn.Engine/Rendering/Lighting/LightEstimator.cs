@@ -42,25 +42,6 @@ public readonly record struct PointEstimate(
 /// <summary>
 /// Recovers light sources from baked lighting.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The useful observation is that a distant light is a *linear* problem. Lambertian
-/// brightness from a directional source is <c>I = dot(n, d)</c>, so given many surfaces
-/// with known normals and measured brightness, the direction and intensity fall out of a
-/// three-by-three least-squares solve. No iteration, no initial guess, no local minima.
-/// </para>
-/// <para>
-/// Point lights are not linear, because brightness depends on distance as well as angle.
-/// They are estimated more coarsely, by clustering bright surfaces and placing a source
-/// in front of each cluster — good enough to seed a rig a human then corrects, which is
-/// all ADR 0002 asks of it.
-/// </para>
-/// <para>
-/// Nothing here is trusted on its own. Every estimate carries a confidence derived from
-/// how well it explains the samples, and low-confidence output is review queue rather
-/// than content.
-/// </para>
-/// </remarks>
 public static class LightEstimator
 {
     /// <summary>
@@ -68,11 +49,6 @@ public static class LightEstimator
     /// </summary>
     /// <param name="surfaces">Surfaces with their measured brightness.</param>
     /// <returns>The estimate, or null when the samples cannot constrain one.</returns>
-    /// <remarks>
-    /// Minimising the squared error between <c>dot(n, d)</c> and measured brightness gives
-    /// the normal equations <c>(sum n nᵀ) d = sum I n</c>. Surfaces are weighted by area,
-    /// so a large wall counts for more than a doorknob.
-    /// </remarks>
     public static DirectionalEstimate? FitDirectional(IReadOnlyList<LitSurface> surfaces)
     {
         ArgumentNullException.ThrowIfNull(surfaces);
@@ -141,12 +117,6 @@ public static class LightEstimator
     /// <param name="clusterRadius">How close two surfaces must be to share a light.</param>
     /// <param name="maxLights">Cap on how many lights to propose.</param>
     /// <returns>The estimates, brightest first.</returns>
-    /// <remarks>
-    /// A cluster of bright surfaces implies a source somewhere in front of them, so the
-    /// light is placed off the cluster's centroid along its average normal at a distance
-    /// scaled by the cluster's own extent. This is a seed, not a solution: it gets the
-    /// light into roughly the right place so a human can move it rather than create it.
-    /// </remarks>
     public static IReadOnlyList<PointEstimate> FitPointLights(
         IReadOnlyList<LitSurface> surfaces, float clusterRadius, int maxLights = 8)
     {

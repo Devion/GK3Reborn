@@ -8,18 +8,6 @@ namespace GK3Reborn.Content.Authoring;
 /// <summary>
 /// Loads and saves the two halves of an authorable document.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Every authorable document is a pair: a generated baseline the converter owns and
-/// rewrites freely, and an edits file the humans own and the converter never touches.
-/// Keeping them in separate files is what makes "regenerate everything" safe.
-/// </para>
-/// <para>
-/// The naming convention is <c>&lt;name&gt;.json</c> and <c>&lt;name&gt;.edits.json</c> side by
-/// side, so an artist opening the content folder can see at a glance which scenes
-/// have been corrected and which are still running on the generator's guesses.
-/// </para>
-/// </remarks>
 public static class AuthoringStore
 {
     /// <summary>The suffix that marks a human-owned edits file.</summary>

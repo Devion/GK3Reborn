@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Builds synthetic Barn archives for tests.
 /// </summary>
-/// <remarks>
-/// The runtime is read-only for proprietary formats, so this writer exists purely so
-/// tests can exercise the reader without shipping a byte of copyrighted game data. It
-/// implements exactly as much of the format as the reader consumes.
-/// </remarks>
 internal sealed class BarnFixture
 {
     private readonly List<(string Name, byte[] Data, int Compression)> _entries = [];

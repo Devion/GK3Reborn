@@ -20,23 +20,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Cuts every room into one glTF file per object, so the geometry can be improved.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A room ships as one BSP file and converts to one glTF file, which is the wrong shape
-/// for the work. Nobody bevels a room: they bevel a chair, leave the wall behind it
-/// alone, and want to see the chair on its own while they do it. So each of a room's
-/// named objects is written as its own file, into a directory named for the room, and the
-/// set reassembles into the room it came from because every triangle still names the
-/// surface it belongs to. See <c>docs/scene-geometry.md</c>.
-/// </para>
-/// <para>
-/// The extraction is lossless in the only sense that matters: composing the extracted set
-/// back without touching it produces geometry the renderer draws identically, because the
-/// surface index — and with it the texture, the lightmap and every flag — travels with
-/// each triangle. What extraction adds is vertex normals, which the original does not
-/// have and a modelling tool cannot work without.
-/// </para>
-/// </remarks>
 public sealed class SceneExtractStage
 {
     private readonly Action<string> _log;
@@ -53,12 +36,6 @@ public sealed class SceneExtractStage
     public const string OutputDirectory = "enhanced/scenes";
 
     /// <summary>Where the extracted originals sit inside a room's directory.</summary>
-    /// <remarks>
-    /// Beside rather than under the enhanced set, and never written over. Two things
-    /// depend on it: the modelling pass reads its input from here every run, so a second
-    /// run does not enhance its own output; and a person comparing before and after has
-    /// the before.
-    /// </remarks>
     public const string SourceSubdirectory = "original";
 
     /// <summary>Extracts every room.</summary>
@@ -236,11 +213,6 @@ public sealed class SceneExtractStage
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A file name for an object, unique within its room.</summary>
-    /// <remarks>
-    /// Twenty-one objects across the corpus share a name with another object in the same
-    /// room, and two carry an apostrophe. The index is appended only where it is needed,
-    /// so the common case stays readable.
-    /// </remarks>
     private static string FileNameFor(string name, int index, HashSet<string> used)
     {
         Span<char> scratch = stackalloc char[name.Length];
@@ -288,12 +260,6 @@ internal sealed record ObjectFacts
     public required uint Flags { get; init; }
 
     /// <summary>Whether every one of its surfaces is a translucent shadow decal.</summary>
-    /// <remarks>
-    /// Every, not any, and the difference is 54 objects. A moped is 38 surfaces of which
-    /// exactly one — the blob it casts on the ground — carries the shadow flag, so testing
-    /// the union of an object's flags called every moped in the game a decal and left it
-    /// as it shipped. Eight objects across the corpus really are decals throughout.
-    /// </remarks>
     public required bool AllShadow { get; init; }
 
     /// <summary>Measures one object.</summary>
@@ -380,12 +346,6 @@ internal sealed class MaterialClasses
     public int Count => _classes.Count;
 
     /// <summary>Reads the classes out of the material library.</summary>
-    /// <remarks>
-    /// The class is the first word of the classifier's own note — <c>"stone: the name and
-    /// the picture agree"</c> — because that is where it is recorded and nothing else in
-    /// the library carries it. A texture nothing classified has no class, and "no class"
-    /// is not "not important".
-    /// </remarks>
     public static MaterialClasses Load(string path)
     {
         Dictionary<string, string> classes = new(StringComparer.OrdinalIgnoreCase);

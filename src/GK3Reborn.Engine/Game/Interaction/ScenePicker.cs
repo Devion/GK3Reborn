@@ -24,12 +24,6 @@ public enum PickKind
 /// <summary>
 /// What a ray into the scene found.
 /// </summary>
-/// <remarks>
-/// A pick is always reported, even when the thing hit answers to nothing. Most of a room
-/// is wallpaper with no noun, and that wallpaper still <em>blocks</em>: the difference
-/// between clicking a wall and clicking a door hidden behind it is the whole point of
-/// casting a ray rather than testing bounding boxes.
-/// </remarks>
 /// <param name="Name">Name of the thing hit — a BSP object name or a model name.</param>
 /// <param name="Noun">What the scene calls it, or null when the scene names it nothing.</param>
 /// <param name="Verb">The verb a click does by default, if the scene names one.</param>
@@ -45,51 +39,18 @@ public readonly record struct ScenePick(
     PickKind Kind)
 {
     /// <summary>Whether the player can do anything to it.</summary>
-    /// <remarks>
-    /// A noun is the whole test, as it is in the original: an object the player can name is
-    /// an object the player can act on, and everything else is scenery.
-    /// </remarks>
     public bool IsInteractive => Noun is { Length: > 0 };
 }
 
 /// <summary>
 /// Answers what is under a point on the screen.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 puts nearly everything clickable inside the room's own geometry. A door, a drawer,
-/// a notice board are objects in the BSP that the initialisation file names — <c>model=</c>
-/// with a <c>noun=</c> — and the handful of things that are not, the props and the people,
-/// are separate models standing in it. So resolving a click means casting one ray at the
-/// geometry and at the placed models together and keeping whichever it reaches first.
-/// </para>
-/// <para>
-/// Some clickable things are not drawn at all. A <c>hittest</c> is ordinary geometry with
-/// an ordinary texture that the scene marks invisible: a slab across a doorway, a box over
-/// the area a note occupies on a desk, giving the player something forgiving to aim at.
-/// They are in the ray's world even though they are not in the picture, which is why a
-/// picture is not enough to check this against — hence the noun map.
-/// </para>
-/// <para>
-/// Hidden objects are the opposite: a <c>scene</c> or <c>hittest</c> model the story has
-/// switched off is not merely undrawn, it is not there. The ray passes through it and hits
-/// whatever stands behind, exactly as the original does by clearing the interactive flag on
-/// those surfaces.
-/// </para>
-/// </remarks>
 public sealed class ScenePicker
 {
     private readonly List<Target> _targets = [];
 
     /// <summary>Builds a picker for a loaded scene.</summary>
     /// <param name="scene">The scene, with its geometry and its placed models.</param>
-    /// <remarks>
-    /// The triangles are gathered once, grouped by object with a box around each — the
-    /// room's in world space, a model's in its own, since a model can still be moved. A
-    /// room is fifteen thousand triangles and a click has to be answered between two
-    /// frames; the box rejects nearly all of them before any arithmetic that matters
-    /// happens.
-    /// </remarks>
     public ScenePicker(LoadedScene scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
@@ -130,22 +91,12 @@ public sealed class ScenePicker
     public int TargetCount => _targets.Count;
 
     /// <summary>How many triangles those things are made of.</summary>
-    /// <remarks>
-    /// Reported because it is what a pick costs and it is no longer close to what the room
-    /// draws: a grown tree is ten thousand triangles of leaf card, and a room with a stand
-    /// in it carries more foliage in the picker than it does wall.
-    /// </remarks>
     public int TriangleCount =>
         _targets.Sum(t => t.Parts.Sum(p => p.Triangles.Length)) / 3;
 
     /// <summary>
     /// Things a script has switched off, by name.
     /// </summary>
-    /// <remarks>
-    /// Shared with the story rather than owned here, because a hit test switched off stays
-    /// off across a camera cut and a reload of the same room. See
-    /// <c>GameState.BlockedHitTests</c>.
-    /// </remarks>
     public ISet<string>? Blocked { get; init; }
     /// <summary>
     /// Everything in the room the player can act on, and where it is.
@@ -156,19 +107,6 @@ public sealed class ScenePicker
     /// sometimes depends on it — a hotel door is named by the number in its model's name —
     /// and there is no pick to ask when every hotspot is being listed at once.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// For showing them all at once while a key is held. A 1999 adventure game hides its
-    /// hotspots and expects the player to sweep the pointer over the furniture until
-    /// something lights up, which is the least interesting thing anybody does in one.
-    /// </para>
-    /// <para>
-    /// Each noun once, not each object: the church carves its four angels as four models and
-    /// the hallway's hit tests double up on doors, and a room labelled twice for the same
-    /// thing reads as a fault rather than as thoroughness. The first one found wins, and the
-    /// middle is of that one's own box.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<(string Noun, string Name, Vector3 Where)> Interactive()
     {
         var found = new List<(string, string, Vector3)>();
@@ -226,13 +164,6 @@ public sealed class ScenePicker
     /// Things the ray passes straight through, by name, or null to meet everything.
     /// </param>
     /// <returns>The nearest thing it met, or null if it met nothing.</returns>
-    /// <remarks>
-    /// <b>What is doing the casting is not always the pointer.</b> CS2's five beams each
-    /// ask how far they reach, and the first thing every one of them would otherwise meet
-    /// is another beam — so the pair that cross would each stop the other an inch out of
-    /// the head. That is what the ignore list is for, and it is the same list the
-    /// reference passes to its own raycast.
-    /// </remarks>
     public ScenePick? Pick(Ray ray, IReadOnlySet<string>? ignoring = null)
     {
         ScenePick? nearest = null;
@@ -316,12 +247,6 @@ public sealed class ScenePicker
     /// <param name="masks">
     /// What is painted on each hit-test texture, by texture name. See <see cref="Drawn"/>.
     /// </param>
-    /// <remarks>
-    /// <b>A card a tree replaced is not there.</b> It is still in the BSP — nothing rewrites
-    /// the geometry — and the room simply stops drawing it, so a ray that went on meeting it
-    /// would name a flat tree standing where a modelled one is, and would find it
-    /// <em>through</em> the modelled one. See <see cref="AddStand"/> for the other half.
-    /// </remarks>
     private void AddGeometry(
         BspFile bsp,
         Dictionary<string, SceneModel> declared,
@@ -456,21 +381,6 @@ public sealed class ScenePicker
     }
 
     /// <summary>How many cells a stand's triangles are sorted into, along each axis.</summary>
-    /// <remarks>
-    /// <para>
-    /// A tree is one nameable thing but it is not one <em>shape</em>: ten thousand leaf
-    /// cards spread through a volume eighty units across. A single box around all of them
-    /// is entered by nearly every ray a wood sees, and the whole ten thousand are then
-    /// tested one at a time. WOD is the room that shows it — the camera stands inside the
-    /// pines — and one pick there went from 19 to 137 microseconds when the stands arrived.
-    /// </para>
-    /// <para>
-    /// Sorting them into a grid and giving each cell its own box costs nothing at load and
-    /// turns that back into 24. Four is enough: the crown is most of the volume and it
-    /// divides evenly, where a finer grid buys little and pays for it in box tests on every
-    /// ray that misses.
-    /// </para>
-    /// </remarks>
     private const int StandCells = 4;
 
     /// <summary>The fewest triangles worth sorting into cells rather than leaving in one.</summary>
@@ -479,32 +389,6 @@ public sealed class ScenePicker
     /// <summary>Gathers one modelled tree grown over the room's own cards.</summary>
     /// <param name="stand">The tree and where it stands.</param>
     /// <param name="declared">What the scene files say about each object, by name.</param>
-    /// <remarks>
-    /// <para>
-    /// It answers to the object whose cards it replaced, because that is what the player is
-    /// pointing at: MCF's maples are <c>mcf_trs</c>, which the scene calls <c>TREES</c>, and
-    /// a tree grown over it is still that. The lookup is the same one the geometry does, so
-    /// an object the scene never named goes on being scenery after it has been grown.
-    /// </para>
-    /// <para>
-    /// <b>In world space, unlike a model.</b> A prop is kept in its own space because it can
-    /// be moved and an actor walks; nothing ever moves one of these — no script places one,
-    /// hides one or animates one — so the transform is applied once here rather than on
-    /// every ray. The wind is not applied and should not be: it is a vertex shader over the
-    /// drawn leaves, and a hotspot that swayed would be a hotspot that moved out from under
-    /// the pointer.
-    /// </para>
-    /// <para>
-    /// <b>In pieces, unlike anything else here.</b> Every other target is divided by what
-    /// can move independently of what; a tree has no moving parts and is divided by where
-    /// its triangles are instead, purely so that the box test has something to reject. See
-    /// <see cref="StandCells"/>.
-    /// </para>
-    /// <para>
-    /// Both faces, for the same reason a prop is: a tree is leaf cards and a bole, and half
-    /// the cards face away from any given ray.
-    /// </para>
-    /// </remarks>
     private void AddStand(GrownStand stand, Dictionary<string, SceneModel> declared)
     {
         declared.TryGetValue(stand.Named, out SceneModel? model);
@@ -543,11 +427,6 @@ public sealed class ScenePicker
     /// <summary>Sorts a stand's triangles into cells, each of which gets its own box.</summary>
     /// <param name="triangles">Its triangles, three vertices at a time, in world space.</param>
     /// <returns>One part per cell that has anything in it.</returns>
-    /// <remarks>
-    /// By the middle of each triangle, so a triangle belongs to exactly one cell and the
-    /// boxes overlap by however far the largest of them reaches out of its own. That is a
-    /// leaf card's width, which is nothing beside a crown.
-    /// </remarks>
     private static Part[] Sorted(List<Vector3> triangles)
     {
         if (triangles.Count < WorthSplitting * 3)
@@ -593,13 +472,6 @@ public sealed class ScenePicker
     private static int Cell(float at) => Math.Clamp((int)at, 0, StandCells - 1);
 
     /// <summary>Gathers one placed prop or actor, in the model's own space.</summary>
-    /// <remarks>
-    /// Its own space rather than the room's, because it need not stay where it was put.
-    /// An actor walks: the sink is handed a new transform every frame and the triangles
-    /// gathered here never hear about it, so baking them into the room would leave
-    /// Gabriel's noun standing on the spot he set off from — the pointer finding him
-    /// where he used to be and finding nothing where he is.
-    /// </remarks>
     private void AddModel(PlacedModel placed)
     {
         List<Part> parts = [];
@@ -649,11 +521,6 @@ public sealed class ScenePicker
     }
 
     /// <summary>The noun an object answers to, if it answers to one.</summary>
-    /// <remarks>
-    /// <c>noclick</c> is drawn and solid but never named, so a click on it lands on
-    /// scenery. One object in the corpus is declared that way — TE3's floor — and it is
-    /// the floor, which the player is meant to walk on rather than talk to.
-    /// </remarks>
     private static string? NounOf(SceneModel? model) =>
         model is null || IsNoClick(model) ? null : model.Noun;
 
@@ -670,19 +537,6 @@ public sealed class ScenePicker
     /// <summary>
     /// The ray as the target sees it, or null when the target is nowhere.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The room's own geometry is already in world space and comes back untouched. A model
-    /// is asked where it is standing now and the ray is put through the inverse of that.
-    /// </para>
-    /// <para>
-    /// Distances survive the trip. An affine transform carries the point at <c>t</c> along
-    /// the ray to the point at <c>t</c> along the transformed ray, so a hit found in a
-    /// model's own space is at the same <c>t</c> in the room — which is what lets a
-    /// scaled actor and a wall be compared for which one the ray reached first, and what
-    /// lets the hit point be read off the original ray.
-    /// </para>
-    /// </remarks>
     private static Ray? Into(Ray ray, Target target, Part part)
     {
         if (target.Of is not { } placed)
@@ -756,25 +610,6 @@ public sealed class ScenePicker
     /// <param name="triangle">Which triangle of it, counting from zero.</param>
     /// <param name="hit">Where the ray met it.</param>
     /// <returns>True when there is something there to be hit.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A hit test's texture is a mask.</b> The church stacks four of them a half-unit
-    /// apart over the same rectangle — <c>chu_ang1</c>, <c>chu_ang02</c>, <c>chu_ang03</c>,
-    /// <c>chu_ang04</c>, one per angel — and each is magenta but for the outline of the
-    /// angel it stands for. A ray that stops at the front-most quad therefore names the same
-    /// angel wherever the pointer is, and the four-angels puzzle becomes untraceable: the
-    /// first touch lights its dot and every touch after it is the same touch again, drawing
-    /// no line. Reported as "trace once gives the line, then nothing happens, one red dot".
-    /// </para>
-    /// <para>
-    /// So a keyed texel is a hole and the ray carries on through it, which is the only
-    /// reason those four quads are where they are. Only hit tests carry a mask at all, and
-    /// across the corpus only two rooms have one: the church, and the dining room's
-    /// <c>din_watermarks</c>, whose every action is commented out in <c>DIN_ALL.NVC</c>. So
-    /// this decides the four angels and nothing else the player can reach — see
-    /// <c>SceneLoader.ReadHitTestMasks</c>.
-    /// </para>
-    /// </remarks>
     private static bool Drawn(Part part, int triangle, Meeting hit)
     {
         if (part.Cutouts is not { } cutouts ||
@@ -808,10 +643,6 @@ public sealed class ScenePicker
     private readonly record struct Meeting(float Distance, float U, float V);
 
     /// <summary>Möller–Trumbore, without the culling: the caller decides about faces.</summary>
-    /// <remarks>
-    /// The two barycentric weights come back with the distance because a keyed hit test
-    /// needs them — see <see cref="Drawn"/> — and they are already computed here.
-    /// </remarks>
     private static Meeting? Meets(Ray ray, Vector3 a, Vector3 b, Vector3 c)
     {
         const float epsilon = 1e-7f;
@@ -898,12 +729,6 @@ public sealed class ScenePicker
     /// <summary>
     /// One piece of a target that moves as a unit, and its triangles.
     /// </summary>
-    /// <remarks>
-    /// The triangles are in the space the mesh group was built in rather than in the
-    /// room's. A clip replaces a group's own transform and the model's placement is applied
-    /// on top, so the only way a hotspot can follow an animated character is to leave the
-    /// triangles where they are and move the ray instead.
-    /// </remarks>
     private sealed record Part
     {
         public Part(int mesh, Vector3[] triangles)
@@ -941,18 +766,11 @@ public sealed class ScenePicker
         /// <summary>
         /// A texture coordinate per corner, in step with <see cref="Triangles"/>, or null.
         /// </summary>
-        /// <remarks>
-        /// Only carried where something needs them — see <see cref="Cutouts"/>. A room is
-        /// fifteen thousand triangles and nearly none of them are ever asked this.
-        /// </remarks>
         public Vector2[]? Coordinates { get; }
 
         /// <summary>
         /// The silhouette each triangle is drawn on, one per triangle, or null.
         /// </summary>
-        /// <remarks>
-        /// Null for a triangle that is solid all over, which is nearly all of them.
-        /// </remarks>
         public CutoutMask?[]? Cutouts { get; }
 
         public Vector3 Minimum { get; }
@@ -961,11 +779,6 @@ public sealed class ScenePicker
     }
 
     /// <summary>One nameable thing, in as many pieces as can move independently.</summary>
-    /// <remarks>
-    /// Which space each piece is in depends on what it is. The room's own geometry is in
-    /// the room's, where it cannot go anywhere. A model's is the mesh group's own, and
-    /// <see cref="Target.Of"/> is what says where that space currently sits in the room.
-    /// </remarks>
     private sealed record Target
     {
         public Target(
@@ -1002,11 +815,6 @@ public sealed class ScenePicker
         public string? Verb { get; }
 
         /// <summary>The model this stands for, when it is one that can move or be hidden.</summary>
-        /// <remarks>
-        /// Held rather than copied, because both where a model is and whether it is drawn
-        /// change while the scene is standing, and the picker is built once. Null for the
-        /// room's own geometry, which is always there and always where it was.
-        /// </remarks>
         public PlacedModel? Of { get; init; }
 
         public PickKind Kind { get; }

@@ -12,28 +12,6 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// Where each frame's camera is nudged to, so that a temporal upscaler has something new
 /// to accumulate.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A temporal upscaler works because consecutive frames are not the same picture. Left
-/// alone they would be — a still camera in a still room samples the same point inside each
-/// pixel every frame, and averaging a hundred copies of one sample gives back that sample.
-/// Moving the sample point around inside the pixel is what turns a sequence of frames into
-/// a denser sampling of the same image, and this is the sequence it is moved along.
-/// </para>
-/// <para>
-/// Halton, base 2 and 3. It is what FidelityFX and NGX both expect, which matters: their
-/// accumulation is tuned against a low-discrepancy sequence whose partial sums are evenly
-/// spread, and feeding one a random offset instead makes the picture take longer to settle
-/// and never settle as far. It is also reproducible, which is what lets a headless render
-/// of frame 40 be compared against another one.
-/// </para>
-/// <para>
-/// The length of the sequence grows with the square of the ratio. At Performance there are
-/// four render pixels to a screen pixel's worth of area and the sequence has to be four
-/// times as long to cover it, or the accumulation converges to a picture with holes in it.
-/// This is FSR's own formula, and DLSS asks for the same thing.
-/// </para>
-/// </remarks>
 public static class JitterSequence
 {
     /// <summary>
@@ -58,13 +36,6 @@ public static class JitterSequence
     /// <param name="index">Which frame, counting from zero and never reset.</param>
     /// <param name="phaseCount">How long the sequence is.</param>
     /// <returns>An offset in pixels, each component within a half either way.</returns>
-    /// <remarks>
-    /// The index is taken modulo the phase count here rather than by the caller, so a
-    /// frame counter that runs for the length of a session — which is what the renderer
-    /// has — is a valid argument. Halton is one-based: element nought of both bases is
-    /// zero, and starting there would spend the first frame of every sequence sampling
-    /// exactly the pixel centre it was trying to get away from.
-    /// </remarks>
     public static Vector2 Offset(long index, int phaseCount)
     {
         int length = Math.Max(1, phaseCount);
@@ -78,12 +49,6 @@ public static class JitterSequence
     /// <param name="width">Render width.</param>
     /// <param name="height">Render height.</param>
     /// <returns>The same offset in clip space, where the whole frame is two units across.</returns>
-    /// <remarks>
-    /// Y is not flipped here. The projection this is added to has already been flipped for
-    /// Vulkan's clip space, so a positive Y offset moves the sample down the screen — which
-    /// is the same direction the pixel offset means, and is what the upscalers are told the
-    /// jitter was.
-    /// </remarks>
     public static Vector2 ToClip(Vector2 pixels, int width, int height) => new(
         width > 0 ? 2f * pixels.X / width : 0f,
         height > 0 ? 2f * pixels.Y / height : 0f);

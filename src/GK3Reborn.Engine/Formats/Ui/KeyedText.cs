@@ -11,27 +11,6 @@ namespace GK3Reborn.Formats.Ui;
 /// <summary>
 /// The game's prose files: sections of <c>key = the rest of the line</c>.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>ESIDNEY.TXT</c>, <c>ESIDNEYEMAIL.TXT</c> and their neighbours look like the scene
-/// initialisation files and are not the same thing. A <c>.SIF</c> line is a list of
-/// comma-separated settings and <see cref="Ini.IniDocument"/> splits it as one; these hold
-/// a single value that runs to the end of the line, and most of them are English sentences
-/// full of commas. Parsing one with the other reader turns a paragraph into forty settings.
-/// </para>
-/// <para>
-/// So: sections in brackets, one key to a line, everything after the first <c>=</c> is the
-/// value. Comments start with <c>;</c> or <c>//</c> — both appear, sometimes in the same
-/// file — and a key may repeat, which is how <c>Body1</c>, <c>Body2</c> would work if the
-/// game had not numbered them; order is kept either way.
-/// </para>
-/// <para>
-/// Two escapes are decoded, because the files are written for a renderer that understood
-/// them: <c>\n</c> and <c>\t</c> as the characters they name, and <c>&lt;space&gt;</c> as a
-/// paragraph break on a line of its own. Nothing else is interpreted — a <c>%s</c> in the
-/// Sidney text is a placeholder its caller fills, and this is not its caller.
-/// </para>
-/// </remarks>
 public sealed class KeyedText
 {
     private readonly Dictionary<string, List<(string Key, string Value)>> _sections;
@@ -149,11 +128,6 @@ public sealed class KeyedText
     /// <param name="section">The section's name.</param>
     /// <param name="prefix">What the keys are called before their number.</param>
     /// <returns>The values in order, stopping at the first number that is missing.</returns>
-    /// <remarks>
-    /// Stopping at the first gap rather than gathering every match, because the files
-    /// number from one and a gap is a mistake rather than a signal. Gathering past one
-    /// would silently reorder somebody's paragraphs.
-    /// </remarks>
     public IReadOnlyList<string> Run(string section, string prefix)
     {
         ArgumentNullException.ThrowIfNull(prefix);

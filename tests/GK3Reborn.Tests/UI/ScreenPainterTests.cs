@@ -10,13 +10,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the screens that go in front of the room.
 /// </summary>
-/// <remarks>
-/// What can be wrong here is not how it looks but whether the thing the player clicks is
-/// the thing they were pointing at. Layout and hit testing are the same pass — the painter
-/// remembers where it put each rectangle — so a test that clicks the middle of something
-/// and asks what it hit checks both at once, which is the arrangement
-/// <see cref="GameHud"/> uses for the same reason.
-/// </remarks>
 public sealed class ScreenPainterTests
 {
     private const int Width = 1280;
@@ -377,11 +370,6 @@ public sealed class ScreenPainterTests
     /// <summary>
     /// Leaning in offers the way back and nothing else.
     /// </summary>
-    /// <remarks>
-    /// The screen is the same screen showing somewhere else, and what is on it has to say
-    /// so: a "look closer" over a view that is already the closer look would lean in on
-    /// whatever the crosshair happened to be over in the room being looked at.
-    /// </remarks>
     [Fact]
     public void Leaning_in_offers_the_way_back_and_not_another_look()
     {
@@ -415,11 +403,6 @@ public sealed class ScreenPainterTests
     /// <summary>
     /// Somebody out on the roads can be followed by clicking them.
     /// </summary>
-    /// <remarks>
-    /// Which is what the port adds: in the original the only way to give chase was to catch
-    /// them going past in the room, and a player who was not standing at Blanchefort in the
-    /// ten seconds Wilkes rode by lost L'Ermitage for the rest of the game.
-    /// </remarks>
     [Fact]
     public void Somebody_on_the_road_can_be_clicked_to_follow_them()
     {
@@ -446,11 +429,6 @@ public sealed class ScreenPainterTests
     }
 
     /// <summary>A chase is watched, not steered.</summary>
-    /// <remarks>
-    /// No place on the map may be clicked while one is running: the ride is not the
-    /// player's, and a marker that cannot be ridden to is worse than no marker. What is
-    /// offered is the way to stop watching, and the panel's own way out.
-    /// </remarks>
     [Fact]
     public void A_chase_offers_no_place_to_ride_to()
     {
@@ -485,10 +463,6 @@ public sealed class ScreenPainterTests
     /// <summary>
     /// A road network that is not the game's, with the junction names its routes use.
     /// </summary>
-    /// <remarks>
-    /// Enough of one to put somebody on a road. See
-    /// <c>Game/DrivingTrafficTests.cs</c>, which tests what the roads themselves do.
-    /// </remarks>
     private static DrivingMap Valley => DrivingMap.Roading("""
         NodeBegin Plo
         	Location 500,100
@@ -687,11 +661,6 @@ public sealed class ScreenPainterTests
     /// The drawn map names its places, so a player can tell one patch of countryside
     /// from another.
     /// </summary>
-    /// <remarks>
-    /// Reported as "drive map shows, but no labels so no clue what is what". A marker is a
-    /// lit copy of the map underneath it and says nothing about where it is; the names are
-    /// listed beside the painting and every row rides there.
-    /// </remarks>
     [Fact]
     public void The_drawn_map_names_the_places_beside_it()
     {
@@ -717,10 +686,6 @@ public sealed class ScreenPainterTests
     }
 
     /// <summary>And the markers on the painting are still what they were.</summary>
-    /// <remarks>
-    /// The list is beside the map rather than over it: adding names must not have moved a
-    /// place out from under the pointer.
-    /// </remarks>
     [Fact]
     public void Naming_the_places_leaves_them_clickable_on_the_painting()
     {
@@ -734,10 +699,6 @@ public sealed class ScreenPainterTests
     }
 
     /// <summary>A window too narrow for both keeps the map.</summary>
-    /// <remarks>
-    /// The names are worth a third of the width and never worth the painting: at this shape
-    /// the list is dropped and the places are still there to point at.
-    /// </remarks>
     [Fact]
     public void A_narrow_window_keeps_the_map_rather_than_the_list()
     {
@@ -761,11 +722,6 @@ public sealed class ScreenPainterTests
     }
 
     /// <summary>The map with its art loaded, laid out.</summary>
-    /// <remarks>
-    /// The pictures are numbers to the painter and their sizes are told to it, so a test
-    /// needs neither a renderer nor the game's archives to lay the drawn map out — only a
-    /// number per name and a size to go with it.
-    /// </remarks>
     private static ScreenPainter Drawn(
         IReadOnlyList<DrivingStop> stops, int width = Width, int height = Height)
     {

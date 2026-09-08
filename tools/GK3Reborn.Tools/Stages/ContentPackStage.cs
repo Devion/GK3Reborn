@@ -21,23 +21,6 @@ namespace GK3Reborn.Tools.Stages;
 /// Where encoded output is kept under <c>build/rebarn</c>, when it must not be the kind's
 /// own directory.
 /// </param>
-/// <remarks>
-/// <para>
-/// Every kind but one takes a directory of its own. <c>enhanced/trees</c> is the exception
-/// and has to be: a grown tree is geometry, the foliage it is painted with, and a manifest
-/// saying which is which, and the three are one thing that has to be produced, reviewed and
-/// shipped together. Splitting them into three directories to suit the packer would put a
-/// tree's parts three places apart for no reason a person would recognise.
-/// </para>
-/// <para>
-/// <b><see cref="Cache"/> exists because two sources can hold the same name.</b> A
-/// language's repainted <c>27KASHAF</c> and the shared one are both colour textures called
-/// <c>27KASHAF</c>, and the encoder keeps its output under the kind's name — so without
-/// this the French sign and the English one would be the same file in
-/// <c>build/rebarn/textures</c>, and which of them reached which pack would depend on
-/// which was encoded second.
-/// </para>
-/// </remarks>
 public sealed record PackKind(
     RebarnKind Kind,
     string Source,
@@ -52,25 +35,6 @@ public sealed record PackKind(
 /// <summary>
 /// Encodes the enhanced content to DDS and packs it into ReBarn volumes.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One command from loose PNGs to the one or two files that ship beside the executable.
-/// It exists because the two halves are not independent: the size a channel is encoded at
-/// decides how large the pack is, and the pack is what the encoder's output is for.
-/// </para>
-/// <para>
-/// Encoding is <c>texconv</c>, vendored with <c>PbrLab</c>. It has no notion of "cap the
-/// longest edge", only an exact width and height, so sources are grouped by the size they
-/// will come out at and one process is run for each group. There are about 160 distinct
-/// sizes per kind, so that is a few hundred processes rather than eleven thousand.
-/// </para>
-/// <para>
-/// Encoded files are kept in <c>build/</c> and reused. A DDS is only re-encoded when its
-/// PNG is newer than it or when the encode parameters changed, which is what makes a second
-/// run of this command take minutes instead of hours — and what lets the existing
-/// <c>build/textures</c> from earlier compression runs be adopted rather than redone.
-/// </para>
-/// </remarks>
 public sealed class ContentPackStage
 {
     private readonly Action<string> _log;
@@ -84,22 +48,6 @@ public sealed class ContentPackStage
     }
 
     /// <summary>The default plan: what is encoded how, and which volume it lands in.</summary>
-    /// <remarks>
-    /// <para>
-    /// Colour keeps its full resolution because it is the channel a player looks at. The
-    /// three material channels do not: a normal map, an occlusion/roughness map and a height
-    /// map all modulate a surface the colour texture has already described, and detail in
-    /// them below the colour's own resolution is not resolvable on screen. Capping them is
-    /// worth about seventeen gigabytes.
-    /// </para>
-    /// <para>
-    /// Formats follow what each channel actually holds, measured rather than assumed.
-    /// Normals are BC5 because the third component is reconstructed in the shader. Height
-    /// is BC4 because every height map in the set is grey stored as RGB — one channel of
-    /// real information in three channels of file. ORM is BC7 because its three channels
-    /// are genuinely different, though only eleven of 2,195 use the third at all.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<PackKind> DefaultPlan { get; } =
     [
         new(RebarnKind.Texture, "enhanced/textures", "BC7_UNORM_SRGB", true, 0, "Reborn"),
@@ -200,12 +148,6 @@ public sealed class ContentPackStage
     /// <summary>
     /// The material channels a language derives for its own repainted pictures.
     /// </summary>
-    /// <remarks>
-    /// The formats and caps are the shared sets' — see <see cref="DefaultPlan"/> for why
-    /// each channel is encoded the way it is. What differs is only where they are read
-    /// from: <c>enhanced/localnormals/&lt;CODE&gt;</c> and its two neighbours, produced by
-    /// the same PbrLab passes run over the language's own colour textures.
-    /// </remarks>
     public static IReadOnlyList<(RebarnKind Kind, string Channel, string Format, int Cap)>
         LanguageMaterials { get; } =
     [
@@ -222,27 +164,6 @@ public sealed class ContentPackStage
     /// One set of kinds per language that has anything, all packed into
     /// <c>Reborn_&lt;CODE&gt;.rebarn</c>. Empty when no language has been extracted.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Discovered rather than declared.</b> Which languages a build ships is a fact about
-    /// what <c>extract-localized</c> has been run over, and it changes when somebody sources
-    /// another release. Writing them into <see cref="DefaultPlan"/> would make adding German
-    /// a code change, when the whole point of the arrangement is that it is not one.
-    /// </para>
-    /// <para>
-    /// <b>Each language is a volume of its own</b>, because the game opens exactly one of
-    /// them — the one the player chose — and a shipped install may carry several. Merging
-    /// them would mean opening four hundred megabytes of French to read English.
-    /// </para>
-    /// <para>
-    /// The colour textures come from <c>enhanced/localtextures/&lt;CODE&gt;</c> rather than
-    /// from the language's own directory, because they are a different kind of work: the
-    /// assets under <c>enhanced/localized</c> are the 1999 files as that release shipped
-    /// them, and these are new pictures somebody made. They are also the only kind here
-    /// that goes through the encoder, which is why they need a cache of their own — see
-    /// <see cref="PackKind.Cache"/>.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<PackKind> LanguagePlan(string workspace)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspace);
@@ -356,21 +277,6 @@ public sealed class ContentPackStage
     /// <param name="workspace">The content workspace root.</param>
     /// <param name="plan">The plan about to be packed.</param>
     /// <returns>How many languages were written.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>One source, two places it is read from.</b> The words live in the engine's own
-    /// assets and are carried inside the assembly, so a player with no packs at all still
-    /// has every language the port ships. They are also written into each language's
-    /// volume, so a translation can be corrected — or a language nobody has built yet
-    /// added — by editing a pack rather than by rebuilding the game.
-    /// </para>
-    /// <para>
-    /// Written into <c>build/</c> rather than into <c>enhanced/</c> because it is a
-    /// generated file and <c>enhanced/</c> is where the hand-made things live. That
-    /// distinction is not decorative: <c>enhanced/localtextures</c> is hand-curated and a
-    /// stage that wrote into it once put thirty-four deliberately deleted pictures back.
-    /// </para>
-    /// </remarks>
     public int WriteInterfaceWords(string workspace, IReadOnlyList<PackKind> plan)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(workspace);
@@ -894,11 +800,6 @@ public sealed class ContentPackStage
     /// <param name="width">Width the plan wants.</param>
     /// <param name="height">Height the plan wants.</param>
     /// <returns>True when it can be packed as it is.</returns>
-    /// <remarks>
-    /// Three things, all of which have to hold: it exists, it is no older than the PNG it
-    /// was made from, and its extent is what the plan wants. The middle one is what makes a
-    /// regenerated texture reach the pack.
-    /// </remarks>
     public static bool Fresh(string dds, string png, int width, int height)
     {
         if (!File.Exists(dds))
@@ -915,11 +816,6 @@ public sealed class ContentPackStage
     }
 
     /// <summary>Whether a DDS already on disk has the extent the plan asks for.</summary>
-    /// <remarks>
-    /// Size only. Freshness is <see cref="Fresh"/>'s business, and the two must not be
-    /// confused: a regenerated texture keeps its dimensions, so size alone would adopt the
-    /// compression of a picture that has since been replaced.
-    /// </remarks>
     private static string? Adopt(string dds, int width, int height)
     {
         if (!File.Exists(dds))
@@ -955,11 +851,6 @@ public sealed class ContentPackStage
     /// <param name="size">The source's extent and whether it has alpha.</param>
     /// <param name="cap">Longest edge allowed, or zero for no cap.</param>
     /// <returns>The extent to encode at.</returns>
-    /// <remarks>
-    /// The cap is on the longest edge and the aspect ratio is kept, rounded to a multiple
-    /// of four so that no block is padded. A source already inside the cap is left alone —
-    /// this never enlarges anything.
-    /// </remarks>
     public static (int Width, int Height, bool Alpha) Target((int Width, int Height, bool Alpha) size, int cap)
     {
         if (cap <= 0 || (size.Width <= cap && size.Height <= cap))
@@ -976,11 +867,6 @@ public sealed class ContentPackStage
         Math.Max(4, (int)Math.Round(extent / 4, MidpointRounding.AwayFromZero) * 4);
 
     /// <summary>Reads a PNG's dimensions and colour type without decoding it.</summary>
-    /// <remarks>
-    /// The IHDR is the first chunk and is always thirteen bytes at offset sixteen. The last
-    /// twelve bytes are checked too, because two files in the workspace are truncated: the
-    /// header of a half-written PNG is perfectly good and says nothing about the rest.
-    /// </remarks>
     public static (int Width, int Height, bool Alpha)? PngSize(string path)
     {
         try

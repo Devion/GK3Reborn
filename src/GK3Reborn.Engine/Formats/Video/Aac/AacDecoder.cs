@@ -7,24 +7,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// <summary>
 /// AAC-LC decoder for raw (non-ADTS) access units as stored in MP4 <c>mp4a</c> samples.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The port plays the game's cut-scene movies from MP4, whose audio track is AAC-LC.
-/// Decoding it in managed code keeps deployment a single self-contained build on every
-/// platform: no FFmpeg binaries to ship per OS and architecture, no native loader, no
-/// licence bundle. The whole decoder is a few thousand lines because AAC-LC without
-/// SBR is a small format: Huffman-coded quantised spectra, a handful of stereo tools,
-/// and an overlapped inverse MDCT.
-/// </para>
-/// <para>
-/// Supported: single, pair and LFE channel elements, all window sequences and both
-/// window shapes, all spectral codebooks, pulse data, TNS, M/S, intensity and
-/// perceptual noise substitution, and the skip-over of data, fill (including SBR
-/// payloads) and program-config elements. Not supported: 960-sample frames, main
-/// profile prediction, LTP, SBR/PS reconstruction and more than two channels. The
-/// decoder is not thread-safe; use one instance per stream.
-/// </para>
-/// </remarks>
 public sealed class AacDecoder
 {
     private const int LongStart = 1, EightShort = 2, LongStop = 3; // window_sequence; 0 is ONLY_LONG

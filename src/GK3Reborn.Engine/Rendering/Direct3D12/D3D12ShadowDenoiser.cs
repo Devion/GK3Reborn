@@ -14,36 +14,9 @@ using System.Runtime.InteropServices;
 namespace GK3Reborn.Rendering.Direct3D12;
 
 /// <summary>Traces occlusion once a pixel and filters it into something smooth.</summary>
-/// <remarks>
-/// <para>
-/// The Direct3D half of <c>ShadowDenoiser</c>. Same three shaders, same five stages, same
-/// three channels; what differs is entirely bookkeeping, and it differs in two ways worth
-/// knowing about.
-/// </para>
-/// <para>
-/// <b>Descriptors live in one heap and are addressed by table offset, not by binding.</b>
-/// Vulkan writes a descriptor to a binding number; Direct3D writes it to a slot in a
-/// contiguous run, and the run packs the bindings in order with the samplers taken out. The
-/// denoising layout has its sampler at binding seven of sixteen, so every binding above it
-/// sits one slot earlier than its number. <see cref="D3D12RootSignature.ViewOffset"/> is
-/// asked rather than counted, because getting it wrong is not an error anywhere — it is a
-/// shader reading the wrong texture and a picture that is merely odd.
-/// </para>
-/// <para>
-/// <b>A target is in one state at a time, so the stages transition rather than barrier.</b>
-/// Vulkan leaves all of these in <c>General</c> and separates the stages with a memory
-/// barrier. Direct3D has no state that is both readable as a texture and writable as an
-/// unordered access view, and the scratch targets are read by one stage and written by the
-/// next: the classify pass writes the first and the blurs read it. So each stage is preceded
-/// by the transitions it needs. The one thing this relies on is that no single dispatch both
-/// reads and writes the same target — which is true, and is why the blurs alternate between
-/// two scratch targets rather than filtering in place.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12ShadowDenoiser : IDisposable
 {
     /// <summary>How many descriptor sets each channel needs.</summary>
-    /// <remarks>Two reprojections, one per parity of the moments, and three blurs.</remarks>
     private const uint SetsPerChannel = 5;
 
     private readonly D3D12Context _context;
@@ -110,10 +83,6 @@ public sealed unsafe class D3D12ShadowDenoiser : IDisposable
     /// The denoised fraction of the direct light that the things standing in the room —
     /// characters and props — leave alone.
     /// </summary>
-    /// <remarks>
-    /// One where nothing is in the way, which is every pixel of a room with nobody in it, so
-    /// such a room composites exactly as it did before this existed.
-    /// </remarks>
     public D3D12Texture DynamicShadow => _channels[2].Result;
 
     /// <summary>Builds every stage and every target, for one viewport size.</summary>
@@ -253,11 +222,6 @@ public sealed unsafe class D3D12ShadowDenoiser : IDisposable
     /// <param name="motion">The frame's motion vectors.</param>
     /// <param name="structure">The scene's acceleration structure.</param>
     /// <param name="rig">The buffer of lights.</param>
-    /// <remarks>
-    /// Once for a set of targets rather than once a frame: nothing here changes between
-    /// frames except the contents, and the moments swap by having two sets of descriptors
-    /// rather than by rewriting one.
-    /// </remarks>
     public void Bind(
         D3D12Texture depth,
         D3D12Texture normal,
@@ -303,11 +267,6 @@ public sealed unsafe class D3D12ShadowDenoiser : IDisposable
 
     /// <summary>Points the tracing stage at a rebuilt acceleration structure.</summary>
     /// <param name="structure">The structure to trace against now.</param>
-    /// <remarks>
-    /// It is rebuilt whenever anything in the room moves, which means a new address and a
-    /// stale descriptor — so this is checked every frame and does the one write when it has
-    /// to.
-    /// </remarks>
     public void Point(D3D12AccelerationStructure structure)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -509,12 +468,6 @@ public sealed unsafe class D3D12ShadowDenoiser : IDisposable
 
     /// <summary>Puts every target this owns into the state the stages start from.</summary>
     /// <param name="list">Command list to record into.</param>
-    /// <remarks>
-    /// Once, when the targets are new. They are created in unordered access already, so this
-    /// is a no-op the first time and the transitions it would record are the ones
-    /// <see cref="Record"/> makes for itself afterwards. It exists so a caller has one place
-    /// to say "these are ready", the way the Vulkan denoiser needs for its initial layouts.
-    /// </remarks>
     public void Settle(ID3D12GraphicsCommandList4* list)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

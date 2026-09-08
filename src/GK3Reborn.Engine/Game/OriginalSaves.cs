@@ -12,24 +12,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Reads the saves the 1999 game wrote, as far as they can honestly be read.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A retail <c>.gk3</c> save is two things. The front is a summary — who saved, when, where
-/// they were in the story, what they had scored, and a picture — in a fixed layout that
-/// G-Engine documents field by field. The rest is the original engine serialising nearly
-/// every live class in itself through RTTI, which no reimplementation reads; G-Engine
-/// writes its own data there too.
-/// </para>
-/// <para>
-/// So the import takes what the summary states and recovers what follows from it: the
-/// timeblock, the location, the score, and the save's own name. Everything a point in the
-/// story implies — every score event belonging to a timeblock already behind the player,
-/// and everybody the story has introduced them to by then — is recovered by the same
-/// reasoning the schema-1 migration uses: the story cannot leave a timeblock until its
-/// rules are met, and marking those events is also what stops them paying out twice. What the player was carrying beyond their starting items, and the
-/// flags of the current block, are not in the summary and are not invented.
-/// </para>
-/// </remarks>
 public static class OriginalSaves
 {
     /// <summary>
@@ -42,11 +24,6 @@ public static class OriginalSaves
     /// The introductions table, for who a past timeblock has already been met in.
     /// </param>
     /// <returns>How many were imported this time.</returns>
-    /// <remarks>
-    /// Each import is filed under the original file's own name — <c>gk3-save0004</c> — so
-    /// importing is idempotent: a slot that exists is a save already brought across, and
-    /// deleting the import is how somebody asks for it to be brought across again.
-    /// </remarks>
     public static int Import(
         string directory,
         SaveStore store,

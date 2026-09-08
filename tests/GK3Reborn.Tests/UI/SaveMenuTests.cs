@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the pages that save and restore a game.
 /// </summary>
-/// <remarks>
-/// The front end owns no store on purpose: it turns rows into a choice, and reading or
-/// writing a game is the host's business. So what these check is the choosing — which slots
-/// are offered, which are refusable, and that the one the player pointed at travels back.
-/// </remarks>
 public sealed class SaveMenuTests
 {
     private static FrontEnd Paused() => new(new Settings(), inGame: true) { Saves = Written() };
@@ -35,13 +30,6 @@ public sealed class SaveMenuTests
     private static MenuAction Chose(string id) => new(id);
 
     /// <summary>A save the player did not write is still a save they can load.</summary>
-    /// <remarks>
-    /// The restore page used to draw a fixed fourteen rows — quick, auto and twelve numbered
-    /// — so a save filed under any other name was invisible however readable it was. Three
-    /// games imported from the 1999 original sat in the saves folder, were listed by the
-    /// store, restored perfectly when asked for by name, and could not be reached from the
-    /// menu at all.
-    /// </remarks>
     [Fact]
     public void Restoring_offers_a_save_that_is_not_one_of_the_numbered_slots()
     {
@@ -68,10 +56,6 @@ public sealed class SaveMenuTests
     }
 
     /// <summary>And it cannot be written over.</summary>
-    /// <remarks>
-    /// The numbered twelve are what a player saves into. Overwriting an import would throw
-    /// away the thing it was brought across for, and it is the one copy there is.
-    /// </remarks>
     [Fact]
     public void Saving_never_offers_an_imported_save()
     {
@@ -89,10 +73,6 @@ public sealed class SaveMenuTests
     }
 
     /// <summary>Every numbered slot is offered when saving, free or not.</summary>
-    /// <remarks>
-    /// A save menu that shows only what has already been saved gives a new player nothing to
-    /// aim at.
-    /// </remarks>
     [Fact]
     public void Saving_offers_every_numbered_slot()
     {
@@ -110,10 +90,6 @@ public sealed class SaveMenuTests
     }
 
     /// <summary>The game's own two slots can be restored from and not written to by hand.</summary>
-    /// <remarks>
-    /// They belong to the game. A player who overwrites their own autosave has been given a
-    /// way to lose something they did not know they had.
-    /// </remarks>
     [Fact]
     public void The_games_own_slots_are_offered_for_restoring_only()
     {
@@ -175,11 +151,6 @@ public sealed class SaveMenuTests
     }
 
     /// <summary>Back from a slot list returns to the menu it was opened from.</summary>
-    /// <remarks>
-    /// It used to read "anything that is not Options is a child of Options", which was true
-    /// while the only pages below the top were the three kinds of setting — and sent Back
-    /// from the save slots to the settings screen the moment saving was added.
-    /// </remarks>
     [Theory]
     [InlineData("save")]
     [InlineData("load")]
@@ -193,12 +164,6 @@ public sealed class SaveMenuTests
     }
 
     /// <summary>And a settings section goes back to the top of the menu.</summary>
-    /// <remarks>
-    /// This used to assert that Back from a settings page reached the Settings page. There
-    /// is no Settings page now — the five sections are one screen with a list down the side
-    /// — so what it asserts is that a section is one level down and not two, which is the
-    /// thing the sidebar was for.
-    /// </remarks>
     [Theory]
     [InlineData("video")]
     [InlineData("audio")]

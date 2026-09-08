@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for where the player is standing when a room opens.
 /// </summary>
-/// <remarks>
-/// Reported as Gabriel's position resetting on the way into the phone room and the kitchen:
-/// he arrived somewhere wrong, filling the screen, and a moment later the room's own script
-/// moved him to the door. The wrong somewhere was the first entry of the scene's
-/// <c>[POSITIONS]</c>, which the loader used when nothing else said — in the phone room that
-/// is <c>EMILIO_HERE_1</c>, a spot authored for a different character.
-/// </remarks>
 public sealed class EgoArrivalTests
 {
     /// <summary>
@@ -36,11 +29,6 @@ public sealed class EgoArrivalTests
         new(SceneInitFile.Parse(text, "PHO.SIF"));
 
     /// <summary>Walking in from the lobby stands the player at the door from the lobby.</summary>
-    /// <remarks>
-    /// The artists' own convention, and the same choice the room's enter script makes by
-    /// hand a frame later: <c>FR_LBY</c> is where you stand having come from the lobby.
-    /// Making it here as well is what stops the player ever seeing the wrong one.
-    /// </remarks>
     [Fact]
     public void The_player_arrives_at_the_door_they_came_through()
     {
@@ -59,10 +47,6 @@ public sealed class EgoArrivalTests
     }
 
     /// <summary>A scene that names a START still uses it.</summary>
-    /// <remarks>
-    /// One scene in the game does. It is nearly a dead path and it is still the right answer
-    /// where it exists, so it stays.
-    /// </remarks>
     [Fact]
     public void A_scene_that_names_a_start_uses_it()
     {
@@ -76,10 +60,6 @@ public sealed class EgoArrivalTests
     }
 
     /// <summary>The door the player came through outranks a START.</summary>
-    /// <remarks>
-    /// A START says where a room begins and a door says where this arrival begins, and the
-    /// second is the more specific answer whenever the game can supply it.
-    /// </remarks>
     [Fact]
     public void The_door_outranks_a_start()
     {

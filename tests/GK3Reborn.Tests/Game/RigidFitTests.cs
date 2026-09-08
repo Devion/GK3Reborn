@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for recovering a head's motion from the vertices a clip moves.
 /// </summary>
-/// <remarks>
-/// The whole of the head refinement rests on this: a clip says where every vertex of a head
-/// is, and the refinement needs the one transform that says the same thing. What matters is
-/// that an exact rigid motion comes back exactly, that noise is reported rather than
-/// absorbed, and that input which does not determine a rotation is refused instead of
-/// guessed at — a guess here shears or mirrors somebody's head.
-/// </remarks>
 public sealed class RigidFitTests
 {
     /// <summary>A lumpy cloud, deterministic so a failure can be looked at twice.</summary>

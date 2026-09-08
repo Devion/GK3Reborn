@@ -7,13 +7,6 @@ namespace GK3Reborn.Tools.Stages;
 /// Applies the cut-content restoration table to a real installation and says what
 /// happened to every edit in it.
 /// </summary>
-/// <remarks>
-/// The table is a set of edits that have to find what they are about to change, so the
-/// only thing that proves one is right is running it against the archives. A binding that
-/// names an object a room does not contain fails silently, which is how most of this
-/// content was lost in the first place; this is what stops the restoration losing it the
-/// same way.
-/// </remarks>
 public static class CutContentStage
 {
     /// <summary>Runs the check.</summary>

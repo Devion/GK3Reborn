@@ -6,24 +6,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Packs a scene's per-surface lightmaps into one texture.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A scene has one lightmap per surface — 925 of them in R25 alone — and binding each as
-/// its own texture would mean a descriptor set and a draw call per surface, plus one
-/// device allocation per lightmap. Drivers guarantee only a few thousand allocations in
-/// total, so a handful of scenes would exhaust them.
-/// </para>
-/// <para>
-/// Packing them instead lets surfaces sharing a diffuse texture be drawn together, which
-/// is what makes a scene a few dozen draws rather than a thousand.
-/// </para>
-/// <para>
-/// Tiles are separated by a one-texel gutter and their UVs inset by half a texel. Without
-/// that, bilinear filtering at a tile's edge reaches into its neighbour, and a wall picks
-/// up the lighting of whatever surface happened to be packed beside it — a bug that only
-/// appears at glancing angles and is very hard to attribute after the fact.
-/// </para>
-/// </remarks>
 public sealed class LightmapAtlas
 {
     private const int Gutter = 1;
@@ -145,23 +127,6 @@ public sealed class LightmapAtlas
     /// <summary>Lays a different bake of the same room into this atlas's layout.</summary>
     /// <param name="lightmaps">The replacement lightmaps, in surface order.</param>
     /// <returns>An image the same size as <see cref="Image"/>, tile for tile.</returns>
-    /// <remarks>
-    /// <para>
-    /// A room may be handed a second bake while it is standing: <c>SetScene</c> is how the
-    /// light coming on in Grace's office and the bar's disco are drawn, and both are the
-    /// same geometry lit differently. Repacking from scratch would move every tile, and
-    /// where each tile sits is written into the vertices — so the replacement is laid into
-    /// the layout that is already there and nothing downstream has to change.
-    /// </para>
-    /// <para>
-    /// <b>The two bakes do not agree about tile sizes.</b> A surface the artists lit
-    /// evenly is exported as a single texel and the same surface under a disco ball as
-    /// eight; 86 of RL2's 479 differ. A tile that does not fit its slot is sampled into it
-    /// rather than skipped, which is sound because a lightmap is a low-frequency signal
-    /// stretched over a whole surface — the alternative is a wall that keeps the lighting
-    /// of the scene the room is no longer in.
-    /// </para>
-    /// </remarks>
     public DecodedImage Repack(IReadOnlyList<DecodedImage> lightmaps)
     {
         ArgumentNullException.ThrowIfNull(lightmaps);

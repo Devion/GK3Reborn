@@ -30,33 +30,6 @@ public readonly record struct Hover(
     public bool Actionable => Noun is { Length: > 0 } && Actions.Count > 0;
 
     /// <summary>The verb a plain click performs.</summary>
-    /// <remarks>
-    /// <para>
-    /// The scene's own default when it names one — a door says <c>OPEN</c> — and otherwise
-    /// the first verb the resolver offers, which is the order the action files put them in.
-    /// Choosing for the player is the point: <c>docs/screens.md</c> and the brief both ask
-    /// for one click to do the obvious thing, with the full list a right-click away, rather
-    /// than the original's two-step through a verb ring.
-    /// </para>
-    /// <para>
-    /// <b>Never the close-up.</b> Looking at a thing is not doing something to it, and the
-    /// close-up is offered for nearly every noun in the game — so while it counted, it won
-    /// every click, coming out ahead of talking, opening and using. That is on the middle
-    /// button now. Where a thing answers to nothing else, a left click means the same as a
-    /// click on the floor and the player walks over.
-    /// </para>
-    /// <para>
-    /// <b>And never something out of the bag.</b> Holding an item against a thing is a
-    /// deliberate two-step in the original — take the item, then click what to use it on —
-    /// and nothing about pointing at something says the player wants that. The case that
-    /// makes it a defect rather than a preference is <c>ANY_OBJECT, FINGERPRINT_KIT,
-    /// GABE_ALL</c> in <c>GLB_ALL.NVC</c>: a catch-all in scope in every room, so once
-    /// Gabriel is carrying the kit it answers for every noun in the game. It won the click
-    /// on everything that has no <c>LOOK</c>, and invented one on every noun that had
-    /// nothing to do at all. The bar still offers it; a right click is no longer the only
-    /// way past it.
-    /// </para>
-    /// </remarks>
     public string? Default =>
         Pick?.Verb is { Length: > 0 } named && !IsCloseUp(named)
             ? named
@@ -65,11 +38,6 @@ public readonly record struct Hover(
                 !IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
 
     /// <summary>The verb the middle button performs.</summary>
-    /// <remarks>
-    /// Whichever of the two close-up verbs is on offer — into a close-up, or back out of one.
-    /// Null where the thing cannot be looked at closely, which leaves the button doing
-    /// nothing rather than doing something else.
-    /// </remarks>
     public string? Closer =>
         Actions.FirstOrDefault(a => IsCloseUp(a.LocalizedVerb))?.LocalizedVerb;
 
@@ -82,20 +50,6 @@ public readonly record struct Hover(
 /// <summary>
 /// Turns pointing at the room into doing something to it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Three pieces already existed and nothing joined them up: <see cref="ScenePicker"/> says
-/// what is under a point on the screen, <see cref="ActionResolver"/> says what a noun
-/// answers to at this moment in the story, and <see cref="ActionRunner"/> performs the one
-/// that is chosen. This is the join, and it is deliberately thin — no state of its own, so
-/// that hovering can be asked every frame without ever changing anything.
-/// </para>
-/// <para>
-/// Hovering must be free of consequences. It happens on every mouse move, and the resolver
-/// evaluates case conditions to answer, so anything that wrote to the story here would
-/// advance the game by moving the mouse across it.
-/// </para>
-/// </remarks>
 public sealed class SceneInteraction
 {
     private readonly LoadedScene _scene;
@@ -128,10 +82,6 @@ public sealed class SceneInteraction
     /// <param name="ray">Where from and which way.</param>
     /// <param name="ignoring">What it passes straight through, by name.</param>
     /// <returns>The nearest thing it met, or null.</returns>
-    /// <remarks>
-    /// The room's own picker rather than a second one: a mechanism firing five rays a
-    /// frame should not carry its own copy of every triangle in the room.
-    /// </remarks>
     public Interaction.ScenePick? Cast(
         Rendering.Ray ray, IReadOnlySet<string>? ignoring = null) =>
         _picker.Pick(ray, ignoring);
@@ -175,29 +125,6 @@ public sealed class SceneInteraction
     /// <param name="noun">The thing under the pointer.</param>
     /// <param name="offered">What the action files say about it.</param>
     /// <returns>The same list, with at most one of the two close-up verbs on the front.</returns>
-    /// <remarks>
-    /// <para>
-    /// Both verbs are in <c>VERBS.TXT</c> and neither is in the action files: 40 rules in
-    /// the corpus name <c>INSPECT</c> and none names <c>INSPECT_UNDO</c>, because the
-    /// original engine put both on the bar itself rather than reading them —
-    /// <c>Scene::OnClicked</c> adds one or the other to every noun it shows a bar for.
-    /// </para>
-    /// <para>
-    /// <b>The way out is the part that was missing.</b> Inspecting the register moved the
-    /// view to a close-up of it and nothing could move it back: not walking away, not
-    /// clicking elsewhere, and not leaving the room, so the phone room and every room after
-    /// it opened pointing at a register that was not in them.
-    /// </para>
-    /// <para>
-    /// <b>And neither verb is offered for something that cannot be looked at.</b> Reported
-    /// as "Inspect / Inspect Undo, and inspect didn't even inspect": the close-up was
-    /// offered for every noun in the game, most of which no scene declares a camera for, so
-    /// choosing it moved nothing — and because it still counted as having happened, the menu
-    /// then offered to undo the thing that had not occurred. <see cref="Watcher"/> is asked
-    /// first, and it can now frame a close-up from the object's own bounds, so what is
-    /// refused here is only what has no geometry at all.
-    /// </para>
-    /// </remarks>
     private List<AvailableAction> WithInspect(
         string noun, IReadOnlyList<AvailableAction> offered)
     {
@@ -238,12 +165,6 @@ public sealed class SceneInteraction
     /// <summary>
     /// What the player has to use on things.
     /// </summary>
-    /// <remarks>
-    /// An action file writes "use the wallet on Buthane" as a rule whose verb is
-    /// <c>WALLET</c>, so an item in the bag is a verb the world answers to and an item that
-    /// is not is a verb nobody may choose. Offering all of them regardless is offering the
-    /// player every puzzle's solution as a menu item from the first room.
-    /// </remarks>
     private IReadOnlyCollection<string> Carrying => _api.State.Inventory.ItemsOf(_api.State.Ego);
 
     /// <summary>
@@ -253,11 +174,6 @@ public sealed class SceneInteraction
     /// <param name="pick">The thing itself, for the default verb its model declares.</param>
     /// <param name="offered">What it answers to, for when the model declares no verb.</param>
     /// <returns>A better name, or null to use the noun.</returns>
-    /// <remarks>
-    /// Only the numbered exits, and the name comes out of the game's own data: the rule
-    /// behind the door says where it goes and <see cref="GameStrings.ExitName"/> turns that
-    /// into what the place is called.
-    /// </remarks>
     private string? Called(string noun, ScenePick pick, IReadOnlyList<AvailableAction> offered)
     {
         if (Stranger(noun) is { Length: > 0 } unmet)
@@ -296,27 +212,6 @@ public sealed class SceneInteraction
     /// <param name="noun">The noun the scene gives it.</param>
     /// <param name="model">The model's own name, which carries the room number.</param>
     /// <returns>The label, or null when this is not a numbered door.</returns>
-    /// <remarks>
-    /// <para>
-    /// The second floor names its doors after the guests: <c>EMILIOS_DOOR</c>,
-    /// <c>BUTHANES_DOOR</c>, <c>WILKES_DOOR</c>. Shown as they are, the corridor introduces
-    /// every suspect in the hotel the first time Gabriel walks down it, before he has met any
-    /// of them — a whole evening of the game's own pacing given away by a hover label.
-    /// </para>
-    /// <para>
-    /// The number is what is actually on the door, and the scene agrees: beside each one it
-    /// places a <c>R27_PLATE</c> the player can read. So the label is the number, which is
-    /// true at every point in the story and spoils nothing. The name is not withheld and then
-    /// revealed — knowing that room 27 is Emilio's is something the player works out and then
-    /// keeps, and a label that changed under them would be its own small lie.
-    /// </para>
-    /// <para>
-    /// Taken from the model's name — <c>hal_27_door_scene</c>, <c>hal_door_29</c>,
-    /// <c>hal_21door</c> — rather than from a table, because a table of eight doors in one
-    /// corridor is a thing to keep in step with the data by hand. A door whose model names no
-    /// number is left alone; the supply closet has none and wants none.
-    /// </para>
-    /// </remarks>
     private string? Numbered(string noun, string model)
     {
         if (!noun.EndsWith("_DOOR", StringComparison.OrdinalIgnoreCase))
@@ -351,21 +246,6 @@ public sealed class SceneInteraction
     /// </summary>
     /// <param name="noun">The noun the scene gives it.</param>
     /// <returns>The name without its copy number, or null when the number belongs.</returns>
-    /// <remarks>
-    /// <para>
-    /// The church carves the four angels as four objects — <c>FOUR_ANGELS1</c> through
-    /// <c>FOUR_ANGELS4</c> — and pointing at one of them read "Four Angels4", which is the
-    /// data's bookkeeping showing through the interface.
-    /// </para>
-    /// <para>
-    /// <b>A trailing number is not always bookkeeping.</b> <c>BUZZER_RM25</c> and
-    /// <c>DUMB_WAITER_LOCK_R21</c> end in digits that are room numbers and mean everything;
-    /// trimming those gives "Buzzer Rm". What tells the two apart is whether the scene also
-    /// declares the name without the number — the church declares <c>FOUR_ANGELS</c> beside
-    /// its four, and no room declares a <c>BUZZER_RM</c>. So the data answers it, and no list
-    /// of exceptions has to be kept in step with the corpus by hand.
-    /// </para>
-    /// </remarks>
     private string? OneOfSeveral(string noun)
     {
         int end = noun.Length;
@@ -391,58 +271,25 @@ public sealed class SceneInteraction
     /// <summary>
     /// The port's own words, for the two labels it makes up rather than reads.
     /// </summary>
-    /// <remarks>
-    /// A room number and a stranger's description are the only names on this path that are
-    /// not in the data at all — "Room 27" and "Woman" were English sentences the engine
-    /// wrote itself, sitting beside a hover label that every other room had translated. Left
-    /// alone it answers in English, which is what every test that does not care about
-    /// language wants. See <see cref="UI.UiText"/>.
-    /// </remarks>
     public UI.UiText Text { get; set; } = UI.UiText.English;
 
     /// <summary>What the game's own names for things are, when anything read them.</summary>
-    /// <remarks>
-    /// Settable rather than read here, because the archives belong to the launcher and this
-    /// is built per room. Left alone it knows nothing and every numbered exit is called
-    /// "Exit", which is still better than a number.
-    /// </remarks>
     public GameStrings Strings { get; set; } = GameStrings.None;
 
     /// <summary>Who the player has been introduced to, when anything read the table.</summary>
-    /// <remarks>
-    /// Left alone it says everybody, which is what the interface did before this and what a
-    /// test that only cares about verbs wants.
-    /// </remarks>
     public Story.Introductions Introductions { get; set; } = Story.Introductions.None;
 
     /// <summary>The room as it stands, for questions only it can answer.</summary>
-    /// <remarks>
-    /// Whether a thing can be looked at closely depends on where it is and what it occupies,
-    /// which is the live room's business rather than the action files'. Optional: without
-    /// one the close-up verb is offered as it always was, which is what the tests that build
-    /// an interaction with no room expect.
-    /// </remarks>
     public SceneUpdate? Watcher { get; set; }
 
     /// <summary>Every noun in the room the player can act on, and where it is.</summary>
     /// <returns>Each noun once, with the middle of what it occupies in world space.</returns>
-    /// <remarks>
-    /// For showing them all at once while a key is held. It asks the picker, so what it lists
-    /// is exactly what a click could reach — a label for something unclickable would be worse
-    /// than no label.
-    /// </remarks>
     public IReadOnlyList<(string Noun, Vector3 Where)> Nouns() =>
         [.. _picker.Interactive().Select(spot => (Labelled(spot.Noun, spot.Name), spot.Where))];
 
     /// <summary>What to call a noun on screen when nothing is under the pointer.</summary>
     /// <param name="noun">What the scene calls it.</param>
     /// <returns>The label.</returns>
-    /// <remarks>
-    /// The same answers the hover label and the hotspot overlay give, for the third thing
-    /// that names nouns: the radio's list of topics. Everything that puts a noun in front of
-    /// the player goes through one place — twice now a new one has been written that did
-    /// not, and both times it introduced somebody the player had not met.
-    /// </remarks>
     public string NameOf(string noun)
     {
         ArgumentNullException.ThrowIfNull(noun);
@@ -454,13 +301,6 @@ public sealed class SceneInteraction
     /// <param name="noun">What the scene calls it.</param>
     /// <param name="model">The object it was found on, which carries a door's number.</param>
     /// <returns>The label.</returns>
-    /// <remarks>
-    /// The same answers <see cref="Called"/> gives, less the one that needs a pick: a
-    /// numbered exit is named after where its verb's script goes, and showing every door in
-    /// the room at once has no verb to ask about. Routing them through here matters because
-    /// the point of showing every hotspot at once is a corridor full of them, which is
-    /// exactly where a label that gives too much away does the most damage.
-    /// </remarks>
     private string Labelled(string noun, string model) =>
         Stranger(noun)
         ?? Numbered(noun, model)
@@ -477,28 +317,6 @@ public sealed class SceneInteraction
     /// </summary>
     /// <param name="noun">The noun the scene gives them.</param>
     /// <returns>What they look like, or null when the player already knows their name.</returns>
-    /// <remarks>
-    /// <para>
-    /// A scene names its people by their surnames — <c>BUTHANE</c>, <c>BUCHELLI</c>,
-    /// <c>WILKES</c> — and the original never had to care, because it drew no label. This
-    /// one does, so pointing at the woman waiting by the tour bus told the player her name
-    /// before Gabriel had said a word to her. It is the leak the second-floor doors had,
-    /// somewhere there is no room number to fall back on.
-    /// </para>
-    /// <para>
-    /// So the label says what can actually be seen. "Woman" and "Man" come out of the
-    /// character's own <c>ShoeType</c> in <c>CHARACTERS.TXT</c> — the only thing in the
-    /// shipped data that says which is which — rather than out of a table kept here by
-    /// hand, and <see cref="Story.Introductions"/> decides when the name is earned using
-    /// the action files' own <c>MET_</c> conditions.
-    /// </para>
-    /// <para>
-    /// Anybody the file says nothing about keeps their name, and so does anybody the
-    /// character file has no shoes for. Both failures are the same shape and it is the safe
-    /// one: a name a little early is a small spoiler, and a stranger who stays a stranger
-    /// after two days of conversation is a bug the player cannot get round.
-    /// </para>
-    /// </remarks>
     private string? Stranger(string noun)
     {
         if (Introductions.Knows(noun, _api) ||
@@ -531,14 +349,6 @@ public sealed class SceneInteraction
     /// <param name="verb">The verb to perform.</param>
     /// <param name="hurry">Whether the walk in front of it is run rather than walked.</param>
     /// <returns>What happened, or null when nothing applies.</returns>
-    /// <remarks>
-    /// The same path a click takes, minus the pick — which nothing below this line ever
-    /// read. An approach is <c>approach=</c> and <c>target=</c> in the rule, both names
-    /// rather than places, so where the pointer happened to be has never been part of
-    /// performing an action. What needs this is a list of things to do that is not a list of
-    /// things under the pointer: the radio's topics are nouns the player picks by name, and
-    /// some of them — the porch's tiles — are not one clickable object at all.
-    /// </remarks>
     public ActionOutcome? Do(string noun, string? verb, bool hurry = false)
     {
         ArgumentNullException.ThrowIfNull(noun);
@@ -588,28 +398,6 @@ public sealed class SceneInteraction
     /// <returns>
     /// A spot to walk to, or null when the click was not a click on open floor.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// The room's floor is one named object among a hundred and the scene says which —
-    /// the same <c>floor=</c> line <see cref="LoadedScene.Ground"/> reads for heights. So
-    /// a floor click is a pick that reached that object and nothing nearer: a rug, a bed
-    /// or a doorway standing in front of it is a click on the rug, the bed or the doorway,
-    /// which is what the original does and what the player means.
-    /// </para>
-    /// <para>
-    /// The answer is the nearest spot the boundary allows rather than the point itself.
-    /// The floor mesh runs under the furniture and out through the doorways, so aiming at
-    /// where the ray landed would send an actor into a wardrobe; the boundary is the
-    /// authority on where a person may stand and it puts them against it instead. A point
-    /// out of reach still walks — <see cref="Navigation.WalkPath"/> gets as near as the
-    /// floor allows — because getting closer beats refusing to move.
-    /// </para>
-    /// <para>
-    /// The clicked height is kept while the boundary decides the ground plan, because the
-    /// boundary is a bitmap seen from above and has no storeys: on a staircase its answer
-    /// alone cannot say which of the two floors above one another was meant.
-    /// </para>
-    /// </remarks>
     public Vector3? FloorTarget(Hover hover)
     {
         if (hover.Pick is not { Kind: PickKind.Geometry } pick ||

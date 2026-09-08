@@ -7,31 +7,6 @@
 namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>The compute stages that reflect the frame in its own smooth surfaces.</summary>
-/// <remarks>
-/// <para>
-/// The marching is AMD's, from FidelityFX SSSR in the SDK's 1.1.4 release, which is MIT
-/// licensed: the hierarchical walk over a min-depth pyramid, the plane intersections that
-/// advance it, the visible-normal sampling that gives a rough surface a wider cone than a
-/// polished one, and the checks that decide a hit is real rather than the back of
-/// something or the edge of the screen.
-/// </para>
-/// <para>
-/// What is not ported is the scaffolding around it: their tile classification, their
-/// indirect dispatch, their blue-noise sampler, and their own reflection denoiser. This
-/// dispatches over the whole frame and leaves early where a surface is too rough to be
-/// worth a ray, takes its randomness from a hash rather than from sampler tables, and
-/// accumulates over time with the motion vectors already in the frame. Their scaffolding
-/// buys throughput on scenes far heavier than a 1999 adventure game's rooms; leaving it
-/// out costs image quality nothing.
-/// </para>
-/// <para>
-/// Reflections read the previous frame's finished picture. Reading this one is not
-/// possible — it is what the reflection is being added to — and the alternative, a
-/// second lighting pass at every hit, would need material data at a point the
-/// acceleration structure does not carry. A frame of lag in a reflection is not
-/// something anybody has ever seen.
-/// </para>
-/// </remarks>
 public static class ReflectionShaders
 {
     /// <summary>What every stage shares.</summary>
@@ -70,11 +45,6 @@ public static class ReflectionShaders
         """;
 
     /// <summary>One level of the min-depth pyramid the march walks.</summary>
-    /// <remarks>
-    /// AMD build theirs in a single pass with atomics over the whole chain. This does one
-    /// dispatch a level, which is a handful of dispatches over a picture this size and
-    /// needs no atomics to be correct.
-    /// </remarks>
     private const string Downsample = """
         layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 

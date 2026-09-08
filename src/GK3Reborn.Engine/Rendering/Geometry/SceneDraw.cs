@@ -29,27 +29,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// then the other. A rectangle with no area for everything that is not a screen, which is
 /// everything but Larry's monitor.
 /// </param>
-/// <remarks>
-/// <para>
-/// Push constants on Vulkan and root constants on Direct3D, which are the same thing under
-/// two names: a small block that travels with a draw and needs no buffer, no descriptor and
-/// no synchronisation between frames in flight.
-/// </para>
-/// <para>
-/// <b>Two hundred and eight bytes, which is past the hundred and twenty-eight Vulkan
-/// guarantees.</b> Every desktop driver this renderer has run on offers 256, and the two
-/// matrices alone were already past the floor. Direct3D counts a root signature in
-/// thirty-two-bit words and allows sixty-four of them, so this is fifty-two of the
-/// sixty-four and the descriptor tables have to fit in what is left — which they do, at one
-/// word each. It is the number to look at first if either API ever refuses the layout, and
-/// the fix is a uniform buffer rather than a smaller struct.
-/// </para>
-/// <para>
-/// <b>Nothing here is written by hand twice.</b> Both backends take the size from this
-/// struct, so a member added to it travels without either of them being told — which is
-/// what the Direct3D side used to need, in two places, as a literal count of words.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct DrawConstants(
     Matrix4x4 Model,
@@ -85,22 +64,6 @@ public readonly record struct DrawConstants(
 /// Whether both faces of these triangles are drawn, rather than only the one their winding
 /// says is the front.
 /// </param>
-/// <remarks>
-/// <para>
-/// The seam between deciding what to draw and issuing it. Everything about a batch that
-/// takes thought — which pose is current, whether the lightmap applies, how much of the
-/// height field is left after the geometry took its share, whether a leaf sways, how many
-/// shells of fur stand over a skin — is worked out once and lands here. What is left for a
-/// backend is binding two vertex streams, an index buffer and a descriptor, and calling
-/// draw.
-/// </para>
-/// <para>
-/// Two vertex streams rather than one, always. The second is the previous pose, which is
-/// what lets a deforming character report its own movement to a temporal filter; a batch
-/// nothing has animated binds the same buffer twice, which is the truth about it — its
-/// vertices are where they have always been and only its transform can have moved.
-/// </para>
-/// </remarks>
 public readonly record struct SceneDraw(
     IGeometryBuffer Vertices,
     IGeometryBuffer Previous,
@@ -117,13 +80,6 @@ public readonly record struct SceneDraw(
 /// <param name="Normal">Which way the surface faces there.</param>
 /// <param name="TexCoord">Where to read the surface's own texture.</param>
 /// <param name="LightmapCoord">Where to read the baked light, in the room's atlas.</param>
-/// <remarks>
-/// Thirty-two bytes, and the same thirty-two on both backends: the input layout Direct3D
-/// builds and the attribute descriptions Vulkan builds are two spellings of this one
-/// declaration. A vertex is bound twice per draw — this pose and the one before it — so a
-/// stride that disagreed with the shader would not fail, it would read the previous pose
-/// from halfway through a vertex and report movement nothing made.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct MeshVertex(
     Vector3 Position,

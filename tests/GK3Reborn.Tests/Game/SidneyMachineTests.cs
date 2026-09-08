@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for Sidney, running.
 /// </summary>
-/// <remarks>
-/// The story runs through this machine, and the one thing that must be true is that
-/// scanning a parchment makes <c>DoesSidneyFileExist("fileParchment1")</c> answer yes.
-/// That condition is in <c>R31210A.NVC</c> and it was false for ever, because
-/// <c>AddSidneyFile</c> had no caller at all.
-/// </remarks>
 public sealed class SidneyMachineTests
 {
     private const string Text = """

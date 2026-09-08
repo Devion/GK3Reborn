@@ -6,18 +6,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// The in-loop deblocking filter, 8.7, run over a whole picture once its slices are
 /// decoded.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Macroblock by macroblock in raster order, and within each: the vertical luma edges
-/// left to right, the horizontal ones top to bottom, then chroma the same way. The order
-/// matters because each edge is filtered in place and the next reads what the last wrote.
-/// </para>
-/// <para>
-/// Boundary strengths come from the per-block state the slice decoder stored: intra,
-/// coefficients, and which pictures each block predicted from — compared by picture, not
-/// by index, since two indices can name one picture.
-/// </para>
-/// </remarks>
 internal sealed class Deblocker
 {
     private readonly Picture _pic;

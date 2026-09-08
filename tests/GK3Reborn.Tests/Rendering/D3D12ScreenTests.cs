@@ -15,12 +15,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// The passes drawn over the room: the sky behind it, the interface on top, the film and the
 /// fade over both.
 /// </summary>
-/// <remarks>
-/// None of these appear in a reference render — the headless renderer stops at the room — so
-/// this is the only place they are exercised without a window. What it proves is what the
-/// debug layer can see: that each pipeline is accepted, that its root signature satisfies its
-/// shader, and that a recorded frame draws without a complaint.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed unsafe class D3D12ScreenTests
 {

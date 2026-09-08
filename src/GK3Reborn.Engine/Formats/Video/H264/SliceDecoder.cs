@@ -5,21 +5,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// Decodes the macroblocks of one slice into a picture.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One object per picture, re-pointed at each slice: the scratch macroblock, the entropy
-/// decoders and the prediction buffers are allocated once. The slice loop is here; the
-/// entropy-specific parsing is in the CABAC and CAVLC partial files, motion vector
-/// prediction in the motion one, and the sample-level work — intra prediction, motion
-/// compensation, transforms — in static helpers that know nothing about slices.
-/// </para>
-/// <para>
-/// Macroblocks are addressed in raster order and a neighbour is available when it is in
-/// the picture, has been decoded, and belongs to this slice — the last being what makes
-/// slices independently decodable and what the deblocking filter, which runs afterwards
-/// over the whole picture, does not care about.
-/// </para>
-/// </remarks>
 internal sealed partial class SliceDecoder
 {
     private readonly Picture _pic;

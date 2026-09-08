@@ -12,30 +12,6 @@ namespace GK3Reborn.Tools.Stages;
 /// Walks the game from the first morning to the last night and asks whether it can be
 /// finished.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The other sweep, <see cref="SceneCheckStage"/>, asks whether every room loads and whether
-/// every function the scripts call exists. Both can be true of a game that cannot be
-/// completed: a room loads perfectly well when the one action that lets the story move on is
-/// missing from it.
-/// </para>
-/// <para>
-/// This asks the other question, and the walkthrough is what makes it possible to ask. It is
-/// a record of a game somebody finished, step by step, so every score event the journal's
-/// objectives are measured by has to be one the shipped scripts can actually award. An event
-/// no script names is an objective that can never complete, which is a player stuck with a
-/// journal telling them to do something the game has no way of noticing.
-/// </para>
-/// <para>
-/// Four questions, in order of how badly a "no" hurts:
-/// </para>
-/// <list type="number">
-/// <item>Does the walkthrough still parse, and do its own running totals add up?</item>
-/// <item>Is every score event the journal names a real one?</item>
-/// <item>Can the shipped scripts award it? — the story-breaking one.</item>
-/// <item>Does every point in the story have objectives, and do they add up to the game?</item>
-/// </list>
-/// </remarks>
 public sealed class StoryCheckStage
 {
     private readonly Action<string> _log;
@@ -168,22 +144,6 @@ public sealed class StoryCheckStage
     /// <param name="archives">The game's archives.</param>
     /// <param name="diagnostics">Receives what it finds.</param>
     /// <returns>True when every one of them can.</returns>
-    /// <remarks>
-    /// <para>
-    /// The card between two parts of the day types its name across a painting, and the
-    /// lettering is lifted out of the frames in the archives rather than redrawn — see
-    /// <see cref="TimeblockCard"/>. Whether that worked is not something a player can be
-    /// asked to notice: a card that failed still says what time it is, in the port's own
-    /// face, and looks deliberate. So it is swept for here, where a language pack that
-    /// shipped half a set is a line in a report rather than a screen nobody mentions.
-    /// </para>
-    /// <para>
-    /// The offsets are worth printing even when they are all right. Sixteen of the
-    /// seventeen sit at the same place and the odd ones out are the artists' own doing; a
-    /// change in that column between two runs is the first sign that a pack replaced some
-    /// of the art and not the rest of it.
-    /// </para>
-    /// </remarks>
     private bool Cards(GameArchives archives, DiagnosticBag diagnostics)
     {
         List<string> blocks =
@@ -233,21 +193,6 @@ public sealed class StoryCheckStage
     /// </summary>
     /// <param name="archives">The game's archives.</param>
     /// <returns>The names.</returns>
-    /// <remarks>
-    /// <para>
-    /// Two places, because the game awards points from both. A compiled <c>.SHP</c> carries
-    /// its score names in its string table; an action file carries a line of Sheep source per
-    /// action, and 20 of the journal's events are awarded only from there — every fingerprint
-    /// in the game among them. Reading the scripts alone reported those as unreachable, which
-    /// would have been an alarming and entirely wrong answer.
-    /// </para>
-    /// <para>
-    /// A score name only ever appears as the argument to <c>ChangeScore</c>, so a token
-    /// beginning <c>e_</c> is one wherever it is found. Following the calls would be more
-    /// precise and would also have to decide what "reachable" means in a language with no
-    /// entry point.
-    /// </para>
-    /// </remarks>
     private static HashSet<string> Awardable(GameArchives archives)
     {
         var found = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -319,12 +264,6 @@ public sealed class StoryCheckStage
     /// <summary>
     /// Whether a score is one the fingerprint screen awards rather than a script.
     /// </summary>
-    /// <remarks>
-    /// Thirteen of them, and the reason every fingerprint in the game came back as
-    /// unreachable. The original hardcodes these in its own fingerprint screen the way it
-    /// hardcodes the score table and the starting inventory — so no script names them, and
-    /// nothing about the shipped data is wrong. What is missing is on this side.
-    /// </remarks>
     private static bool ByTheFingerprintKit(string name) =>
         name.Contains("fingerprint_kit", StringComparison.OrdinalIgnoreCase);
 

@@ -14,21 +14,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Draws a room's smoke and embers over the finished picture, on Vulkan.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The one blended pass in the renderer. Everything else the room draws is opaque or cut
-/// out against a hard alpha test — see <see cref="MeshPipeline"/> — and smoke cannot be
-/// either. It runs after the picture is composed, with the depth the room left still bound
-/// so that a puff behind a wall is hidden by it, and it writes no depth of its own so that
-/// two puffs do not occlude one another.
-/// </para>
-/// <para>
-/// One colour attachment rather than the room's four. It is recorded in a scope of its own
-/// against the lit target, because by this point in the frame the normals and the motion
-/// vectors have been read and are finished with, and a pass that declared them would have
-/// to say what a wisp of smoke's normal is.
-/// </para>
-/// </remarks>
 public sealed unsafe class ParticlePipeline : IDisposable
 {
     private readonly Vk _vk;
@@ -96,10 +81,6 @@ public sealed unsafe class ParticlePipeline : IDisposable
 
     /// <summary>Turns a frame's particles into vertices, ready to draw.</summary>
     /// <param name="particles">The particles, furthest from the eye first.</param>
-    /// <remarks>
-    /// The order is the caller's: smoke is blended over what is behind it, so two puffs
-    /// that overlap have to arrive in depth order. See <see cref="Game.FlameParticles"/>.
-    /// </remarks>
     public void Prepare(IReadOnlyList<Particle> particles)
     {
         ArgumentNullException.ThrowIfNull(particles);

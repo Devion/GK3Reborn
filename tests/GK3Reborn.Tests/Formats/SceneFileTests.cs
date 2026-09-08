@@ -7,10 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the scene initialisation and scene asset readers.
 /// </summary>
-/// <remarks>
-/// The fixtures are excerpts of R25 — Gabriel's hotel room — kept verbatim from the
-/// shipped files, including their inconsistent spacing and their misspellings.
-/// </remarks>
 public sealed class SceneFileTests
 {
     private const string InitFixture =

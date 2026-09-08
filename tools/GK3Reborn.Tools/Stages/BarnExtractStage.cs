@@ -12,17 +12,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Pipeline stage C1: extracts every entry from every Barn archive.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is the gate the rest of the content pipeline stands on: until every entry in
-/// every archive has a disposition, nothing downstream can claim completeness. The
-/// stage therefore records an outcome for every entry rather than stopping at the
-/// first failure, and writes a manifest that later stages and the reference graph read.
-/// </para>
-/// <para>
-/// The source installation is opened read-only and never written to.
-/// </para>
-/// </remarks>
 public sealed class BarnExtractStage
 {
     /// <summary>Converter identity recorded in the manifest.</summary>
@@ -217,11 +206,6 @@ public sealed class BarnExtractStage
     /// <summary>
     /// Builds an output path, refusing anything that would escape the output directory.
     /// </summary>
-    /// <remarks>
-    /// Archive entry names come from a file the project does not control. A name
-    /// containing <c>..</c> or an absolute path would otherwise let an extraction write
-    /// anywhere on disk.
-    /// </remarks>
     private static string SafeOutputPath(string outputDirectory, string entryName)
     {
         string fileName = Path.GetFileName(entryName.Replace('\\', '/'));

@@ -17,38 +17,12 @@ public readonly record struct WalkOverlayPatch(
 /// <summary>
 /// The walk boundary as something you can look at.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A boundary is a bitmap in its own coordinate space with a size and an offset, and every
-/// part of that is easy to get subtly wrong: an inverted row order, a swapped offset sign
-/// and a boundary half a room out all produce a mask that looks reasonable in isolation.
-/// <c>Plan/04</c> makes overlay validation part of the phase's exit criteria for exactly
-/// that reason — the only way to know a boundary is right is to see it lying on the floor
-/// it describes.
-/// </para>
-/// <para>
-/// Each open texel becomes a quad at the height of the floor beneath it, coloured by
-/// region so the gradient away from the walls is visible and the scriptable regions stand
-/// out from ordinary ground. Texels with no floor under them are left out: a boundary
-/// covers a rectangle and a room is not one, so a good half of most bitmaps hangs over
-/// nothing.
-/// </para>
-/// </remarks>
 public static class WalkOverlay
 {
     /// <summary>How far above the floor the overlay floats, in scene units.</summary>
-    /// <remarks>
-    /// About a centimetre. Enough to win the depth test everywhere without the quads
-    /// visibly hovering, which at this scale would read as a bug in the overlay rather
-    /// than as the overlay.
-    /// </remarks>
     private const float Lift = 0.4f;
 
     /// <summary>How far above the floor a route floats, in scene units.</summary>
-    /// <remarks>
-    /// Higher than <see cref="Lift"/> so a route drawn over the region overlay wins the
-    /// depth test against it rather than fighting with it texel by texel.
-    /// </remarks>
     private const float RouteLift = 1.2f;
 
     /// <summary>Builds the overlay for a scene.</summary>
@@ -125,15 +99,6 @@ public static class WalkOverlay
     /// One patch carrying the whole route, or null when it has no points or no floor
     /// beneath it. Its region is -1: a route is not a region of the boundary.
     /// </returns>
-    /// <remarks>
-    /// A ribbon of overlapping squares sampled along the route rather than one quad per
-    /// segment, because each sample takes the height of the floor under it — so the ribbon
-    /// climbs a step and follows a ramp instead of sinking through either. It is drawn one
-    /// texel wide, the same as the cells it crosses, so a route reads at the scale of the
-    /// boundary that produced it rather than as a hairline nobody can see. It is drawn
-    /// above the region overlay so the two can be shown together, which is the check worth
-    /// doing: a route that leaves the green is a bug in one of them.
-    /// </remarks>
     public static WalkOverlayPatch? Route(
         BspFile bsp,
         string? floorObject,
@@ -199,11 +164,6 @@ public static class WalkOverlay
     /// <summary>
     /// What to draw a region in.
     /// </summary>
-    /// <remarks>
-    /// Green for open floor, darkening through the gradient towards the walls, and amber
-    /// for the scriptable regions so a door that a script opens is not mistaken for
-    /// ordinary ground.
-    /// </remarks>
     public static Vector3 ColourOf(int region)
     {
         if (region is >= 128 and <= 254)
@@ -249,11 +209,6 @@ public static class WalkOverlay
     }
 
     /// <summary>The highest floor directly under a point, if there is one.</summary>
-    /// <remarks>
-    /// Highest rather than first, because a floor object can have geometry stacked over
-    /// itself — a landing above a stair — and the overlay belongs on the surface an actor
-    /// would be standing on.
-    /// </remarks>
     private static float? HeightAt(
         List<(Vector3 A, Vector3 B, Vector3 C)> triangles, float x, float z)
     {

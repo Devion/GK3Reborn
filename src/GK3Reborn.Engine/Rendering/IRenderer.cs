@@ -9,36 +9,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Somewhere frames are drawn and presented.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The seam between the game and a graphics API. <see cref="ISceneSink"/> already separated
-/// <em>loading</em> a scene from putting it on a device; this separates <em>running</em> one
-/// from the device it runs on, which is what a second backend needs and the first one never
-/// did. Until there was a second, <c>Application</c> named the Vulkan renderer outright and
-/// there was nothing wrong with that.
-/// </para>
-/// <para>
-/// Everything below is something the game asks for in its own terms — draw a frame, show
-/// this film, fade to black, put this picture on the screen, tell me what the device is —
-/// and nothing below mentions a buffer, a pipeline or a command list. That is the line: a
-/// backend is free to hold a frame however it likes as long as the game never has to know,
-/// and the layering tests keep <c>Game</c> from reaching past this to find out.
-/// </para>
-/// <para>
-/// <b>Wider than it looks like it ought to be, and deliberately.</b> The settings page is
-/// part of the game: it offers the upscalers this adapter actually has, says whether the
-/// display is really running in high dynamic range, and reports what the runtime is doing.
-/// A narrower interface would mean the settings page reaching around it to a concrete
-/// renderer, which is the thing this exists to stop.
-/// </para>
-/// <para>
-/// The two sizes are separate members rather than one and a multiplier, for the reason
-/// spelled out where they are held: the room is drawn at <see cref="RenderSize"/> and
-/// everything after the upscale — the encode onto the swapchain, the film, the interface,
-/// the fade — is <see cref="SwapchainSize"/>. Drawing an interface at render resolution and
-/// stretching it is the single most visible way to get this wrong.
-/// </para>
-/// </remarks>
 public interface IRenderer : IDisposable
 {
     // --- what the device is -------------------------------------------------------------
@@ -82,10 +52,6 @@ public interface IRenderer : IDisposable
     /// <summary>Shows a scene, seen from a camera.</summary>
     /// <param name="scene">The scene, or null to show none.</param>
     /// <param name="camera">Where it is seen from, or null to leave the view alone.</param>
-    /// <remarks>
-    /// The renderer does not take ownership: the caller keeps the geometry alive for as long
-    /// as it is set, and disposes it afterwards.
-    /// </remarks>
     void SetScene(SceneGeometry? scene, Camera? camera);
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
@@ -98,21 +64,10 @@ public interface IRenderer : IDisposable
 
     /// <summary>Gives the room its smoke and embers.</summary>
     /// <param name="particles">The particles, furthest from the eye first.</param>
-    /// <remarks>
-    /// Set every frame, because they move every frame. An empty list is the ordinary state
-    /// of a room with no fire in it and records nothing at all. The order is the caller's:
-    /// smoke is blended over what is behind it. See <see cref="Game.FlameParticles"/>.
-    /// </remarks>
     void SetParticles(IReadOnlyList<Particle> particles);
 
     /// <summary>Gives the room its fog, or takes it away again.</summary>
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
-    /// <remarks>
-    /// Set when a room loads rather than every frame: a layer of fog is a fact about the
-    /// room and not about the moment. What moves inside it — the drift of the density, a
-    /// fire's light swinging through it — is the shader's own clock. See
-    /// <see cref="Game.SceneFog"/> for which rooms have any.
-    /// </remarks>
     void SetFog(FogVolume fog);
 
     // --- how much of it -----------------------------------------------------------------
@@ -121,10 +76,6 @@ public interface IRenderer : IDisposable
     bool SupportsRayTracing { get; }
 
     /// <summary>How much tracing to do.</summary>
-    /// <remarks>
-    /// Setting this on a renderer that cannot trace is not an error; it is a renderer that
-    /// goes on drawing the raster picture, which is the whole game and looks right.
-    /// </remarks>
     RayTracingQuality Quality { get; set; }
 
     /// <summary>Where to look for the upscaler runtimes.</summary>
@@ -140,11 +91,6 @@ public interface IRenderer : IDisposable
     OutputPlan Output { get; set; }
 
     /// <summary>How much of a reflection to show, and where the floors get theirs from.</summary>
-    /// <remarks>
-    /// Read at the top of a frame, like the other two plans, so that every row on the
-    /// Picture page is something the player can watch happen rather than something that
-    /// waits for the next door.
-    /// </remarks>
     ReflectionPlan Reflections { get; set; }
 
     /// <summary>Whether to wait for the display before presenting.</summary>
@@ -168,21 +114,12 @@ public interface IRenderer : IDisposable
     /// <summary>
     /// How many frames the runtime will generate for each drawn one, or nought for none.
     /// </summary>
-    /// <remarks>
-    /// Not the same question as <see cref="DlssFrameGeneration"/>, which asks whether the
-    /// feature is there at all. This is what the card will actually do, and a menu that does
-    /// not trim itself to it offers a factor the runtime refuses outright.
-    /// </remarks>
     int FrameGenerationMaximum => 0;
 
     /// <summary>Whether latency can be controlled: Reflex, where there is one.</summary>
     bool LatencyControl => false;
 
     /// <summary>Whether the swapchain is really presenting high dynamic range.</summary>
-    /// <remarks>
-    /// What the surface gave back, not what was asked for. A settings page that reported the
-    /// request would tell a player their display was in HDR when it was not.
-    /// </remarks>
     bool HighDynamicRangeActive { get; }
 
     // --- the frame ----------------------------------------------------------------------
@@ -197,20 +134,12 @@ public interface IRenderer : IDisposable
     /// <summary>
     /// Says that whatever a temporal pass remembers about the last frame is worthless.
     /// </summary>
-    /// <remarks>
-    /// A cut, a room change or a teleport. Without it an upscaler spends a second smearing
-    /// the old room over the new one, which reads as the game having stalled.
-    /// </remarks>
     void ResetHistory();
 
     /// <summary>Says the swapchain is stale and must be rebuilt before the next frame.</summary>
     void Invalidate();
 
     /// <summary>Waits until the device has finished everything it was given.</summary>
-    /// <remarks>
-    /// Called before anything the device might still be reading is freed. Leaving a room
-    /// with a frame in flight is the case that names itself.
-    /// </remarks>
     void Idle();
 
     /// <summary>Reads back the last presented frame.</summary>
@@ -272,12 +201,5 @@ public interface IRenderer : IDisposable
     /// <param name="width">Window width, as the overlay was begun with.</param>
     /// <param name="height">Window height.</param>
     /// <returns>Left, top, width and height, or all noughts when nothing is showing.</returns>
-    /// <remarks>
-    /// So that something drawn over a picture can be placed against the picture rather than
-    /// against the window. The timeblock card's lettering belongs at a spot on its painting
-    /// and nowhere else; without this it would have to guess how the backdrop was fitted,
-    /// and the two backends would have to guess the same way for ever. A covered picture is
-    /// bigger than the window and the rectangle says so — see <see cref="PictureFit"/>.
-    /// </remarks>
     Vector4 PictureRect(int width, int height);
 }

@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for the cut-content restoration table.
 /// </summary>
-/// <remarks>
-/// Two properties matter here and the rest follows from them. An edit has to <em>find</em>
-/// what it is about to change and say so when it cannot, because a restoration that
-/// silently does nothing is exactly the failure that lost this content in the first place.
-/// And the game has to be untouched without the flag, because this is content the
-/// developers switched off.
-/// </remarks>
 public sealed class CutContentTests
 {
     private const string Sif =

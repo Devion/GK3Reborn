@@ -15,11 +15,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws a room's smoke and embers over the finished picture, on Direct3D.
 /// </summary>
-/// <remarks>
-/// The Vulkan pass's counterpart, from the same two shaders: see
-/// <see cref="Vulkan.ParticlePipeline"/> for why it exists at all and
-/// <see cref="ParticleShaders"/> for how one blend draws both smoke and sparks.
-/// </remarks>
 public sealed unsafe class D3D12ParticlePass : IDisposable
 {
     private readonly D3D12Context _context;

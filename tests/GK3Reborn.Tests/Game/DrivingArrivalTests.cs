@@ -7,19 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for arriving somewhere on the moped.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported as the moped being missing from Larry Chester's yard and the player being
-/// unable to leave it. Both come from one thing: the map is a <em>location</em> in the
-/// original — its location table lists <c>map</c> beside <c>lhe</c> and <c>mop</c>, and the
-/// driving layer holds that entry as its own — and a ride that set the destination straight
-/// from the room the player left never passed through it.
-/// </para>
-/// <para>
-/// The fixture is <c>LHE.SIF</c> reduced to the three lines that turn on the answer: the
-/// moped, the spot arrived at, and the doors this is not.
-/// </para>
-/// </remarks>
 public sealed class DrivingArrivalTests
 {
     /// <summary>Larry Chester's yard, cut down to what a ride decides.</summary>
@@ -41,10 +28,6 @@ public sealed class DrivingArrivalTests
         """;
 
     /// <summary>Riding somewhere leaves the player having arrived from the map.</summary>
-    /// <remarks>
-    /// Which is the whole fix: two moves rather than one, so the question every scene asks
-    /// about a ride has the answer the game's own data was written against.
-    /// </remarks>
     [Fact]
     public void Riding_the_moped_arrives_from_the_map()
     {
@@ -57,12 +40,6 @@ public sealed class DrivingArrivalTests
     }
 
     /// <summary>And not from the room the moped was ridden out of.</summary>
-    /// <remarks>
-    /// The failure as reported. <c>LHE</c> names no spot to arrive at from <c>MOP</c>, so
-    /// the player stood at the origin; the moped's line is declared under
-    /// <c>WasLastLocation("Map")</c>, so there was no moped; and the yard's only way back to
-    /// the map is an exit guarded by the moped being there, so there was no way out either.
-    /// </remarks>
     [Fact]
     public void Riding_the_moped_does_not_arrive_from_the_room_it_was_ridden_out_of()
     {
@@ -83,12 +60,6 @@ public sealed class DrivingArrivalTests
     /// <summary>
     /// And is not there when he walked out of the house instead.
     /// </summary>
-    /// <remarks>
-    /// The other half of the same condition, and what says the fix is a fact about the ride
-    /// rather than a model turned on for everybody. Larry's house is where a ride is
-    /// remembered as a game variable too, so this is the state before the script that sets
-    /// it has ever run.
-    /// </remarks>
     [Fact]
     public void The_moped_is_not_in_the_yard_after_walking_out_of_the_house()
     {
@@ -101,10 +72,6 @@ public sealed class DrivingArrivalTests
     /// <summary>
     /// A ride to a place the story has already parked the moped at still shows it.
     /// </summary>
-    /// <remarks>
-    /// The condition's other arm, which the yard's own enter script sets on the way in.
-    /// Walking back out of the house after a ride finds the moped where it was left.
-    /// </remarks>
     [Fact]
     public void The_moped_stays_where_the_story_parked_it()
     {
@@ -116,12 +83,6 @@ public sealed class DrivingArrivalTests
     }
 
     /// <summary>The player stands where the room says a ride arrives.</summary>
-    /// <remarks>
-    /// <c>FR_MAP</c>, by the artists' own convention — every one of the sixteen places the
-    /// moped can be ridden to names one, and three of them go further and put it on the
-    /// player's own line. Coming from <c>MOP</c> matched nothing and left them at the
-    /// origin.
-    /// </remarks>
     [Fact]
     public void The_player_arrives_at_the_spot_the_room_keeps_for_a_ride()
     {
@@ -144,10 +105,6 @@ public sealed class DrivingArrivalTests
     }
 
     /// <summary>Blanchefort, cut down to the two lines that stranded the player there.</summary>
-    /// <remarks>
-    /// Its moped and its way back to the map both ask for the same number, so a ride that
-    /// did not set one left no moped in the field and no way off it.
-    /// </remarks>
     private const string Blanchefort =
         """
         [ACTORS]
@@ -161,10 +118,6 @@ public sealed class DrivingArrivalTests
         """;
 
     /// <summary>Riding somewhere parks the moped there.</summary>
-    /// <remarks>
-    /// Which is the number the game's own scene files were written against. Six of them
-    /// give a place one and every one of those is that place's position in the map's list.
-    /// </remarks>
     [Theory]
     [InlineData("PL2", 3)]
     [InlineData("PL1", 4)]
@@ -192,10 +145,6 @@ public sealed class DrivingArrivalTests
     /// <summary>
     /// Riding to Blanchefort leaves a moped in the field to ride away on.
     /// </summary>
-    /// <remarks>
-    /// Reported as being stuck there. Its <c>EXIT_TO_MAP</c> is guarded by the same number
-    /// as its moped, so the missing variable took the way out with the model.
-    /// </remarks>
     [Fact]
     public void Riding_to_blanchefort_leaves_a_moped_to_ride_away_on()
     {
@@ -206,11 +155,6 @@ public sealed class DrivingArrivalTests
     }
 
     /// <summary>And riding away again takes it with you.</summary>
-    /// <remarks>
-    /// One variable says where the moped is, so parking it somewhere new is what empties
-    /// the place it was. Larry Chester's driveway draws the moped from the yard's own
-    /// number, which is the same fact seen from next door.
-    /// </remarks>
     [Fact]
     public void Riding_away_takes_the_moped_with_you()
     {
@@ -225,11 +169,6 @@ public sealed class DrivingArrivalTests
     /// <summary>
     /// A place that hides its moped for the story still hides it.
     /// </summary>
-    /// <remarks>
-    /// Blanchefort's condition is the number <em>and</em> not being at 202A, which is the
-    /// timeblock the moped is taken out of the player's hands for. Parking it there must
-    /// not put it back.
-    /// </remarks>
     [Fact]
     public void Parking_the_moped_does_not_override_the_story()
     {

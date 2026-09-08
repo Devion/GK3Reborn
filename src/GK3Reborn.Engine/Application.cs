@@ -15,12 +15,6 @@ using GK3Reborn.Sheep;
 namespace GK3Reborn;
 
 /// <summary>The composition root and main loop.</summary>
-/// <remarks>
-/// Startup order is fixed by Plan/01-architecture.md section 3: paths and logging,
-/// then content manifest and locale validation, then window, then renderer device and
-/// feature tier, then audio endpoint, then game state. Each step must fail with an
-/// actionable message rather than proceeding in a broken state.
-/// </remarks>
 public static class Application
 {
     /// <summary>Runs the game.</summary>
@@ -111,11 +105,6 @@ public static class Application
     }
 
     /// <summary>Where the story starts.</summary>
-    /// <remarks>
-    /// Day one at ten in the morning, in the lobby of the Hôtel de Rennes-le-Château, which
-    /// is where GK3 begins and the only room the game itself can open with. <c>--start</c>
-    /// says otherwise for anybody who wants to begin somewhere else.
-    /// </remarks>
     private const string OpeningScene = "R25";
 
     /// <summary>The time of day the story starts at.</summary>
@@ -124,11 +113,6 @@ public static class Application
     /// <summary>
     /// The films the game opens with, in order.
     /// </summary>
-    /// <remarks>
-    /// Skipped in a breath if they are not there — an installation without the enhanced
-    /// video, or a run with <c>--rebarn</c> and a pack that holds none, should reach the
-    /// menu rather than stop at a missing file.
-    /// </remarks>
     private static readonly string[] IntroMovies = [SierraLogo, TheIntro];
 
     /// <summary>The publisher's logo, which the game opens with and nothing else wants.</summary>
@@ -154,11 +138,6 @@ public static class Application
     /// <param name="frontEnd">Whether to show the intro and the menu before the room.</param>
     /// <param name="args">The command line, for the options only the running scene reads.</param>
     /// <returns>Process exit code.</returns>
-    /// <remarks>
-    /// The camera starts at one of the scene's own viewpoints, which is what the player
-    /// would see, and can then be flown around to check the parts a fixed camera never
-    /// shows.
-    /// </remarks>
     private static int RenderScene(
         string dataDirectory,
         string sceneName,
@@ -3159,21 +3138,6 @@ public static class Application
     /// <summary>
     /// The fonts the interface will draw with, best first.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Order matters and so does the set.</b> The three <c>F_CAPTION</c> sizes are
-    /// GK3's own caption font at 16, 20 and 26 point, which cut to 20, 26 and 33 pixel
-    /// letters; <c>F_CAPTION_DEFAULT</c> is the 14-point Goudy the game used for its own
-    /// subtitles. All four carry the full 181-character set, <b>including the 52 accented
-    /// letters</b>.
-    /// </para>
-    /// <para>
-    /// The <c>F_ARIAL</c> fonts at the end carry 94 characters and not one of them is
-    /// accented, which is why the interface used to draw <c>H?tel de Rennes-le-Ch?teau</c>
-    /// in a game set in France. They stay as a last resort for an installation missing the
-    /// caption sheets; nothing else should reach them.
-    /// </para>
-    /// </remarks>
     private static readonly string[] CaptionFonts =
     [
         "F_CAPTION_D_26", "F_CAPTION_D_20", "F_CAPTION_D_16", "F_CAPTION_DEFAULT",
@@ -3185,25 +3149,6 @@ public static class Application
     /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="movies">What plays them.</param>
-    /// <remarks>
-    /// <para>
-    /// All three are waitable, and what they wait for is the movie's own length — which is
-    /// why <see cref="Gk3SheepApi.SecondsFor"/> has to answer for them as well as
-    /// <see cref="Gk3SheepApi.Register"/> performing them. A script that plays a cutscene
-    /// and then speaks would otherwise speak over it.
-    /// </para>
-    /// <para>
-    /// A movie that will not play returns nothing to wait for, so the script carries on.
-    /// The original does the same: its callback runs whether or not the video played, and
-    /// a missing cutscene should cost the cutscene rather than the rest of the game.
-    /// </para>
-    /// <para>
-    /// <c>PlayMovie</c> is the windowed form and the other two are full screen. Both are
-    /// drawn the same way here — fitted to the window, letterboxed — because a window
-    /// inside a window is a decision about the interface that nothing else in this port
-    /// has made yet.
-    /// </para>
-    /// </remarks>
     private static void Showing(Gk3SheepApi api, Game.MoviePlayer movies)
     {
         double Start(IReadOnlyList<SheepValue> arguments)
@@ -3242,11 +3187,6 @@ public static class Application
     /// <param name="enhanced">Where the enhanced colour textures are.</param>
     /// <param name="what">The sibling's name.</param>
     /// <returns>Its path.</returns>
-    /// <remarks>
-    /// The generated maps sit beside the colour textures rather than among them, because a
-    /// surface may have a better colour and no normal map, or the other way round, and they
-    /// are judged separately.
-    /// </remarks>
     private static string Beside(string enhanced, string what) =>
         Path.Combine(
             Path.GetDirectoryName(enhanced.TrimEnd(Path.DirectorySeparatorChar, '/')) ??
@@ -3260,20 +3200,6 @@ public static class Application
     /// <param name="enhancedDirectory">The content workspace's enhanced set, if any.</param>
     /// <param name="diagnostics">Where a font that will not read is reported.</param>
     /// <returns>The font, or null to fall back to GK3's own sheets.</returns>
-    /// <remarks>
-    /// <para>
-    /// Three places, in the order somebody working on the game would want them:
-    /// <c>--font-file</c>, then any <c>.ttf</c> or <c>.otf</c> in the workspace's
-    /// <c>enhanced/fonts</c>, then the one carried inside the assembly. The last is what a
-    /// shipped game uses and is why this never comes back empty on an installation that
-    /// has no workspace at all.
-    /// </para>
-    /// <para>
-    /// The embedded face is Noto Serif under the SIL Open Font Licence 1.1 — a serif,
-    /// because GK3's own captions are one and a sans-serif menu in front of this game
-    /// would look like somebody else's.
-    /// </para>
-    /// </remarks>
     private static Formats.Fonts.TrueTypeFile? InterfaceFont(
         string? named, string? enhancedDirectory, DiagnosticBag diagnostics)
     {
@@ -3355,13 +3281,6 @@ public static class Application
     /// <param name="font">The rung that was picked.</param>
     /// <param name="wanted">The height that was asked for.</param>
     /// <returns>A whole number, at least one.</returns>
-    /// <remarks>
-    /// The ladder runs out at 33-pixel letters, which is the largest sheet the game
-    /// shipped. Past about 1,600 lines that is small enough to be the original complaint
-    /// again, and the only thing left is to draw each sheet pixel as more than one. Whole
-    /// numbers only: a fractional one lands glyph edges between pixels and the sampler
-    /// averages neighbouring letters into each other.
-    /// </remarks>
     private static int Magnification(Formats.Ui.FontFile font, int wanted) =>
         font.Height <= 0 ? 1 : Math.Clamp((int)MathF.Round((float)wanted / font.Height), 1, 4);
 
@@ -3370,20 +3289,6 @@ public static class Application
     /// </summary>
     /// <param name="api">The game.</param>
     /// <returns>The room to open instead, or null to open the one that was asked for.</returns>
-    /// <remarks>
-    /// <para>
-    /// The rules are <see cref="Game.Story.TimeblockRules"/>, one method per timeblock,
-    /// each a run of conditions. They are checked on every change of location
-    /// and nowhere else, which is the original's own arrangement
-    /// (<c>LocationManager::ChangeLocationInternal</c>) and the reason a timeblock ends as
-    /// you walk through a door rather than the moment you finish the last thing in it.
-    /// </para>
-    /// <para>
-    /// A timeblock change decides where the player goes, so it outranks the door they
-    /// walked through: 110A ends on the way into RC1 and starts 112P in RC1, but several
-    /// of the others put the player somewhere else entirely.
-    /// </para>
-    /// </remarks>
     private static string? Complete(Gk3SheepApi api)
     {
         if (Game.Story.TimeblockRules.Check(api.State) is not { } completion)
@@ -3417,11 +3322,6 @@ public static class Application
     /// call should be written. Optional: the loading works the same without one.
     /// </param>
     /// <returns>How many were loaded.</returns>
-    /// <remarks>
-    /// Once, before the first room. A fifth of the corpus's action statements are
-    /// <c>CallSheep</c>, and a script that is not loaded is a call that does nothing — most
-    /// visibly the ones that take the player from one room to the next.
-    /// </remarks>
     private static int LoadScripts(
         GameArchives archives, ScriptHost host, Sheep.SheepSignatures? catalogue = null)
     {
@@ -3491,10 +3391,6 @@ public static class Application
     /// <param name="args">The command line.</param>
     /// <param name="api">The host.</param>
     /// <param name="scene">The room they act on.</param>
-    /// <remarks>
-    /// Only in the first room. They exist for looking at one thing on purpose, and firing
-    /// them again at every door would mean the player could never get away from them.
-    /// </remarks>
     private static void Opening(string[] args, Gk3SheepApi api, LoadedScene scene)
     {
         // Before any of them, because it says what has already happened and an action's
@@ -3518,12 +3414,6 @@ public static class Application
     /// </summary>
     /// <param name="args">The command line.</param>
     /// <param name="api">The host.</param>
-    /// <remarks>
-    /// Marks a timeblock's completion rules as met, for looking at what happens next
-    /// without playing the two hours that lead up to it. Whatever the rules ask about — a
-    /// noun and verb done, a topic raised, a flag set — is written straight into the story,
-    /// which is what a save would have held.
-    /// </remarks>
     private static void Already(string[] args, Gk3SheepApi api)
     {
         if (Option(args, "--did") is not { Length: > 0 } already)
@@ -3884,18 +3774,6 @@ public static class Application
     /// <param name="story">The game, for what is on top of the screen stack.</param>
     /// <param name="sidney">Grace's computer, or null in a run that has none.</param>
     /// <returns>True while one of its two text boxes has the keyboard.</returns>
-    /// <remarks>
-    /// <para>
-    /// The same test the boxes themselves are fed by, in one place so that the question
-    /// "has somebody else got the keyboard" has a single answer. Two boxes: the search
-    /// subject, and the string that finishes the Arcadia inscription.
-    /// </para>
-    /// <para>
-    /// <b>Being inside Sidney is not enough.</b> Its other screens have nothing to type
-    /// into, and a player looking at their email should still be able to open their pockets
-    /// — so this asks what is showing rather than where the player is.
-    /// </para>
-    /// </remarks>
     private static bool Spelling(GameState story, Game.Sidney.SidneyMachine? sidney) =>
         sidney is { } machine &&
         story.Screens.Top?.Kind == ScreenKind.Sidney &&
@@ -3904,11 +3782,6 @@ public static class Application
     /// <summary>Hands a frame's keyboard to the console.</summary>
     /// <param name="input">Where the keys come from.</param>
     /// <param name="console">What reads them.</param>
-    /// <remarks>
-    /// Everything the console does with a key is a method on it, so this is a routing table
-    /// and nothing else. Which is the point: the console has no idea what a keyboard is, and
-    /// a test can drive it without one.
-    /// </remarks>
     private static void Typing(Platform.SilkGameWindow input, GameConsole console)
     {
         if (input.WasPressed(Platform.EditKey.Escape))
@@ -4005,11 +3878,6 @@ public static class Application
     /// room is live underneath it rather than a still.
     /// </param>
     /// <returns>Why the room was left, and where for.</returns>
-    /// <remarks>
-    /// The loop drives the world as well as the view: <see cref="SceneUpdate.Advance"/> is
-    /// given the frame's elapsed time, so a head that was told to look at something turns
-    /// while the player watches rather than having always been turned.
-    /// </remarks>
     private static RoomExit FlyScene(
         Rendering.ScreenFade fade,
         Platform.SilkGameWindow window,
@@ -6140,38 +6008,15 @@ public static class Application
     }
 
     /// <summary>The game's own title screen.</summary>
-    /// <remarks>
-    /// 640x480 in the archives, and the only piece of GK3's interface art this port keeps:
-    /// it is a painting of an angel with the game's name in it, not a widget with a label
-    /// baked into one language. A replacement in <c>enhanced/textures</c> is preferred if
-    /// somebody makes one, exactly as for every other texture in the game.
-    /// </remarks>
     private const string TitlePicture = "TITLE.BMP";
 
     /// <summary>The music under the menu.</summary>
-    /// <remarks>
-    /// The game's own theme, which is the largest sound in the archives and is played
-    /// nowhere else: it belongs to the title screen and always has.
-    /// </remarks>
     private const string ThemeMusic = "THEME.WAV";
 
     /// <summary>What plays under a load slow enough to be worth covering.</summary>
-    /// <remarks>
-    /// The game's own, out of <c>ambient.brn</c>, and chosen because nothing in the story
-    /// is attached to it: the nocturne is room tone rather than a cue, so hearing it
-    /// somewhere the story is not running does not mean anything it should not. See
-    /// <c>UI.LoadingScreen</c>.
-    /// </remarks>
     private const string LoadingMusic = "NOCTURNEFAST.WAV";
 
     /// <summary>How long the process has been running.</summary>
-    /// <remarks>
-    /// Started when this class is first touched, which is the first thing the host does.
-    /// What it is for is the loading screen: the first seconds of a cold start are spent
-    /// bringing a graphics device up, and nothing can draw a frame until that is done — so
-    /// "has this been slow" has to be asked of the launch rather than of the first moment
-    /// there was somewhere to draw. See UI.LoadingScreen.
-    /// </remarks>
     private static readonly Stopwatch Since = Stopwatch.StartNew();
 
     /// <summary>Finds the title art.</summary>
@@ -6180,11 +6025,6 @@ public static class Application
     /// <param name="compressed">The block-compressed set, packs included, or null.</param>
     /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
     /// <returns>The picture and where it came from; empty when there is none to be had.</returns>
-    /// <remarks>
-    /// In the order somebody working on the picture would want: the loose file they are
-    /// editing, then the compressed build or the pack, then the original in the archives.
-    /// A shipped game has only the last two, and <c>--rebarn</c> is that game.
-    /// </remarks>
     private static TitleScreen TitleArt(
         GameArchives archives,
         EnhancedTextures? enhanced,
@@ -6201,13 +6041,6 @@ public static class Application
     /// <param name="diagnostics">Where a picture that will not decode is reported.</param>
     /// <param name="file">Its file name, with the extension.</param>
     /// <returns>The picture, or nothing when no source has it.</returns>
-    /// <remarks>
-    /// Three places, in the order that gives the best-looking answer: the enhanced set, the
-    /// compressed build, and then the archives, which is all a shipped game has. Missing is
-    /// not a failure — a card without its painting still says what time it is, and a game
-    /// that would not start because a decorative bitmap is malformed would be worse than
-    /// either.
-    /// </remarks>
     private static TitleScreen Art(
         GameArchives archives,
         EnhancedTextures? enhanced,
@@ -6253,21 +6086,9 @@ public static class Application
     }
 
     /// <summary>How long the card stands there on its own, in seconds.</summary>
-    /// <remarks>
-    /// Long enough to read twice and short enough that nobody waits for it. The player can
-    /// end it sooner, and the original's own card has no timer at all when it is not being
-    /// used to cover a load — it sits until Continue is pressed. This ends by itself as
-    /// well, because a card that needs dismissing is a card that can be missed by somebody
-    /// who has walked away from the keyboard.
-    /// </remarks>
     private const double CardSeconds = 4.0;
 
     /// <summary>How long the lettering is left standing once it has finished typing.</summary>
-    /// <remarks>
-    /// Added to the typing rather than counted from the start of the card, so that the
-    /// eighteen frames of <c>309P</c> and the nine of <c>202A</c> both leave the finished
-    /// name up for the same length of time.
-    /// </remarks>
     private const double CardHeldSeconds = 2.8;
 
     /// <summary>How long the ticking clock takes to go quiet at the end, in seconds.</summary>
@@ -6288,29 +6109,6 @@ public static class Application
     /// <param name="card">The lettering that types itself, or null when it cannot be had.</param>
     /// <param name="audio">The device, or null when there is none.</param>
     /// <param name="sounds">Where the ticking clock comes from.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The original has this screen and the port did not.</b> A timeblock ending was a
-    /// line on the console and nothing on the screen: the room dissolved, another one built
-    /// itself, and two hours of story had passed with nothing said about it.
-    /// <c>TimeblockScreen</c> in the reference shows a painting for the point in the story
-    /// with its name lettered over it, and every one of those paintings is in the archives
-    /// as <c>TBT110A.BMP</c> and its sixteen siblings.
-    /// </para>
-    /// <para>
-    /// The name types itself across the painting a few letters at a time, which is the
-    /// original's own animation rather than an imitation of it: <see cref="Game.TimeblockCard"/>
-    /// lifts the lettering off the frames in the archives, so it lands on the upscaled
-    /// painting as readily as on the one the game shipped. Where it cannot be had — no
-    /// sequence, no painting, a language pack whose two halves do not agree — the name is
-    /// written out in the port's own face instead, which is what this screen did before and
-    /// is still better than a room that silently becomes another room.
-    /// </para>
-    /// <para>
-    /// A clock ticks under it, as it does in the original. It is nearly seven seconds long
-    /// and the card is not, so it is faded out at the end rather than cut off.
-    /// </para>
-    /// </remarks>
     private static void Announce(
         Platform.SilkGameWindow window,
         Rendering.IRenderer renderer,
@@ -6430,10 +6228,6 @@ public static class Application
     /// <param name="renderer">What holds them.</param>
     /// <param name="card">The lettering.</param>
     /// <returns>A picture number per frame, or nothing when the device refused one.</returns>
-    /// <remarks>
-    /// All of them or none. A run of frames with a hole in it types the name and then
-    /// blinks, which reads as a fault rather than as an animation.
-    /// </remarks>
     private static int[] Lettering(Rendering.IRenderer renderer, Game.TimeblockCard card)
     {
         var numbers = new int[card.Frames.Count];
@@ -6531,18 +6325,6 @@ public static class Application
     /// <param name="frames">Leave after this many frames, or zero to wait for the player.</param>
     /// <param name="photograph">Where to write the last frame, if anywhere.</param>
     /// <returns>What the player asked for.</returns>
-    /// <remarks>
-    /// <para>
-    /// A loop of its own rather than a mode of the room's. Nothing of the room advances
-    /// while it runs, which is what pausing means, and the frame it draws is the same
-    /// picture the room left on screen with the menu over it.
-    /// </para>
-    /// <para>
-    /// Three ways to work it, all live at once: the arrow keys and Enter, the pointer, and
-    /// dragging a slider. A menu that can only be used one way is a menu somebody cannot
-    /// use.
-    /// </para>
-    /// </remarks>
     private static FrontEndOutcome ShowMenu(
         Platform.SilkGameWindow window,
         Rendering.IRenderer renderer,
@@ -6843,12 +6625,6 @@ public static class Application
     /// <summary>
     /// The settings screen's sections, and the way out under them.
     /// </summary>
-    /// <remarks>
-    /// Back is in the sidebar rather than being the last row of every section. It is not a
-    /// setting, so a two-column grid would pair it with one; and it is the same act from
-    /// every section, so putting it in the one part of the screen that does not change is
-    /// where it belongs. Escape does it too, for anybody who would rather not aim.
-    /// </remarks>
     /// <param name="front">The front end, for what its sections are called.</param>
     /// <returns>The sections and the way out.</returns>
     private static MenuSection[] Aside(FrontEnd front) =>
@@ -6860,11 +6636,6 @@ public static class Application
     /// <param name="pages">The page.</param>
     /// <param name="front">Which page is showing.</param>
     /// <param name="behind">What is behind it.</param>
-    /// <remarks>
-    /// Down in the left-hand corner over the title art, whose lettering is to the right of
-    /// the angel: a menu that covers the name of the game it is the menu for is not a title
-    /// screen. The settings pages are taller and wider, and centre themselves again.
-    /// </remarks>
     private static void Place(MenuPage pages, FrontEnd front, MenuBehind behind)
     {
         bool overArt = behind == MenuBehind.Picture && front.Page == FrontEndPage.Main;
@@ -6882,25 +6653,6 @@ public static class Application
     /// <param name="hint">What draws the way out, or null when there is no font.</param>
     /// <param name="films">Which films, in order.</param>
     /// <param name="captioned">Whether to write out what is said in them.</param>
-    /// <remarks>
-    /// <para>
-    /// Enter, or the left button <em>held</em>. A click is what somebody does by accident
-    /// while the machine is still settling down, and losing the opening of the game to a
-    /// stray mouse is worse than holding a button for half a second. Escape works too, on
-    /// the grounds that it is the first thing half the world will try.
-    /// </para>
-    /// <para>
-    /// <b>Skipping ends the film showing and not the sequence.</b> The logo and the intro
-    /// are two different things to sit through: somebody who skips the publisher's logo has
-    /// said nothing at all about whether they want to watch the opening of the game. So a
-    /// cold start is two skips, and the button has to be let go between them — a hold that
-    /// carried across the join would take the second film with the first.
-    /// </para>
-    /// <para>
-    /// Missing films are passed over in silence, because an installation that has none
-    /// should still reach the menu.
-    /// </para>
-    /// </remarks>
     private static void ShowIntro(
         Platform.SilkGameWindow window,
         Rendering.IRenderer renderer,
@@ -6945,17 +6697,9 @@ public static class Application
     }
 
     /// <summary>How long a press has to be held to skip a film.</summary>
-    /// <remarks>
-    /// Long enough not to fire on a click, short enough that nobody wonders whether it is
-    /// working — and it says so on screen while it counts.
-    /// </remarks>
     private const double HoldToSkipFilm = 0.6;
 
     /// <summary>How long the way out stays on screen at the start of a film.</summary>
-    /// <remarks>
-    /// Said and then out of the way. It is drawn over the film, and a film is the one thing
-    /// in this game nobody wants a line of interface across.
-    /// </remarks>
     private const double SayForFilm = 6.0;
 
     /// <summary>
@@ -6979,25 +6723,6 @@ public static class Application
     /// cutscenes has nothing else.
     /// </param>
     /// <returns>True when the player stopped it early.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>A film has the screen and the frame loop to itself.</b> Nothing else advances
-    /// while one runs, which is the whole reason this is a loop rather than a flag.
-    /// </para>
-    /// <para>
-    /// It is what the film closing a timeblock was missing. That one was started and never
-    /// waited for, so the title card drew over it without advancing a frame of it and the
-    /// next room then loaded with it still playing — which left the film on screen while
-    /// the room behind it ran its <c>SCENE:ENTER</c>. Day one's ended with Grace letting
-    /// herself into Gabriel's hotel room behind the picture, and by the time the film was
-    /// over the scene it opens on had played itself out.
-    /// </para>
-    /// <para>
-    /// Two ways out, and they are the ones the original offers: Escape or Enter at once, or
-    /// the mouse button held down. A click on its own is not one of them, because a player
-    /// clicking through dialogue into a film would lose it.
-    /// </para>
-    /// </remarks>
     private static bool Watch(
         Platform.SilkGameWindow window,
         Rendering.IRenderer renderer,
@@ -7099,28 +6824,6 @@ public static class Application
     /// <param name="localized">The chosen language's pack, or null when there is none.</param>
     /// <param name="name">The texture's name, as the enhanced set keys it.</param>
     /// <returns>The picture, or null when no pack has it.</returns>
-    /// <remarks>
-    /// <para>
-    /// The overlay takes a decoded image and a pack holds compressed blocks, so this is the
-    /// one place they are expanded on purpose. It costs a decode per picture at startup and
-    /// there are twelve of them -- the survey, the ten faces and the driving background --
-    /// against a texture path for the room that never decodes anything at all.
-    /// </para>
-    /// <para>
-    /// Overrides come through here too: <see cref="RebarnContent.ReadTexture"/> answers from
-    /// <c>overrides/</c> before it looks in a volume, so a player's own portrait beats the
-    /// packed one exactly as it does everywhere else.
-    /// </para>
-    /// <para>
-    /// <b>The language pack is asked first.</b> These are the pictures the interface draws,
-    /// and a picture with words in it is the one kind whose being wrong is a bug rather than
-    /// a preference — the same rule the room's surfaces follow in
-    /// <see cref="Game.SceneLoader"/>. The loose layer above this one already asks the
-    /// language; without this the rule held on a development machine with a content
-    /// workspace beside it and quietly lapsed in every shipped install, which has the packs
-    /// and nothing else.
-    /// </para>
-    /// </remarks>
     private static Formats.Bitmaps.DecodedImage? Packed(
         Content.RebarnContent packs, Content.LocalizedContent? localized, string name)
     {
@@ -7143,20 +6846,6 @@ public static class Application
     /// Asks for the upscaled form of a picture, from the loose set or the packs, and
     /// answers null where there is none -- in which case the archive's own is drawn.
     /// </param>
-    /// <remarks>
-    /// <para>
-    /// Seventeen pictures — the map and its sixteen markers — read once at startup and
-    /// kept. A 640-by-480 painting reloaded every time somebody opens the map would be a
-    /// stall the player can feel, and together they are under a megabyte.
-    /// </para>
-    /// <para>
-    /// <b>The size recorded is always the archive's, whatever is drawn.</b> The map is laid
-    /// out in the 640-by-480 pixels the original was built in, and every marker's position
-    /// is a coordinate in that space; an upscaled marker is the same marker at more
-    /// samples, not a bigger one. Recording the enhanced size would put the markers in the
-    /// wrong places by a factor of thirty-two.
-    /// </para>
-    /// </remarks>
     private static void LoadMapArt(
         GameArchives archives,
         Rendering.IRenderer renderer,
@@ -7216,11 +6905,6 @@ public static class Application
     /// <param name="update">The room, for anything that has to happen in it.</param>
     /// <param name="console">Where a screen says what it did.</param>
     /// <param name="scan">How to put an item into Sidney, which needs the room's rules.</param>
-    /// <remarks>
-    /// The painter knows where things are and this knows what they do. Keeping the two
-    /// apart is what lets the screens be laid out fresh every frame without any rule about
-    /// the game living in the drawing.
-    /// </remarks>
     private static void OnScreen(
         string chose,
         GameState story,
@@ -7307,12 +6991,6 @@ public static class Application
     /// <param name="scene">The room, which is where the action files are.</param>
     /// <param name="story">The game, for who the player is and what they carry.</param>
     /// <returns>The verbs, or null when the screen is not about an item.</returns>
-    /// <remarks>
-    /// Asked while the close-up is already on the stack, which is the whole trick: every
-    /// one of these actions is guarded by <c>ALL_INV</c> or one of its two ego-specific
-    /// forms, and all three are <c>IsTopLayerInventory()</c>. Resolving them from the room
-    /// answers "no" to every one.
-    /// </remarks>
     private static IReadOnlyList<string>? ItemVerbs(
         Screen panel, LoadedScene scene, GameState story)
     {
@@ -7332,12 +7010,6 @@ public static class Application
     /// <summary>Whether a verb only means anything for a thing still in the room.</summary>
     /// <param name="verb">The verb an action file wrote.</param>
     /// <returns>True when it has no meaning for something already in a pocket.</returns>
-    /// <remarks>
-    /// An inventory item and the object it was picked up from are the same noun, so the
-    /// close-up of the marker in Gabriel's pocket resolved the same rules as the marker on
-    /// the desk — and offered to pick it up again. The action files cannot tell the
-    /// difference and are not wrong to: the rule exists for the desk.
-    /// </remarks>
     private static bool IsAboutTheRoom(string verb) =>
         verb.Equals("PICKUP", StringComparison.OrdinalIgnoreCase) ||
         verb.Equals("TAKE", StringComparison.OrdinalIgnoreCase) ||
@@ -7353,12 +7025,6 @@ public static class Application
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <returns>The ones in front of the camera, nearest first.</returns>
-    /// <remarks>
-    /// Nearest first so that the labels which cannot all fit give way in the right order: a
-    /// thing at the player's elbow keeps its place and the far side of the room moves down.
-    /// Anything behind the camera or off the edge is left out rather than clamped to a
-    /// border, where it would point at nothing.
-    /// </remarks>
     private static IReadOnlyList<(string Noun, Vector2 At)> OnScreen(
         IReadOnlyList<(string Noun, Vector3 Where)> nouns,
         Camera camera,
@@ -7401,12 +7067,6 @@ public static class Application
     private static double Degrees(float radians) => radians * 180.0 / Math.PI;
 
     /// <summary>One character an opening pose moved, as a line of the log.</summary>
-    /// <remarks>
-    /// The heading the scene file put them at, and the one the clip's own opening frame
-    /// implies. Where those disagree the scene file is recording where the character ends up
-    /// and the animation is stating where they begin — which is worth being able to see
-    /// rather than infer from a screenshot.
-    /// </remarks>
     private static string Described((string Who, Vector3 Where, float Placed, float? Wanted) m)
     {
         string at = FormattableString.Invariant(
@@ -7425,11 +7085,6 @@ public static class Application
     /// <param name="saves">Where the saves are.</param>
     /// <param name="slot">Which slot.</param>
     /// <returns>The number, or nought when the slot has no picture.</returns>
-    /// <remarks>
-    /// Kept by the renderer under the slot's own name, so opening the menu twice loads
-    /// nothing twice. A slot with no picture answers nought for ever, which costs one failed
-    /// file test per menu and is not worth remembering.
-    /// </remarks>
     private static int Illustration(
         Rendering.IRenderer renderer, Game.SaveStore? saves, string slot)
     {
@@ -7451,11 +7106,6 @@ public static class Application
     }
 
     /// <summary>A frame reduced to something a menu row can hold.</summary>
-    /// <remarks>
-    /// A quarter the width and height by dropping pixels, which is enough for a room to be
-    /// recognised and costs nothing: a save menu is opened by somebody who wants to get back
-    /// to the game, and resampling four megapixels properly would be felt.
-    /// </remarks>
     private static Formats.Bitmaps.DecodedImage Thumbnail(Formats.Bitmaps.DecodedImage frame)
     {
         const int Step = 4;
@@ -7485,11 +7135,6 @@ public static class Application
     /// <param name="verb">The verb an action file wrote.</param>
     /// <param name="verbs">What the game says each verb is.</param>
     /// <returns>True for an inventory item.</returns>
-    /// <remarks>
-    /// The two are written identically — <c>BUTHANE, WALLET, MET_BUTHANE</c> looks exactly
-    /// like <c>BUTHANE, LOOK, ALL</c> — and only <c>VERBS.TXT</c> tells them apart. Without
-    /// it a menu offers "Wallet" beside "Look" as though they were the same kind of thing.
-    /// </remarks>
     private static bool IsAnItem(string verb, Game.Actions.VerbLibrary? verbs) =>
         verbs?.KindOf(verb) == Game.Actions.VerbKind.Inventory;
 
@@ -7502,25 +7147,6 @@ public static class Application
     /// <param name="scene">The room, which holds the action rules.</param>
     /// <param name="sidney">Grace's computer.</param>
     /// <param name="console">Where to say what happened, if anywhere.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>Adding the file is only half of it.</b> The other half is the game's own
-    /// <c>SCANNER</c> rule for that noun, and the port was skipping it entirely — so an item
-    /// was never marked <c>USED</c>, and the scripts hung off three of them never ran:
-    /// <c>Estelles_Print</c>, which records her print for <i>both</i> egos, and the licence
-    /// scans for Buchelli, Emilio and Mosely. Without it a THINK on a postcard also went on
-    /// telling the player to scan something they had already scanned, for ever.
-    /// </para>
-    /// <para>
-    /// The rules are written against <c>IN_SIDNEY_ADD_DATA</c>, which is
-    /// <c>IsTopLayerInventory() &amp;&amp; GetFlag("UsingScanner")</c> — the scanner is up
-    /// and the player is picking something out of the bag. The port draws that moment as a
-    /// list inside Sidney rather than as the inventory over the top of it, so both halves are
-    /// made true across the call and put back afterwards. It resolves on its own from there:
-    /// a named case is worth 7 against <c>GABE_ALL_INV</c>'s 2, so the rule that scans wins
-    /// over the two that only say something about scanning.
-    /// </para>
-    /// </remarks>
     private static void ScanIntoSidney(
         string item,
         Gk3SheepApi api,
@@ -7722,12 +7348,6 @@ public static class Application
     /// <param name="scene">The room.</param>
     /// <param name="story">The game.</param>
     /// <returns>The places, which is empty where the screen is not about going anywhere.</returns>
-    /// <remarks>
-    /// The driving map offers the rooms the player has already been to, which is the
-    /// honest answer this engine can give: the original's map is a bitmap with its hotspots
-    /// compiled into the executable, and inventing a list would be inventing where the
-    /// story allows somebody to go.
-    /// </remarks>
     private static List<string> Reachable(Screen screen, LoadedScene scene, GameState story)
     {
         if (screen.Kind is not (ScreenKind.Driving or ScreenKind.Binoculars))
@@ -7755,21 +7375,6 @@ public static class Application
     /// </summary>
     /// <param name="traffic">The chase.</param>
     /// <param name="story">The game.</param>
-    /// <remarks>
-    /// <para>
-    /// The count is the story's own record of it. The room's action sets it to one when the
-    /// player gives chase and this makes it two, which is exactly what the original's map
-    /// asks about to decide whether L'Ermitage is on it — see
-    /// <see cref="DrivingMap.Follow"/>. Writing the flag as well is belt and braces: the
-    /// count is the game's own answer and the flag is the port's, and a save written by
-    /// either version of this engine reads correctly under the other.
-    /// </para>
-    /// <para>
-    /// A chase that goes nowhere new — Lady Howard's, which comes back to where it started
-    /// — still counts and still ends the ride at the last junction, which for her is the
-    /// place the player set out from.
-    /// </para>
-    /// </remarks>
     private static void Arrive(Game.DrivingTraffic traffic, GameState story)
     {
         if (traffic.Chase is not { } quarry)
@@ -7811,21 +7416,6 @@ public static class Application
     /// <param name="scene">The scene's name.</param>
     /// <param name="timeblock">What the player asked for.</param>
     /// <returns>A request with a story behind it, where the room has one.</returns>
-    /// <remarks>
-    /// <para>
-    /// <c>202P</c> is a point in the story and <c>N</c> is an asset suffix meaning night.
-    /// Both are legitimate — see <see cref="SceneRequest"/> — and the render tooling wants
-    /// the second, because looking at a room's night lighting should not require inventing
-    /// a story to justify it.
-    /// </para>
-    /// <para>
-    /// A game is different. With no story state the scene's conditions go undecided, no
-    /// action files come into scope and no soundtrack is chosen: every object in the room
-    /// answers to nothing and nobody says a word. That is a room, not a game, and it looks
-    /// exactly like a broken one. So the launcher takes a real timeblock instead and says
-    /// which, rather than running a version of the game where nothing can be done.
-    /// </para>
-    /// </remarks>
     private static SceneRequest Playable(GameArchives archives, string scene, string? timeblock)
     {
         SceneRequest asked = SceneRequest.For(scene, timeblock);
@@ -7863,11 +7453,6 @@ public static class Application
     /// <param name="archives">The game's archives.</param>
     /// <param name="scene">The scene's name.</param>
     /// <returns>The codes, in order.</returns>
-    /// <remarks>
-    /// A scene's second file is named for the location and the timeblock together —
-    /// <c>R25202P.SIF</c> — so the timeblocks a room has are what is left after its own
-    /// name. The room's own <c>R25.SIF</c> leaves nothing and is skipped.
-    /// </remarks>
     private static IReadOnlyList<string> Timeblocks(GameArchives archives, string scene)
     {
         string prefix = scene.ToUpperInvariant();
@@ -7891,11 +7476,6 @@ public static class Application
     /// </summary>
     /// <param name="args">The command line.</param>
     /// <returns>The point, or null to follow the mouse.</returns>
-    /// <remarks>
-    /// For screenshots and for saying what is under a place without having to be there
-    /// with a mouse. The rest of the loop cannot tell the difference, which is the point:
-    /// what it photographs is what a player at that spot would see.
-    /// </remarks>
     private static Vector2? Pinned(string[] args) =>
         Option(args, "--pointer")?.Split(',') is [string x, string y] &&
         float.TryParse(x, CultureInfo.InvariantCulture, out float px) &&
@@ -7906,12 +7486,6 @@ public static class Application
     /// <summary>Where <c>--eye x,y,z</c> asks the camera to stand.</summary>
     /// <param name="args">The command line.</param>
     /// <returns>The viewpoint, or null when the switch is absent or unreadable.</returns>
-    /// <remarks>
-    /// A headless run has no mouse, so every shot until now was one of the scene's own
-    /// cameras or nothing. Half of what wants photographing — a floor at a grazing angle, a
-    /// lamp from a foot away — is at no authored camera, and describing it in words is how
-    /// a rendering claim goes unchecked for a week.
-    /// </remarks>
     private static Vector3? Standing(string[] args) =>
         Option(args, "--eye")?.Split(',') is [string x, string y, string z] &&
         float.TryParse(x, CultureInfo.InvariantCulture, out float ex) &&
@@ -7923,10 +7497,6 @@ public static class Application
     /// <summary>Which way <c>--aim heading,pitch</c> asks it to look, in degrees.</summary>
     /// <param name="args">The command line.</param>
     /// <returns>The aim, or null when the switch is absent or unreadable.</returns>
-    /// <remarks>
-    /// Degrees, because both other things that write an aim down — the scene files' camera
-    /// angles and <see cref="FreeCamera.Aim"/> — are written in degrees.
-    /// </remarks>
     private static Vector2? Aimed(string[] args) =>
         Option(args, "--aim")?.Split(',') is [string h, string p] &&
         float.TryParse(h, CultureInfo.InvariantCulture, out float heading) &&
@@ -7938,11 +7508,6 @@ public static class Application
     /// <param name="args">The command line.</param>
     /// <param name="settings">What the player chose.</param>
     /// <returns>The number of levels, within range.</returns>
-    /// <remarks>
-    /// <c>--heads N</c> sets it and <c>--flat-heads</c> is <c>--heads 0</c>, which is the
-    /// 1999 outline. Anything unreadable falls back to the setting rather than to a guess:
-    /// a typo should not silently change what the picture is being compared against.
-    /// </remarks>
     private static int HeadLevels(string[] args, Settings settings)
     {
         if (args.Contains("--flat-heads", StringComparer.OrdinalIgnoreCase))
@@ -7963,14 +7528,6 @@ public static class Application
     /// <param name="args">The command line.</param>
     /// <param name="settings">The player's saved settings, which the menu writes.</param>
     /// <returns>Which tier to apply.</returns>
-    /// <remarks>
-    /// <c>--restore-cut-content</c> puts back the things there are to look at, read and
-    /// listen to; <c>--restore-cut-content all</c> also puts back the rules whose verb can
-    /// do something, which can change what an action does. Nothing without the flag: this
-    /// is content the developers switched off, and a player who did not ask for it should
-    /// be playing the game that was released. Without the switch the setting decides, which
-    /// is how the menu turns it on; with it, the command line wins for that run.
-    /// </remarks>
     private static CutContentTier RestorationTier(string[] args, Settings settings)
     {
         if (!args.Contains("--restore-cut-content", StringComparer.OrdinalIgnoreCase))
@@ -7989,26 +7546,9 @@ public static class Application
     }
 
     /// <summary>Where the game is usually installed relative to the repository.</summary>
-    /// <remarks>
-    /// A convenience for development only. Anything shipped reads its content path from
-    /// configuration rather than guessing.
-    /// </remarks>
     /// <summary>
     /// Where the enhanced textures are, if the player wants them.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>--enhanced &lt;dir&gt;</c> names them outright. <c>--workspace &lt;dir&gt;</c> is
-    /// enough on its own, since they always live in the same place inside one, and a bare
-    /// <c>--enhanced</c> with nothing after it takes the workspace beside the repository —
-    /// a flag that reads as "yes please" and quietly does nothing is worse than no flag.
-    /// </para>
-    /// <para>
-    /// None of them means the game looks exactly as it shipped, which has to stay the
-    /// default: this content is a draft until somebody has reviewed it, and nobody should
-    /// be shown generated art without having asked for it.
-    /// </para>
-    /// </remarks>
     private static string? EnhancedTextureDirectory(string[] args)
     {
         bool asked = args.Contains("--enhanced", StringComparer.OrdinalIgnoreCase);
@@ -8033,21 +7573,6 @@ public static class Application
     /// </summary>
     /// <param name="args">The command line.</param>
     /// <returns>Process exit code.</returns>
-    /// <remarks>
-    /// <para>
-    /// The half of the override story that has to exist for the other half to be usable.
-    /// Replacing a texture means first knowing what is there and what it looks like, and
-    /// neither a ReBarn volume nor a 1999 barn is something a paint program can open.
-    /// </para>
-    /// <para>
-    /// It writes into <c>overrides/</c> by default and in the layout the override layer
-    /// reads back, so extract, edit in place, run. Which is also the trap it is arranged
-    /// to avoid: extracting into the directory the game reads means <em>everything</em>
-    /// extracted is now an override of itself, so a whole-pack extract with no filter is
-    /// refused unless <c>--extract-to</c> says somewhere else. Ask for the kind or the name
-    /// you actually want.
-    /// </para>
-    /// </remarks>
     private static int Extract(string[] args)
     {
         string? name = Option(args, "--name");
@@ -8220,12 +7745,6 @@ public static class Application
     /// <summary>Where the player's own overriding files sit.</summary>
     /// <param name="args">Command line, for <c>--overrides</c>.</param>
     /// <returns>The directory, whether or not it exists.</returns>
-    /// <remarks>
-    /// Beside the executable, which is where a player would put one and where
-    /// <c>--extract</c> writes. A read-only install — a signed macOS bundle — cannot have
-    /// one there, so the per-user directory is the fallback, the same way saves and the
-    /// shader cache fall back.
-    /// </remarks>
     private static string OverrideDirectory(string[] args)
     {
         if (Option(args, "--overrides") is { Length: > 0 } named && !named.StartsWith('-'))
@@ -8244,11 +7763,6 @@ public static class Application
     /// <param name="archives">The game's data.</param>
     /// <param name="name">The bitmap's name with extension.</param>
     /// <returns>The picture, or null.</returns>
-    /// <remarks>
-    /// A picture that will not decode is drawn as nothing rather than stopping the game:
-    /// without Sidney's map the analyze screen shows a blank square and the marks still go
-    /// where they are put.
-    /// </remarks>
     private static Formats.Bitmaps.DecodedImage? Decoded(GameArchives archives, string name)
     {
         if (archives.Read(name) is not { } bytes)
@@ -8285,19 +7799,6 @@ public static class Application
     /// bumps are not, but a map derived from a picture of words is.
     /// </param>
     /// <returns>The layer, or null when neither source has anything for this channel.</returns>
-    /// <remarks>
-    /// <para>
-    /// <strong>An override is not enhanced content and is not gated with it.</strong>
-    /// <c>--rebarn</c> ignores every loose enhanced set so that a measurement measures the
-    /// shipped form, and turning higher-resolution textures off in the menu asks for the
-    /// 1999 picture; neither is a statement about a file the player put in
-    /// <c>overrides/</c> themselves. Only <c>--no-overrides</c> says that.
-    /// </para>
-    /// <para>
-    /// Null rather than an empty set when there is nothing, because null is what the loader
-    /// tests to decide whether to ask this layer at all.
-    /// </para>
-    /// </remarks>
     private static EnhancedTextures? Pictures(
         bool enabled,
         bool packsOnly,
@@ -8334,11 +7835,6 @@ public static class Application
     /// The directory's name beside the enhanced set, or null for a kind no language has
     /// one of.
     /// </returns>
-    /// <remarks>
-    /// Named to match the packer's <c>enhanced/local&lt;channel&gt;/&lt;CODE&gt;</c>, which
-    /// is where the same PbrLab passes write when they are run over a language's own
-    /// pictures. The colour directory keeps the name it has always had.
-    /// </remarks>
     private static string? LocalChannel(Formats.Rebarn.RebarnKind kind) => kind switch
     {
         Formats.Rebarn.RebarnKind.Texture => "localtextures",
@@ -8349,21 +7845,9 @@ public static class Application
     };
 
     /// <summary>Where the block-compressed build of the enhanced textures sits.</summary>
-    /// <remarks>
-    /// Beside the enhanced set rather than under it, because it is a build output and not a
-    /// source: <c>build/textures</c> and <c>build/normals</c> in the same workspace. There
-    /// is no separate flag to ask for it — anybody who has asked for enhanced textures wants
-    /// the cheap form of them — but <c>--uncompressed</c> turns it off, which is what makes
-    /// it possible to put the two side by side and see what the compression cost.
-    /// </remarks>
     /// <summary>Where the ReBarn packs are.</summary>
     /// <param name="args">Command line, for <c>--packs</c> and <c>--workspace</c>.</param>
     /// <returns>The first directory that holds a pack, or the executable's own.</returns>
-    /// <remarks>
-    /// <c>--packs</c> wins outright when it is given. Otherwise the first place that holds
-    /// one: beside the executable, then the content workspace, which is where
-    /// <c>pack-content</c> writes during development.
-    /// </remarks>
     private static string PackDirectory(string[] args)
     {
         if (Option(args, "--packs") is { Length: > 0 } named)
@@ -8422,17 +7906,11 @@ public static class Application
     }
 
     /// <summary>Where the content workspace usually sits relative to the repository.</summary>
-    /// <remarks>A convenience for development, like <see cref="DefaultDataDirectory"/>.</remarks>
     private static string DefaultWorkspaceDirectory() =>
         Path.GetFullPath(Path.Combine(
             AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..", "ContentWorkspace"));
 
     /// <summary>The eight archives a retail installation of GK3 holds.</summary>
-    /// <remarks>
-    /// Named in <c>Plan/02-content-pipeline.md</c> section 3. Listed here so that somebody
-    /// who has the game but not this project's documentation is told what to copy, in a
-    /// message rather than in a file they would have to go and find.
-    /// </remarks>
     private static readonly string[] RetailArchives =
     [
         "ambient.brn", "common.brn", "core.brn", "day1.brn",
@@ -8444,21 +7922,6 @@ public static class Application
     /// </summary>
     /// <param name="dataDirectory">The directory that was searched.</param>
     /// <param name="found">How many archives were actually opened from it.</param>
-    /// <remarks>
-    /// <para>
-    /// Two things go wrong with a copied installation and neither says so by itself. A
-    /// partial copy plays until it reaches a day whose archive was never brought across,
-    /// and then fails at a room rather than at the missing file. And a copy taken straight
-    /// off the CD is named <c>CORE.BRN</c>, which the search for <c>*.brn</c> matches on
-    /// Windows and does not match on Linux or macOS - so eight archives the player can see
-    /// in their file manager are, to the game, an empty directory.
-    /// </para>
-    /// <para>
-    /// The second is why this is worth the directory listing it costs. "No game archives
-    /// in ~/GK3/Data", said to somebody looking at eight archives in ~/GK3/Data, is the
-    /// kind of message that ends in a bug report rather than in a fix.
-    /// </para>
-    /// </remarks>
     private static void ReportArchives(string dataDirectory, int found)
     {
         string[] present;
@@ -8532,25 +7995,6 @@ public static class Application
 
     /// <summary>Where the game's own archives are, when nobody has said.</summary>
     /// <returns>The first directory holding a <c>.brn</c>, or where one should be put.</returns>
-    /// <remarks>
-    /// <para>
-    /// A published game is a directory somebody has copied the original archives into, so
-    /// the executable's own <c>Data</c> is looked at first and the executable's directory
-    /// after it, for anybody who dropped the barns straight in beside the game.
-    /// </para>
-    /// <para>
-    /// The walk up the tree is the development convenience it always was: the checkout
-    /// keeps the installation six directories above <c>bin/Debug</c>, and copying eight
-    /// hundred megabytes into every project's output to save the walk would be the wrong
-    /// trade. It is looked at last so that a published tree never reaches past itself and
-    /// quietly runs on whatever an unrelated directory above it happens to hold.
-    /// </para>
-    /// <para>
-    /// A directory only counts when it actually holds a barn. An empty <c>Data</c> beside
-    /// the executable is the shape of an install somebody has started and not finished,
-    /// and stopping there would report it as the answer.
-    /// </para>
-    /// </remarks>
     private static string DefaultDataDirectory()
     {
         string beside = AppContext.BaseDirectory;
@@ -8601,10 +8045,6 @@ public static class Application
     /// Renders one frame with no window and writes it to a file.
     /// </summary>
     /// <returns>Process exit code.</returns>
-    /// <remarks>
-    /// A windowed run proves the code does not crash. Only reading the pixels back proves
-    /// something was drawn, and the two failure modes look identical from outside.
-    /// </remarks>
     private static int RenderOffscreen()
     {
         using Rendering.Vulkan.OffscreenRenderer renderer = Rendering.Vulkan.OffscreenRenderer.Create();
@@ -8628,10 +8068,6 @@ public static class Application
     /// </summary>
     /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
     /// <returns>Process exit code.</returns>
-    /// <remarks>
-    /// A frame limit makes this usable as a smoke test: it proves a device, swapchain and
-    /// present loop work on a machine without needing anyone to close a window.
-    /// </remarks>
     private static int RenderFrames(int frameLimit)
     {
         using var window = Platform.SilkGameWindow.Open("GK3Reborn");
@@ -8675,34 +8111,6 @@ public static class Application
     /// <param name="asked">What was typed after --backend, or null for whichever suits.</param>
     /// <param name="settings">The player's, for the backend they chose.</param>
     /// <returns>The backend to open the window and the renderer for.</returns>
-    /// <remarks>
-    /// <para>
-    /// A name that cannot be spelled is a typo rather than a machine, so it is said out loud
-    /// and then ignored — starting in the wrong renderer because somebody wrote "dx12" would
-    /// be worse than saying so.
-    /// </para>
-    /// <para>
-    /// <b>Direct3D 12 on Windows and Vulkan everywhere else</b>, which is what
-    /// <see cref="Rendering.RenderBackends.Choose"/> has always said and what this method
-    /// used to override. Direct3D draws the room, the sky, the reconstructed terrain horizon,
-    /// the interface, the film and the fade, traces rays, upscales with DLSS and FSR, and
-    /// does what the other backend cannot: Reflex, DLSS frame generation at two, three and
-    /// four times, and scRGB as well as HDR10.
-    /// </para>
-    /// <para>
-    /// The difference against Vulkan's picture that used to be the reason to stay is
-    /// explained: it was a mip chain averaged in the sRGB encoding, which is fixed, and
-    /// NVIDIA's two anisotropic filters, which sample a quarter of a mip level apart and are
-    /// nobody's mistake. See <c>docs/d3d.md</c>.
-    /// </para>
-    /// <para>
-    /// Three things decide it, in this order: <c>--backend</c> on the command line, the
-    /// player's setting, and then the machine. The command line outranks the setting because
-    /// somebody who typed one meant this run rather than every run, and Vulkan on Windows
-    /// stays supported and tested — it is the first thing to try when a Windows machine
-    /// misbehaves.
-    /// </para>
-    /// </remarks>
     private static Rendering.RenderBackend ChooseBackend(string? asked, Settings settings)
     {
         // The command line first, then the settings file, then whatever suits the machine.
@@ -8759,25 +8167,6 @@ public static class Application
     /// <param name="runtimes">The upscaler runtimes that were found.</param>
     /// <param name="libsDirectory">Where <c>--libs-dir</c> pointed, for Direct3D's own Streamline.</param>
     /// <returns>The three, to be disposed by the caller in the reverse of this order.</returns>
-    /// <remarks>
-    /// <para>
-    /// Direct3D 12 fails on a machine for reasons the operating system alone cannot rule
-    /// out: no adapter at all, a driver that stops short of shader model 6.0, a device that
-    /// will not be made. Every one of those used to be an unhandled exception with an
-    /// HRESULT in it — <c>0x887A0004</c>, on the GeForce GTX 960M that found the first of
-    /// them — and the remedy, <c>--vulkan</c>, was known only to somebody who had read the
-    /// source. Now the failure is logged with its reason and Vulkan is tried, which is the
-    /// renderer the game runs on everywhere that is not Windows and the one the settings
-    /// page will then say it is running on.
-    /// </para>
-    /// <para>
-    /// A window is opened for one API and cannot be re-purposed for the other — Vulkan
-    /// needs a surface the window has to be created with — so the fallback closes the
-    /// Direct3D window and opens a Vulkan one. Nothing has been drawn into the first and
-    /// neither is on screen: both are opened hidden and shown by whoever presents the first
-    /// frame, so the fallback costs nothing visible at all. See SilkGameWindow.Show.
-    /// </para>
-    /// </remarks>
     private static OpenedRenderer OpenRenderer(
         Rendering.RenderBackend backend,
         bool insisted,
@@ -8848,11 +8237,6 @@ public static class Application
     /// <summary>
     /// Prints what the machine's graphics hardware can do.
     /// </summary>
-    /// <remarks>
-    /// Runs before any window exists, so it doubles as a diagnostic on a machine that
-    /// cannot run the game at all. A device that cannot present is reported rather than
-    /// treated as an error, because saying why is more useful than failing.
-    /// </remarks>
     /// <summary>Prints what a device survey found.</summary>
     /// <param name="report">
     /// The survey, or null to make one. A caller that already has a renderer should pass its

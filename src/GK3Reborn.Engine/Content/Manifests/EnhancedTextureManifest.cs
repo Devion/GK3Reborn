@@ -9,11 +9,6 @@ public enum TextureVerdict
     /// <summary>
     /// Usable, and not yet looked at by a person.
     /// </summary>
-    /// <remarks>
-    /// The default and the honest one. <c>Plan/02</c> section 1 requires human review
-    /// before anything derived from the originals is distributed, so a candidate that
-    /// passes every check a machine can make is still a draft.
-    /// </remarks>
     [JsonStringEnumMemberName("draft")]
     Draft,
 
@@ -28,13 +23,6 @@ public enum TextureVerdict
     /// <summary>
     /// Sound, and not written, because there is already a texture under that name.
     /// </summary>
-    /// <remarks>
-    /// The enhanced set is <b>hand-corrected work</b>, not whatever a generator last left
-    /// on disk. Textures in it have been redone by hand, and a rerun of an import that
-    /// wrote over them would destroy that silently — the set lives outside the repository,
-    /// so there is no history to get anything back from. An import leaves what it finds
-    /// alone. <c>--force</c> is the only way past it and it is never the default.
-    /// </remarks>
     [JsonStringEnumMemberName("kept")]
     Kept,
 }
@@ -88,19 +76,6 @@ public sealed record EnhancedTexture
 /// <summary>
 /// What an import of enhanced textures produced.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The provenance record <c>Plan/02</c> section 1 asks for: which tool made these, from
-/// what, under what settings, and what a machine could tell about the result. It is
-/// deliberately a record of a <em>draft</em>. Nothing here approves anything; a verdict of
-/// <see cref="TextureVerdict.Draft"/> means only that no automatic check found it broken.
-/// </para>
-/// <para>
-/// Rejections are kept rather than dropped. A candidate that lost its alpha or changed its
-/// aspect ratio is worth going back to the generator about, and a list of names that
-/// simply vanished from the manifest would not tell anybody that.
-/// </para>
-/// </remarks>
 public sealed record EnhancedTextureManifest
 {
     /// <summary>Manifest schema version.</summary>

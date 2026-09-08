@@ -6,11 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for fitting a picture to a window.
 /// </summary>
-/// <remarks>
-/// Nobody notices this is broken until everybody in a cutscene is short and wide, and by
-/// then it looks like a bad video rather than a bad number. The one property worth checking
-/// is that the shape never changes, whatever the window is doing.
-/// </remarks>
 public sealed class PictureFitTests
 {
     /// <summary>Every combination worth worrying about, and a few that are not.</summary>

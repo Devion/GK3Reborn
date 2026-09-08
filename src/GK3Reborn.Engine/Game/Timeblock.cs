@@ -5,11 +5,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// A day-and-hour block of the story, the game's coarsest progression unit.
 /// </summary>
-/// <remarks>
-/// GK3 runs over three days divided into timeblocks such as "110A" (day 1, 10 AM).
-/// Location availability, actor schedules, dialogue and score all key off the current
-/// block, so it is a first-class saved value rather than a derived one.
-/// </remarks>
 public readonly record struct Timeblock(int Day, int Hour, bool IsAfternoon) : IComparable<Timeblock>
 {
     /// <summary>Parses the original "1 10A" style code, e.g. <c>110A</c>.</summary>
@@ -44,12 +39,6 @@ public readonly record struct Timeblock(int Day, int Hour, bool IsAfternoon) : I
     /// <summary>Midnight at the start of a day, as a bound rather than a real block.</summary>
     /// <param name="day">The day.</param>
     /// <returns>A timeblock that sorts before every real one on that day.</returns>
-    /// <remarks>
-    /// The game's blocks run from seven in the morning to the evening, so nothing ever
-    /// equals this. It exists because assets name the span they apply to in days —
-    /// <c>R25_23ALL.NVC</c> is days two and three — and a day has to become a pair of
-    /// comparable points before that can be tested. See <see cref="TimeblockRange"/>.
-    /// </remarks>
     public static Timeblock StartOfDay(int day) => new(day, 0, IsAfternoon: false);
 
     /// <summary>The last hour of a day, as a bound rather than a real block.</summary>
@@ -58,13 +47,6 @@ public readonly record struct Timeblock(int Day, int Hour, bool IsAfternoon) : I
     public static Timeblock EndOfDay(int day) => new(day, 11, IsAfternoon: true);
 
     /// <summary>Renders the original code form.</summary>
-    /// <remarks>
-    /// The hour is two digits, always: the codes are four characters and the game writes
-    /// <c>102P</c> rather than <c>12P</c>. Getting this wrong is quiet and total — scene
-    /// files and scripts ask <c>IsCurrentTime("202p")</c>, which compares against this
-    /// string, so an unpadded hour makes every such condition false and a scene loads in
-    /// whichever state its unconditional block happens to describe.
-    /// </remarks>
     public override string ToString() =>
         string.Create(CultureInfo.InvariantCulture, $"{Day}{Hour:00}{(IsAfternoon ? 'P' : 'A')}");
 

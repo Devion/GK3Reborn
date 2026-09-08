@@ -14,11 +14,6 @@ using Silk.NET.DXGI;
 namespace GK3Reborn.Rendering.Direct3D12;
 
 /// <summary>The Direct3D backend's half of a context description.</summary>
-/// <remarks>
-/// One pointer, where Vulkan's needs three. Everything the runtime has to know about a
-/// Direct3D device it can ask the device for; a Vulkan device carries none of its own
-/// entry points, so that backend has to be handed a physical device and a loader as well.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct FfxCreateBackendD3D12
 {
@@ -29,32 +24,6 @@ internal unsafe struct FfxCreateBackendD3D12
 /// <summary>
 /// AMD FidelityFX Super Resolution on Direct3D 12.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The twin of the Vulkan <c>FsrUpscaler</c>, and deliberately built as one: the runtime's
-/// interface is the same five calls on both, the effect's own structures are the same
-/// structures, and everything that differs is in this file — which backend description a
-/// context is created with, what a resource handle points at, and how a format is numbered.
-/// The shared half lives in <see cref="FfxApi"/> and the types beside it.
-/// </para>
-/// <para>
-/// <b>This has never been run.</b> No FidelityFX runtime is installed on the machine it was
-/// written on — neither <c>amd_fidelityfx_vk.dll</c> nor <c>amd_fidelityfx_dx12.dll</c> —
-/// so what is here is a structure-for-structure translation of the Vulkan path that
-/// compiles and is gated behind the same "not installed" check. The Vulkan one has not been
-/// run on this machine either, for the same reason. Whoever has the runtime should treat
-/// the first run as the real test: the failure this shape of code has is a structure that
-/// differs from the runtime's by a field, which does not fail loudly — it reads one number
-/// out of another and produces a picture that is wrong in a way that looks like a bug in
-/// the renderer.
-/// </para>
-/// <para>
-/// The one thing worth checking first is <see cref="SurfaceFormat"/>. The rest of the
-/// translation is mechanical; that table is the only place a Direct3D number had to be
-/// mapped onto AMD's, and a format the runtime does not recognise comes back as an error
-/// rather than as a guess — which is the good case, and the one to hope for.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12FsrUpscaler : IDisposable
 {
     /// <summary>Structure identifiers, from <c>ffx_upscale.h</c> and <c>ffx_api_dx12.h</c>.</summary>
@@ -64,12 +33,6 @@ public sealed unsafe class D3D12FsrUpscaler : IDisposable
     /// <summary>
     /// The Direct3D 12 backend, which is two where Vulkan is three.
     /// </summary>
-    /// <remarks>
-    /// <c>ffx_api_dx12.h</c> numbers the backends in the order they were added: Direct3D 11
-    /// is one, Direct3D 12 is two, Vulkan is three. The Vulkan constant beside this one in
-    /// the other backend says three, which is the only cross-check available without the
-    /// header.
-    /// </remarks>
     private const ulong CreateBackendDirect3D12 = 0x00000002u;
 
     /// <summary>Context flags, from <c>FfxApiCreateContextUpscaleFlags</c>.</summary>
@@ -208,12 +171,6 @@ public sealed unsafe class D3D12FsrUpscaler : IDisposable
     /// <param name="output">Where to put the result.</param>
     /// <param name="frame">The rest of what the runtime is told about this frame.</param>
     /// <returns>True when the runtime did the work.</returns>
-    /// <remarks>
-    /// The four textures must already be in the states named here, and the caller is what
-    /// puts them there — the same bargain the Streamline path makes, and for the same
-    /// reason: the runtime records into the list it is given and issues no barriers of its
-    /// own.
-    /// </remarks>
     public bool Record(
         ID3D12GraphicsCommandList4* list,
         D3D12Texture colour,
@@ -307,12 +264,6 @@ public sealed unsafe class D3D12FsrUpscaler : IDisposable
     /// <param name="texture">The texture.</param>
     /// <param name="state">The state it is in, in the runtime's own vocabulary.</param>
     /// <returns>The description.</returns>
-    /// <remarks>
-    /// The usage flags say what the resource was created for rather than what it is being
-    /// used for here, because that is what the runtime uses to decide whether it may write
-    /// into it. Direct3D carries them on the resource, so they are read back from it rather
-    /// than remembered.
-    /// </remarks>
     private static FfxResource Describe(D3D12Texture texture, uint state)
     {
         ResourceDesc description = texture.Handle->GetDesc();
@@ -348,20 +299,6 @@ public sealed unsafe class D3D12FsrUpscaler : IDisposable
     }
 
     /// <summary>A DXGI format, as FidelityFX numbers it.</summary>
-    /// <remarks>
-    /// <para>
-    /// Only the formats this renderer actually hands over. Anything else comes back as
-    /// unknown, which the runtime treats as an error rather than guessing — the right
-    /// outcome, since a format guessed wrong is a picture of noise.
-    /// </para>
-    /// <para>
-    /// The numbers are AMD's own <c>FfxApiSurfaceFormat</c>, which is neither DXGI's nor
-    /// Vulkan's: the Vulkan backend maps onto the same table, so the two lists agreeing on
-    /// what a half-float four-channel surface is called is the one cross-check there is.
-    /// A depth texture is declared as its sampled form rather than its depth form, because
-    /// what the runtime reads is a single float channel.
-    /// </para>
-    /// </remarks>
     private static uint SurfaceFormat(Format format) => format switch
     {
         Format.FormatR16G16B16A16Float => 4,

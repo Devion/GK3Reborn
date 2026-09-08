@@ -12,20 +12,6 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// <summary>
 /// The header every Streamline structure begins with: a link, a GUID and a version.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Streamline's C++ headers express this as a base class with a deleted default
-/// constructor. It has no virtual functions, so its layout is simply its three fields —
-/// eight bytes of pointer, sixteen of GUID, eight of version — and this mirrors that
-/// exactly.
-/// </para>
-/// <para>
-/// <b>The version is part of the contract.</b> Streamline reads it to decide how many
-/// fields it may look at, so a structure declared here at a version whose fields are not
-/// all present is a runtime reading past the end of it. Every version below is the one
-/// stated in the header the field list was copied from.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlHeader
 {
@@ -96,11 +82,6 @@ internal unsafe struct SlPreferences
 }
 
 /// <summary>The Vulkan objects the application made for itself.</summary>
-/// <remarks>
-/// Handed over immediately after <c>vkCreateDevice</c>. It is the manual-hooking half of
-/// the bargain: Streamline does not proxy the device creation, so it has to be told what
-/// was created and which queues were set aside for it.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlVulkanInfo
 {
@@ -137,12 +118,6 @@ internal struct SlViewport
 }
 
 /// <summary>A resource, as Streamline takes one.</summary>
-/// <remarks>
-/// For Vulkan every field matters: the runtime records its own barriers against the
-/// layout given in <see cref="State"/>, and one that does not match what the command
-/// buffer actually left the image in is a validation error at best and a read of
-/// undefined contents at worst.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlResource
 {
@@ -188,12 +163,6 @@ internal unsafe struct SlResourceTag
 }
 
 /// <summary>Where the camera is and where it was, in the form Streamline reads.</summary>
-/// <remarks>
-/// <b>Row major, and without the jitter.</b> Streamline says so twice in its own header,
-/// and it means it: the matrices here describe where geometry is, and the sub-pixel offset
-/// is given separately in <see cref="JitterX"/> so that the runtime can account for it
-/// where it needs to and ignore it where it does not.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlConstants
 {
@@ -275,12 +244,6 @@ internal struct SlDlssOptions
 }
 
 /// <summary>What the ray-reconstruction feature is asked to do.</summary>
-/// <remarks>
-/// The same shape as <see cref="SlDlssOptions"/> with the two view matrices and a
-/// statement of how the normals and the roughness are packed. This engine packs the
-/// roughness into the normal target's spare channel, which is the mode the runtime calls
-/// packed and which costs no extra target.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlDlssdOptions
 {
@@ -317,42 +280,12 @@ internal unsafe struct SlDlssdOptions
 }
 
 /// <summary>What the neural-rendering feature is asked to do.</summary>
-/// <remarks>
-/// <para>
-/// <c>sl::DLSSNROptions</c>, as <c>sl.dlss_nr.dll</c> reads it. NVIDIA publishes no header
-/// for this one — the Streamline SDK carries <c>sl_dlss.h</c>, <c>sl_dlss_d.h</c> and
-/// <c>sl_dlss_g.h</c> and no <c>sl_dlss_nr.h</c> — so every field below was read out of the
-/// plugin rather than copied from a declaration. Where each came from is written down
-/// because a structure that cannot be checked against a header is worth only as much as the
-/// note saying where it came from.
-/// </para>
-/// <para>
-/// <b>How the layout was fixed.</b> The plugin's <c>slDLSSNRSetOptions</c> copies the
-/// caller's viewport, hangs these options off its <c>next</c> pointer and calls its own
-/// <c>slSetData</c>. That walks the chain for this GUID and normalises what it finds into a
-/// seventy-two byte, version-three copy. The offsets it copies from, and the defaults it
-/// substitutes for a caller declaring an older version — nought at <c>0x34</c> and
-/// <c>0x38</c>, nought at <c>0x3C</c>, <c>1.0f</c> at <c>0x40</c> and three at <c>0x44</c> —
-/// are what pin every field down. Each then reaches the network as the NGX parameter named
-/// in its summary.
-/// </para>
-/// <para>
-/// <b>Declare version three.</b> Anything lower and the plugin substitutes those defaults
-/// instead of reading the later fields, which is a quiet way to lose the quality setting:
-/// <see cref="PerformanceMode"/> lives in the version-three tail.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlDlssnrOptions
 {
     public SlHeader Header;
 
     /// <summary>Nought leaves it off and one runs it; nothing else is read.</summary>
-    /// <remarks>
-    /// The plugin's evaluation reads this before anything else and returns having done
-    /// nothing unless it is exactly one, so it is a switch rather than a ladder. The ladder
-    /// is <see cref="PerformanceMode"/>.
-    /// </remarks>
     public uint Mode;
 
     /// <summary>NGX <c>DLSSNR.Intensity</c>.</summary>
@@ -374,10 +307,6 @@ internal unsafe struct SlDlssnrOptions
     public uint Preset;
 
     /// <summary>NGX <c>DLSSNR.UseAutoMask</c>: let the network find its own control mask.</summary>
-    /// <remarks>
-    /// Worth leaving on here. The alternative is tagging a control mask as buffer seventy-two,
-    /// and this engine has nothing to put in one.
-    /// </remarks>
     public byte UseAutoMask;
     private readonly byte _pad0;
     private readonly byte _pad1;
@@ -387,20 +316,10 @@ internal unsafe struct SlDlssnrOptions
     public float SkinStructureStrength;
 
     /// <summary>Which rung of the ladder, numbered as <c>sl::DLSSMode</c> numbers it.</summary>
-    /// <remarks>
-    /// Reaches NGX as <c>PerfQualityValue</c>, one less than this. The plugin accepts one,
-    /// two, three, four and six — max performance, balanced, max quality, ultra performance
-    /// and DLAA — and refuses five, ultra quality, with "performance mode is not supported".
-    /// </remarks>
     public uint PerformanceMode;
 }
 
 /// <summary>What a feature needs before a device is made.</summary>
-/// <remarks>
-/// Asked before <c>vkCreateDevice</c>, because the answer is a list of device extensions
-/// and a count of queues, and both have to be in that call. Nothing in it can be applied
-/// afterwards.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal unsafe struct SlFeatureRequirements
 {
@@ -455,28 +374,6 @@ internal unsafe struct SlAdapterInfo
 /// <summary>
 /// What Reflex is asked to do about latency.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Read out of <c>sl.reflex.dll</c> rather than copied from a header.</b> NVIDIA
-/// publishes <c>sl_reflex.h</c>, but no copy of it is in this tree and a structure that is
-/// nearly right is worse than one that is absent: Streamline finds a structure in the
-/// chained list by GUID and reads its fields by offset, so a wrong GUID is a call that
-/// silently does nothing and a wrong offset is a field read from the middle of another one.
-/// </para>
-/// <para>
-/// The plugin's <c>slSetData</c> was decompiled on 2026-08-30. It searches the chain for
-/// <c>F03AF81A-6D0B-4902-A651-C4965E215434</c>, reads the mode as a word at thirty-two, the
-/// virtual key as a half-word at forty-two, and the thread at forty-four, and then copies
-/// forty-eight bytes of the whole thing into its own context. Thirty-two is where a field
-/// lands after <see cref="SlHeader"/>, so the field list below is the only one that both
-/// fits those three offsets and comes to forty-eight bytes.
-/// </para>
-/// <para>
-/// The two fields nothing here reads are named from the published field order, and both are
-/// left at nought: a frame limit this engine does not impose, and a hint that only applies
-/// to the boosted mode.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal struct SlReflexOptions
 {
@@ -496,10 +393,6 @@ internal struct SlReflexOptions
     /// <summary>
     /// A hot key that stands in for the latency-ping message, or nought.
     /// </summary>
-    /// <remarks>
-    /// The plugin refuses anything but <c>VK_F13</c>, <c>VK_F14</c> and <c>VK_F15</c> — it
-    /// says so and returns an error — so nought is the only other value worth sending.
-    /// </remarks>
     public ushort VirtualKey;
 
     /// <summary>Which thread the latency statistics messages come from, or nought.</summary>
@@ -507,19 +400,6 @@ internal struct SlReflexOptions
 }
 
 /// <summary>One marker, saying where in the frame the caller has reached.</summary>
-/// <remarks>
-/// <para>
-/// Not a structure any header names: <c>slReflexSetMarker</c> takes a marker and a frame
-/// token, and builds this to pass them down. Recovered by decompiling that function, which
-/// writes a header carrying <c>E268B3DC-F963-4C37-9776-AF048E132621</c> at version one, puts
-/// the marker at thirty-two, and chains the frame token behind it.
-/// </para>
-/// <para>
-/// <c>slReflexSleep</c> builds the same structure with the marker set to four thousand and
-/// ninety-six, which is not a marker at all — it is how the plugin tells its own sleep apart
-/// from the markers an application sends. See <see cref="Streamline.MarkerSleep"/>.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal struct SlReflexMarker
 {
@@ -530,23 +410,6 @@ internal struct SlReflexMarker
 }
 
 /// <summary>What the frame-generation feature is asked to do.</summary>
-/// <remarks>
-/// <para>
-/// Read out of <c>sl.dlss_g.dll</c> on 2026-08-30, for the reason
-/// <see cref="SlReflexOptions"/> gives. Its <c>slSetData</c> searches the chain for
-/// <c>FAC5F1CB-2DFD-4F36-A1E6-3A9E865256C5</c>, refuses a count of nought at thirty-six
-/// ("numFramesToGenerate must be greater than 0"), refuses one above what the hardware
-/// reports, and copies a hundred and twenty bytes into its own context. Its <c>slGetData</c>
-/// reads the flags at forty and the six extents and five formats between fifty-two and
-/// eighty-eight to estimate memory, which is what fixes every offset below.
-/// </para>
-/// <para>
-/// <b>The count is the whole of multi-frame generation.</b> One generated frame for every
-/// drawn one is two times; three is four times. What the card will allow is not a guess —
-/// <see cref="SlDlssgState.NumFramesToGenerateMax"/> is the number, and asking for more is
-/// an error naming both.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal struct SlDlssgOptions
 {
@@ -582,11 +445,6 @@ internal struct SlDlssgOptions
     /// <summary>
     /// A callback the plugin takes atomically at ninety-six, and which nothing here sets.
     /// </summary>
-    /// <remarks>
-    /// Named only by its offset, because what it is was not established: the plugin stores
-    /// it with an interlocked exchange into a slot nothing else read in the part that was
-    /// decompiled. Null is the value a caller who set nothing would have sent.
-    /// </remarks>
     public nint Callback;
 
     private readonly ulong _pad1;
@@ -594,19 +452,6 @@ internal struct SlDlssgOptions
 }
 
 /// <summary>What the frame-generation feature says about itself.</summary>
-/// <remarks>
-/// <para>
-/// <b>The header's version decides how much of this is filled in.</b> The plugin checks it
-/// three times: at two it writes <see cref="NumFramesToGenerateMax"/>, at three the fence
-/// pair, at four the last flag. Asking at version one and then reading the maximum is
-/// reading whatever was in the buffer, which is how a card that can generate three frames
-/// comes to be offered none.
-/// </para>
-/// <para>
-/// Recovered from <c>slGetData</c> in <c>sl.dlss_g.dll</c>, which fills a structure found by
-/// <c>CC8AC8E1-A179-44F5-97FA-E74112F9BC61</c>.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal struct SlDlssgState
 {

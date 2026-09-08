@@ -17,12 +17,6 @@ namespace GK3Reborn.Rendering;
 /// </param>
 /// <param name="Top">Pixels from the top of the line down to its top edge.</param>
 /// <param name="Advance">How far the pen moves afterwards, including the space after it.</param>
-/// <remarks>
-/// The whole of what the two kinds of font have to agree about. A bitmap sheet's cells all
-/// sit on the line's top with no bearing and step by their own width; an outline's letters
-/// each sit somewhere of their own against a baseline. Saying it this way lets one drawing
-/// routine serve both, rather than the interface knowing which sort of font it has.
-/// </remarks>
 public readonly record struct AtlasGlyph(
     Vector4 Uv, float Width, float Height, float Left, float Top, float Advance);
 
@@ -42,22 +36,6 @@ public readonly record struct OverlayQuad(
 /// <summary>
 /// Everything the interface draws, as one sheet and one list of rectangles.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A font's sheet with a block of white added under it. Every rectangle the interface
-/// draws — a letter, a panel, a divider — is then a piece of the same texture, which means
-/// the whole interface is one draw call and needs no state changes in the middle of it.
-/// The white block is what makes a solid rectangle possible without a second texture.
-/// </para>
-/// <para>
-/// GK3's fonts come two ways and both have to work. Most are white letters on magenta,
-/// which decodes with the magenta already transparent. Sidney's are antialiased grey on
-/// black with no transparency at all. Multiplying the texture's alpha by its brightness
-/// covers both: the magenta ones keep their crisp edges, the black-backed ones get their
-/// antialiasing turned into alpha, and the black glyph markers along the top of a sheet
-/// disappear on their own.
-/// </para>
-/// </remarks>
 public sealed class OverlayAtlas
 {
     private const int WhiteSize = 4;
@@ -156,21 +134,6 @@ public sealed class OverlayAtlas
     /// An atlas with no letters in it: a block of white, and nothing else.
     /// </summary>
     /// <returns>The atlas.</returns>
-    /// <remarks>
-    /// <para>
-    /// Every atlas is a font's sheet with a block of white added under it, and the white is
-    /// what makes a solid rectangle possible. This is the block on its own, for the one
-    /// caller that has rectangles to draw before there is a font to draw letters with: the
-    /// loading screen, which exists from the moment the window does and has to say something
-    /// while the archives — and the typeface inside them — are still being read.
-    /// </para>
-    /// <para>
-    /// <see cref="Glyph"/> answers null for every character, so text drawn through it is
-    /// silently nothing rather than a row of blanks. That is the right answer here: the
-    /// caller has a bar to draw and a word it would like to write, and the word is the part
-    /// that can wait.
-    /// </para>
-    /// </remarks>
     public static OverlayAtlas Blank()
     {
         byte[] pixels = new byte[WhiteSize * WhiteSize * 4];
@@ -191,18 +154,6 @@ public sealed class OverlayAtlas
     /// <summary>
     /// The characters an interface atlas carries whatever the language.
     /// </summary>
-    /// <remarks>
-    /// Latin-1 and no more. It covers the game's own language and the French it is set in —
-    /// the accented letters of Hôtel de Rennes-le-Château — and stops well short of
-    /// rasterising two thousand glyphs to draw a menu of five words.
-    /// <para>
-    /// <b>It is not enough on its own, and Polish is what proved it.</b> Latin-1 has ó but
-    /// not ą, ć, ę, ł, ń, ś, ź or ż, so a Polish title bar drew "Dzie 1" for
-    /// <c>Dzie&#x0144; 1</c> — the letter silently absent rather than wrong, which is
-    /// harder to notice. <see cref="Of"/> is what callers should ask for: this set plus
-    /// whatever else the open language's code page can spell.
-    /// </para>
-    /// </remarks>
     public const string Latin =
         " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`" +
         "abcdefghijklmnopqrstuvwxyz{|}~" +
@@ -219,39 +170,12 @@ public sealed class OverlayAtlas
     /// </summary>
     /// <param name="codePage">The language's code page — see <c>GameLanguage.CodePage</c>.</param>
     /// <returns><see cref="Latin"/>, and the rest of that page's letters after it.</returns>
-    /// <remarks>
-    /// Asked of the code page rather than listed per language, because the code page
-    /// <em>is</em> the list: it says exactly which characters a 1999 text asset in that
-    /// language can contain, so an atlas built from it can draw anything the release holds
-    /// and nothing it does not. A page the engine has no table for adds nothing, which
-    /// leaves the Latin-1 set — the same answer as before, for the six languages that were
-    /// already right.
-    /// </remarks>
     public static string Of(int codePage) =>
         Latin + Foundation.Gk3Encoding.Repertoire(codePage);
 
     /// <summary>
     /// Every character any language the port knows can be written in.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>One atlas for every language rather than one per language</b>, because the atlas
-    /// is built when the window settles on a size and the language can move after that —
-    /// and a set chosen at build time is a set that goes stale the moment somebody changes
-    /// the row. Rebuilding it there instead would mean rebuilding the two overlays the room
-    /// and the screens hold, for about three hundred glyphs of difference.
-    /// </para>
-    /// <para>
-    /// Three hundred, not two thousand: the tabulated pages are 1252, 1250 and 1251, they
-    /// agree on most of Latin-1, and Cyrillic is ninety letters. Windows-936 is not among
-    /// them and cannot be — see <c>Gk3Encoding.Repertoire</c>.
-    /// </para>
-    /// <para>
-    /// It also fixes something that had nothing to do with Polish: <c>Œ</c> is in
-    /// Windows-1252 and not in Latin-1, so the French menu's own row — Œufs de Pâques —
-    /// was drawing without its first letter.
-    /// </para>
-    /// </remarks>
     public static string Everything { get; } =
         Latin +
         Foundation.Gk3Encoding.Repertoire(1252) +
@@ -265,18 +189,6 @@ public sealed class OverlayAtlas
     /// <param name="pixels">How tall an em should be, in pixels.</param>
     /// <param name="characters">Which characters to draw, or null for <see cref="Latin"/>.</param>
     /// <returns>The atlas, or null when nothing could be drawn.</returns>
-    /// <remarks>
-    /// <para>
-    /// Built once for a size and thrown away when the window wants another, exactly as the
-    /// bitmap ladder is: a menu at a fixed size costs one atlas, and a window being dragged
-    /// between two sizes costs one more each time it settles.
-    /// </para>
-    /// <para>
-    /// The glyphs are packed into shelves — a row at a time, wrapping when the row is full.
-    /// It wastes a little of the sheet and is a dozen lines; a tighter packer would save
-    /// memory nobody is short of.
-    /// </para>
-    /// </remarks>
     public static OverlayAtlas? Build(TrueTypeFile face, int pixels, string? characters = null)
     {
         ArgumentNullException.ThrowIfNull(face);
@@ -461,18 +373,6 @@ public sealed class OverlayAtlas
     /// <summary>Texture coordinates of a character.</summary>
     /// <param name="glyph">Where it is in the font's sheet.</param>
     /// <returns>Left, top, width and height, in texture coordinates.</returns>
-    /// <remarks>
-    /// <b>Half a texel in on every side.</b> A glyph's rectangle runs from one pixel below
-    /// its row's marker strip to the top of the next row's, with nothing between them, and
-    /// the sampler filters linearly — so a sample taken at the glyph's very edge reaches
-    /// half a texel past it and brings a quarter of a marker strip back with it. That drew
-    /// a dotted line over and under every line of text, invisible at the size the layout
-    /// was authored at and plain at the sizes where a sheet pixel covers two screen ones.
-    ///
-    /// Insetting rather than switching the sampler to nearest: the caption sheets are
-    /// antialiased grey rather than hard-edged, and filtering them is what makes a doubled
-    /// one read as a larger version of itself instead of as a magnified bitmap.
-    /// </remarks>
     public Vector4 Uv(Glyph glyph)
     {
         // Never past the middle: a one-pixel glyph has no interior to inset into.
@@ -489,11 +389,6 @@ public sealed class OverlayAtlas
 /// <summary>
 /// The interface's display list, rebuilt every frame.
 /// </summary>
-/// <remarks>
-/// Immediate rather than retained: the interface is a function of what the game is doing,
-/// so describing it fresh each frame is both simpler and impossible to leave stale. There
-/// is nothing to invalidate and no widget tree to keep in step with the world.
-/// </remarks>
 public sealed class Overlay
 {
     private readonly List<OverlayQuad> _quads = [];
@@ -524,27 +419,6 @@ public sealed class Overlay
     /// <summary>
     /// How many screen pixels one pixel of the font's sheet covers.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// A whole number, and one by default. GK3's largest caption sheet cuts to 33-pixel
-    /// letters, which is 3.5% of the 480-line screen it was drawn for and 1.5% of a 4K one:
-    /// past a point the ladder of sheets runs out and the only way to keep the text the
-    /// same apparent size is to draw each sheet pixel as more than one.
-    /// </para>
-    /// <para>
-    /// Whole numbers because a fraction lands glyph edges between pixels and the sampler
-    /// then averages neighbouring letters into each other. The caption sheets are
-    /// antialiased grey rather than hard-edged, so a doubled one reads as a larger version
-    /// of itself rather than as a magnified bitmap.
-    /// </para>
-    /// <para>
-    /// It multiplies <see cref="LineHeight"/> and <see cref="Measure"/> as well as the
-    /// glyphs, so anything laying out against those numbers grows with it and nothing has
-    /// to know this exists. <see cref="Rect"/> is deliberately <em>not</em> multiplied:
-    /// its arguments are already in screen pixels, computed from those same numbers, and
-    /// scaling them again would apply the factor twice.
-    /// </para>
-    /// </remarks>
     public int Magnify
     {
         get => _magnify;
@@ -569,19 +443,6 @@ public sealed class Overlay
     /// Confines everything drawn until the matching <see cref="PopClip"/> to a rectangle.
     /// </summary>
     /// <param name="bounds">The rectangle, as x, y, width, height.</param>
-    /// <remarks>
-    /// <para>
-    /// Clipped as the quads are added rather than by the device, so that nothing about the
-    /// pipeline has to change and the whole interface stays one draw call. A rectangle is
-    /// trimmed to the intersection and a picture's source is trimmed with it in proportion,
-    /// which is what keeps a half-scrolled letter looking like half a letter rather than a
-    /// whole one squashed.
-    /// </para>
-    /// <para>
-    /// Nesting intersects rather than replaces: a list inside a window that is itself
-    /// inside a laptop screen should not be able to draw outside any of the three.
-    /// </para>
-    /// </remarks>
     public void PushClip(Vector4 bounds)
     {
         _clips.Add(_clips.Count == 0 ? bounds : Intersect(_clips[^1], bounds));
@@ -677,12 +538,6 @@ public sealed class Overlay
     /// <param name="source">
     /// Which part of the picture to take, in texture coordinates, or null for all of it.
     /// </param>
-    /// <remarks>
-    /// The interface is drawn rather than blitted and stays that way; this is for the
-    /// places where the game's own art <em>is</em> the content — the driving map is a
-    /// painting of the Rennes-le-Château countryside and no arrangement of rectangles is
-    /// that.
-    /// </remarks>
     public void Picture(
         int picture,
         float x,

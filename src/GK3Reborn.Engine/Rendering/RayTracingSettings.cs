@@ -3,10 +3,6 @@
 namespace GK3Reborn.Rendering;
 
 /// <summary>How much ray tracing to do.</summary>
-/// <remarks>
-/// The ladder the settings screen will expose. Each step is a superset of the one below
-/// it, so a scene never loses a lighting effect by being turned up.
-/// </remarks>
 public enum RayTracingQuality
 {
     /// <summary>
@@ -59,136 +55,33 @@ public readonly record struct RayTracingSettings(
     int OcclusionSamples = 8)
 {
     /// <summary>The light a surface receives from everywhere at once.</summary>
-    /// <remarks>
-    /// <para>
-    /// Green-leaning and very dim where the bake is still in play: there it only has to keep
-    /// a corner no lamp reaches from going to black, which is the job the original's own
-    /// ambient floor did.
-    /// </para>
-    /// <para>
-    /// Where the bake is gone it is doing more, because it is the only thing standing in
-    /// for light that has bounced. It is modulated by traced ambient occlusion at those
-    /// tiers, which is what keeps it from reading as the flat wash a constant would be — a
-    /// corner still darkens, it just darkens because a ray said so rather than because a
-    /// lightmap was painted that way.
-    /// </para>
-    /// <para>
-    /// <b>Tried lower and put back, 2026-09-03.</b> A flat lift is the obvious suspect when
-    /// a room that ought to be dark is not — CS3's attic, where Grace remarks she cannot
-    /// read — and halving it does darken every room. It also halves the traced ambient
-    /// occlusion, because occlusion multiplies <em>this</em> term and nothing else: the
-    /// corner test went from 2.9% of darkening to 1.5%. Trading the one traced effect that
-    /// shapes a corner for a uniformly darker picture is the wrong way round, so the
-    /// over-lighting is answered where it comes from instead — see <c>Game.RigBalance</c>.
-    /// </para>
-    /// </remarks>
     public Vector3 Ambient => UsesBake
         ? new Vector3(0.06f, 0.08f, 0.06f)
         : new Vector3(0.15f, 0.16f, 0.17f);
 
     /// <summary>How much of the traced ambient occlusion to believe, from zero to one.</summary>
-    /// <remarks>
-    /// <para>
-    /// Never all of it: whole, it drives a surface to black outright, because enough of the
-    /// hemisphere above a shoulder is that person's own head that the shoulder disappears.
-    /// </para>
-    /// <para>
-    /// Where the bake is still in play there is a second reason to hold it back — those
-    /// lightmaps were baked with occlusion already in them, so a hemisphere of rays is
-    /// measuring something the bake has largely accounted for and applying it whole counts
-    /// it twice. Medium and High have no bake to count twice against, so they believe a good
-    /// deal more of it, and that is what puts a chair leg on the floor rather than above it.
-    /// </para>
-    /// </remarks>
     public float OcclusionStrength => UsesBake ? 0.55f : 0.85f;
 
     /// <summary>How much the baked lightmaps shape the ambient floor, from zero to one.</summary>
-    /// <remarks>
-    /// <para>
-    /// A bake is not allowed to be the lighting at these tiers, and it is still the best map
-    /// anybody has of where the light in a room goes. The artists decided in 1999 that the
-    /// wall beside the sconce is warm and the corner behind the screen is not, and dropping
-    /// all of it flattened rooms that are full of lamps: the dining room's sconces went dark,
-    /// its tablecloths turned from cream to grey, and almost nothing in it cast a readable
-    /// shadow because there was nothing for a shadow to be darker than.
-    /// </para>
-    /// <para>
-    /// So the bake modulates the ambient term instead of adding to it. That is not the same
-    /// thing as lighting from it — the term stays ambient, stays subject to traced occlusion,
-    /// and is never subtracted against — and what it buys is the room's shape and colour
-    /// back. Nothing at None and Low, where the bake is already doing the lighting outright
-    /// and shaping it twice would only deepen it.
-    /// </para>
-    /// </remarks>
     public float LightmapHint => UsesBake ? 0f : 1f;
 
     /// <summary>Whether any rays are traced at all.</summary>
     public bool TracesRays => ShadowLights > 0 || AmbientOcclusionRays > 0;
 
     /// <summary>Whether the baked lightmaps still light scene geometry outright.</summary>
-    /// <remarks>
-    /// True only at <see cref="RayTracingQuality.None"/>. Above it the rig lights
-    /// everything and the bake, where it is still used, contributes bounce rather than
-    /// the whole result.
-    /// </remarks>
     public bool BakedOnly => Quality == RayTracingQuality.None;
 
     /// <summary>Whether the bake contributes anything at all.</summary>
-    /// <remarks>
-    /// False at Medium and High, where the room is lit outright. It is a separate question
-    /// from <see cref="BakedOnly"/>: one asks whether the bake is the whole answer, this
-    /// asks whether it is any of it.
-    /// </remarks>
     public bool UsesBake => LightmapIndirect > 0f;
 
     /// <summary>
     /// How far an occlusion ray reaches, in scene units.
     /// </summary>
-    /// <remarks>
-    /// The same at every quality level, because it describes the effect rather than the
-    /// budget: it is the scale at which a surface counts as being in a corner, and the
-    /// ray count is what changes with quality. Forty-five units is a little over a metre.
-    /// The value was ninety at Medium and a hundred and forty at High, and R25 is only
-    /// three hundred across, so a hemisphere that size reached a wall from anywhere in the
-    /// room; occlusion sat low over every surface instead of gathering where two of them
-    /// meet, and since it multiplies the whole indirect term the room went dark with it.
-    /// </remarks>
     private const float OcclusionRadius = 45f;
 
     /// <summary>The settings for a quality level.</summary>
     /// <param name="quality">The level.</param>
     /// <returns>Its ray budget.</returns>
-    /// <remarks>
-    /// <para>
-    /// The counts are sized to GK3 rather than to a generic scene. A lit scene declares
-    /// six lights at the median, so eight shadowed lights already covers most rooms
-    /// outright at Low; the scenes with dozens are corridors and exteriors where the
-    /// distant ones contribute little.
-    /// </para>
-    /// <para>
-    /// <b>Medium and High light the room outright and use no bake at all</b>, which is
-    /// what <c>Plan/04</c> P10 asks for — "the RT and enhanced tiers light scenes from the
-    /// rig, the compatibility tier keeps baked lightmaps" — and what ADR 0006 means by
-    /// re-lighting for modern range rather than matching 1999 output. A baked lightmap is
-    /// light that was computed once, for a room with nobody in it, and cannot know about
-    /// anything that has happened since; keeping it is what made a character's shadow so
-    /// faint, because a shadow can only take away the share of a surface the rig accounts
-    /// for and the bake was holding the rest.
-    /// </para>
-    /// <para>
-    /// What replaces it is not nothing. The artists' own rig is not only key lights: 125
-    /// <c>sky_bounce</c> and 169 <c>ground_bounce</c> entries across the corpus are their
-    /// answer to what the walls and floor are throwing back, and <c>ground_bounce</c> is
-    /// the most common light name in the game. Evaluating the rig in full is evaluating
-    /// their bounce approximation along with their key light — which is why dropping the
-    /// bake costs far less than the raw numbers suggest.
-    /// </para>
-    /// <para>
-    /// Low keeps most of the bake. It is the tier for hardware that can trace a few shadow
-    /// rays and nothing else, and a room lit by a handful of shadowed lights with no
-    /// occlusion is exactly the case the bake is still the better answer for.
-    /// </para>
-    /// </remarks>
     public static RayTracingSettings For(RayTracingQuality quality) => quality switch
     {
         // The last number is what every quality level needs most, and the one that used

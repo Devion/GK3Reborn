@@ -9,13 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The full-screen passes, built on a real device from the real shaders.
 /// </summary>
-/// <remarks>
-/// Most of the renderer is one triangle over the frame reading a handful of targets: the
-/// composite, the output encode, the fade, the film, the reflection downsample. They share a
-/// pass rather than having one class each, so what these check is that the shape really does
-/// fit the shaders it claims to — that the composite's six inputs and the output's one both
-/// come out as a root signature Direct3D will accept.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12ScreenPassTests
 {

@@ -8,36 +8,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A pass that covers the frame with one triangle and reads some textures.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Most of the renderer is this shape. The composite adds the traced light to the raster
-/// picture, the output applies a tone curve and an encode, the fade darkens, the film covers
-/// everything, the reflection downsample halves a target: six textures at most, a handful of
-/// constants, no vertex buffer and no depth. Writing six classes to say that six times would
-/// be six places to get the descriptor bookkeeping wrong.
-/// </para>
-/// <para>
-/// <b>The inputs change every frame and the descriptors have to change with them.</b> A
-/// G-buffer target this frame is a different resource from the one last frame, so the
-/// descriptors are written into a ring rather than once at creation: each frame takes the
-/// next run of slots and the ring is large enough that no run is rewritten while the device
-/// is still reading it. That is the same hazard as an animated vertex buffer, and it has the
-/// same answer.
-/// </para>
-/// <para>
-/// The samplers are one run, shared, and clamped. Every pass here reads a full-screen target
-/// exactly once across its own extent; a wrapped sample at the edge of one would fetch the
-/// far side of the picture, which shows up as a bright seam along one edge and nothing else.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12ScreenPass : IDisposable
 {
     /// <summary>How many frames of descriptors the ring holds.</summary>
-    /// <remarks>
-    /// Three, to match the swapchain rather than the frames in flight: the ring is written
-    /// once a frame and read for as long as that frame is on the device, so it has to outlast
-    /// the deepest thing that can still be reading it.
-    /// </remarks>
     private const uint RingDepth = 3;
 
     private readonly D3D12Context _context;

@@ -8,10 +8,6 @@ internal readonly record struct VlcCode(int Code, int Length, int Value);
 /// <summary>
 /// The small tables of the standard: scans, quantiser adjustments, block geometry.
 /// </summary>
-/// <remarks>
-/// The large ones — CABAC initialisation and the CAVLC codes — are in the generated half
-/// of this class. Everything here is short enough to check against the standard by eye.
-/// </remarks>
 internal static partial class Tables
 {
     /// <summary>Frame zigzag scan for 4x4 blocks: scan position to raster index, 8.5.6.</summary>

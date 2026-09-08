@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for asking a device only for what it offered.
 /// </summary>
-/// <remarks>
-/// <c>vkCreateDevice</c> fails outright when a requested feature is absent — it does not
-/// grant what it can and report the rest. So a feature the renderer would like has to be
-/// intersected with what the device advertises before it is asked for, and getting that
-/// wrong is not a degraded picture but a game that will not start on that hardware.
-/// </remarks>
 public sealed class DeviceCapabilityTests
 {
     [Fact]

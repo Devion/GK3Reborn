@@ -65,11 +65,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// — no branch and no second shader.
 /// </para>
 /// </param>
-/// <remarks>
-/// One uniform buffer a frame, bound once and read by every pass. Neutral because both
-/// backends want the same numbers in the same order: a Vulkan uniform buffer and a Direct3D
-/// constant buffer differ in how they are bound and not at all in what they hold.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FrameUniforms(
     Matrix4x4 ViewProjection,

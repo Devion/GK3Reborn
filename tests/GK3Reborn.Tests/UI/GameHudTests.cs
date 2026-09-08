@@ -11,12 +11,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the interface's layout.
 /// </summary>
-/// <remarks>
-/// What matters here is not how it looks but that what you click is what you saw. The
-/// menu's rows are laid out and hit-tested from the same pass, so these check that the two
-/// agree — and that the interface stays inside the window, which is the one way a label
-/// that follows the pointer can go wrong.
-/// </remarks>
 public sealed class GameHudTests
 {
     /// <summary>A font of fixed four-pixel characters.</summary>
@@ -127,10 +121,6 @@ public sealed class GameHudTests
     /// How far down the caption panel reached, which is the one thing drawn at the foot of
     /// the screen that has to give way.
     /// </summary>
-    /// <remarks>
-    /// Found by the left margin it is drawn at rather than by colour: it is the full width
-    /// of the window less 48 units either side, and nothing else here starts there.
-    /// </remarks>
     private static float Foot(GameHud hud) =>
         hud.Overlay.Quads
             .Where(q => Math.Abs(q.Destination.X - (48f * hud.Scale)) < 0.5f)
@@ -148,13 +138,6 @@ public sealed class GameHudTests
     }
 
     /// <summary>The foot of the screen is the room, now that nothing is drawn over it.</summary>
-    /// <remarks>
-    /// The inventory strip used to be an opaque bar across the bottom, and it lay over
-    /// exactly the part of the picture where the floor at the player's feet is drawn — so
-    /// every click on the ground in front of you was tested against it first and a good many
-    /// were swallowed. It duplicated the right-click menu, which already says which of your
-    /// things a noun will take, so it went.
-    /// </remarks>
     [Fact]
     public void The_foot_of_the_screen_is_the_room()
     {
@@ -440,12 +423,6 @@ public sealed class GameHudTests
     }
 
     /// <summary>Nothing along the bottom answers to a click any more.</summary>
-    /// <remarks>
-    /// The pockets are a key away and a screen of their own, which is where a list of twelve
-    /// things belongs. What this guards is that the strip is gone from the click path as well
-    /// as from the picture — a bar that is invisible and still takes clicks would be the
-    /// worst of both.
-    /// </remarks>
     [Fact]
     public void No_inventory_slot_takes_a_click_along_the_bottom()
     {

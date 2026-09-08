@@ -5,12 +5,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// The arithmetic decoding engine of CABAC, 9.3.1.2 and 9.3.3.2.
 /// </summary>
-/// <remarks>
-/// Written exactly as the standard describes it, one bit of renormalisation at a time,
-/// rather than with the byte-at-a-time tricks real decoders use. The standard's form is
-/// easy to check and, because most bins are decided without renormalising at all, it is
-/// not the part of the decoder that costs anything.
-/// </remarks>
 internal sealed class CabacEngine
 {
     private readonly byte[] _states = new byte[1024];
@@ -51,13 +45,6 @@ internal sealed class CabacEngine
     /// <summary>
     /// Where I_PCM samples start after a terminate bin of 1: the byte after the flush.
     /// </summary>
-    /// <remarks>
-    /// The encoder's flush (9.3.4.5) writes ten bits after the terminating decision, the
-    /// last of them a 1; this decoder reads nine bits ahead, so after decoding that bin
-    /// without renormalising, the next unread bit is that final 1. It is skipped, and the
-    /// pcm_alignment_zero_bits take the position to the next byte. The same arithmetic is
-    /// what makes end_of_slice_flag's flush bit the rbsp_stop_one_bit.
-    /// </remarks>
     public int PcmStart() => (_bitPosition + 1 + 7) >> 3;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

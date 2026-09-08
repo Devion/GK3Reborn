@@ -32,28 +32,6 @@ public readonly record struct RuntimeFiles(
 /// <summary>
 /// Which of the vendors' upscaler runtimes the player has put beside the game.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Nothing here ships with the game.</b> FSR's <c>amd_fidelityfx_vk.dll</c> and
-/// NVIDIA's Streamline and NGX libraries are redistributables with their own licences and
-/// their own signatures, and the right thing to do with somebody else's signed binary is
-/// to let the person who wants it fetch it. So the game looks for them, says plainly what
-/// it found, and works without them.
-/// </para>
-/// <para>
-/// This is also the reason none of it is linked. Every entry point is resolved by name at
-/// runtime from a file that may not exist, which is what makes "the DLL is not there" an
-/// ordinary answer rather than a process that will not start. The one thing the game must
-/// never do is fail to launch because an optional upscaler is absent.
-/// </para>
-/// <para>
-/// <b>Where it looks.</b> <c>libs/</c> beside the executable, then <c>libs/streamline/</c>
-/// under it, then beside the executable itself, then anywhere <c>--libs-dir</c> named. The
-/// nested streamline directory is there because that is the shape NVIDIA's own download
-/// unpacks to, and asking somebody to flatten a directory before the game will see it is a
-/// support question nobody needs to answer twice.
-/// </para>
-/// </remarks>
 public sealed class UpscalerRuntimes
 {
     /// <summary>The directory a player is told to copy runtimes into.</summary>
@@ -63,11 +41,6 @@ public sealed class UpscalerRuntimes
     public const string FidelityFx = "amd_fidelityfx_vk.dll";
 
     /// <summary>AMD's runtime, for the Direct3D backend.</summary>
-    /// <remarks>
-    /// A different file rather than a different entry point: the FidelityFX API is one C
-    /// interface with one backend built into each library, so a machine that runs the game
-    /// on both backends wants both files and a machine that runs one wants one.
-    /// </remarks>
     public const string FidelityFxDirect3D12 = "amd_fidelityfx_dx12.dll";
 
     /// <summary>NVIDIA's Streamline loader.</summary>
@@ -123,14 +96,6 @@ public sealed class UpscalerRuntimes
     public RuntimeFiles DlssRayReconstruction { get; }
 
     /// <summary>NVIDIA's neural rendering network, on its own.</summary>
-    /// <remarks>
-    /// <b>The network without the plugin that would ordinarily drive it.</b>
-    /// <see cref="DlssRayReconstruction"/> asks for both files because that is what
-    /// Streamline needs; this asks for the network alone, because the driver on most
-    /// machines will not let Streamline load the plugin at all and the engine drives the
-    /// network directly instead. So a player who has copied in one file has a working
-    /// feature and should be told so.
-    /// </remarks>
     public RuntimeFiles NeuralRendering { get; }
 
     /// <summary>What was found for one kind of upscaler.</summary>
@@ -149,12 +114,6 @@ public sealed class UpscalerRuntimes
     /// <summary>What one kind of upscaler needs, whether or not anybody has looked.</summary>
     /// <param name="kind">Which one.</param>
     /// <returns>Its files, or nothing for the two the engine carries itself.</returns>
-    /// <remarks>
-    /// Static, because the settings page has to be able to name the files on a front end
-    /// nobody has handed a search to — which is what a test looks like, and what the first
-    /// frame of a run looks like. Saying "copy nothing into libs" is worse than saying
-    /// nothing at all.
-    /// </remarks>
     public static IReadOnlyList<string> Required(UpscalerKind kind) => kind switch
     {
         UpscalerKind.Fsr => [FidelityFx, FidelityFxDirect3D12],
@@ -174,12 +133,6 @@ public sealed class UpscalerRuntimes
     /// <summary>Looks for every runtime.</summary>
     /// <param name="extraDirectory">A directory named on the command line, or null.</param>
     /// <returns>What is there.</returns>
-    /// <remarks>
-    /// Called once at startup and kept. The files cannot appear while the game is running
-    /// in any way that would help — a Vulkan device is already made by the time the menu
-    /// is reachable — and re-probing the disk every time somebody steps the upscaler row
-    /// would be a file system hit inside a keyboard repeat.
-    /// </remarks>
     public static UpscalerRuntimes Find(string? extraDirectory = null)
     {
         List<string> searched = [];
@@ -218,10 +171,6 @@ public sealed class UpscalerRuntimes
     /// <summary>Finds one file in the directories searched.</summary>
     /// <param name="name">File to find.</param>
     /// <returns>Its full path, or null.</returns>
-    /// <remarks>
-    /// Public because loading is somebody else's job: the backends resolve their own
-    /// entry points, and each needs the path of the file it is about to open.
-    /// </remarks>
     public string? Locate(string name)
     {
         ArgumentException.ThrowIfNullOrEmpty(name);
@@ -242,11 +191,6 @@ public sealed class UpscalerRuntimes
     /// <summary>
     /// The whole search, as one line for the startup report.
     /// </summary>
-    /// <remarks>
-    /// Said whether or not anything was found. A player who copied the files into the
-    /// wrong directory has no other way to discover it: the settings row would say "not
-    /// installed" and they would already believe they had installed it.
-    /// </remarks>
     public override string ToString() =>
         $"Upscalers: FSR {Fsr.Describe()}; DLSS {Dlss.Describe()}; " +
         $"DLSS frame generation {DlssFrameGeneration.Describe()}; " +
@@ -256,13 +200,6 @@ public sealed class UpscalerRuntimes
     /// <summary>AMD's runtime, whichever of the two backends' libraries is there.</summary>
     /// <param name="searched">Where to look.</param>
     /// <returns>Whichever was found, or an absence naming both.</returns>
-    /// <remarks>
-    /// Which one a run needs depends on the backend it started in, which is not known here
-    /// and is not worth threading through: what this answers is whether the settings page
-    /// may offer the row at all, and the backend that goes looking for its own file reports
-    /// its own absence when it does not find one. What an absence must name is both, because
-    /// somebody who reads it does not yet know which backend they will be running.
-    /// </remarks>
     private static RuntimeFiles FidelityFxFiles(IReadOnlyList<string> searched)
     {
         RuntimeFiles vulkan = Look(searched, FidelityFx, [FidelityFx]);
@@ -339,12 +276,6 @@ public sealed class UpscalerRuntimes
     }
 
     /// <summary>What a file says its version is, or null.</summary>
-    /// <remarks>
-    /// Read from the file rather than assumed, because the whole point of these being the
-    /// player's own copies is that they can be newer than anything this project has seen.
-    /// A version resource is a Windows notion; elsewhere this comes back null and the row
-    /// reads "installed", which is all it could honestly say.
-    /// </remarks>
     private static string? VersionOf(string path)
     {
         try

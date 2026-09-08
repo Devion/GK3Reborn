@@ -3,12 +3,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// The last thing that happens to a frame: a tone curve, a sharpen, and an encode.
 /// </summary>
-/// <remarks>
-/// Here rather than beside the pipeline that builds it, because both backends compile it.
-/// The Vulkan pipeline and the Direct3D one are two ways of loading the same text; see
-/// <see cref="ShaderCompiler"/>, which takes it to SPIR-V for one and on to DXIL for the
-/// other.
-/// </remarks>
 public static class OutputShaders
 {
     /// <summary>One triangle covering the frame, from the vertex index alone.</summary>

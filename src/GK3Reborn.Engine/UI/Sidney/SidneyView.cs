@@ -13,20 +13,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// The whole of Sidney, drawn: the laptop, its desktop, and whichever of its programs is open.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>A desktop rather than a menu.</b> The original's front screen is a row of eight amber
-/// buttons along the top of the display and a crest below them; this is the same eight
-/// programs as icons on a desktop, with a taskbar under them, because that is what somebody
-/// looking at a laptop in 1998 — or now — expects to be able to work out without being
-/// told. The way out is a power button rather than the word EXIT, for the same reason.
-/// </para>
-/// <para>
-/// Everything is laid out against the screen the laptop's own art frames, so it scales with
-/// the window and never changes shape. Every list is inside a scrolling region, so nothing
-/// the machine holds can be off the bottom of the glass with no way to reach it.
-/// </para>
-/// </remarks>
 public sealed class SidneyView
 {
     private readonly SidneyScrolls _scrolls = new();
@@ -44,10 +30,6 @@ public sealed class SidneyView
     /// <param name="notches">How far the wheel turned, away from the player being positive.</param>
     /// <param name="step">How far one notch should move a list, in pixels.</param>
     /// <returns>True when something scrolled.</returns>
-    /// <remarks>
-    /// The innermost region under the pointer, which is the last one registered: a list
-    /// inside a window is drawn after the window and is what the wheel should reach.
-    /// </remarks>
     public bool Wheel(Vector2 at, float notches, float step)
     {
         // Over the map the wheel means "look closer", which is the one place in Sidney
@@ -174,12 +156,6 @@ public sealed class SidneyView
     /// <summary>
     /// The desktop: the machine's own wallpaper, and the eight programs as icons on it.
     /// </summary>
-    /// <remarks>
-    /// Two columns down the left, filling downwards the way a desktop does, which leaves the
-    /// Schattenjäger crest the wallpaper is mostly made of visible behind them. The
-    /// wallpaper is dimmed because it was drawn to be the whole screen and is now behind
-    /// something: at full strength the gold reads as another row of icons.
-    /// </remarks>
     private static void Desktop(SidneySurface surface, SidneyMachine machine, Vector4 desk)
     {
         ItemIcon paper = surface.Art("S_MAIN_SCN.BMP");
@@ -388,12 +364,6 @@ public sealed class SidneyView
     /// <summary>
     /// The mail notification, in the corner, when something has not been read.
     /// </summary>
-    /// <remarks>
-    /// The original wrote NEW E-MAIL in the top right of its screen and left it there for
-    /// ever, because nothing in the port marked a message read. This is the same news said
-    /// the way a machine of that decade said it, in the corner it said it in, and it goes
-    /// away when the mail is opened.
-    /// </remarks>
     private static void Notification(SidneySurface surface, SidneyMachine machine, Vector4 desk)
     {
         int unread = machine.Unread;

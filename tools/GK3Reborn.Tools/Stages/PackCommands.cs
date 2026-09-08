@@ -8,12 +8,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// The ReBarn subcommands: build a pack, look inside one, take one apart, check one.
 /// </summary>
-/// <remarks>
-/// These parse their own arguments rather than going through the shared option record,
-/// because the packer has a dozen flags of its own — a cap per kind, a plan, an encoder
-/// path — and adding all of them to a record every other command shares would make the
-/// help for those commands worse to no purpose.
-/// </remarks>
 public static class PackCommands
 {
     /// <summary>The commands this handles.</summary>
@@ -418,10 +412,6 @@ public static class PackCommands
 }
 
 /// <summary>A set of packs opened for inspection, from a file or a directory.</summary>
-/// <remarks>
-/// Separate from <c>RebarnContent</c>, which merges the volumes into one namespace and is
-/// what the game wants. A tool wants to see each volume as itself.
-/// </remarks>
 public sealed class RebarnContentPacks : IDisposable
 {
     private RebarnContentPacks(IReadOnlyList<RebarnArchive> archives) => Archives = archives;

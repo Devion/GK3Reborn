@@ -8,14 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for the arithmetic behind the reconstructed horizon.
 /// </summary>
-/// <remarks>
-/// <see cref="TerrainPlan"/> is everything about drawing a backdrop that is not a device —
-/// the mesh, the forest gathered by species, which trees are near enough to be models, and
-/// the two constant blocks a frame is drawn with — and both backends read it. It exists
-/// apart from either of them so that it can be checked without one, because the failures
-/// here are the kind that look like a shader bug: a horizon at the wrong scale, a wood of
-/// the wrong species, a camera standing inside its own hillside.
-/// </remarks>
 public sealed class TerrainPlanTests
 {
     /// <summary>A backdrop over a flat grid, with whatever forest is asked for.</summary>

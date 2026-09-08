@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Tools;
 /// <summary>
 /// Checks that an import leaves the enhanced set alone.
 /// </summary>
-/// <remarks>
-/// The enhanced textures are hand-corrected work living outside the repository, so a
-/// rerun that wrote over them destroys something nothing can give back. That makes this
-/// worth a test rather than a convention: the failure is silent, it is discovered weeks
-/// later when a room looks wrong, and by then there is nothing to compare against.
-/// </remarks>
 public sealed class TextureImportTests : IDisposable
 {
     private readonly string _workspace = Path.Combine(

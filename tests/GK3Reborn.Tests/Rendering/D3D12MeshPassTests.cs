@@ -10,21 +10,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The room's own pipeline, built on a real device from the real shaders.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is where the declared layout meets the compiled shader. MeshLayout says what the
-/// pipeline binds and a root signature is built from it; the shaders are the engine's own,
-/// translated from GLSL; and Direct3D refuses to create a pipeline whose root signature does
-/// not satisfy what its shaders actually reference. So a pipeline that creates at all is a
-/// layout that agrees with two thousand lines of shading nobody wrote twice.
-/// </para>
-/// <para>
-/// Both variants, because they are different layouts rather than one layout with a branch: a
-/// device that cannot trace must not be given a binding it cannot fill, so the ray-traced
-/// variant has an acceleration structure at set 0 binding 4 and the other has nothing there
-/// at all.
-/// </para>
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12MeshPassTests
 {

@@ -7,11 +7,6 @@ namespace GK3Reborn.Video;
 /// <summary>
 /// Resolves a logical video id to a playable file produced by the import pipeline.
 /// </summary>
-/// <remarks>
-/// Game data names videos without an extension, so lookup is by <see cref="AssetId"/>.
-/// A video that failed to import resolves to nothing and is reported as a missing
-/// asset rather than silently playing black - Plan/01-architecture.md section 4.
-/// </remarks>
 public sealed class VideoLibrary
 {
     private readonly Dictionary<AssetId, string> _paths = [];

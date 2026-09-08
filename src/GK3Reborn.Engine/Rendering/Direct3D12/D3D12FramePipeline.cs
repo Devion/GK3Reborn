@@ -23,27 +23,6 @@ public readonly record struct FramePicture(D3D12Texture Colour, int Width, int H
 /// <summary>
 /// Everything between a scene and a finished picture, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The room into the G-buffer, the traced occlusion over it, the composite that brings the
-/// two together, and the upscale. What it does not do is put the result anywhere: a
-/// reference render reads it back and a game presents it, and those are the only two things
-/// that differ between the headless renderer and the windowed one.
-/// </para>
-/// <para>
-/// <b>The encode is deliberately not here.</b> The output pass is a graphics pipeline and a
-/// graphics pipeline is built for one render target format; a picture read back is sRGB and
-/// a swapchain may be sRGB, plain or ten-bit, and changes under the window when the display
-/// does. Whoever owns the surface owns the pass that writes it.
-/// </para>
-/// <para>
-/// <b>The composite is not a pass that can be run with nothing to composite.</b> Given empty
-/// targets it multiplies the picture by a shadow of zero and an occlusion of zero and
-/// returns black, which is what it is for; it was tried, and a black frame is what came out.
-/// So the raster path goes straight from the room to the picture, which is what the Vulkan
-/// path does and for the same reason.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12FramePipeline : IDisposable
 {
     private readonly D3D12Context _context;
@@ -68,10 +47,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12Texture? _mirror;
 
     /// <summary>How much of a reflection to show, and where the floors get theirs from.</summary>
-    /// <remarks>
-    /// Set by the renderer, which owns the plan; read here, which is where the passes are
-    /// recorded. Clamped by the plan itself.
-    /// </remarks>
     public ReflectionPlan Reflections { get; set; } = ReflectionPlan.Default;
 
     private D3D12Texture? _empty;
@@ -79,10 +54,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private D3D12SkyboxPass? _skybox;
 
     /// <summary>The reconstructed horizon, where the room has one.</summary>
-    /// <remarks>
-    /// Kept beside the cubemap rather than instead of it: the painted sky is the fallback
-    /// for a backdrop that would not build, and a room with neither is a room.
-    /// </remarks>
     private D3D12TerrainPass? _terrain;
     private SceneGeometry? _skyOwner;
     private D3D12ShadowDenoiser? _denoiser;
@@ -190,22 +161,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <summary>
     /// The runtime itself, for the two things that are not upscaling.
     /// </summary>
-    /// <remarks>
-    /// The swapchain needs it before it is created, because a chain Streamline did not make
-    /// cannot have frames generated into it; and the renderer needs it every frame, for the
-    /// sleep and the markers. Both are outside what a frame pipeline is about, so it hands
-    /// the runtime over rather than growing methods that only pass through.
-    /// </remarks>
     public Streamline? Streamline => _streamline;
 
     /// <summary>This frame's depth, for a pass that runs after the room is finished.</summary>
-    /// <remarks>
-    /// Lent rather than given. The neural uplift runs in the renderer, after the picture has
-    /// been tone-mapped onto the back buffer, but it still wants the two guides every temporal
-    /// pass wants — and those belong to the room, which is drawn here. They are at the size
-    /// the room was drawn at, which is why the uplift only runs when that is also the size the
-    /// picture is shown at.
-    /// </remarks>
     public D3D12Texture? Guides => _depth;
 
     /// <summary>This frame's motion vectors, in render-resolution pixels.</summary>
@@ -221,11 +179,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     public float DeltaSeconds { get; set; } = 1f / 60f;
 
     /// <summary>Whether what the upscaler remembers about the last frame is worthless.</summary>
-    /// <remarks>
-    /// A cut, a new room, a resize. Cleared once the runtime has been told, because it is a
-    /// statement about one frame rather than a mode. An upscaler that is never told smears
-    /// the last room across the first frame of the next one.
-    /// </remarks>
     public bool Reset { get; set; } = true;
 
     /// <summary>What the last frame actually issued, for when a room does not appear.</summary>
@@ -317,10 +270,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="camera">The camera, whose jitter this sets.</param>
     /// <param name="scene">What is being drawn, for its acceleration structure.</param>
     /// <returns>The size the room will be drawn at.</returns>
-    /// <remarks>
-    /// Before the frame's command list rather than inside it, because sizing the targets can
-    /// mean building new ones and clearing them, which is work of its own.
-    /// </remarks>
     public (int Width, int Height) Prepare(
         int displayWidth,
         int displayHeight,
@@ -386,25 +335,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="camera">Where the room is seen from.</param>
     /// <param name="width">Render width in pixels.</param>
     /// <param name="height">Render height in pixels.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>It borrows the frame's own normal, motion and depth targets.</b> The pipeline
-    /// declares all of them and a draw has to bind every target its pipeline writes, so a
-    /// reflection cannot be drawn into a colour target alone — and it does not need targets
-    /// of its own, because the pass that follows clears and overwrites all of them. One
-    /// extra image for the whole feature, and nothing downstream ever sees the reflection's
-    /// normals.
-    /// </para>
-    /// <para>
-    /// No sky, and no compositing. The reflected camera stands behind the mirror and the sky
-    /// is drawn without regard to the clip plane, so it would paint over the reflection from
-    /// the far side of the wall the mirror hangs on; and what the glass shows is sampled
-    /// directly, so it is the mesh pass's own picture rather than a traced one finished by a
-    /// later pass. The reflection is therefore lit by the rig without traced shadows even at
-    /// High — a real difference from the room around it, and a small one at the size a
-    /// mirror is drawn.
-    /// </para>
-    /// </remarks>
     private void RecordReflection(
         ID3D12GraphicsCommandList4* list,
         SceneGeometry? scene,
@@ -484,10 +414,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="camera">Where it is seen from.</param>
     /// <param name="clear">What the room is cleared to.</param>
     /// <returns>The finished picture and the size it should be shown at.</returns>
-    /// <remarks>
-    /// <see cref="Prepare"/> must have been called for this frame first; it is what decides
-    /// the size everything here is drawn at.
-    /// </remarks>
     public FramePicture Draw(
         ID3D12GraphicsCommandList4* list,
         SceneGeometry? scene,
@@ -617,11 +543,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     }
 
     /// <summary>Forgets every target, so the next frame builds them again.</summary>
-    /// <remarks>
-    /// What a reference render does between two scenes. The denoiser and the reflection pass
-    /// both remember the frame before, and the first frame of a new room must not be able to
-    /// see the last frame of the old one.
-    /// </remarks>
     public void Forget()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -661,11 +582,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
 
     /// <summary>Builds the sky the room names, the first time that room is drawn.</summary>
     /// <param name="scene">What is being drawn.</param>
-    /// <remarks>
-    /// Here rather than on a setter the game calls, because the sky is a property of the
-    /// scene and the scene is loaded by something that has no shader compiler and no target
-    /// formats. The same place the Vulkan renderer does it, and for the same reason.
-    /// </remarks>
     private void AdoptSky(SceneGeometry? scene)
     {
         if (ReferenceEquals(scene, _skyOwner))
@@ -740,10 +656,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="camera">Where the frame was looked at from.</param>
     /// <param name="width">Render width.</param>
     /// <param name="height">Its height.</param>
-    /// <remarks>
-    /// Before the smoke and after everything else in the room. The Vulkan renderer says why
-    /// that order and not the other; see <c>VulkanRenderer.RecordFog</c>.
-    /// </remarks>
     private void RecordFog(
         ID3D12GraphicsCommandList4* list,
         D3D12Texture finished,
@@ -787,10 +699,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="camera">Where the frame was looked at from.</param>
     /// <param name="width">Render width.</param>
     /// <param name="height">Its height.</param>
-    /// <remarks>
-    /// After the picture and before the upscale. The Vulkan renderer says why it goes here
-    /// and what it costs a temporal upscaler; see <c>VulkanRenderer.RecordParticles</c>.
-    /// </remarks>
     private void RecordParticles(
         ID3D12GraphicsCommandList4* list,
         D3D12Texture finished,
@@ -1110,30 +1018,13 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private uint _latency = uint.MaxValue;
 
     /// <summary>How many frames the runtime is currently generating for each drawn one.</summary>
-    /// <remarks>
-    /// What the renderer reads to decide whether the frame owes frame generation a copy of
-    /// itself without the interface. Nought means it does not.
-    /// </remarks>
     public int Generating => Math.Max(0, _generating);
 
     /// <summary>Whether the swapchain is one frame generation could run into.</summary>
-    /// <remarks>
-    /// Set by the renderer, because it is the only thing that knows: the pipeline is built
-    /// before the swapchain exists. False means the options below are not sent at all rather
-    /// than sent and refused — a runtime asked to generate frames into a chain it never saw
-    /// answers with a message about hooks that reads like a missing feature.
-    /// </remarks>
     public bool CanGenerate { get; set; }
 
     /// <summary>What Reflex and frame generation came to, in one line.</summary>
     /// <returns>Something a player or a log can be shown.</returns>
-    /// <remarks>
-    /// Printed once at startup, because every one of these is invisible when it fails. A
-    /// runtime that is present and a feature that is on look identical to a runtime that is
-    /// present and a feature the card declined, and the difference is not something anybody
-    /// can see in the picture — a game with frame generation quietly off is a game that
-    /// works.
-    /// </remarks>
     public string LatencyReport()
     {
         if (_streamline is null)
@@ -1171,20 +1062,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <summary>Tells Reflex and frame generation what this frame wants of them.</summary>
     /// <param name="render">The size the room is drawn at.</param>
     /// <param name="display">The size the picture is shown at.</param>
-    /// <remarks>
-    /// <para>
-    /// Both are set only when they change. Neither is free: the latency mode reaches the
-    /// driver, and the generation options are copied into the plugin's context and warned
-    /// about if they arrive twice for one frame — the plugin says so by name, calling it a
-    /// redundant call or a race with the present.
-    /// </para>
-    /// <para>
-    /// <b>Reflex comes on whenever frames are being generated, whatever the player set.</b>
-    /// It is not a preference there: the runtime places a generated frame in time using the
-    /// measurements Reflex makes, so generation with the latency mode off is generation
-    /// pacing against nothing.
-    /// </para>
-    /// </remarks>
     private void PrepareLatency((uint Width, uint Height) render, (uint Width, uint Height) display)
     {
         if (_streamline is null)
@@ -1332,13 +1209,6 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     }
 
     /// <summary>Lets go of the neural network, once the card has finished with it.</summary>
-    /// <remarks>
-    /// NGX frees the network's working memory when the feature is released, so the queue has
-    /// to have drained first: freeing memory a frame still in flight reads from is a device
-    /// loss rather than a leak. The wait is affordable because this happens only when a
-    /// player changes one of the few things the feature was built around — the sizes, the
-    /// preset — and never once a frame.
-    /// </remarks>
     private void RetireNeural()
     {
         if (_neural is null)

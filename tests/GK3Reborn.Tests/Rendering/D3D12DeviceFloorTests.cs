@@ -10,15 +10,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// The least a card has to be for the Direct3D renderer to run on it, and the shaders it
 /// is then given.
 /// </summary>
-/// <remarks>
-/// The device used to be asked for at feature level 12_0 while the survey that chose it
-/// had asked for 11_0, so a first-generation Maxwell — a GeForce GTX 960M, which reports
-/// 11_0 and can draw every raster pass — passed the survey and then failed to start with
-/// <c>DXGI_ERROR_UNSUPPORTED</c>. The device is now made at the floor and the shaders are
-/// compiled for what it reports. None of that can be exercised on a card that has
-/// everything, so what is tested here is the arithmetic and that the real device on this
-/// machine is described consistently.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12DeviceFloorTests
 {

@@ -13,24 +13,6 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// The five functions AMD's FidelityFX runtime exports, resolved by name from a file the
 /// player supplied.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>amd_fidelityfx_vk.dll</c> and <c>amd_fidelityfx_dx12.dll</c> present one small C
-/// interface for every effect they contain: create a context, configure it, query it, dispatch it, destroy it. Everything
-/// specific to super resolution is a structure passed through those, identified by a
-/// number in its header — which is why this file is short and the backends' own upscalers is
-/// not.
-/// </para>
-/// <para>
-/// <b>Resolved by hand rather than declared with <c>DllImport</c>.</b> A <c>DllImport</c>
-/// binds a file name at the point of the call and throws when it is missing, which for a
-/// runtime the player may not have installed means the difference between a settings row
-/// that says "not installed" and a process that dies the first time somebody selects it.
-/// Loading the library by absolute path also means the file found is the one the game
-/// looked at and reported the version of, rather than whatever else on the search path
-/// happens to be called the same thing.
-/// </para>
-/// </remarks>
 internal sealed unsafe class FfxApi : IDisposable
 {
     private readonly nint _library;
@@ -63,13 +45,6 @@ internal sealed unsafe class FfxApi : IDisposable
     /// <summary>Opens the runtime, or returns null when it is not there.</summary>
     /// <param name="path">Full path to <c>amd_fidelityfx_vk.dll</c>, or null.</param>
     /// <returns>The entry points, or null.</returns>
-    /// <remarks>
-    /// Every failure is null rather than an exception, because every one of them means the
-    /// same thing to the caller — this upscaler is not available — and none of them is a
-    /// reason not to draw the frame. A file that exists and does not export what it should
-    /// is the interesting case: it is what a truncated download or the wrong architecture
-    /// looks like, and it comes back null here rather than as an access violation later.
-    /// </remarks>
     public static FfxApi? TryOpen(string? path)
     {
         if (path is not { Length: > 0 } || !File.Exists(path))

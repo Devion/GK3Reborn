@@ -11,12 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for what a character is wearing when the room opens.
 /// </summary>
-/// <remarks>
-/// A GK3 character owns one model and changes clothes by repainting it, out of a one-frame
-/// animation named by <c>CHARACTERS.TXT</c> against the timeblock it starts applying at.
-/// Both halves are pinned here: which animation a point in the story picks, and what
-/// applying it does to the model.
-/// </remarks>
 public sealed class WardrobeTests
 {
     /// <summary>Grace's own entry, verbatim, minus the parts nothing here reads.</summary>

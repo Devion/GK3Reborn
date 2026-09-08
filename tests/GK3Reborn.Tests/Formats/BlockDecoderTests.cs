@@ -6,23 +6,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for expanding the content pipeline's blocks on the host.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This runs on any device with no BC formats, which today means Apple silicon. What it
-/// has to get right is the bit layout: BC7 packs eight different field arrangements into
-/// the same sixteen bytes and picks between them with the position of the block's lowest
-/// set bit, so reading a field one bit early decodes a picture rather than failing, and
-/// the picture looks nearly right.
-/// </para>
-/// <para>
-/// The evidence that the layout is right is not here — it is 240 of the pipeline's own
-/// textures decoded and compared against the pictures they were encoded from, at 40.6 to
-/// 61.2 dB, which is the compressor's own error and no more (docs/rendering.md, "Devices
-/// with no block compression"). What is here is what that sweep cannot reach: the exact
-/// values a channel format produces, the shapes of the partition tables, and the two
-/// modes texconv never emits.
-/// </para>
-/// </remarks>
 public sealed class BlockDecoderTests
 {
     /// <summary>Writes fields into a block from the low bit up, as BC7 packs them.</summary>

@@ -24,69 +24,18 @@ public readonly record struct GridLight(
 /// <summary>
 /// Which lights reach which part of a room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The shading loop used to run over every light in the scene, which is why there was a
-/// limit of sixty-four of them: past that the array cost more than the picture was worth,
-/// and the rig was truncated to the brightest few. Truncation is the wrong failure — the
-/// lamp beside the player is dropped because a streetlight three rooms away is brighter —
-/// and the limit is what blocks loading more of the hotel at once.
-/// </para>
-/// <para>
-/// This removes both. A room is divided into cells and each cell is given the list of
-/// lights that can actually reach it, so a fragment loops over the handful lighting the
-/// place it stands rather than over the rig. The rig itself then has no useful limit,
-/// because nothing iterates all of it.
-/// </para>
-/// <para>
-/// <b>Why a world grid rather than the view frustum.</b> Clustered renderers usually slice
-/// the frustum, because their lights move and their camera moves and the assignment has to
-/// be redone every frame. GK3's rig is authored per scene and does not move at all. Slicing
-/// the world instead means the assignment is done once when a room loads and costs nothing
-/// per frame, and it stays correct for a reflection ray or a shadow probe that leaves the
-/// frustum entirely — which the frustum version does not.
-/// </para>
-/// <para>
-/// <b>A light with no falloff is in every cell.</b> The sun is not somewhere in the room.
-/// There are a handful of these per scene and they are the ones that matter most, so they
-/// go at the front of every list.
-/// </para>
-/// </remarks>
 public sealed class SceneLightGrid
 {
     /// <summary>The most cells a room may be divided into.</summary>
-    /// <remarks>
-    /// Sixteen thousand-odd: an index list and an offset per cell is a few hundred
-    /// kilobytes at this size, and finer cells stop paying once they hold one light each.
-    /// </remarks>
     public const int MostCells = 16_384;
 
     /// <summary>The smallest cell worth making, in world units.</summary>
-    /// <remarks>
-    /// A hundred units is two and a half metres, which is finer than the lamps in a lit
-    /// room are spaced. Measured: the hotel hallway's 92 lights come out at 27 to a cell at
-    /// two hundred units and 11 at a hundred, for a grid of four hundred cells — a few
-    /// kilobytes. Finer than this and cells start holding the same lights as their
-    /// neighbours, which is paying for a lookup that separates nothing.
-    /// </remarks>
     public const float SmallestCell = 100f;
 
     /// <summary>How many lights one cell may list.</summary>
-    /// <remarks>
-    /// The bound on the shading loop, and so on the worst frame rather than the average. A
-    /// cell that wants more keeps its heaviest, which is the same truncation the whole rig
-    /// used to suffer — but applied where the light actually falls, and to a limit no scene
-    /// in the corpus reaches.
-    /// </remarks>
     public const int MostPerCell = 96;
 
     /// <summary>How many light references the whole grid may hold.</summary>
-    /// <remarks>
-    /// The buffer is allocated for this before any room is loaded, so it is an allocation
-    /// rather than a guess: four megabytes, against a worst case of every cell full at
-    /// sixteen. No scene in the corpus comes near it — the busiest is a lit street where
-    /// most cells hold three or four.
-    /// </remarks>
     public const int MostIndices = 1 << 20;
 
     private SceneLightGrid(
@@ -246,12 +195,6 @@ public sealed class SceneLightGrid
     /// <summary>Which cell a point is in.</summary>
     /// <param name="point">The point, in world space.</param>
     /// <returns>The cell's index, clamped to the grid.</returns>
-    /// <remarks>
-    /// Clamped rather than refused. A character standing a hair outside the room's own
-    /// bounding box — which happens, because the box is the geometry's and a walk cycle
-    /// swings an arm past it — should be lit by the cell they are next to rather than by
-    /// nothing at all.
-    /// </remarks>
     public int CellAt(Vector3 point)
     {
         Vector3 local = (point - Origin) / Cell;

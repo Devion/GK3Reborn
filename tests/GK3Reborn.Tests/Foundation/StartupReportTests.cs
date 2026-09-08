@@ -6,13 +6,6 @@ namespace GK3Reborn.Tests.Foundation;
 /// <summary>
 /// The two questions the startup report asks about a path that is not there.
 /// </summary>
-/// <remarks>
-/// Both exist for the platforms this is not developed on. "Which part of this path does
-/// exist" separates a mistyped argument from an install that was never unpacked, and the
-/// case check catches the one failure a Windows machine cannot reproduce: on Linux and
-/// macOS <c>Data</c> and <c>data</c> are two directories, and a player looking at the one
-/// the game says is missing is looking at the other one.
-/// </remarks>
 public sealed class StartupReportTests : IDisposable
 {
     private readonly string _directory = Path.Combine(

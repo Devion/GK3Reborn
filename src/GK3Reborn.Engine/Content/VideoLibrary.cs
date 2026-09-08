@@ -5,50 +5,16 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// The game's movies, from the packs or from the workspace beside them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 refers to a movie by name and never by file: <c>PlayFullScreenMovie("212pBegin")</c>
-/// and the disc holds <c>212pbegin.bik</c>. G-Engine's <c>VideoHelper</c> strips the
-/// extension deliberately, because some locales ship AVI where others ship BIK — so the
-/// name is the identity and the container is an implementation detail. Forty of them
-/// survive the import as H.264 in MP4.
-/// </para>
-/// <para>
-/// Two places to find one, and which of them is looked in is the player's decision.
-/// <b><c>--rebarn</c> means the packs and nothing else</b>, which is the only way to
-/// measure what the shipped form does; without it the loose <c>enhanced/video</c>
-/// directory is read as well and <b>wins</b>, so a movie re-imported during a session
-/// plays without the pack having to be rebuilt. That is the same way round as the
-/// textures, and for the same reason: the looser and more recent thing wins while a set is
-/// still moving.
-/// </para>
-/// <para>
-/// What comes back is a <em>stream</em> rather than a file or an array. A movie in a pack
-/// is a window onto a memory mapping and a long one is a hundred megabytes, so copying it
-/// into the heap to play it would cost more than decoding it does.
-/// </para>
-/// </remarks>
 public sealed class VideoLibrary
 {
     /// <summary>
     /// Containers a movie may arrive in, most preferred first.
     /// </summary>
-    /// <remarks>
-    /// The import writes MP4. The others are here because the pipeline may be told to
-    /// write Matroska instead — <c>Plan/02</c> allows either — and because a name is
-    /// supposed to outlive the container it happens to be in.
-    /// </remarks>
     private static readonly string[] Containers = [".mp4", ".mkv", ".webm", ".avi"];
 
     /// <summary>
     /// Containers a loose per-language soundtrack may arrive in, most preferred first.
     /// </summary>
-    /// <remarks>
-    /// The import writes <c>.m4a</c> — the movie's own AAC track copied out of the MP4
-    /// without re-encoding it, which costs a second and loses nothing. The others are here
-    /// because a soundtrack somebody produced by hand may be anything, and because the
-    /// decoder reads a bare MP4 with no video track exactly as it reads one with.
-    /// </remarks>
     private static readonly string[] SoundContainers = [".m4a", ".mp4", ".wav"];
 
     private readonly Dictionary<string, string> _loose = new(StringComparer.OrdinalIgnoreCase);
@@ -110,14 +76,6 @@ public sealed class VideoLibrary
     /// shared directory is preferred over the shared pack.
     /// </param>
     /// <returns>The set, empty when none of them has anything.</returns>
-    /// <remarks>
-    /// <b>The language outranks the shared cut, loose or packed.</b> That is the one place
-    /// this differs from the texture stack, and it has to: a shared picture where the
-    /// language has its own is not a stale picture, it is the wrong one. Four of GK3's
-    /// sixteen spoken movies are a different length in French — <c>day3-3</c> is 430
-    /// seconds in English and 153 in French — so playing the shared cut under a French
-    /// soundtrack would drift apart within seconds and end three minutes early.
-    /// </remarks>
     public static VideoLibrary Open(
         string directory,
         RebarnContent? packs = null,
@@ -233,11 +191,6 @@ public sealed class VideoLibrary
     /// <summary>Opens a movie for reading.</summary>
     /// <param name="name">Its name, with or without an extension.</param>
     /// <returns>A seekable stream, or null when there is no such movie.</returns>
-    /// <remarks>
-    /// Seekable because a decoder needs to be: an MP4's index may sit at either end of the
-    /// file, and although the import writes <c>+faststart</c> so that it sits at the
-    /// front, a movie that came from somewhere else need not.
-    /// </remarks>
     public Stream? Open(string? name)
     {
         if (name is not { Length: > 0 })
@@ -269,19 +222,6 @@ public sealed class VideoLibrary
     /// <summary>Opens the soundtrack to play over a movie instead of its own.</summary>
     /// <param name="name">The movie's name, with or without an extension.</param>
     /// <returns>A seekable stream, or null when the movie's own sound is what to play.</returns>
-    /// <remarks>
-    /// <para>
-    /// Null is the ordinary answer and means "the picture and the sound are one file", which
-    /// is true of every movie in a game running in the language its footage was cut for.
-    /// A language that shares the picture and not the words has an entry here instead, and
-    /// it costs a few megabytes rather than the hundred a second copy of the picture would.
-    /// </para>
-    /// <para>
-    /// Never consulted for a movie <see cref="Open(string?)"/> answered out of the language's own
-    /// <c>video</c> — that file already carries its own sound. <see cref="Movie"/> asks in
-    /// that order for exactly that reason.
-    /// </para>
-    /// </remarks>
     public Stream? OpenSound(string? name)
     {
         if (name is not { Length: > 0 })

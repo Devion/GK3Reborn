@@ -13,19 +13,9 @@ namespace GK3Reborn.Formats.Scenes;
 public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float Pitch, bool IsDefault)
 {
     /// <summary>Which conversation it belongs to, for a camera in the dialogue section.</summary>
-    /// <remarks>
-    /// <c>dialogue=GABEEML</c>. Null for every other kind of camera, and for the handful of
-    /// dialogue cameras that name no conversation at all.
-    /// </remarks>
     public string? Conversation { get; init; }
 
     /// <summary>Whether it is the shot a conversation opens on.</summary>
-    /// <remarks>
-    /// <c>initial</c> on the line, which is a different word from the <c>default</c> that
-    /// marks where a scene starts — a scene has one of the second and a conversation has
-    /// one of the first, and reading them as the same flag makes every conversation open
-    /// wherever the room does.
-    /// </remarks>
     public bool IsInitial { get; init; }
 
     /// <summary>Whether it is the shot a conversation ends on.</summary>
@@ -37,12 +27,6 @@ public sealed record SceneCamera(string Name, Vector3 Position, float Yaw, float
     /// <summary>
     /// The direction the camera looks.
     /// </summary>
-    /// <remarks>
-    /// The original composes the rotation as yaw about Y then pitch about X and applies it
-    /// to +Z; see <c>GameCamera::SetAngle</c> and <c>Transform::GetForward</c>. Reversing
-    /// the order gives a view that looks plausible from shallow cameras and badly wrong
-    /// from steep ones, which makes it an easy mistake to ship.
-    /// </remarks>
     public Vector3 Forward => new(
         MathF.Cos(Pitch) * MathF.Sin(Yaw),
         -MathF.Sin(Pitch),
@@ -74,18 +58,9 @@ public sealed record SceneBoundary(string Texture, Vector2 Size, Vector2 Offset)
 public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hidden)
 {
     /// <summary>The verb a click on it does by default, if the line names one.</summary>
-    /// <remarks>
-    /// Rare — the corpus uses it for exits, <c>verb=EXIT</c> and its left and right forms,
-    /// where clicking the doorway should walk through it rather than open the action bar.
-    /// </remarks>
     public string? Verb { get; init; }
 
     /// <summary>The script that drives it when nobody is asking it to do anything.</summary>
-    /// <remarks>
-    /// Named on a <c>gasprop</c> line as <c>gas=lbyfan.gas</c>. Ninety-one models across
-    /// thirty-one scenes have one, and they are the things in a room that move on their
-    /// own: the lobby's ceiling fans above all.
-    /// </remarks>
     public string? Gas { get; init; }
 
     /// <summary>
@@ -95,64 +70,21 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     public bool VisibilityDisputed { get; init; }
 
     /// <summary>Whether the line says the model is lit by nothing and drawn as painted.</summary>
-    /// <remarks>
-    /// <para>
-    /// <c>fulllighting</c>, and it means what it says: the reference sets the model's
-    /// ambient to white and its light colour to black, so the room's lighting stops
-    /// reaching it and the texture is what you see. Sixty-eight lines across twenty
-    /// scenes carry it, and they are almost all the things in the game that are
-    /// themselves light: every hanging flame in CS5 and CS6, the fires in TE1 and TE4,
-    /// the fountains, the wine spray under the press, a curtain lit from behind.
-    /// </para>
-    /// <para>
-    /// A flame shaded by the room it lights is the fault this fixes. TE4's bowl of fire
-    /// read as grey lichen at the bottom of a bowl until this was honoured.
-    /// </para>
-    /// </remarks>
     public bool FullLighting { get; init; }
 
     /// <summary>Where the model is to stand, if the line says.</summary>
-    /// <remarks>
-    /// <para>
-    /// <c>pos={x,y,z}</c> on a <c>type=prop</c> line. Not something 1999 wrote — no
-    /// <c>[MODELS]</c> line in the shipped corpus carries a <c>pos</c> at all — and it
-    /// exists because a prop is otherwise placed by the coordinates baked into its own
-    /// mesh, which are the coordinates of whichever room it was modelled for. Reusing a
-    /// suitcase in another room therefore meant authoring an animation to move it. This
-    /// says where it goes instead.
-    /// </para>
-    /// <para>
-    /// It means <em>stand here</em>: the model is centred on the point in X and Z and its
-    /// lowest point put at the point's Y, so a position taken off a floor or a shelf with
-    /// <c>render-scene --pick</c> puts the object on that floor or that shelf rather than
-    /// half through it.
-    /// </para>
-    /// </remarks>
     public Vector3? Position { get; init; }
 
     /// <summary>Which way it faces, in degrees about Y, if the line says.</summary>
-    /// <remarks><c>heading=90</c>, and only meaningful beside a <see cref="Position"/>.</remarks>
     public float? Heading { get; init; }
 
     /// <summary>Whether a model is ground surfacing rather than a thing in the room.</summary>
-    /// <remarks>
-    /// <c>type=decal</c>. Not a 1999 type -- no shipped scene uses it -- and it exists for
-    /// the roads and forecourts the scene dressing lays over a room's floor. A decal is
-    /// drawn and never picked: `ScenePicker` skips it, so a click on a road reaches the
-    /// floor underneath and the player walks there. Without that the surfacing swallows
-    /// every click on it, and the yard becomes ground the player can see and not cross.
-    /// </remarks>
     /// <param name="model">The line's model.</param>
     /// <returns>True when the line declares a decal.</returns>
     public static bool IsDecal(SceneModel? model) =>
         string.Equals(model?.Type, "decal", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>An animation that puts it into its opening pose.</summary>
-    /// <remarks>
-    /// <c>initanim=Rc1PlaceLbyDoor</c>. It states where the thing rests rather than being
-    /// something that happens: a door that starts open, a moped parked where its clip
-    /// begins.
-    /// </remarks>
     public string? InitialAnimation { get; init; }
 }
 
@@ -163,12 +95,6 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
 /// <param name="MinZ">The lower of its two Z edges.</param>
 /// <param name="MaxX">The higher of its two X edges.</param>
 /// <param name="MaxZ">The higher of its two Z edges.</param>
-/// <remarks>
-/// The files write two opposite corners in whichever order the artist happened to drag
-/// them, and half the corpus's rectangles are written backwards on one axis or both. The
-/// original sorts them on the way in — see <c>Rect::Rect</c> — so the corners are put in
-/// order here rather than by everybody who reads one.
-/// </remarks>
 public readonly record struct SceneRect(float MinX, float MinZ, float MaxX, float MaxZ)
 {
     /// <summary>Puts two opposite corners in order.</summary>
@@ -193,10 +119,6 @@ public readonly record struct SceneRect(float MinX, float MinZ, float MaxX, floa
 /// </summary>
 /// <param name="Noun">The noun its action is written about.</param>
 /// <param name="Rect">The patch, on the ground plan.</param>
-/// <remarks>
-/// The verb is always <c>WALK</c> and no file says so; see
-/// <c>Scene::Update</c> in the reference, which hard-codes it.
-/// </remarks>
 public sealed record SceneTrigger(string Noun, SceneRect Rect);
 
 /// <summary>
@@ -208,12 +130,6 @@ public sealed record SceneTrigger(string Noun, SceneRect Rect);
 /// <param name="Listen">The script to run while somebody else is, or null to keep theirs.</param>
 /// <param name="Enter">An animation to play on joining the conversation, or null.</param>
 /// <param name="Exit">One to play on leaving it, or null.</param>
-/// <remarks>
-/// The <c>[LISTENERS]</c> section, which the game's own header calls CONVERSATIONS. An
-/// actor's own <c>talk</c> and <c>listen</c> are what they do in any conversation; these
-/// are what they do in <em>this</em> one, and they are how a scene writes a character
-/// leaning on a counter for one exchange and standing straight for the next.
-/// </remarks>
 public sealed record SceneConversation(
     string Conversation,
     string Actor,
@@ -236,11 +152,6 @@ public sealed record ScenePosition(string Name, Vector3 Position, float Heading,
 public sealed record SceneActor(string Name, string? Noun, bool IsEgo)
 {
     /// <summary>Name of the spot the actor stands at, if the line gives one.</summary>
-    /// <remarks>
-    /// Ego has none and starts at <c>START</c>. Everyone else is placed by name —
-    /// <c>pos=GRACE_INIT</c> — which is why the timeblock file that puts Grace in the room
-    /// also defines the spot she stands on.
-    /// </remarks>
     public string? Position { get; init; }
 
     /// <summary>Whether the actor is in the scene but not to be drawn.</summary>
@@ -249,10 +160,6 @@ public sealed record SceneActor(string Name, string? Noun, bool IsEgo)
     /// <summary>
     /// The behaviour script they run when nobody is telling them to do anything.
     /// </summary>
-    /// <remarks>
-    /// <c>idle=madrc1mapidle.gas</c>. Without it a character stands in the pose the artist
-    /// modelled them in, which reads as a waxwork rather than as a person waiting.
-    /// </remarks>
     public string? Idle { get; init; }
 
     /// <summary>The one they run while they are speaking.</summary>
@@ -262,32 +169,12 @@ public sealed record SceneActor(string Name, string? Noun, bool IsEgo)
     public string? Listen { get; init; }
 
     /// <summary>An animation that puts them into their opening pose.</summary>
-    /// <remarks>
-    /// <c>initanim=MadRc1FigM</c>. It states where they are and how they are standing when
-    /// the scene opens — sitting, leaning, holding something — rather than being played.
-    /// </remarks>
     public string? InitialAnimation { get; init; }
 }
 
 /// <summary>
 /// Reader for scene initialisation files.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A SIF says what a scene <em>is</em>: which scene asset to load for a given time of day,
-/// which models stand in it, which actors are present, where the cameras are and where the
-/// player may walk. Without it a BSP is a building with no way in and no indication of
-/// which way is the front.
-/// </para>
-/// <para>
-/// Almost everything in one is conditional. The same scene has different geometry,
-/// different props and different lighting at each of the game's timeblocks, expressed as
-/// repeated sections whose headers carry Sheep expressions. Reading a SIF without
-/// evaluating those conditions gives the union of every state the scene can be in, which
-/// is right for tooling and wrong for the game — so which to include is the caller's
-/// choice.
-/// </para>
-/// </remarks>
 public sealed class SceneInitFile
 {
     private readonly IniDocument _document;
@@ -309,12 +196,6 @@ public sealed class SceneInitFile
     /// <summary>
     /// Whether the conditions were decided rather than taken all at once.
     /// </summary>
-    /// <remarks>
-    /// It changes what a repeated declaration means. Read without deciding, two blocks
-    /// naming the same model are two states of the scene and the reader has to reconcile
-    /// them; read with the conditions decided, at most one of them applies and the later
-    /// declaration simply refines the earlier, which is what the original does.
-    /// </remarks>
     public bool ConditionsResolved { get; }
 
     /// <summary>Parses a scene initialisation file.</summary>
@@ -349,11 +230,6 @@ public sealed class SceneInitFile
 
     /// <summary>Where actors may stand.</summary>
     /// <returns>The declaration, or null if the scene has no boundary.</returns>
-    /// <remarks>
-    /// One line carrying three pairs, and the corpus spells the last two both ways —
-    /// <c>size=</c> in most scenes, <c>Size=</c> in RC1 — so the lookup is
-    /// case-insensitive like every other key.
-    /// </remarks>
     public SceneBoundary? Boundary()
     {
         foreach (IniLine line in _document.LinesOf("GENERAL", Applies(includeConditional: true)).Reverse())
@@ -382,10 +258,6 @@ public sealed class SceneInitFile
 
     /// <summary>The object in the geometry that is the floor.</summary>
     /// <returns>Its name, or null if the scene does not say.</returns>
-    /// <remarks>
-    /// Named so that a point can be dropped onto the ground without testing the whole
-    /// room: the floor is one object among a hundred, and the scene says which.
-    /// </remarks>
     public string? FloorObject() =>
         _document.LinesOf("GENERAL", Applies(includeConditional: true))
             .Select(l => l.Value("floor"))
@@ -395,22 +267,6 @@ public sealed class SceneInitFile
     /// The mechanism this room needs code for, if it needs any.
     /// </summary>
     /// <returns>The name the file gives it, or null where the room is only data.</returns>
-    /// <remarks>
-    /// <para>
-    /// <c>custom=Laser</c>, <c>custom=Angels</c>, <c>custom=Chess</c>. GK3 is very nearly
-    /// data-driven and this is the file admitting where it is not: eleven scenes declare a
-    /// mechanism, and each names something the shipped executable implemented in code —
-    /// five rotating laser heads, a giant chessboard, a swinging pendulum. Their scripts
-    /// reach it through <c>CallSceneFunction</c>, which sends a word to whatever the room
-    /// declared here.
-    /// </para>
-    /// <para>
-    /// The reference engine keys the same table off the <em>location</em> instead. Reading
-    /// the declaration is the same answer for every room that has one and is what the file
-    /// is for; it also leaves room for the four scenes whose code is a patch for a data bug
-    /// rather than a mechanism, which declare nothing and are keyed by location.
-    /// </para>
-    /// </remarks>
     public string? Mechanism() =>
         _document.LinesOf("GENERAL", Applies(includeConditional: true))
             .Select(l => l.Value("custom"))
@@ -418,20 +274,6 @@ public sealed class SceneInitFile
 
     /// <summary>The models that fence the camera in.</summary>
     /// <returns>Their names, in the order the file declares them; empty when it declares none.</returns>
-    /// <remarks>
-    /// <para>
-    /// Every one that applies, rather than the last: camera bounds are the one general
-    /// setting the original <em>adds</em> to instead of overriding, and the corpus relies
-    /// on it. R25 names <c>R25CameraBounds</c> for the room and then <c>r25_sidcm</c> in
-    /// the conditional block for the timeblocks where Sidney is out on the desk, fencing
-    /// the camera out of the space the close-up needs.
-    /// </para>
-    /// <para>
-    /// These are not objects in the room's geometry but models of their own — invisible
-    /// shells authored around the walkable space, which is why they can be sealed where a
-    /// room with doorways in it is not.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<string> CameraBounds() =>
         [.. _document.LinesOf("GENERAL", Applies(includeConditional: true))
             .Select(l => l.Value("cameraBounds"))
@@ -440,11 +282,6 @@ public sealed class SceneInitFile
 
     /// <summary>Where the scene's global light sits.</summary>
     /// <returns>The position, or null.</returns>
-    /// <remarks>
-    /// Conditional blocks count. R25 states its unconditional position once and then moves
-    /// the light for each time of day, so reading only the unconditional blocks gives the
-    /// scene its morning sun at midnight.
-    /// </remarks>
     public Vector3? GlobalLight() =>
         _document.LinesOf("GENERAL", Applies(includeConditional: true))
             .Where(l => string.Equals(l.Head.Key, "globalLight", StringComparison.OrdinalIgnoreCase))
@@ -466,13 +303,6 @@ public sealed class SceneInitFile
     /// <summary>The cameras a conversation cuts between.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The cameras.</returns>
-    /// <remarks>
-    /// Named like the others and carrying a <c>dialogue=</c> saying which conversation
-    /// they belong to, which is why they are read the same way: a script may cut to one by
-    /// name whether or not anybody is talking. <c>[INSPECT_CAMERAS]</c> is a different
-    /// shape — keyed by <c>noun=</c> rather than named — and belongs to inspecting a thing
-    /// rather than to pointing the camera somewhere.
-    /// </remarks>
     public IReadOnlyList<SceneCamera> DialogueCameras(bool includeConditional = true) =>
         CamerasIn("DIALOGUE_CAMERAS", includeConditional);
 
@@ -481,12 +311,6 @@ public sealed class SceneInitFile
     /// </summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The views, in file order.</returns>
-    /// <remarks>
-    /// A different shape from every other camera list, which is why it needs its own
-    /// reader: these are keyed by <c>noun=</c> or <c>model=</c> rather than named, so the
-    /// thing on the left of the equals sign is what kind of key it is and the thing on the
-    /// right is the key. 1,205 of them across 144 scene files.
-    /// </remarks>
     public IReadOnlyList<InspectCamera> InspectCameras(bool includeConditional = true)
     {
         List<InspectCamera> cameras = [];
@@ -533,29 +357,6 @@ public sealed class SceneInitFile
     /// <summary>The models the scene places, deduplicated by name.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The models.</returns>
-    /// <remarks>
-    /// <para>
-    /// The same model appears in several conditional blocks, and the later ones refine the
-    /// noun and type of the earlier, so those come from the last occurrence.
-    /// </para>
-    /// <para>
-    /// Hiding does not work that way when the conditions have not been decided. A pair of
-    /// blocks under complementary conditions — <c>{!IsCurrentTime("202p")}</c> and
-    /// <c>{IsCurrentTime("202p")}</c> — describes two states of the scene, of which exactly
-    /// one holds; the second is not a correction of the first. Taking the last occurrence
-    /// would hide whatever any block hides, which is how the hall door in R25 disappeared
-    /// and left its knob behind. So without <see cref="ConditionsResolved"/> a model is
-    /// hidden only when every block that declares it agrees, and the rest are reported
-    /// through <see cref="SceneModel.VisibilityDisputed"/>. Erring towards drawing matches
-    /// this reader's treatment of conditionals everywhere else: an object that should not
-    /// be there is a smaller loss than a missing wall or door.
-    /// </para>
-    /// <para>
-    /// With the conditions decided the question does not arise. Only one of the pair
-    /// applies, so the last declaration wins outright — hiding included — and nothing is
-    /// ever in dispute.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<SceneModel> Models(bool includeConditional = true)
     {
         Dictionary<string, SceneModel> models = new(StringComparer.OrdinalIgnoreCase);
@@ -603,32 +404,18 @@ public sealed class SceneInitFile
     /// <summary>The action files the scene brings into scope.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>File names, in the order the file lists them.</returns>
-    /// <remarks>
-    /// Bare names on their own lines, no <c>key=</c> about them, and the name carries the
-    /// meaning: <c>r25_all.nvc</c> applies to every timeblock, <c>r25_23all.nvc</c> to days
-    /// two and three, <c>r25202p.nvc</c> to that afternoon alone. See
-    /// <see cref="GK3Reborn.Game.TimeblockRange"/> for how that is read.
-    /// </remarks>
     public IReadOnlyList<string> ActionFiles(bool includeConditional = true) =>
         [.. NamesIn("ACTIONS", includeConditional)];
 
     /// <summary>The soundtracks the scene plays in the background.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>File names, in the order the file lists them.</returns>
-    /// <remarks>
-    /// <c>.STK</c> files: a soundtrack is a small script of its own, saying which sounds to
-    /// play and how often, not a piece of music to loop.
-    /// </remarks>
     public IReadOnlyList<string> Soundtracks(bool includeConditional = true) =>
         [.. NamesIn("AMBIENT", includeConditional)];
 
     /// <summary>What actors do during each named conversation.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The settings, in file order.</returns>
-    /// <remarks>
-    /// One line per actor per conversation, so a conversation with three people in it is
-    /// three lines naming the same <c>dialogue</c>.
-    /// </remarks>
     public IReadOnlyList<SceneConversation> Conversations(bool includeConditional = true) =>
         _document.LinesOf("LISTENERS", Applies(includeConditional))
             .Where(l => l.Value("dialogue") is { Length: > 0 } && l.Value("actor") is { Length: > 0 })
@@ -680,12 +467,6 @@ public sealed class SceneInitFile
     /// <summary>The patches of floor the scene watches for.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The triggers, in file order.</returns>
-    /// <remarks>
-    /// Thirty-four of them across twenty-nine files, and most of the game's "step closer
-    /// and overhear them" moments are one: the museum's <c>GET_CLOSE</c>, the front desk of
-    /// the lobby, the window into Arnaud's office. A line names a noun and a rectangle and
-    /// nothing else, and the verb the noun is looked up with is always <c>WALK</c>.
-    /// </remarks>
     public List<SceneTrigger> Triggers(bool includeConditional = true) =>
         _document.LinesOf("TRIGGERS", Applies(includeConditional))
             .Select(l => (Noun: l.Value("noun"), Rect: Rectangle(l.Value("rect"))))
@@ -698,13 +479,6 @@ public sealed class SceneInitFile
     /// </summary>
     /// <param name="value">The value, braces and all.</param>
     /// <returns>The rectangle, or null when four numbers could not be read.</returns>
-    /// <remarks>
-    /// Forgiving in the two ways the shipped data needs, both in CSE212P: one rectangle has
-    /// a doubled comma in it and one writes a number as <c>11.03.58</c>. The original reads
-    /// both — it discards empty elements and parses with <c>stof</c>, which stops at the
-    /// second point — and a scene that drops its trigger because of a typo is a scene where
-    /// something quietly never happens.
-    /// </remarks>
     private static SceneRect? Rectangle(string? value)
     {
         if (value is not { Length: > 0 })
@@ -775,10 +549,6 @@ public sealed class SceneInitFile
 
     /// <summary>Where the player starts.</summary>
     /// <returns>The spot named START, the first one, or null.</returns>
-    /// <remarks>
-    /// Every scene in the corpus names its entry point START, but a few also arrive from
-    /// elsewhere depending on the story, so this is a default rather than the only answer.
-    /// </remarks>
     public ScenePosition? StartPosition()
     {
         List<ScenePosition> positions = Positions();

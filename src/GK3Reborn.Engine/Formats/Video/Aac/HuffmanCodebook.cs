@@ -3,13 +3,6 @@ namespace GK3Reborn.Formats.Video.Aac;
 /// <summary>
 /// One AAC Huffman codebook prepared for fast decoding.
 /// </summary>
-/// <remarks>
-/// The standard lists each book as (length, codeword, values) rows. Scanning those
-/// rows per symbol, as the reference decoder does, costs tens of comparisons for
-/// every pair of coefficients. Instead a ten-bit direct lookup resolves the common
-/// short codes in one array read, and the rare longer codes (up to 19 bits in the
-/// scalefactor book) fall through to a binary tree walk.
-/// </remarks>
 internal sealed class HuffmanCodebook
 {
     private const int PrimaryBits = 10;

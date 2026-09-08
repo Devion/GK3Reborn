@@ -8,14 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for standing a sculpted model where GK3 drew a billboard card.
 /// </summary>
-/// <remarks>
-/// The feature is one decision — swap or do not swap — and everything that can go wrong
-/// with it is a wrong answer to that. Replacing too little leaves the five saints in the
-/// church as cut-outs that vanish when looked at from the side, which is what was reported.
-/// Replacing too much would put generated geometry over props the game shipped, which is
-/// the thing <see cref="GK3Reborn.Content.ModelLibrary"/> is written to prevent, so the
-/// refusals matter more here than the acceptance does.
-/// </remarks>
 public sealed class StatueTests
 {
     /// <summary>A quad, optionally flagged as a billboard.</summary>

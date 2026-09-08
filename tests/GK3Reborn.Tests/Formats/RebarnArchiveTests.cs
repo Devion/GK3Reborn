@@ -11,12 +11,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// The ReBarn container: what it writes, what it reads back, and how it fails.
 /// </summary>
-/// <remarks>
-/// The round trip is the point of most of these. A pack is written once by a tool and read
-/// thousands of times by the game, and every one of the interesting failures — a truncated
-/// volume, an index that does not match the data, an entry pointing past the end — produces
-/// bytes that look perfectly plausible until something checks them.
-/// </remarks>
 public sealed class RebarnArchiveTests : IDisposable
 {
     private readonly string _directory =

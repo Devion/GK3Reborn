@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for writing a pack back out as files somebody can edit.
 /// </summary>
-/// <remarks>
-/// The half of the override story that makes the other half usable, and it has one
-/// property that has to hold: what comes out has to go back in. The layout is read back by
-/// <see cref="ContentOverrides"/> without anything being moved, and a texture asked for as
-/// a PNG has to be the picture that was compressed rather than what the block format
-/// happened to keep.
-/// </remarks>
 public sealed class ContentExtractTests : IDisposable
 {
     private readonly string _root = Path.Combine(

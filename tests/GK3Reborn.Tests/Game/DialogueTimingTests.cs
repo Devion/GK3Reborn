@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for how long the script host thinks a line of dialogue takes.
 /// </summary>
-/// <remarks>
-/// Reported as voices being cut off, and worse the longer the recording. The four dialogue
-/// calls are marked waitable and were worth nothing, so a waited block containing one
-/// finished in the frame it began: the script ran straight on to the next line, and starting
-/// a line abandons whatever is being said. Every exchange in the game was talking over
-/// itself.
-/// </remarks>
 public sealed class DialogueTimingTests
 {
     private static Gk3SheepApi Api() => new(new GameState());
@@ -36,11 +29,6 @@ public sealed class DialogueTimingTests
     /// A continuation is worth as long as the lines it continues, and asks whatever is
     /// speaking.
     /// </summary>
-    /// <remarks>
-    /// It names no licence plate — only how many more lines — because the run it belongs to
-    /// was named once, several statements ago. So it is the one duration the host cannot
-    /// work out for itself.
-    /// </remarks>
     [Fact]
     public void A_continuation_is_worth_as_long_as_the_lines_it_continues()
     {
@@ -69,12 +57,6 @@ public sealed class DialogueTimingTests
     /// <summary>
     /// Starting a conversation goes through the same reckoning a voice-over does.
     /// </summary>
-    /// <remarks>
-    /// Both take a licence plate and a line count, and both are a run of the same recordings
-    /// — the two calls differ in whether the speakers play their idles, which is not a matter
-    /// of timing. Without an animation library neither can answer, and answering nought there
-    /// is right: nothing has been read, so there is nothing to wait for.
-    /// </remarks>
     [Theory]
     [InlineData("StartDialogue")]
     [InlineData("StartDialogueNoFidgets")]

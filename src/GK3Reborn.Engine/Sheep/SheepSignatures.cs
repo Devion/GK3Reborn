@@ -5,26 +5,6 @@ namespace GK3Reborn.Sheep;
 /// <summary>
 /// What each system function takes and returns.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A compiler needs this and the language reference does not carry it in a form the engine
-/// can read: the specification is a Word document, and its machine-extracted index lives in
-/// the content workspace rather than the repository because it is derived from copyrighted
-/// documentation.
-/// </para>
-/// <para>
-/// The game answers the question itself. Every compiled script carries an import table
-/// giving the return type and argument types of every function it calls, so the 224 shipped
-/// scripts between them describe the signature of every function the game uses — 139 of
-/// them. Reading the catalogue out of the content is both self-contained and authoritative:
-/// it is what the original compiler actually emitted.
-/// </para>
-/// <para>
-/// Disagreements are worth hearing about rather than resolving quietly. Two scripts giving
-/// one function two signatures would mean either the reader is wrong or the assumption that
-/// a name has one signature is, and both matter more than whichever one happens to win.
-/// </para>
-/// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Naming",
     "CA1720:Identifier contains type name",

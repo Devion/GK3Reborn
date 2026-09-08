@@ -46,10 +46,6 @@ public interface IAudioBackend : IDisposable
     /// <summary>
     /// The layout the device actually opened with.
     /// </summary>
-    /// <remarks>
-    /// Plan/03 section 7.2: never assume the device honored the request. Query the
-    /// endpoint, log the difference, and fall back visibly.
-    /// </remarks>
     SpeakerLayout ActualLayout { get; }
 
     /// <summary>Sets the linear gain of a bus.</summary>
@@ -58,11 +54,6 @@ public interface IAudioBackend : IDisposable
     /// <summary>Sets how loud one voice is, on top of its bus.</summary>
     /// <param name="voice">The voice.</param>
     /// <param name="gain">Its own level, from zero to one.</param>
-    /// <remarks>
-    /// A bus is a setting and this is a moment: what it exists for is crossfading one
-    /// room's music into the next, which needs two voices at different levels on the same
-    /// bus at the same time. A voice that has finished is ignored rather than refused.
-    /// </remarks>
     void SetVoiceGain(AudioVoice voice, float gain);
 
     /// <summary>Starts a sound.</summary>
@@ -79,17 +70,12 @@ public interface IAudioBackend : IDisposable
     /// <summary>Moves a sound that is already playing.</summary>
     /// <param name="voice">The handle.</param>
     /// <param name="position">Where it is now.</param>
-    /// <remarks>For an emitter that follows something — a car going past, a person walking.</remarks>
     void Move(AudioVoice voice, Vector3 position);
 
     /// <summary>Puts the listener where the player is.</summary>
     /// <param name="position">Where they are.</param>
     /// <param name="forward">Which way they are looking.</param>
     /// <param name="up">Which way is up for them.</param>
-    /// <remarks>
-    /// Called once a frame from the camera. Without it every sound is at the origin facing
-    /// nowhere, which is a room where the far fountain is as loud as the near one.
-    /// </remarks>
     void Listen(Vector3 position, Vector3 forward, Vector3 up);
 
     /// <summary>Stops a sound.</summary>
@@ -121,12 +107,6 @@ public interface IAudioBackend : IDisposable
 /// <param name="Maximum">
 /// How far it carries before it stops getting quieter. The game's default is 2000.
 /// </param>
-/// <remarks>
-/// The two distances are the game's own, out of the <c>.STK</c> files, and they describe an
-/// inverse rolloff clamped at both ends: full volume within <paramref name="Minimum"/>,
-/// falling as the reciprocal of distance after that, and level again past
-/// <paramref name="Maximum"/>.
-/// </remarks>
 public readonly record struct AudioPlacement(Vector3 Position, float Minimum, float Maximum)
 {
     /// <summary>How near a sound has to be for full volume when nothing says.</summary>

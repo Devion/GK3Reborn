@@ -15,27 +15,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Loads every scene the game contains, at every point in the story it can be at.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>Plan/04</c> makes "every scene loads headlessly" the exit criterion for P6, and this
-/// is the thing that answers it. The loading is the engine's own — the same
-/// <see cref="SceneLoader"/> the game uses, writing into a sink that counts instead of
-/// drawing — so a pass here means the game can build these scenes, rather than meaning a
-/// second implementation agrees with the first.
-/// </para>
-/// <para>
-/// A scene is a location and a point in the story together, not a file, so the sweep is
-/// over pairs: 79 locations against the 17 timeblocks the corpus names. Most pairs have no
-/// timeblock file of their own and come out as the room with nobody in it, which is
-/// correct and is most of the corpus; the ones that do are where the story lives.
-/// </para>
-/// <para>
-/// What it reports is a baseline rather than a verdict. Some of what it finds is the
-/// game's own — an actor placed at a spot the scene never defines, a noun with no verbs
-/// because the two halves of an interaction were written in different files — and the
-/// useful thing is that the numbers stay the same from one run to the next.
-/// </para>
-/// </remarks>
 public sealed class SceneCheckStage
 {
     private readonly Action<string> _log;
@@ -225,12 +204,6 @@ public sealed class SceneCheckStage
     /// </summary>
     /// <param name="archives">The game's archives.</param>
     /// <param name="tally">Receives the totals.</param>
-    /// <remarks>
-    /// Read from the archives rather than from the scenes, because a scene names a
-    /// fraction of them: the rest are reached by <c>NEWIDLE</c> from another script or by
-    /// <c>SetIdleGAS</c> from Sheep, and a sweep that only counted the named ones would
-    /// report a coverage it had not measured.
-    /// </remarks>
     private static void Behaviours(GameArchives archives, Tally tally)
     {
         foreach (string name in archives.Names(".GAS"))
@@ -448,11 +421,6 @@ public sealed class SceneCheckStage
             .Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Every location the archives hold a general scene file for.</summary>
-    /// <remarks>
-    /// Three letters and nothing else: a longer name is a timeblock file, which describes
-    /// what is happening in a room rather than what the room is, and is never loaded on its
-    /// own.
-    /// </remarks>
     private static IReadOnlyList<string> Locations(GameArchives archives, string? only)
     {
         if (only is { Length: > 0 })

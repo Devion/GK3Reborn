@@ -13,49 +13,12 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The smoke and the embers a room's fires give off.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's fires are one flat card each and nothing leaves them. A real one throws sparks and
-/// makes smoke, and both are what tell the eye there is heat there — a flame card with
-/// nothing rising off it reads as a picture of a fire pinned to the air, however well it is
-/// animated.
-/// </para>
-/// <para>
-/// Two kinds come out of every fire and they behave nothing alike. <b>Embers</b> are small,
-/// bright, short-lived and thrown: they leave fast, slow down, cool from yellow through
-/// orange to a dull red, and go out within a second or two. <b>Smoke</b> is large, dark,
-/// slow and long-lived: it drifts up, spreads as it goes, and is lit orange from below near
-/// the fire and grey by the time it is above it.
-/// </para>
-/// <para>
-/// How much of either is entirely a question of how big the fire is. A chafing dish's
-/// sterno throws almost nothing and its smoke is a wisp; the temple's bowl of fire throws a
-/// steady stream. See <see cref="Flame.Size"/>, which is the one number everything here is
-/// scaled off.
-/// </para>
-/// <para>
-/// <b>Nothing here is random between runs.</b> Each fire draws from a stream of its own
-/// seeded from where it stands, so the same room in the same state produces the same smoke
-/// on every machine and in both backends. It is what lets two renders of one room be
-/// compared at all, which is the basis of everything in this project.
-/// </para>
-/// </remarks>
 public sealed class FlameParticles
 {
     /// <summary>How many particles one fire may have alight at once.</summary>
-    /// <remarks>
-    /// Enough for the largest fire in the game at its own rate and lifetime, and a bound
-    /// rather than a target: a candle uses about six of them.
-    /// </remarks>
     private const int PerFlame = 56;
 
     /// <summary>How far a fire's smoke and embers can be seen from, in world units.</summary>
-    /// <remarks>
-    /// Fires beyond this are not simulated at all. The corpus's largest room is a few
-    /// thousand units across and its fires are a hundred apart, so this is about "in this
-    /// part of the room" rather than about draw distance — and it is what keeps twelve
-    /// fires in CS6 from all being simulated while the camera looks at one of them.
-    /// </remarks>
     private const float Near = 1200f;
 
     private readonly List<Emitter> _emitters = [];
@@ -93,11 +56,6 @@ public sealed class FlameParticles
     /// The things lying in the room's fires, which are given a glint of their own.
     /// </summary>
     /// <param name="held">What <see cref="Flames.Holding"/> found; empty in every room but one.</param>
-    /// <remarks>
-    /// A deliberate divergence rather than the original's behaviour, and the reasoning is
-    /// in <see cref="Flames.Holding"/>: an opaque flame card leaves a stone at the bottom
-    /// of TE4's bowl of fire invisible from anywhere but straight overhead.
-    /// </remarks>
     public void Holds(IReadOnlyList<(Flame Fire, string Object, Vector3 Centre)> held)
     {
         ArgumentNullException.ThrowIfNull(held);
@@ -117,11 +75,6 @@ public sealed class FlameParticles
     /// </summary>
     /// <param name="model">The flame model's name.</param>
     /// <param name="alight">Whether the scene is drawing it.</param>
-    /// <remarks>
-    /// A script may light a fire or put one out — TE6's candles are hidden until somebody
-    /// lights them — and a fire nobody can see must not be making smoke. Named rather than
-    /// indexed because that is what a script says: <c>ShowModel("te6_candles")</c>.
-    /// </remarks>
     public void Show(string model, bool alight)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -139,12 +92,6 @@ public sealed class FlameParticles
     /// Ties each fire to the model the scene is drawing it as.
     /// </summary>
     /// <param name="models">The models the scene loaded.</param>
-    /// <remarks>
-    /// So that a fire follows the room rather than needing to be told: a script may light
-    /// one or put one out — TE6's candles are hidden until somebody lights them, and
-    /// <c>ShowModel</c> is how it happens — and a fire nobody can see must not be smoking.
-    /// Looked up once, because a model is not replaced while a room stands.
-    /// </remarks>
     public void Follow(IReadOnlyList<PlacedModel> models)
     {
         ArgumentNullException.ThrowIfNull(models);
@@ -193,12 +140,6 @@ public sealed class FlameParticles
     /// </summary>
     /// <param name="eye">Where the camera is.</param>
     /// <returns>The particles, in the order they have to be drawn.</returns>
-    /// <remarks>
-    /// Smoke is drawn over what is behind it, so two puffs that overlap have to arrive in
-    /// depth order or the nearer one is blended under the further one. Embers add rather
-    /// than cover and do not care, but they are few and sorting them with the rest costs
-    /// nothing worth measuring.
-    /// </remarks>
     public IReadOnlyList<Particle> Facing(Vector3 eye)
     {
         _drawn.Clear();
@@ -236,21 +177,6 @@ public sealed class FlameParticles
     /// <param name="flame">The fire.</param>
     /// <param name="clock">How long the room has been standing, in seconds.</param>
     /// <returns>One sprite, big enough to cover the plume from any angle.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The sprite is not the flame.</b> Everything else this pass draws is a picture on
-    /// a quad; this is a quad wide enough to contain a volume, and what is drawn inside it
-    /// is found by marching a ray through burning gas. So the size here is a bound rather
-    /// than a shape — the far corner of the cylinder the plume lives in, from wherever it
-    /// is looked at — and most of the quad draws nothing at all.
-    /// </para>
-    /// <para>
-    /// <b>Where in its own cycle it is is carried, not the clock.</b> Two fires in one room
-    /// have to burn differently or a row of lanterns pulses as one, and the shader has no
-    /// way of telling them apart: the phase comes off where the fire stands, so it is the
-    /// same on every machine and in both backends. See <see cref="Flame.Phase"/>.
-    /// </para>
-    /// </remarks>
     private static Particle Body(Flame flame, float clock)
     {
         // What the shader marches: a cylinder from the foot of the plume to a little over
@@ -290,21 +216,6 @@ public sealed class FlameParticles
     /// <param name="centre">The middle of the thing, in world space.</param>
     /// <param name="eye">Where the camera is.</param>
     /// <returns>One additive sprite.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>In front of the flame rather than at the object.</b> A flame card is opaque
-    /// where it is lit and writes depth, and the object is behind it, so a sprite left
-    /// where the object actually is would be discarded by the depth test from every angle
-    /// the complaint was about. It is moved towards the camera, along the line from the
-    /// object to it, far enough to clear a card that turns to face the viewer.
-    /// </para>
-    /// <para>
-    /// <b>Still, and slow.</b> Everything else this pass draws is rising and short-lived,
-    /// so a spark that stays put and breathes once a second and a half reads as a thing in
-    /// the fire rather than as another ember. It never goes fully out, or it would be a
-    /// blink rather than a glint.
-    /// </para>
-    /// </remarks>
     private Particle Glint(Flame fire, Vector3 centre, Vector3 eye)
     {
         Vector3 towards = eye - centre;

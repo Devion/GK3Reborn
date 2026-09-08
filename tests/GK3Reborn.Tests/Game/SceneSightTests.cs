@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for whether one point in a room can see another.
 /// </summary>
-/// <remarks>
-/// What <c>WalkToSee</c> rests on, and 2,120 of the corpus's approaches are one. The
-/// failure that matters is the quiet one: a sight test that answers "yes" through a wall
-/// stops a walk on the wrong side of it, and the character then does whatever they came to
-/// do from there — reading a note through a door, shaking hands with somebody in the next
-/// room.
-/// </remarks>
 public sealed class SceneSightTests
 {
     /// <summary>Builds a room out of quads, each given as its four corners.</summary>

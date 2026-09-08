@@ -11,21 +11,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Says which textures the game actually walks on, and how each one is finished.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A floor is the surface that shows a shading mistake first. It is large, flat and
-/// horizontal, so a specular lobe from anything overhead spreads across the whole of it —
-/// the same roughness on the front of a cabinet is invisible and on a floor reads as
-/// standing water.
-/// </para>
-/// <para>
-/// Which textures are floors is not a guess and not a matter of what they are called.
-/// Every scene's general <c>.SIF</c> names one <c>floor=</c> object, the BSP knows which
-/// surfaces belong to that object, and each surface names its texture. That is the
-/// definitive list, and it is what this reports: <c>TE3FLOORCRS</c> is a floor and so is
-/// <c>TILES</c>, while <c>27FLOOR</c> is not on any floor object in the game.
-/// </para>
-/// </remarks>
 public sealed class FloorMaterialStage
 {
     private readonly Action<string> _log;

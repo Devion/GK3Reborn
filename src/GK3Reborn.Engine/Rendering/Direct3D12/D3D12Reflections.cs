@@ -14,21 +14,6 @@ using System.Runtime.InteropServices;
 namespace GK3Reborn.Rendering.Direct3D12;
 
 /// <summary>Reflects the frame in whatever in it is smooth enough to reflect.</summary>
-/// <remarks>
-/// <para>
-/// The Direct3D half of <c>Reflections</c>: a min-depth pyramid, then one ray a pixel
-/// marched over it, then an average over frames so that a rough surface — which takes a
-/// different sample each frame — settles rather than boils.
-/// </para>
-/// <para>
-/// <b>The pyramid is transitioned a level at a time.</b> Building level <c>n</c> reads level
-/// <c>n - 1</c> as a texture and writes level <c>n</c> as an unordered access view, and both
-/// are subresources of one resource. Moving the whole resource would mean saying it is
-/// readable and writable at once, which Direct3D has no state for; moving the two levels
-/// separately says exactly what is true. Vulkan needs none of this because a storage image
-/// stays in <c>General</c> and one memory barrier covers the lot.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Reflections : IDisposable
 {
     private readonly D3D12Context _context;
@@ -49,10 +34,6 @@ public sealed unsafe class D3D12Reflections : IDisposable
     private readonly uint[] _tables;
 
     /// <summary>What state each level of the pyramid is in.</summary>
-    /// <remarks>
-    /// Kept here rather than on the texture, because the texture tracks one state for the
-    /// whole resource and the whole point of the pyramid is that its levels differ.
-    /// </remarks>
     private readonly ResourceStates[] _levels = new ResourceStates[ReflectLayout.Levels];
 
     private int _frame;

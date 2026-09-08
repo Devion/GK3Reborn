@@ -11,29 +11,6 @@ namespace GK3Reborn.Formats.Scenes;
 /// <summary>
 /// Reconstructs vertex normals for one of a room's objects, stopping at its creases.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Scene geometry carries no normals. The renderer does not need any — it shades every
-/// triangle by its own face normal, which is what the original did — but anything that
-/// leaves the engine does: a modelling tool decides where to bevel from the angle between
-/// faces, and a viewer showing a room with normals averaged across the whole of it makes
-/// a doorway look like a sheet draped over furniture.
-/// </para>
-/// <para>
-/// <b>Averaging every face that touches a vertex is the mistake to avoid.</b> A box's
-/// corner is one vertex shared by three faces at right angles, and averaging them rounds
-/// the corner off in the shading while the silhouette stays square — the surface reads as
-/// soft plastic. So faces meeting at a vertex are gathered into groups by the angle
-/// between them, a vertex carries one normal per group, and an edge between two groups
-/// stays hard. That is the same rule <c>ObjectRounding</c> reaches for, and for the same
-/// reason.
-/// </para>
-/// <para>
-/// Grouping is transitive within a vertex, which is what lets a lathed object come out
-/// smooth: each side face is gentle against its neighbour, so the whole ring joins, while
-/// the cap sitting at ninety degrees to all of them stays out of it.
-/// </para>
-/// </remarks>
 public sealed class SceneObjectNormals
 {
     private readonly Dictionary<(int Weld, int Face), int> _groups;
@@ -242,11 +219,6 @@ public sealed class SceneObjectNormals
     /// <param name="group">Its smoothing group, from <see cref="GroupOf"/>.</param>
     /// <param name="face">The face, used when the group's normal cancelled out.</param>
     /// <returns>A unit normal.</returns>
-    /// <remarks>
-    /// Falls back to the face's own normal rather than to an axis. A group whose faces
-    /// sum to nothing is a fold — two sheets back to back — and shading it along the world
-    /// vertical would light one of the two sheets from inside.
-    /// </remarks>
     public Vector3 NormalOf(ushort vertex, int group, int face)
     {
         int at = vertex < _weld.Length ? _weld[vertex] : -1;

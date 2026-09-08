@@ -10,12 +10,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// The camera, as the shader sees it: one uniform buffer and its descriptor set per frame
 /// in flight.
 /// </summary>
-/// <remarks>
-/// A buffer per frame rather than one shared buffer, because the GPU may still be reading
-/// the previous frame's camera when the next frame is recorded. Overwriting it there is
-/// the classic cause of a view that jitters by exactly one frame under load — visible,
-/// intermittent, and easy to blame on input handling instead.
-/// </remarks>
 public sealed unsafe class FrameUniformSet : IDisposable
 {
     private readonly VulkanContext _context;
@@ -49,11 +43,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     }
 
     /// <summary>Where the light grid starts, how wide a cell is, and how many there are.</summary>
-    /// <remarks>
-    /// Uploaded with the frame rather than with the rig because the shader needs it to work
-    /// out which cell a fragment is in, and that is a per-fragment calculation against
-    /// numbers that change only when a room loads.
-    /// </remarks>
     private Vector4 _gridOrigin = new(0, 0, 0, 1);
     private Vector4 _gridCounts = new(1, 1, 1, 0);
 
@@ -61,20 +50,9 @@ public sealed unsafe class FrameUniformSet : IDisposable
     public SceneLightGrid? Grid { get; private set; }
 
     /// <summary>The buffer of lights, for anything outside this pass that needs them.</summary>
-    /// <remarks>
-    /// The tracing stage samples a light to shadow, and it has to sample by the same
-    /// weights the shading uses or the fraction it estimates is a fraction of something
-    /// else. Sharing the buffer is what keeps the two from drifting apart.
-    /// </remarks>
     public VulkanBuffer Rig => _rig;
 
     /// <summary>Where each cell of the light grid's list starts.</summary>
-    /// <remarks>
-    /// Bound by the fog pass, which walks the grid exactly as the shading does. Both halves
-    /// are exposed rather than rebuilt because a second copy of a grid is a second answer to
-    /// which lights reach a point, and a room where the walls and the mist disagree about
-    /// that is a room with two rigs in it.
-    /// </remarks>
     public VulkanBuffer Cells => _cells;
 
     /// <summary>Which lights are in each of those cells.</summary>
@@ -86,49 +64,22 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <summary>
     /// Where inside its pixel this frame samples, in pixels.
     /// </summary>
-    /// <remarks>
-    /// The same offset the camera's projection was built with, said again in the units the
-    /// fragment stage works in. It is not derived from the camera here because the camera
-    /// carries it in clip space and converting back would need the viewport, which is a
-    /// second place for the two to disagree.
-    /// </remarks>
     public Vector2 JitterPixels { get; set; }
 
     /// <summary>
     /// The mirror this set's passes reflect about, or zero for the pass that draws the room.
     /// </summary>
-    /// <remarks>
-    /// Set on the reflection pass's own uniform set and left at zero on the frame's. The two
-    /// passes are recorded into one command buffer and read their constants at draw time,
-    /// not at record time, so they cannot share a buffer: whichever was written last would
-    /// be what both of them saw.
-    /// </remarks>
     public Vector4 MirrorPlane { get; set; }
 
     /// <summary>How far above white a surface that carries its own light may go.</summary>
-    /// <remarks>
-    /// One in SDR, which is the picture the game has always drawn. See
-    /// <see cref="OutputPlan.EmissiveGain"/> for why it is more than that in HDR.
-    /// </remarks>
     public float EmissiveGain { get; set; } = 1f;
 
     /// <summary>
     /// The clock the wind runs on, in seconds since the renderer started.
     /// </summary>
-    /// <remarks>
-    /// Set by whoever draws the frame rather than read from a clock here, because the two
-    /// callers want different things from it. A window runs it forward and the foliage
-    /// moves; a headless render leaves it where the caller put it — zero unless asked
-    /// otherwise — so that two renders of the same room are still the same picture, which
-    /// is the whole basis on which this project compares them.
-    /// </remarks>
     public float Seconds { get; set; }
 
     /// <summary>The same clock as it stood a frame ago, for the motion vectors.</summary>
-    /// <remarks>
-    /// Updated by <see cref="Bind"/>, so it is the previous frame's value for as long as
-    /// this frame's draws are being recorded — which is exactly when the foliage needs it.
-    /// </remarks>
     public float PreviousSeconds { get; private set; }
 
     private float? _wasAt;
@@ -137,13 +88,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     public int Count => _sets.Length / PassesPerFrame;
 
     /// <summary>How many passes of one frame read constants of their own.</summary>
-    /// <remarks>
-    /// Two: the room as the player sees it, and the room as this frame's mirror sees it.
-    /// They are recorded into one command buffer and read their constants when the GPU
-    /// reaches the draw rather than when it is recorded, so they cannot share a buffer —
-    /// whichever was written last is what both of them would see, and what that looks like
-    /// is the room drawn twice from inside the mirror.
-    /// </remarks>
     public const int PassesPerFrame = 2;
 
     /// <summary>Creates the set.</summary>
@@ -324,18 +268,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <summary>Points every frame's set at the image the reflection is drawn into.</summary>
     /// <param name="view">The reflection's image view.</param>
     /// <param name="sampler">How to read it.</param>
-    /// <remarks>
-    /// <para>
-    /// Written when the target is made and again whenever the window changes size, in the
-    /// same place and for the same reason as everything else that is sized to the frame.
-    /// </para>
-    /// <para>
-    /// <b>Every set is written, including on a frame with no mirror in the room.</b> A
-    /// descriptor a shader declares has to be a real descriptor whether the branch that
-    /// reads it runs or not; Vulkan does not require the branch to be taken, it requires the
-    /// binding to exist.
-    /// </para>
-    /// </remarks>
     public void SetReflection(ImageView view, Sampler sampler)
     {
         var imageInfo = new DescriptorImageInfo
@@ -409,11 +341,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <summary>Uploads the rig again with a different sun.</summary>
     /// <param name="sunGain">The new gain.</param>
     /// <returns>True when anything was re-uploaded.</returns>
-    /// <remarks>
-    /// For the display settings changing while a room is loaded. Nothing else about the rig
-    /// can change without a new scene, so there is no general "re-upload" here — only this
-    /// one number, and only when it is actually different.
-    /// </remarks>
     public bool Relight(float sunGain)
     {
         if (_lights is null || Math.Abs(sunGain - _sunGain) < 0.0001f)
@@ -434,10 +361,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// </summary>
     /// <param name="lights">The rig as it was just written, in the same order.</param>
     /// <param name="scene">What the geometry occupies.</param>
-    /// <remarks>
-    /// Once per room. The rig does not move and neither do the cells, so this is the whole
-    /// of the per-frame cost of having removed the light limit: none.
-    /// </remarks>
     private void BuildGrid(GpuLight[] lights, SceneExtent scene)
     {
         GridLight[] described = GpuLight.Describe(lights);
@@ -471,12 +394,6 @@ public sealed unsafe class FrameUniformSet : IDisposable
 
     /// <summary>Points the ray-tracing paths at the scene they trace against.</summary>
     /// <param name="scene">The acceleration structure.</param>
-    /// <remarks>
-    /// Must be called before the first draw of a ray-tracing pipeline. Vulkan requires
-    /// every statically used binding to be valid whether its branch runs or not, so an
-    /// unwritten acceleration structure is undefined behaviour even at quality
-    /// <see cref="RayTracingQuality.None"/>, where no ray is ever traced.
-    /// </remarks>
     public void SetScene(RayTracingScene scene)
     {
         ArgumentNullException.ThrowIfNull(scene);

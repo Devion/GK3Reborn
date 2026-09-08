@@ -12,27 +12,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Assets the remake adds, which the game never had.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The restoration table edits assets the archives already hold. This is the other half:
-/// files that are not in any barn and cannot be, because the thing they describe was cut
-/// before release. The temple's second room needs a scene file, an action file and a walk
-/// boundary, and no version of GK3 ever shipped one.
-/// </para>
-/// <para>
-/// <b>It is consulted last, after every barn.</b> That is the whole safety rule and it is
-/// stricter than the one the prop and room libraries follow: those are asked when an
-/// archive has no answer, and so is this, but this is also the layer most able to do harm
-/// if it ever answered for a name the game knows — a replaced <c>.SIF</c> is a replaced
-/// room. Reaching it means every archive was asked first and none had the file.
-/// </para>
-/// <para>
-/// They live beside the geometry they belong to, in a content workspace's
-/// <c>enhanced/rooms</c> or in a ReBarn volume, because that is what they are: content,
-/// built by <c>tools/rooms</c> and packed like everything else. Nothing of a cut room is
-/// carried in the engine — the engine carries the means to read one.
-/// </para>
-/// </remarks>
 public sealed class AddedAssets
 {
     private static readonly string[] Kinds =
@@ -68,11 +47,6 @@ public sealed class AddedAssets
     /// <param name="packs">Packs beside the executable, or null for none.</param>
     /// <param name="diagnostics">Receives a warning when the directory cannot be read.</param>
     /// <returns>The set, empty when there is nowhere to look.</returns>
-    /// <remarks>
-    /// Only the kinds a room is made of are taken. The same directory holds the room's
-    /// geometry, which is glTF and is the room library's business; indexing it here would
-    /// put a name in the archive listing that nothing can parse as a 1999 asset.
-    /// </remarks>
     public static AddedAssets Open(
         string directory, RebarnContent? packs = null, DiagnosticBag? diagnostics = null)
     {

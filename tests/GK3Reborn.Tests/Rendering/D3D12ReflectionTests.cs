@@ -12,13 +12,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The reflection passes, built and run on a real device.
 /// </summary>
-/// <remarks>
-/// The pyramid is the one place in the renderer where two subresources of one texture are in
-/// different states at the same time — level <c>n</c> being written while level <c>n - 1</c>
-/// is read — and getting that wrong is not a crash. It is a validation message and a picture
-/// with the wrong reflections in it, both of which are easy to miss in a still. So this runs
-/// the pass and reads what the debug layer had to say about it.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed unsafe class D3D12ReflectionTests
 {

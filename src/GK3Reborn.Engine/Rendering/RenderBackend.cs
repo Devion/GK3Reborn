@@ -14,24 +14,6 @@ public enum RenderBackend
 }
 
 /// <summary>Which backend to use, and why.</summary>
-/// <remarks>
-/// <para>
-/// Windows gets Direct3D 12 and everything else gets Vulkan. The reason is not performance
-/// — the two draw the same picture, from the same shaders, at the same rate — but
-/// Streamline. On Direct3D, Streamline interposes by handing the application a proxy device
-/// and a proxy swapchain, which are objects the renderer already holds and passes around.
-/// On Vulkan it interposes by *being the loader*: <c>sl.interposer.dll</c> has to be loaded
-/// in place of <c>vulkan-1.dll</c>, the surface has to be created through it, and
-/// <c>slSetVulkanInfo</c> must then not be called at all. Getting one of those three wrong
-/// costs frame generation silently, and getting them wrong together costs the swapchain
-/// outright. See <c>docs/upscaling.md</c>.
-/// </para>
-/// <para>
-/// So the default follows where the runtime is least likely to be subtly wrong, and the
-/// choice stays a choice: <c>--backend vulkan</c> on Windows is supported, tested and the
-/// first thing to try when a Direct3D machine misbehaves.
-/// </para>
-/// </remarks>
 public static class RenderBackends
 {
     /// <summary>The backend to use when nobody has asked for one.</summary>
@@ -49,11 +31,6 @@ public static class RenderBackends
     /// <param name="text">The word, in any case.</param>
     /// <param name="backend">The backend it names.</param>
     /// <returns>False if it names none.</returns>
-    /// <remarks>
-    /// The spellings people actually use, not only the enumeration's own. Someone who types
-    /// <c>--backend dx12</c> means Direct3D 12 and should not be told there is no such
-    /// thing.
-    /// </remarks>
     public static bool TryParse(string? text, out RenderBackend backend)
     {
         backend = RenderBackend.Automatic;
@@ -80,10 +57,6 @@ public static class RenderBackends
     /// <summary>Whether a backend could possibly run on this machine.</summary>
     /// <param name="backend">The backend.</param>
     /// <returns>False when the operating system rules it out.</returns>
-    /// <remarks>
-    /// Only the answer the operating system alone can give. Whether a device is actually
-    /// there, and what it can do, is a survey — see <see cref="DeviceReport"/>.
-    /// </remarks>
     public static bool IsPossible(RenderBackend backend) =>
         Resolve(backend) != RenderBackend.Direct3D12 || OperatingSystem.IsWindows();
 }

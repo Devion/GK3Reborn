@@ -9,19 +9,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Renders to an image with no window involved.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>Plan/04-execution-and-quality.md</c> P5 requires headless offscreen image tests, and
-/// this is what makes them possible: no surface, no swapchain, no display. It runs on a
-/// build agent, and it produces pixels that can be compared against a reference or simply
-/// looked at.
-/// </para>
-/// <para>
-/// That matters more than it sounds. A windowed run proves the code does not crash; only
-/// reading the pixels back proves anything was actually drawn. The two failure modes look
-/// identical from the outside.
-/// </para>
-/// </remarks>
 public sealed unsafe class OffscreenRenderer : IDisposable
 {
     private readonly Vk _vk;

@@ -10,29 +10,6 @@ namespace GK3Reborn.Formats.Models;
 /// <summary>
 /// Writes models as glTF 2.0 binary (<c>.glb</c>).
 /// </summary>
-/// <remarks>
-/// <para>
-/// glTF is the plan's interchange format for geometry, and a single <c>.glb</c> opens
-/// in Blender, any web viewer and most DCC tools without a plugin — which is the whole
-/// point of converting: 1,878 models currently exist in a format nothing but the game
-/// can read.
-/// </para>
-/// <para>
-/// Materials reference the converted PNGs by relative URI, so a model opens textured
-/// as long as the normalized tree is intact. That keeps the geometry and its textures
-/// linked without embedding several megabytes of image into every model.
-/// </para>
-/// <para>
-/// Normals are transformed into mesh space on the way out. glTF requires positions and
-/// normals to share a space, and in the original data they do not: positions are mesh
-/// space, normals appear to be local space. G-Engine applies the same correction, but
-/// only to models whose name is three characters — its own comment calls that a hack
-/// and says untransformed normals look wrong on characters while transformed ones look
-/// wrong on props. Exporting a self-consistent document is the right call for an
-/// interchange format; if the distinction turns out to be real, it belongs in the
-/// material pipeline rather than here.
-/// </para>
-/// </remarks>
 public static class GlbWriter
 {
     private const uint GlbMagic = 0x46546C67;  // "glTF"

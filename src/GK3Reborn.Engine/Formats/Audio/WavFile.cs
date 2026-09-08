@@ -9,20 +9,6 @@ namespace GK3Reborn.Formats.Audio;
 /// <summary>
 /// A RIFF/WAVE file, decoded to signed 16-bit samples.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's 7,852 sounds are RIFF files, and 7,656 of them — 97.5% — are not really WAV at
-/// all: format tag 85 is an MP3 stream wrapped in a RIFF header. Only 196 are plain PCM.
-/// So a reader that handles PCM alone can play the footsteps and the fly loop and nothing
-/// anybody says.
-/// </para>
-/// <para>
-/// Both are read here, in process. <c>Plan/01</c> rules out an external process at runtime,
-/// which is a different thing from ruling out decoding — and the difference is worth 3.7 GB:
-/// keeping a decoded copy of the corpus on disk cost that to save a few milliseconds a
-/// sound, while the compressed originals are 347 MB and already inside the archives.
-/// </para>
-/// </remarks>
 public sealed class WavFile
 {
     /// <summary>Uncompressed pulse-code modulation.</summary>
@@ -35,10 +21,6 @@ public sealed class WavFile
     public const int FormatMpegLayer3 = 85;
 
     /// <summary>How much of an MP3 to decode per call, in bytes.</summary>
-    /// <remarks>
-    /// Verified against ffmpeg at 4,608, 16,384 and 65,536 bytes; 16,384 is four frames of
-    /// stereo and a little over seven of mono.
-    /// </remarks>
     private const int Block = 16384;
 
     private WavFile(string name, int channels, int sampleRate, short[] samples)
@@ -73,11 +55,6 @@ public sealed class WavFile
     /// <param name="channels">One for mono, two for stereo.</param>
     /// <param name="sampleRate">Frames a second.</param>
     /// <returns>The sound.</returns>
-    /// <remarks>
-    /// For sound that never was a RIFF file: a movie's track arrives out of a video
-    /// decoder already decoded, and wrapping it in a header only to parse the header back
-    /// off would be a round trip for nothing.
-    /// </remarks>
     public static WavFile FromSamples(
         string name, short[] samples, int channels, int sampleRate)
     {
@@ -195,11 +172,6 @@ public sealed class WavFile
 
     /// <summary>Writes the decoded sound as an ordinary 16-bit PCM RIFF/WAVE file.</summary>
     /// <returns>A lossless representation of the samples held by this instance.</returns>
-    /// <remarks>
-    /// The source archives mostly contain MP3 frames wrapped in RIFF. Restoration tools
-    /// need a conventional WAV, so the import stage decodes once and writes this form to
-    /// <c>normalized/audio</c>. The untouched RIFF wrapper remains in <c>raw/audio</c>.
-    /// </remarks>
     public byte[] ToPcmWave()
     {
         const int Header = 44;
@@ -233,20 +205,6 @@ public sealed class WavFile
     /// <summary>
     /// Decodes the MP3 stream inside a RIFF header.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Which is 7,656 of the game's 7,852 sounds — everything anybody says and almost every
-    /// soundtrack. The <c>fmt</c> chunk describes the MP3 and the <c>data</c> chunk is the
-    /// MP3 itself, so the frames are handed to the decoder as they stand and the header's
-    /// channel count and rate are ignored in favour of what the stream actually says.
-    /// </para>
-    /// <para>
-    /// In process, and not by shelling out. <c>Plan/01</c> rules out an external process at
-    /// runtime, which is a different thing from ruling out decoding: keeping a decoded copy
-    /// of the corpus on disk cost 3.7 GB to save what turns out to be a few milliseconds a
-    /// sound.
-    /// </para>
-    /// </remarks>
     private static WavFile? Mpeg(ReadOnlySpan<byte> data, string name, DiagnosticBag diagnostics)
     {
         if (data.Length == 0)
@@ -330,14 +288,6 @@ public sealed class WavFile
     /// </summary>
     /// <param name="sample">The sample, nominally between -1 and 1.</param>
     /// <returns>The sample, clamped.</returns>
-    /// <remarks>
-    /// <b>Clamped, because the alternative is a spike.</b> Anything above full scale has to
-    /// go somewhere, and the two places it can go are the top of the range or the bottom of
-    /// it. A cast puts it at the bottom, which is a discontinuity of the whole range in one
-    /// sample; this puts it at the top, which is where the waveform was already heading.
-    /// The overshoot itself is the encoder's, not the recording's, and no decoder can
-    /// avoid it.
-    /// </remarks>
     internal static short Clamped(float sample) => float.IsFinite(sample)
         ? (short)Math.Clamp(
             MathF.Round(sample * 32767f), short.MinValue, short.MaxValue)
@@ -346,11 +296,6 @@ public sealed class WavFile
     /// <summary>
     /// Widens the sample data to signed 16-bit.
     /// </summary>
-    /// <remarks>
-    /// Eight-bit WAV is unsigned with 128 as silence, which is the one trap here: read it
-    /// as signed and every sound is a loud square wave. GK3's PCM is all 16-bit, but the
-    /// import writes what it is given.
-    /// </remarks>
     private static short[]? Decode(ReadOnlySpan<byte> data, int format, int bits)
     {
         if (format == FormatIeeeFloat)

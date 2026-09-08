@@ -12,21 +12,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for drawing the room's own surfaces only on the side they face.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported as a texture blocking the open space inside R25's dumbwaiter. The shaft is a
-/// closed box of lath and its room-side face has no hole cut for the door, so opening the
-/// door showed the back of that face rather than the shaft: one polygon,
-/// <c>r25_duwalls</c> surface 625, a unit behind the doorway with its front pointing into
-/// the shaft. The original never showed it, because <c>Renderer::Render</c> culls back
-/// faces for all opaque world geometry.
-/// </para>
-/// <para>
-/// The shape of the fault is what these tests build: a wall with a hole in it and a second,
-/// unbroken surface behind it whose front points away. Drawing both sides paints the hole
-/// shut; drawing one leaves it open.
-/// </para>
-/// </remarks>
 public sealed class BackFaceCullingTests
 {
     private static bool HasDevice()
@@ -78,10 +63,6 @@ public sealed class BackFaceCullingTests
     /// A quad in the z = <paramref name="depth"/> plane, wound so its front faces the
     /// camera or away from it.
     /// </summary>
-    /// <remarks>
-    /// Half a unit is the smaller quad's reach and two units the larger one's, which is what
-    /// lets the far surface be seen only through the hole in the near one.
-    /// </remarks>
     private static Vector3[] Quad(float reach, float depth, bool towards) =>
         towards
             ? [
@@ -351,10 +332,6 @@ public sealed class BackFaceCullingTests
     /// <summary>
     /// One 4x4 BC7 block, opaque or with a hole in it.
     /// </summary>
-    /// <remarks>
-    /// Mode 5, whose alpha has an index set of its own, so a block can be written that is
-    /// opaque at one texel and see-through at another. See <c>BlockDecoderTests</c>.
-    /// </remarks>
     private static CompressedImage PackedBlock(bool transparent)
     {
         byte[] block = new byte[16];

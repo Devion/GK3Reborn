@@ -6,30 +6,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Many staging copies recorded once and submitted once.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D twin of <c>BufferUploads</c>, and it exists because of a measurement made
-/// on the other backend rather than a principle. <see cref="D3D12Context.EndOneShot"/>
-/// waits for the queue to drain, which is the right shape for the one upload that happens
-/// alone; a room is not that. RC4 is 358 batches with a vertex buffer and an index buffer
-/// apiece, so building it unbatched was some seven hundred submissions and seven hundred
-/// full stalls — around 300 ms of a door, and none of it work.
-/// </para>
-/// <para>
-/// <b>The staging buffers belong to the batch.</b> A recorded copy has not run, so freeing
-/// its source when the call returns would be freeing memory the device is about to read.
-/// They are kept and freed together after the submission.
-/// </para>
-/// <para>
-/// <b>What may go in one: copies into resources nothing reads until the batch is done.</b>
-/// There are no barriers between the copies, which is sound because they write to different
-/// resources and nothing in the batch reads any of them. Anything that <em>does</em> read
-/// one — an acceleration structure built over a mesh, a texture whose mips are generated
-/// from its own top level — must carry its own barriers or stay on its own submission.
-/// That is why a batch is asked for explicitly rather than being something the context
-/// does behind the caller's back.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Uploads : IDisposable
 {
     private readonly D3D12Context _context;
@@ -111,13 +87,6 @@ public sealed unsafe class D3D12Uploads : IDisposable
 
     /// <summary>Gives the batch a staging buffer somebody else filled.</summary>
     /// <param name="staging">The buffer.</param>
-    /// <remarks>
-    /// For the copies this class cannot do itself. A texture is copied out of a buffer
-    /// whose rows are padded by rules only the device knows, so the caller lays it out; but
-    /// it is still a recorded copy reading memory the caller is about to go out of scope
-    /// with, and the lifetime rule is the same one. Handing the buffer over is what keeps
-    /// it alive until the submission has been waited for.
-    /// </remarks>
     public void Keep(ComPtr<ID3D12Resource> staging)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -133,12 +102,6 @@ public sealed unsafe class D3D12Uploads : IDisposable
     }
 
     /// <summary>Submits without minding whether this batch is being disposed.</summary>
-    /// <remarks>
-    /// Disposal has to submit — the copies are already recorded into the context, and
-    /// leaving that list open would fail the next thing that asked for it — but it has
-    /// already said the batch is disposed by the time it gets there, so it cannot use the
-    /// public form. The same split as D3D12Context.WaitCore, for the same reason.
-    /// </remarks>
     private void SubmitCore()
     {
         if (_submitted)

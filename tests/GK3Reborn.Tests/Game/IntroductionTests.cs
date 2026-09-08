@@ -14,12 +14,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for not telling the player who somebody is before they have been introduced.
 /// </summary>
-/// <remarks>
-/// The original draws no label under the pointer, so this is a question only the port has
-/// to answer, and answering it wrongly gives away most of the cast list in the first
-/// minute. The conditions are the action files' own, so what these check is that the table
-/// is read, asked at the right moment, and safe in every direction it can fail.
-/// </remarks>
 public sealed class IntroductionTests
 {
     [Fact]

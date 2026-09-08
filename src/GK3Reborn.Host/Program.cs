@@ -7,11 +7,6 @@ namespace GK3Reborn.Bootstrap;
 /// <summary>
 /// The executable entry point.
 /// </summary>
-/// <remarks>
-/// This assembly stays deliberately thin: it installs native library resolution and
-/// crash handling before anything else can trigger a load, then hands off. See
-/// Plan/01-architecture.md section 3, step 1.
-/// </remarks>
 public static class Program
 {
     /// <summary>Process entry point.</summary>

@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the quest log.
 /// </summary>
-/// <remarks>
-/// Most of these check the shipped table rather than the code that reads it, and that is
-/// deliberate. An objective naming a score event that does not exist can never be completed,
-/// so the journal would tell a player to do something and then never admit they had done it
-/// — which is worse than having no journal at all. A typo has to fail a build.
-/// </remarks>
 public sealed class JournalTests
 {
     private static readonly Quests Table = Quests.Open();
@@ -43,11 +37,6 @@ public sealed class JournalTests
     }
 
     /// <summary>An objective's score events belong to the point in the story it is filed under.</summary>
-    /// <remarks>
-    /// A score event carries its timeblock in its name, so this catches an objective written
-    /// under the wrong heading — which would show a player the right thing to do on the wrong
-    /// day, and never tick it off.
-    /// </remarks>
     [Fact]
     public void Every_objective_is_filed_under_the_day_its_events_belong_to()
     {
@@ -96,10 +85,6 @@ public sealed class JournalTests
     }
 
     /// <summary>Every objective can be finished somehow.</summary>
-    /// <remarks>
-    /// A <c>score:</c> condition with no events would never be true, which is the one way to
-    /// write an objective that is impossible rather than merely hard.
-    /// </remarks>
     [Fact]
     public void No_objective_is_impossible()
     {
@@ -121,11 +106,6 @@ public sealed class JournalTests
     }
 
     /// <summary>No objective gives the answer away in its title.</summary>
-    /// <remarks>
-    /// A crude check and worth having anyway. The titles are the one thing shown unasked, and
-    /// the walkthrough's own giveaway words — the mechanics of a puzzle rather than its aim —
-    /// have no business in them. It has caught two.
-    /// </remarks>
     [Theory]
     [InlineData("dumbwaiter")]
     [InlineData("combine")]
@@ -146,10 +126,6 @@ public sealed class JournalTests
     }
 
     /// <summary>The journal shows nothing of a point in the story the player has not reached.</summary>
-    /// <remarks>
-    /// A list of what is coming is a table of contents for the plot, which is a spoiler of a
-    /// larger kind than any single hint.
-    /// </remarks>
     [Fact]
     public void The_journal_does_not_show_what_has_not_happened_yet()
     {
@@ -246,12 +222,6 @@ public sealed class JournalTests
     private static string JournalKey(Quest quest) => $"{quest.Timeblock}|{quest.Title}";
 
     /// <summary>Every line of both tables has a key, and it is the line's own position.</summary>
-    /// <remarks>
-    /// The keys are how the journal is translated, and they are positions rather than words —
-    /// so the one thing that can go wrong is the numbering drifting from the file. It drifts
-    /// silently: a shifted key draws the neighbouring objective's translation, which reads as
-    /// a journal quietly telling the player to do the wrong thing.
-    /// </remarks>
     [Fact]
     public void Every_objective_and_every_line_is_numbered_by_where_it_comes()
     {
@@ -276,12 +246,6 @@ public sealed class JournalTests
     }
 
     /// <summary>The heading over a point in the story is the game's own words for it.</summary>
-    /// <remarks>
-    /// Which is the half of the journal that needed no translation writing: every release
-    /// names its own timeblocks, so a French journal reads "Jour 1, 10.00 - 12.00" over the
-    /// list without anybody having written that down. A game with no archives still gets a
-    /// heading rather than a blank.
-    /// </remarks>
     [Fact]
     public void The_heading_over_a_point_in_the_story_comes_from_the_string_table()
     {
@@ -322,12 +286,6 @@ public sealed class JournalTests
     }
 
     /// <summary>What a save files a hint under does not move with the language.</summary>
-    /// <remarks>
-    /// The trap under the whole arrangement, and the reason <c>Quest.Title</c> stays English:
-    /// the key is the timeblock and the title, so a title translated in place would file a
-    /// French player's hints under a name an English one could not find — and changing
-    /// language mid-game would hand back every hint they had already spent.
-    /// </remarks>
     [Fact]
     public void Asking_for_a_hint_is_remembered_whatever_language_it_was_asked_in()
     {
@@ -343,10 +301,6 @@ public sealed class JournalTests
     }
 
     /// <summary>Which score events were earned survives a save, which it never used to.</summary>
-    /// <remarks>
-    /// A save carried the player's total and never what made it up, so loading one and doing
-    /// the same thing again paid for it twice. The journal is what made that visible.
-    /// </remarks>
     [Fact]
     public void An_event_already_earned_does_not_score_again_after_loading()
     {

@@ -19,18 +19,6 @@ internal static class MbFlag
 /// A decoded picture: its three planes and everything later pictures and later
 /// macroblocks need to know about how it was coded.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Motion vectors, reference choices and coefficient counts are kept per 4x4 block in
-/// raster order within the macroblock — <c>(y / 4) * 4 + x / 4</c> — rather than in the
-/// standard's block-index order, because prediction looks up "the block to the left" far
-/// more often than it looks up "block 5", and raster order makes that an offset of one.
-/// </para>
-/// <para>
-/// Everything is flat arrays indexed by macroblock address so the decoder allocates
-/// nothing per macroblock, and the arrays are reused when the picture is.
-/// </para>
-/// </remarks>
 internal sealed class Picture
 {
     private static int _serials;

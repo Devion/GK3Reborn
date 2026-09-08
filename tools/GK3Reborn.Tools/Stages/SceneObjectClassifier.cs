@@ -50,19 +50,6 @@ internal sealed class RoomRoles
 /// <summary>
 /// Reads what the scene files say about the objects inside each room's geometry.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The chain is <c>.SIF</c> to <c>.SCN</c> to <c>.BSP</c>: a scene initialisation file
-/// names a scene asset, the asset names the geometry, and roles declared in the SIF are
-/// therefore roles of objects inside that geometry. Several SIFs share one room — a
-/// location has a file per timeblock — so the roles are unioned rather than replaced.
-/// </para>
-/// <para>
-/// This is the only channel that is not a guess. A <c>floor=</c> line says which object
-/// the game walks on, and a <c>type=hittest</c> model names an object inside the room
-/// that is a volume rather than a thing.
-/// </para>
-/// </remarks>
 internal sealed class SceneRoles
 {
     private readonly Dictionary<string, RoomRoles> _rooms = new(StringComparer.OrdinalIgnoreCase);
@@ -145,12 +132,6 @@ internal sealed class SceneRoles
     }
 
     /// <summary>Which geometry file a scene file's declarations are about.</summary>
-    /// <remarks>
-    /// The asset names it. Where the asset cannot be read the scene's own name is used,
-    /// which is right for the majority — most rooms are named for their location — and
-    /// wrong only in a way that attributes a declaration to no room rather than the wrong
-    /// one, because a name that matches no BSP is never asked about.
-    /// </remarks>
     private static string RoomOf(GameArchives archives, SceneInitFile sif, string fallback)
     {
         if (sif.SceneAsset(includeConditional: true) is not { Length: > 0 } asset)
@@ -177,29 +158,9 @@ internal sealed class SceneRoles
 /// <summary>
 /// Decides what should be done with one of a room's objects.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Ordered, first match wins, and every answer carries the evidence that produced it.
-/// The order is the order of certainty: what a scene file declared, then what the surface
-/// flags say, then what the geometry measurably is, and only then what the artist called
-/// it.
-/// </para>
-/// <para>
-/// <b>The geometry gates come before the names and can overrule them.</b> An object with
-/// one plane is a card whatever it is called, and there is no edge on it to round; an
-/// object a thousand units across is a building even if the word "lamp" appears in its
-/// name, because a street of lampposts is one object in this data and subdividing it
-/// sixteenfold spends a room's whole budget on scenery nobody walks up to.
-/// </para>
-/// </remarks>
 internal static class Classifier
 {
     /// <summary>How large an object may be, in world units, before it is architecture.</summary>
-    /// <remarks>
-    /// The corpus's ornaments have a median longest edge of 48 units and its furniture 39;
-    /// its named architecture is at 128 and its foliage at 1,068. Three hundred separates
-    /// them with room to spare on both sides.
-    /// </remarks>
     public const float Room = 300f;
 
     /// <summary>Decides.</summary>
@@ -356,11 +317,6 @@ internal static class Classifier
     /// <summary>
     /// Words that name something made to be looked at.
     /// </summary>
-    /// <remarks>
-    /// The list the pipeline earns most of its triangles on: these are the lathed, carved
-    /// and moulded things whose whole character is a curve drawn with the dozen flat faces
-    /// 1999 could afford.
-    /// </remarks>
     private static readonly string[] Ornaments =
     [
         "statue", "fountain", "vase", "urn", "lamp", "lantern", "chandil", "chandel",

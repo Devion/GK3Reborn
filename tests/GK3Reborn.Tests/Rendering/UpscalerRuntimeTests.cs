@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for finding the vendors' runtimes, which the game ships none of.
 /// </summary>
-/// <remarks>
-/// The important behaviour is what happens when they are <em>not</em> there, because that
-/// is what every machine without them looks like and because the one thing this must never
-/// do is stop the game starting. Written against a directory made for the test rather than
-/// against whatever happens to be installed on the machine running it.
-/// </remarks>
 public sealed class UpscalerRuntimeTests : IDisposable
 {
     private readonly string _directory = Path.Combine(

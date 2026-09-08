@@ -39,12 +39,6 @@ public enum SidneyScreen
     /// <summary>
     /// Everything that has been scanned in, as a list.
     /// </summary>
-    /// <remarks>
-    /// The game's own main menu does not carry a row for this — its file list lives on the
-    /// front screen — but the original's screen bar does, and the art for the button is in
-    /// the archives beside the other seven. On a desktop the file store is a place you go
-    /// to rather than something the desktop itself shows, so it is a screen here.
-    /// </remarks>
     Files,
 }
 
@@ -68,18 +62,6 @@ public sealed record SidneyMail(
     /// <summary>
     /// Who sent it, as a name rather than an address.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The file gives an address and nothing else — <c>RT_Nakimura@aol.com</c> — and a list
-    /// of addresses is a list nobody reads. What is in front of the at-sign is what the
-    /// sender called themselves, so underscores become spaces and the result is offered as
-    /// their name, with the address still shown in the message itself.
-    /// </para>
-    /// <para>
-    /// <b>Full stops are left alone</b>, because the sixth message is from
-    /// <c>s.pam@easteregg.com</c> and turning that into "s pam" throws the joke away.
-    /// </para>
-    /// </remarks>
     public string Sender
     {
         get
@@ -91,11 +73,6 @@ public sealed record SidneyMail(
     }
 
     /// <summary>When it arrived, without the year, for a list that has one column for it.</summary>
-    /// <remarks>
-    /// The file writes "Jul 1, 1998, 7:25am", which is a date, a year and a time. A list
-    /// with one narrow column for it shows the day: the year is the same for all six, and
-    /// the header inside the message still carries the whole thing.
-    /// </remarks>
     public string When =>
         Date.Split(',', StringSplitOptions.TrimEntries) is [string day, ..] ? day : Date;
 }
@@ -110,20 +87,6 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
     /// <summary>
     /// The picture of this suspect, or an empty string where there is none.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Rendered from the character's own head</b> rather than cut from anything the game
-    /// ships: the original's suspect screen has no portraits at all, and the pictures that
-    /// exist elsewhere are inventory-sized. <c>render-model --portrait</c> frames the head,
-    /// turns it three-eighths of a turn and subdivides it, which is a far better face than
-    /// any 1999 asset of one.
-    /// </para>
-    /// <para>
-    /// Which model is whom comes out of the scene files, not out of a guess at the initials:
-    /// <c>model=lad</c> is Girard rather than Lady Howard, and Lady Howard is <c>lmo</c>.
-    /// Read off <c>model=X, noun=Y</c> across every SIF.
-    /// </para>
-    /// </remarks>
     public string Portrait => Index switch
     {
         1 => "PORTRAIT_MAD",   // Madeline Buthane
@@ -142,23 +105,6 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
     /// <summary>
     /// What the game calls this person: the noun its own scripts, items and flags use.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Not the surname.</b> Three of them are known to the game by something else — the
-    /// Abbé by his title, Estelle Stiles and Larry Chester by their first names — and every
-    /// piece of evidence is named after the noun, not the name on the suspect list. Reading
-    /// a surname off <c>Name</c> made <c>ABBE_FINGERPRINT</c>, <c>ESTELLES_FINGERPRINT</c>
-    /// and <c>LARRYS_FINGERPRINT</c> match nobody at all, so three suspects could never be
-    /// convicted of anything.
-    /// </para>
-    /// <para>
-    /// Read off the game's own names: the nine <c>*_FINGERPRINT</c> and five
-    /// <c>*_LICENSE</c> items, the actors its conversations address, and the four
-    /// <c>Matched…</c> flags its scripts write — <c>MatchedButhane</c>,
-    /// <c>MatchedBuchelli</c>, <c>MatchedEstelle</c>, <c>MatchedMosely</c> — which agree
-    /// with each other exactly.
-    /// </para>
-    /// </remarks>
     public string Noun => Index switch
     {
         1 => "Buthane",     // Madeline Buthane
@@ -177,14 +123,6 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
     /// <summary>
     /// Whether this suspect's vehicle is recorded as a registration rather than a description.
     /// </summary>
-    /// <remarks>
-    /// <b>The data draws the line itself.</b> Five of the ten carry a plate — VDG945F,
-    /// HJK841J, FKS427G, FED039A, ASD257K — and those five are exactly the five
-    /// <c>*_LICENSE</c> items the player can photograph. The other five carry what one could
-    /// tell by looking: "Van", "Blue Sedan", "Auto?", and for the Abbé the game's own
-    /// "Unknown". So a registration is something learned by linking a plate; a description
-    /// is not, and hiding it would hide something the player already saw.
-    /// </remarks>
     public bool Registered =>
         Vehicle.Length == 7 &&
         char.IsAsciiLetterUpper(Vehicle[0]) &&
@@ -212,10 +150,6 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
 /// What <c>ESIDNEY.TXT</c> calls the row — <c>Menu2Item1</c> — which is the same in every
 /// release while the title is not.
 /// </param>
-/// <remarks>
-/// The key exists because printing a card sets a flag a save keeps, and a flag spelled
-/// <c>SidneyId:JOURNALISTE</c> means nothing to the same game opened in English.
-/// </remarks>
 public sealed record SidneyIdentity(string Category, string Title, string Key = "");
 
 /// <summary>
@@ -226,14 +160,6 @@ public sealed record SidneyIdentity(string Category, string Title, string Key = 
 /// every release.
 /// </param>
 /// <param name="Text">What the player reads, which is not.</param>
-/// <remarks>
-/// <b>A choice cannot be its own label.</b> The parchment asks what language its letters
-/// break in and the French release labels the wrong answer <c>OCCITAN</c>, the German one
-/// <c>DEUTSCH</c> and the Italian one <c>ITALIANO</c> — so an engine that recognised the
-/// right answer by the word FRENCH would refuse it in five languages out of six, and the
-/// Dagobert line the story turns on could never be read. The key is what the machine
-/// matches and the text is what the button says.
-/// </remarks>
 public sealed record SidneyChoice(string Key, string Text);
 
 /// <summary>What one of Sidney's operations produced.</summary>
@@ -250,28 +176,6 @@ public sealed record SidneyResult(
 /// <summary>
 /// Everything Sidney is told, read from the game's own text.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Sidney is a portable computer Grace carries, and the story runs through it: parchments
-/// are scanned into it, analysed, and translated, and the results are what let the next
-/// scene happen. It is not decoration and it cannot be skipped.
-/// </para>
-/// <para>
-/// <b>Almost all of it is data.</b> <c>ESIDNEY.TXT</c> holds the menus, the screen names,
-/// and — the part that matters — the actual output of every analysis, keyed by what was
-/// analysed: <c>AnalyzeParch1</c>, <c>ExtractParch1</c>, <c>Parch1French</c>. What the
-/// engine has to supply is not the words but the machine: which files exist, which
-/// operation applies to which, what each one unlocks, and what the story is allowed to ask
-/// about afterwards. That is what this is.
-/// </para>
-/// <para>
-/// <b>Files are named by the story.</b> <c>DoesSidneyFileExist("fileParchment1")</c> is a
-/// real condition in <c>R31210A.NVC</c>, and there are eight such names in the whole game.
-/// Scanning is an ordinary action — the noun is the inventory item, the verb is
-/// <c>SCANNER</c>, and the game's own action files carry the scripts — so what Sidney adds
-/// is the mapping from the item that was scanned to the file it becomes.
-/// </para>
-/// </remarks>
 public sealed class SidneyLibrary
 {
     private readonly KeyedText _text;
@@ -328,24 +232,6 @@ public sealed class SidneyLibrary
     /// </summary>
     /// <param name="id">Which message, as <c>ESIDNEYEMAIL.TXT</c> keys it.</param>
     /// <returns>The attachment's lines, which is empty for a message that has none.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Two of the six messages are illustrated and neither carries its own content.</b>
-    /// Their bodies say only that a result was "added to files group"; what the original
-    /// draws under that is kept in <c>ESIDNEY.TXT</c>'s e-mail section as <c>HermFile1</c>
-    /// and <c>SolomonFile1</c> onwards — the symbol search with its four alchemical signs,
-    /// and the layout of the Temple of Solomon.
-    /// </para>
-    /// <para>
-    /// The four lines of the symbol search that begin at an equals sign — "=  'to mix'" —
-    /// are written that way because the symbol is drawn where the words would start. They
-    /// take <c>SID_SYMB_1</c> to <c>SID_SYMB_4</c> in order.
-    /// </para>
-    /// <para>
-    /// Keyed on the message's own identifier rather than on its subject, which is translated
-    /// in every localisation the game shipped in.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<MailLine> Attachment(string id)
     {
         ArgumentNullException.ThrowIfNull(id);
@@ -374,22 +260,12 @@ public sealed class SidneyLibrary
     }
 
     /// <summary>The eight rows of the main menu, in order, without the separator.</summary>
-    /// <remarks>
-    /// The file writes a caret for the rule between ADD DATA and E-MAIL. It is a separator
-    /// rather than a row, and offering it as one is offering the player a menu item called
-    /// <c>^</c>.
-    /// </remarks>
     /// <summary>
     /// A numbered run of lines — <c>AbbeTape1</c>, <c>AbbeTape2</c> — in order.
     /// </summary>
     /// <param name="section">Which section they are in.</param>
     /// <param name="prefix">What the keys are called before their number.</param>
     /// <returns>The lines, which is empty when there are none.</returns>
-    /// <remarks>
-    /// The file's own way of writing anything longer than a line: a message's paragraphs, a
-    /// telephone call's turns, a list of suspects. It stops at the first gap, because the
-    /// files number from one and a gap is a mistake rather than a signal.
-    /// </remarks>
     public IReadOnlyList<string> Lines(string section, string prefix) =>
         _text.Run(section, prefix);
 
@@ -399,13 +275,6 @@ public sealed class SidneyLibrary
     /// <summary>
     /// The screens the main menu names, paired with what they are called.
     /// </summary>
-    /// <remarks>
-    /// <b>Read off the row's number, not off its words.</b> The nine <c>MenuItem</c> keys
-    /// are in the same order in every release — search, analyze, translate, make I.D.,
-    /// suspects, add data, e-mail, the rule, exit — and only their values are translated.
-    /// Matching the value against SEARCH and ANALYZE meant a French game's menu opened
-    /// nothing at all, because its rows say RECHERCHER and ANALYSER.
-    /// </remarks>
     public IReadOnlyList<(SidneyScreen Screen, string Label)> Rows()
     {
         List<(SidneyScreen, string)> rows = [];
@@ -440,10 +309,6 @@ public sealed class SidneyLibrary
     /// <summary>
     /// The ten people Sidney keeps a file on.
     /// </summary>
-    /// <remarks>
-    /// Names, nationalities and vehicle identifications all come out of the game's own
-    /// text, which lists them in parallel numbered runs.
-    /// </remarks>
     public IReadOnlyList<SidneySuspect> Suspects()
     {
         List<SidneySuspect> people = [];
@@ -467,10 +332,6 @@ public sealed class SidneyLibrary
     /// <summary>
     /// The identities Sidney can print, by trade.
     /// </summary>
-    /// <remarks>
-    /// Five menus of two to four jobs each, written as <c>Menu1Item1</c> under the make-ID
-    /// screen. Grace uses one of these to get somebody to open a door.
-    /// </remarks>
     public IReadOnlyList<SidneyIdentity> Identities()
     {
         List<SidneyIdentity> identities = [];

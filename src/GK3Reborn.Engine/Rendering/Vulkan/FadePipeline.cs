@@ -9,26 +9,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Draws a flat colour over the finished picture, at whatever opacity it is given.
 /// </summary>
-/// <remarks>
-/// <para>
-/// What a scene change looks like. Everything else the renderer draws is a thing in the
-/// world or a thing on the interface; this is neither, and it goes over both — a fade that
-/// left the inventory bar showing would be a fade of the room rather than of the picture.
-/// </para>
-/// <para>
-/// No vertex buffer, no descriptors and no texture: one triangle covering the screen,
-/// generated from the vertex index, and a push constant carrying the colour. That makes it
-/// the cheapest pass in the renderer, which matters because it is recorded on every frame
-/// of the game and does nothing on almost all of them.
-/// </para>
-/// <para>
-/// The colour is written as it is given and the blend is straight, so an alpha of one
-/// leaves the target exactly that colour and an alpha of a half leaves it halfway there.
-/// See <see cref="OverlayPipeline"/> for why the interface's own colours have to be
-/// converted first: this one writes the number it is handed, and the ramp it is driven
-/// along is the caller's business.
-/// </para>
-/// </remarks>
 public sealed unsafe class FadePipeline : IDisposable
 {
     private readonly Vk _vk;
@@ -46,10 +26,6 @@ public sealed unsafe class FadePipeline : IDisposable
     }
 
     /// <summary>What the swapchain wants written into it.</summary>
-    /// <remarks>
-    /// Set by the renderer. Standard by default, which is the sRGB target the hardware
-    /// encodes and where the wash is written exactly as it always was.
-    /// </remarks>
     public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
 
     /// <summary>Builds the pipeline.</summary>

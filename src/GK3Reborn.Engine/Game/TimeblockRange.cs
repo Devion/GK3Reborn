@@ -3,27 +3,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The span of the story an asset applies to, as written in its own name.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 files say when they are for. A location's action files are
-/// <c>R25_ALL.NVC</c>, <c>R25_1ALL.NVC</c>, <c>R25_23ALL.NVC</c> and
-/// <c>R25202P.NVC</c>: every timeblock, all of day one, days two and three, and that
-/// afternoon alone. The scene file lists all of them and the engine is expected to load
-/// only the ones that apply, so the name is not decoration — it is the condition.
-/// </para>
-/// <para>
-/// The grammar, from G-Engine's <c>Timeblock::ParseTimeblockRange</c>: three letters of
-/// location, an optional underscore, then either <c>ALL</c> preceded by the digits of the
-/// days it covers, or a timeblock code optionally followed by a second one giving the end
-/// of a range — <c>HAL110A04P</c> runs from day one at ten in the morning to four that
-/// afternoon, the end borrowing its day from the start.
-/// </para>
-/// <para>
-/// A name that does not parse covers nothing, which is the original's behaviour and the
-/// safe direction: loading an action file at the wrong point in the story puts verbs on
-/// objects that should not have them yet.
-/// </para>
-/// </remarks>
 /// <param name="Start">First timeblock it applies to.</param>
 /// <param name="End">Last timeblock it applies to.</param>
 public readonly record struct TimeblockRange(Timeblock Start, Timeblock End)
@@ -82,20 +61,6 @@ public readonly record struct TimeblockRange(Timeblock Start, Timeblock End)
     /// Nought for one that spans the story or says nothing, and up to three for one that
     /// names a single timeblock.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// The reference's <c>ActionType</c>, computed the same way and from the same thing —
-    /// the name, never the order the scene file happens to list its files in. Four levels:
-    /// <c>LBY_ALL</c> and <c>LBY_23ALL</c> are global (they span days), <c>LBY_1ALL</c> is a
-    /// day, <c>LBY110A04P</c> is a stretch of one, and <c>LBY110A</c> is one block.
-    /// </para>
-    /// <para>
-    /// It decides which of two rules the player gets when both are written against
-    /// hand-written conditions and both hold — see <c>ActionResolver.Best</c>. Days two and
-    /// three counting as global is the reference's own arithmetic rather than a reading of
-    /// the intent, and is kept: a rule about it is a rule about the shipped data.
-    /// </para>
-    /// </remarks>
     public static int Specificity(string? name)
     {
         if (!TryParse(name, out TimeblockRange range) || range.Start.Day != range.End.Day)

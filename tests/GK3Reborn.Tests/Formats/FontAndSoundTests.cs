@@ -11,21 +11,11 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the two formats the interface and the audio needed.
 /// </summary>
-/// <remarks>
-/// Both have a trap that only shows up on real data. A font's glyph widths are not written
-/// down anywhere — they are the distance between marker pixels along the top of the sheet —
-/// and a sound is usually not a sound at all but an MP3 stream inside a RIFF header.
-/// </remarks>
 public sealed class FontAndSoundTests
 {
     /// <summary>
     /// A sheet whose top row marks three glyphs of different widths.
     /// </summary>
-    /// <remarks>
-    /// Black is the background, red is the marker. The first non-background pixel of the
-    /// top row is where the first glyph starts, and every red pixel after it starts
-    /// another, so this describes glyphs of three, four and two pixels.
-    /// </remarks>
     private static DecodedImage Sheet(int lines = 1)
     {
         const int Width = 10;
@@ -106,11 +96,6 @@ public sealed class FontAndSoundTests
     /// <summary>
     /// A sheet of several rows whose markers are given outright, with optional ink.
     /// </summary>
-    /// <remarks>
-    /// For the terminator cases. Ink is a single lit pixel just under the sheet's last
-    /// column, which is how a row whose final letter runs to the edge differs from one
-    /// whose final mark is only saying where the letter before it stopped.
-    /// </remarks>
     private static DecodedImage Marked(int[][] rows, bool inkAtEnd = false)
     {
         const int Width = 12;

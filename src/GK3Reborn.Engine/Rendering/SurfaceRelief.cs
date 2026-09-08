@@ -28,30 +28,6 @@ namespace GK3Reborn.Rendering;
 public readonly record struct ReliefSettings(bool Displace, int TriangleBudget, bool Trace)
 {
     /// <summary>Displaced, at a million triangles, and traced.</summary>
-    /// <remarks>
-    /// <para>
-    /// A million against the ten to fifteen thousand a whole room has been until now. It
-    /// sounds enormous and is not: this is a 1999 game running on hardware twenty-five years
-    /// later, the vertex format is forty bytes, and the budget comes to about fifty
-    /// megabytes of geometry for the one surface the camera spends its time looking along.
-    /// Measured on the village, which is the largest paved area in the game: four hundred
-    /// thousand buys seven and a half units a cell, a million buys four, and four million
-    /// buys two — and the frame rate is 150 either way, because a static mesh of this size
-    /// is nothing to draw. What it costs is about a second of the village's load.
-    /// </para>
-    /// <para>
-    /// Four units a cell is about a third of a cobble, which is where a paved street stops
-    /// reading as a painted plane. Every interior in the game is finer than that already:
-    /// their floors are small enough to reach <see cref="ReliefPlan.FinestCell"/> and the
-    /// budget never binds.
-    /// </para>
-    /// <para>
-    /// Two million since relief stopped ending at the floor object: outdoors the verges,
-    /// rock and roadside are cut too, and the same budget over twice the area would have
-    /// meant coarser cobbles on the street that was already right. The measurements above
-    /// scale — the frame rate does not notice and the load pays another second outdoors.
-    /// </para>
-    /// </remarks>
     public static ReliefSettings Default => new(true, 2_000_000, true);
 
     /// <summary>Nothing displaced.</summary>
@@ -68,30 +44,12 @@ public readonly record struct ReliefVertex(Vector3 Position, Vector3 Normal, Vec
 /// The floor's triangles in buckets, so "does the floor go on past this edge?" is a local
 /// question.
 /// </summary>
-/// <remarks>
-/// Asked once per edge that no second triangle shares, which is two and a half thousand
-/// times on the village and would otherwise be that many sweeps of three thousand
-/// triangles. The buckets are square in the ground plane and a triangle goes in every one
-/// its extent touches, because a village street is one triangle across several buckets.
-/// </remarks>
 internal sealed class TriangleGrid
 {
     /// <summary>How far off the plane of a triangle a point may be and still be on it.</summary>
-    /// <remarks>
-    /// Two patches of ground that abut are not always at exactly the same height: the game's
-    /// floors are laid by hand and a step of a unit between the street and the square in
-    /// front of it is common. A unit is a couple of centimetres and well under the depth
-    /// anything is displaced by, so accepting it costs nothing and refusing it would pin the
-    /// join.
-    /// </remarks>
     private const float Flush = 2f;
 
     /// <summary>How far past an edge to look for more floor.</summary>
-    /// <remarks>
-    /// Far enough to be inside the next triangle rather than on the line between them, and
-    /// short enough not to step over a gap. Three quarters of a unit is under two
-    /// centimetres.
-    /// </remarks>
     private const float Beyond = 0.75f;
 
     private const float Bucket = 128f;
@@ -226,109 +184,24 @@ internal sealed class TriangleGrid
 /// <summary>
 /// Turns a floor's height map into geometry.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Parallax cannot make a silhouette. It moves the texel a ray lands on, so a cobbled
-/// street reads as cobbles from above and as a painted plane the moment the camera drops to
-/// eye level and looks along it — which, this being an adventure game about walking down
-/// streets, is most of the time anybody looks at one. The fix is the obvious one: move the
-/// vertices.
-/// </para>
-/// <para>
-/// <b>There are no vertices to move.</b> The game's floors are enormous flat triangles —
-/// PL6's stretch of road is ninety-six of them over 1.15 million square units, an average
-/// triangle four metres across — so this subdivides before it displaces, and everything
-/// here follows from having to do that without opening a crack.
-/// </para>
-/// <para>
-/// <b>The cut is a lattice in texture space, not a subdivision of the triangle.</b> Each
-/// triangle is clipped against a grid of lines at fixed texture coordinates, and every piece
-/// that falls out is one cell of that grid. Three things follow, and they are the reason for
-/// doing it this way rather than the obvious way.
-/// </para>
-/// <para>
-/// First, <b>no cracks and nothing to reconcile</b>. Two triangles that share an edge share
-/// its texture coordinates, so the lattice crosses that edge in the same places from both
-/// sides and both put vertices there. There is no per-triangle subdivision level for
-/// neighbours to disagree about, and no stitching.
-/// </para>
-/// <para>
-/// Second, <b>the cells are the size they need to be</b>. Cutting a triangle into an N by N
-/// barycentric grid takes N from its longest edge, so a long thin strip of road — which is
-/// what a road is — comes out cut far finer across than along; measured over the corpus that
-/// wastes between two and four triangles in every five. A lattice spends them where there is
-/// area.
-/// </para>
-/// <para>
-/// Third, the cells line up with the height field, because that is what texture space is.
-/// </para>
-/// <para>
-/// <b>What does not move.</b> An edge no second displaced triangle shares — the floor
-/// meeting a wall, a kerb, the end of the world, or simply the next texture along, whose
-/// lattice is its own — stays exactly where the 1999 geometry put it, and the displacement
-/// fades in over the first cell. Lifting one opens a gap under the skirting board.
-/// </para>
-/// <para>
-/// <b>What is left for the shader.</b> The geometry can only carry relief coarser than its
-/// own cells, so the field is averaged over a cell before a vertex is moved — see
-/// <see cref="HeightField.Over"/> — and the finer part of the same field stays with the
-/// parallax march and the normal map, at a reduced depth. Displacing at full depth and
-/// marching at full depth counts the same bump twice.
-/// </para>
-/// </remarks>
 public sealed class ReliefPlan
 {
     /// <summary>Positions are matched to a sixteenth of a unit, which is a millimetre and a half.</summary>
     private const float Grain = 16f;
 
     /// <summary>The finest cell worth cutting, in world units.</summary>
-    /// <remarks>
-    /// Two units is five centimetres. Below that there is little left to resolve — a shipped
-    /// height map is 512 texels across a tile the game stretches over a couple of hundred
-    /// units, so a cell this size is already down to a handful of texels — and a small room
-    /// would otherwise spend its whole budget cutting a lobby floor into confetti.
-    /// </remarks>
     public const float FinestCell = 2f;
 
     /// <summary>How many lattice cells one source triangle may be cut against.</summary>
-    /// <remarks>
-    /// <para>
-    /// A backstop against a texture coordinate nobody can honour, not a budget: the budget
-    /// bounds the floor as a whole and is solved before this is reached.
-    /// </para>
-    /// <para>
-    /// It used to be sixty-five thousand, which a legitimate triangle can pass — a floor
-    /// laid as one slab four hundred cells across is inside it and then over it — and
-    /// passing it means the triangle comes out flat while its neighbours are displaced. It
-    /// also made the cost of cutting a floor rise as the cells were made coarser, because a
-    /// triangle refused at one cell size is cut into everything it asked for at the next,
-    /// and a budget cannot be solved against that.
-    /// </para>
-    /// </remarks>
     private const int MostCells = 4_194_304;
 
     /// <summary>How flat a non-floor triangle must lie to have its relief cut.</summary>
-    /// <remarks>
-    /// The vertical component of the unit normal: 0.35 keeps ground and rocky slopes up
-    /// to about seventy degrees and refuses walls, facades and steep roofs — which tear
-    /// from their neighbours at every corner two lattices meet, and whose texture-space
-    /// spans against a ground-solved lattice are what blew one village to thirty-six
-    /// million triangles.
-    /// </remarks>
     private const float LiesFlat = 0.35f;
 
     private readonly Dictionary<(int X, int Y, int Z), Vector3> _normals;
     private readonly HashSet<((int X, int Y, int Z) From, (int X, int Y, int Z) To)> _pinned;
 
     /// <summary>Corners that lie on a pinned edge, whichever triangle is asking.</summary>
-    /// <remarks>
-    /// Pinning edges alone leaves a pinhole. A corner where the floor meets a wall belongs
-    /// to the boundary edge along that wall and also to triangles that have no boundary
-    /// edge of their own — the one behind it, sharing only the diagonal — and those have no
-    /// reason not to lift it. Both then own that single point and disagree about where it
-    /// is, which is a hole rather than a crack and shows as a speck of skybox at the
-    /// skirting.
-    /// </remarks>
     private readonly HashSet<(int X, int Y, int Z)> _held;
 
     /// <summary>Triangles whose tiling disagrees with their texture's, left as they were.</summary>
@@ -373,14 +246,6 @@ public sealed class ReliefPlan
     public int SourceTriangles { get; }
 
     /// <summary>The furthest any vertex was moved, in world units.</summary>
-    /// <remarks>
-    /// Cutting a floor up and not moving it is a failure that looks like success from every
-    /// other number the loader prints: a million triangles, a sensible cell, and a picture
-    /// identical to the flat one. It has happened twice — once from height maps that were
-    /// never loaded, once from a fade that held nine tenths of the floor down — and both
-    /// times the evidence had to be dug for. This is that evidence, reported beside the
-    /// count.
-    /// </remarks>
     public float Moved { get; private set; }
 
     /// <summary>How far the average displaced vertex moved, in world units.</summary>
@@ -390,15 +255,6 @@ public sealed class ReliefPlan
     /// <param name="furthest">The furthest any of its vertices moved.</param>
     /// <param name="total">Those distances added up.</param>
     /// <param name="count">How many of them there were.</param>
-    /// <remarks>
-    /// <b>Once a triangle, under a lock, because the callers are concurrent.</b> Nothing
-    /// else in a cut is shared — the plan is read-only once <see cref="For"/> has built it,
-    /// and every call works in buffers of its own — so this is the whole of what makes
-    /// cutting a floor on several threads safe. A lock per triangle is some tens of
-    /// thousands of uncontended acquisitions across a room; the same lock per *vertex*
-    /// would be a million and a half of them, contended, which is why the tally is kept in
-    /// the call and merged rather than written through.
-    /// </remarks>
     private void Record(float furthest, double total, int count)
     {
         if (count == 0)
@@ -437,11 +293,6 @@ public sealed class ReliefPlan
     /// <param name="b">Second corner.</param>
     /// <param name="c">Third corner.</param>
     /// <returns>True to cut it; false to leave it the flat triangle it was.</returns>
-    /// <remarks>
-    /// The same test the plan applied when it gathered, so the estimate and the cut
-    /// count the same set. The floor object is never refused: its edges were solved
-    /// for from the start.
-    /// </remarks>
     public bool Lies(BspSurface surface, Vector3 a, Vector3 b, Vector3 c)
     {
         ArgumentNullException.ThrowIfNull(surface);
@@ -457,12 +308,6 @@ public sealed class ReliefPlan
     }
 
     /// <summary>Surfaces beyond the floor whose relief is cut, or null for floor-only.</summary>
-    /// <remarks>
-    /// The floor was the whole story until the reconstructed horizon made the rooms the
-    /// sharpest thing on screen: outdoors, the ground runs past the <c>floor=</c> object
-    /// into verges, rock and roadside that carry the same displaced-class textures and
-    /// were left flat for no reason a player can see.
-    /// </remarks>
     private Func<BspSurface, bool>? Also { get; init; }
 
     /// <summary>
@@ -477,12 +322,6 @@ public sealed class ReliefPlan
     /// outdoors, the ground runs past the <c>floor=</c> object and the loader says how far.
     /// </param>
     /// <returns>The plan, or null when there is no floor to displace.</returns>
-    /// <remarks>
-    /// The cell is bought with the budget rather than fixed, which is what lets one number
-    /// serve rooms an order of magnitude apart in paved area: the hotel lobby's four hundred
-    /// and fifty thousand square units come out at the finest cell allowed and the village
-    /// forecourt's two and a half million at about four, with nobody tuning a scene.
-    /// </remarks>
     public static ReliefPlan? For(
         BspFile? scene, string? floorObject, Func<string, bool> deep, int budget,
         Func<BspSurface, bool>? also = null)
@@ -1041,11 +880,6 @@ public sealed class ReliefPlan
     }
 
     /// <summary>Whether one rate is close enough to another to share a lattice.</summary>
-    /// <remarks>
-    /// A factor of three either way. Wide, because a texture stretched half again over one
-    /// patch of ground is ordinary and its cells are only half again the size; the case
-    /// this is for is the one off by a hundred.
-    /// </remarks>
     private static bool Agrees(double own, double shared) =>
         own > 1e-9 && shared > 1e-9 && own / shared is > (1.0 / 3.0) and < 3.0;
 
@@ -1094,11 +928,6 @@ public sealed class ReliefPlan
     /// <param name="at">Where the line is.</param>
     /// <param name="keepPast">Whether to keep what is past the line or short of it.</param>
     /// <returns>How many vertices the result has.</returns>
-    /// <remarks>
-    /// Sutherland and Hodgman, one half-plane at a time. The clipped coordinate is taken
-    /// from the line rather than interpolated, so that two neighbouring cells put their
-    /// shared vertices at exactly the same place along the axis they share.
-    /// </remarks>
     private static int Clip(
         ReadOnlySpan<Vector2> source,
         int count,
@@ -1152,24 +981,6 @@ public sealed class ReliefPlan
     }
 
     /// <summary>How many triangles a cell size cuts a floor into.</summary>
-    /// <remarks>
-    /// <para>
-    /// Counted in texture space, one source triangle at a time, because that is where the
-    /// lattice is. A convex shape laid over a grid covers about its own area in cells plus
-    /// one for every grid line it crosses; a cell wholly inside comes out as two triangles
-    /// and a cell the shape's edge runs through as about three.
-    /// </para>
-    /// <para>
-    /// <b>Both corrections matter and the village needed both.</b> The area term used the
-    /// texture's average stretch, so triangles tiled finer than that average — a third of
-    /// the ground outside the hotel — were cut into cells smaller than the one the budget
-    /// bought. And the crossings term was a perimeter over the cell size, which is right
-    /// for a triangle lying square to the lattice and half of the answer for one lying
-    /// across it: a long thin strip of road at an angle steps through a line of the lattice
-    /// in both directions at once. Together they made RC1 come out at 1,107,726 triangles
-    /// against an estimate of 392,407, which is not a budget.
-    /// </para>
-    /// </remarks>
     private static int Estimate(
         IReadOnlyList<(Vector3 A, Vector3 B, Vector3 C, string Texture)> triangles,
         IReadOnlyList<(Vector2 A, Vector2 B, Vector2 C)> coordinates,

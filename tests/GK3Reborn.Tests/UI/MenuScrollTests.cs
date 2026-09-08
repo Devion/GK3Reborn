@@ -9,20 +9,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests that a long settings page moves under the player only when it has to.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported as "the scroll loves to immediately jump, which for a user isn't nice". It
-/// did: the page kept a single row index and recomputed it from the selection every frame,
-/// growing a window of rows outwards from the chosen one — so the chosen row was always in
-/// the middle of the panel and <em>every</em> step of the selection scrolled the whole page
-/// by one row. The list moved and the cursor stood still, which is the wrong way round.
-/// </para>
-/// <para>
-/// What is checked here is the behaviour and not the arithmetic: where the rows were
-/// actually drawn, frame by frame, as the selection walks down a page taller than the
-/// window.
-/// </para>
-/// </remarks>
 public sealed class MenuScrollTests
 {
     private const int Width = 1280;
@@ -223,12 +209,6 @@ public sealed class MenuColumnTests
         };
 
     /// <summary>How many rows were drawn on the same line as another one.</summary>
-    /// <remarks>
-    /// Counted from the highlight-free geometry: two rows share a line when their recorded
-    /// rectangles have the same top. Taken from where the page says it put them, which is
-    /// the same list the pointer is hit-tested against — so a test that passes here is a
-    /// test that the pointer agrees with.
-    /// </remarks>
     private static int Paired(MenuPage page, IReadOnlyList<MenuItem> items)
     {
         Dictionary<float, int> lines = [];

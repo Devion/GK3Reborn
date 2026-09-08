@@ -7,11 +7,6 @@ using GK3Reborn.UI;
 namespace GK3Reborn.Game;
 
 /// <summary>How an actor gets to the thing they are about to act on.</summary>
-/// <remarks>
-/// An action file writes this beside the script as <c>approach=</c>, and it is not part of
-/// the script: it is what has to be true before the script runs. 3,617 of them across the
-/// corpus, of which 2,120 are <c>WalkToSee</c> and 394 are turns.
-/// </remarks>
 public enum Approaching
 {
     /// <summary>Go to a named spot on the floor and face the way it says.</summary>
@@ -32,30 +27,6 @@ public readonly record struct RecordedEvent(string Name, IReadOnlyList<string> A
 /// <summary>
 /// The GK3 API surface, bound to game state.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The specification documents 359 functions, of which 174 are development-only, leaving
-/// around 130 that gameplay needs. Those divide cleanly by what they do rather than by
-/// how common they are.
-/// </para>
-/// <para>
-/// **State functions are implemented.** Flags, game variables, noun/verb counts, topic
-/// counts, score, timeblock and location are what determines whether the story can
-/// progress, and they are what a differential comparison between engines has to agree
-/// on.
-/// </para>
-/// <para>
-/// **Presentation functions are recorded.** <c>CutToCameraAngle</c> is called 2,235 times
-/// across the corpus and <c>StartAnimation</c> 2,067, but neither changes what the game
-/// permits — and neither can be performed before the renderer exists. Recording them
-/// keeps the trace complete and honest: the call happened, in that order, with those
-/// arguments, and nothing was faked.
-/// </para>
-/// <para>
-/// Anything not registered is reported once. Silence there would let a missing function
-/// look like a working one.
-/// </para>
-/// </remarks>
 public sealed class Gk3SheepApi : ISheepApi
 {
     private readonly Dictionary<string, Func<IReadOnlyList<SheepValue>, SheepValue>> _functions =
@@ -78,57 +49,27 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>
     /// Grace's computer, when there is one.
     /// </summary>
-    /// <remarks>
-    /// Held here so that the switches which set a scene up for a screenshot can reach it;
-    /// the game itself reaches it through the screen it draws.
-    /// </remarks>
     public Sidney.SidneyMachine? Sidney { get; set; }
 
     /// <summary>Where saved games are kept, or null when nothing may be saved.</summary>
-    /// <remarks>
-    /// Null for a headless run. A corpus sweep loads five hundred rooms and has neither a
-    /// profile directory to write to nor a reason to want one.
-    /// </remarks>
     public SaveStore? Saves { get; set; }
 
     /// <summary>
     /// Where the camera stands in the room a request is moving to, or null for its own.
     /// </summary>
-    /// <remarks>
-    /// The binoculars set this. Leaning in on somewhere across the valley cuts to a camera
-    /// the binoculars data names, and that camera is inside a room which has not been
-    /// loaded yet — so it travels with the request rather than being applied here.
-    /// </remarks>
     public (System.Numerics.Vector3 Position, System.Numerics.Vector2 Angle)? WantedCamera { get; set; }
 
     /// <summary>
     /// A room the game has to move to, put here by loading a save.
     /// </summary>
-    /// <remarks>
-    /// Read and cleared by whatever owns the loop. A script function cannot load a scene —
-    /// that needs archives, a device and a renderer — so it says where the game now is and
-    /// something with those things takes it there.
-    /// </remarks>
     public string? Wanted { get; set; }
 
     /// <summary>
     /// The room the player is leaning into through the binoculars, or null.
     /// </summary>
-    /// <remarks>
-    /// Set while the look is being arranged and cleared when it is over, and read by the
-    /// room loop to decide that the room it is building is a view rather than an arrival:
-    /// nothing about it is counted, no entry script runs, and the player's own location
-    /// never changes. See <see cref="BinocularView"/>.
-    /// </remarks>
     public BinocularView? Leaning { get; set; }
 
     /// <summary>The look through the binoculars that is being put down, or null.</summary>
-    /// <remarks>
-    /// Coming back is not an arrival either — the player never left — so the room is built
-    /// without being entered again, and everything the look moved is put back: the camera
-    /// they were looking through and the spot they were standing on. Cleared by the loop
-    /// that reads it, once the room it describes is standing.
-    /// </remarks>
     public BinocularView? Resuming { get; set; }
 
     /// <summary>The state these functions operate on.</summary>
@@ -136,22 +77,6 @@ public sealed class Gk3SheepApi : ISheepApi
 
     /// <summary>Puts a saved game back, and drops what the load has orphaned.</summary>
     /// <param name="save">The save.</param>
-    /// <remarks>
-    /// <para>
-    /// <see cref="GameState.Restore"/> and everything a load has to clear that is not the
-    /// story's to keep. The action clock is the one thing here that is not state: it
-    /// belongs to whatever action was playing when the player loaded, and that action is
-    /// gone with the room it ran in. Left standing it keeps <c>SceneUpdate.Occupied</c>
-    /// true in the restored room, which holds the camera away from the player for as long
-    /// as the abandoned action had left to run — the same complaint as a save loaded
-    /// during a cutscene, arriving from the other side.
-    /// </para>
-    /// <para>
-    /// Every load goes through here: the console and the interface both, because a camera
-    /// that answers to nobody is the sort of fault that comes back through whichever path
-    /// was not fixed.
-    /// </para>
-    /// </remarks>
     public void RestoreGame(SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
@@ -176,10 +101,6 @@ public sealed class Gk3SheepApi : ISheepApi
     public IReadOnlyCollection<string> UnknownFunctions => _reportedUnknown;
 
     /// <summary>What each score event is worth.</summary>
-    /// <remarks>
-    /// The engine's own table rather than the game's: the original compiled it in, and no
-    /// barn holds it. See <see cref="ScoreEvents"/>.
-    /// </remarks>
     public ScoreEvents Scores { get; set; } = ScoreEvents.Open();
 
     /// <summary>Diagnostics raised while running.</summary>
@@ -213,240 +134,75 @@ public sealed class Gk3SheepApi : ISheepApi
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
     /// <summary>How long the next lines of the conversation in progress take.</summary>
-    /// <remarks>
-    /// <c>ContinueDialogue(2)</c> means the next two of a run whose licence plate was given
-    /// once, several statements ago, so only the thing doing the speaking knows which
-    /// recordings those are. Null where nothing is speaking, which answers nought and is
-    /// right: a continuation of nothing says nothing and takes no time.
-    /// </remarks>
     public Func<int, double>? ContinuedSeconds { get; set; }
 
     /// <summary>
     /// What sends an actor across the room, when there is a room to cross.
     /// </summary>
-    /// <remarks>
-    /// Given the actor, the place, how to get there and whether they are in a hurry;
-    /// answers how long it will take. Set by <see cref="SceneScripting.Attach"/>, so a tool
-    /// with no scene leaves it null and the walking calls stay recorded, as they always
-    /// were.
-    /// </remarks>
-    /// <remarks>
-    /// Only the player is ever in a hurry. A script that sends somebody somewhere passes
-    /// false, because a script's timings are written against the pace the game walks at and
-    /// hurrying one leg of a scripted sequence would arrive an actor before their line.
-    /// </remarks>
     public Func<string, string, Approaching, bool, bool, double>? Walks { get; set; }
 
     /// <summary>
     /// Whether a loaded script declares a function, given the script and the function.
     /// </summary>
-    /// <remarks>
-    /// Set by <see cref="ScriptHost"/> when it registers the calls, so anything holding the
-    /// API can ask before it calls. What needs it is the interface: the radio's general call
-    /// is <c>CallSheep(&lt;room&gt;, "RadioButton$")</c> and four of the five temple rooms
-    /// declare it — offering the row in the fifth would be a menu entry that does nothing,
-    /// which is worse than one that is not there.
-    /// </remarks>
     public Func<string, string, bool>? Declares { get; set; }
 
     /// <summary>
     /// The noun of the action being carried out, or empty.
     /// </summary>
-    /// <remarks>
-    /// Some functions take no arguments and mean "the thing this action is about".
-    /// <c>InspectObject()</c> is the one that matters — <c>REGISTER, INSPECT, ALL,
-    /// script={wait InspectObject();}</c> is the whole of that rule, and without a noun it
-    /// has nothing to look at.
-    /// <para>
-    /// Set when an action starts and left there, rather than restored afterwards. An
-    /// action's script may be deferred until its approach has finished, so the noun has to
-    /// outlive the call that set it; and actions are serialised by their approach anyway,
-    /// so the last one started is the one running.
-    /// </para>
-    /// </remarks>
     public string ActingOn { get; set; } = string.Empty;
 
     /// <summary>How much longer the action that is running has to run.</summary>
-    /// <remarks>
-    /// <para>
-    /// The reference keeps a whole <c>mCurrentAction</c> for this and asks it
-    /// <c>IsActionPlaying</c>; what anything here wants to know is only whether the story
-    /// is in the middle of something, so what is kept is the time left rather than the
-    /// action. The runner writes the sum of an action's waits here as it performs it and
-    /// the room counts it down.
-    /// </para>
-    /// <para>
-    /// It is a floor rather than a promise. A statement whose length the host cannot work
-    /// out — <c>wait CallSheep(…)</c>, whose length is another script — contributes
-    /// nothing, so an action can still be going on after this has run out. Whoever asks
-    /// has to be safe if it says no too early.
-    /// </para>
-    /// </remarks>
     public double ActionSeconds { get; set; }
 
     /// <summary>Told as an action begins, before anything of it has happened.</summary>
-    /// <remarks>
-    /// The other half of <see cref="ActionSeconds"/>, for the part of an action that has no
-    /// length: the room notes what its scheduler was already holding, and anything the
-    /// action goes on to start is by subtraction the action still running. Called for every
-    /// action however it was asked for — a click, a rectangle on the floor, a timer coming
-    /// due — because the reference's <c>IsActionPlaying</c> does not care which. Null for a
-    /// host with no scheduler behind it, which is every tool.
-    /// </remarks>
     public Action? Starts { get; set; }
 
     /// <summary>Told as an action's last statement has run.</summary>
-    /// <remarks>
-    /// <para>
-    /// The closing bracket to <see cref="Starts"/>. The room notes what its scheduler was
-    /// holding before the action; this says the action is through its statements, so
-    /// whatever is still parked and was not waited on is the room's own background rather
-    /// than the action still running.
-    /// </para>
-    /// <para>
-    /// It exists because an action may deliberately leave a script running behind it — 640
-    /// of the corpus's <c>CallSheep</c> calls have no <c>wait</c> in front of them — and
-    /// counting those as the story being busy is a room that never becomes idle again.
-    /// RC1's arrival from the lobby is the reported one: its enter script leaves a loop
-    /// parked that waits for Gabriel to step away from the door, and the story reading as
-    /// busy is what stopped him being sent anywhere.
-    /// </para>
-    /// <para>
-    /// Not the same as the action being over. A waited call is still outstanding after this
-    /// — see <see cref="Awaits"/>, which is what answers for that — and this says nothing
-    /// about it.
-    /// </para>
-    /// </remarks>
     public Action? Ends { get; set; }
 
     /// <summary>How long a movie runs, asked before it is played.</summary>
-    /// <remarks>
-    /// A hook rather than a library lookup, because the length lives in the movie's own
-    /// container and only the thing that can open one knows it. Null means no movies,
-    /// which is a machine with no decoder: the scripts still run and wait for nothing.
-    /// </remarks>
     public Func<string, double>? MovieSeconds { get; set; }
 
     /// <summary>Walks an actor to where an animation begins, and says how long it takes.</summary>
-    /// <remarks>
-    /// A hook of its own rather than another <see cref="Approaching"/>, because the name it
-    /// is given is an animation rather than a place: working out where to go means reading
-    /// the clip, and only a standing scene has the clips.
-    /// </remarks>
     public Func<string, string, bool, double>? WalksToAnimationStart { get; set; }
 
     /// <summary>
     /// What holds something back until the player has walked there, if anything can.
     /// </summary>
-    /// <remarks>
-    /// Given a number of seconds and the work; answers whether it took charge of it. An
-    /// action's <c>approach</c> has to finish before its script runs — the original walks
-    /// the ego to the target and performs the action from the arrival — and this is where
-    /// a runner finds something with a clock to wait against. Null in a tool, where every
-    /// action runs the instant it is asked for, exactly as it always did.
-    /// </remarks>
     public Func<double, Action, bool>? Defers { get; set; }
 
     /// <summary>
     /// Runs something and says which scripts it called into, when anything can.
     /// </summary>
-    /// <remarks>
-    /// <see cref="ScriptHost.Within"/>, which sets it. A compiled script waits on a
-    /// <c>CallSheep</c> because the machine parks its thread and the scheduler is told
-    /// what that thread called; an action file's statement has no thread, so this is how
-    /// it finds out what its own call started. Null in a host with no scripts, where the
-    /// call goes nowhere and there is nothing to wait for.
-    /// </remarks>
     public Func<Action, List<SheepThread>>? Collects { get; set; }
 
     /// <summary>
     /// What holds something back until the scripts a call started have finished, if
     /// anything can.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Given the threads and the work; answers whether it took charge of it. The companion
-    /// to <see cref="Defers"/>, for the wait whose length is not a number of seconds: an
-    /// action's <c>wait CallSheep(…)</c> is over when the function it called is over, and
-    /// how long that is depends on the animations, dialogue and timers inside it.
-    /// </para>
-    /// <para>
-    /// 303 of the corpus's action scripts have a statement after one of these and 58 of
-    /// those change location, so without it the room the cutscene plays in is torn down in
-    /// the frame the cutscene starts. CS6's old lady is the reported one: talking to her
-    /// ran <c>CallSheep("cs6_all", "Old_Grace$")</c> and <c>SetLocation("cse")</c> together,
-    /// and the courtyard arrived instead of the scene.
-    /// </para>
-    /// <para>
-    /// Null in a tool, where a called script runs to completion inline and there is nothing
-    /// left outstanding to wait on.
-    /// </para>
-    /// </remarks>
     public Func<IReadOnlyList<SheepThread>, Action, bool>? DefersUntil { get; set; }
 
     /// <summary>
     /// What is told which scripts an action has waited on, if anything is listening.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <see cref="DefersUntil"/> answers the same question but only where the action has a
-    /// statement left to run: with nothing after it there is nothing to hold back, so the
-    /// runner returns and the story reads as idle while the script it waited on plays out.
-    /// That is most of the temple — <c>SCENE, ENTER</c> in TE5 and TE6 both end on a waited
-    /// <c>CallSheep</c>, and the whole arrival is inside it.
-    /// </para>
-    /// <para>
-    /// Told rather than asked, and told on every waited call rather than only the deferring
-    /// ones, so that <see cref="SceneUpdate.Acting"/> can answer <c>IsActionPlaying</c> for
-    /// the case where there is no continuation to hang the answer off.
-    /// </para>
-    /// </remarks>
     public Action<IReadOnlyList<SheepThread>>? Awaits { get; set; }
 
     /// <summary>
     /// What plays an animation, when there is a room to play it in.
     /// </summary>
-    /// <remarks>
-    /// Given the animation's name and whether it repeats; answers how long it will take.
-    /// Null in a tool, where the animation calls stay recorded as they always were.
-    /// </remarks>
     public Func<string, bool, double>? Plays { get; set; }
 
     /// <summary>
     /// The machinery the room the player is in has of its own, when it has any.
     /// </summary>
-    /// <remarks>
-    /// Set by the launcher for the eleven scenes that declare one. It sits on the host
-    /// rather than on the room because two things need it and they are on opposite sides
-    /// of the VM: <c>CallSceneFunction</c> performs a call, and the wait block around that
-    /// call has to be priced before it is made.
-    /// </remarks>
     public Mechanisms.SceneMechanism? Mechanism { get; set; }
 
     /// <summary>
     /// The animations, for the calls whose length is a frame count.
     /// </summary>
-    /// <remarks>
-    /// Optional, because a tool sweeping the corpus has no clock and does not want one.
-    /// Without it a line of dialogue is over as soon as it starts, which is what every
-    /// waited call did before there was anywhere to read a duration from.
-    /// </remarks>
     public AnimationLibrary? Animations { get; set; }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <para>
-    /// Only the calls whose length is knowable from what has been read. A timer is exactly
-    /// its argument and a camera glide is as long as a glide, both of which the engine
-    /// decides for itself. The rest is asset-shaped: an animation is a frame count at
-    /// fifteen frames a second, and a voice-over is one animation per line of dialogue.
-    /// </para>
-    /// <para>
-    /// A call whose asset cannot be found answers zero rather than a plausible guess, so a
-    /// missing file makes a line instant instead of inventing a pause that is not in the
-    /// game.
-    /// </para>
-    /// </remarks>
     public double SecondsFor(string name, IReadOnlyList<SheepValue> arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -520,12 +276,6 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>
     /// How long a walking call takes, by asking what the route would be.
     /// </summary>
-    /// <remarks>
-    /// Answering this <em>starts</em> the walk, because the length of a route is not known
-    /// until it has been found and finding it twice would be the same work done twice. That
-    /// is fine and deliberate: a host is only asked how long a call takes when the call is
-    /// about to be made.
-    /// </remarks>
     private double Length(IReadOnlyList<SheepValue> arguments, Approaching how)
     {
         if (Walks is null || arguments.Count == 0)
@@ -548,12 +298,6 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>Whether a function does something rather than being recorded.</summary>
     /// <param name="name">Function name.</param>
     /// <returns>True when it is registered.</returns>
-    /// <remarks>
-    /// Asked by tools that want to say what a script would really do before running it. An
-    /// unregistered call is not an error — the presentation surface is deliberately
-    /// recorded rather than performed — but a script whose every call is recorded has not
-    /// moved the story, and the difference is worth being able to see.
-    /// </remarks>
     public bool Implements(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -561,24 +305,12 @@ public sealed class Gk3SheepApi : ISheepApi
     }
 
     /// <summary>Every function this host performs, by name.</summary>
-    /// <remarks>
-    /// What this build can actually do, as against what the 1999 scripts call. The console
-    /// completes against this rather than against the archives' import table for exactly
-    /// that reason: offering the player a function that would be recorded and not performed
-    /// is worse than not offering it.
-    /// </remarks>
     public IReadOnlyCollection<string> FunctionNames => _functions.Keys;
 
     /// <summary>Calls a function by name, as a script would.</summary>
     /// <param name="name">The function.</param>
     /// <param name="arguments">Its arguments.</param>
     /// <returns>What it returned, or null when there is no such function.</returns>
-    /// <remarks>
-    /// The same path a script takes, deliberately. A console that reached past this into
-    /// the game's own objects would be able to put the story into states no script could
-    /// reach, and the first thing anybody would do with it is produce a save nothing can
-    /// load.
-    /// </remarks>
     public SheepValue? Perform(string name, IReadOnlyList<SheepValue> arguments)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -958,11 +690,6 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>
     /// The screens a script can put in front of the room.
     /// </summary>
-    /// <remarks>
-    /// Every one of them goes on the same stack and comes off it the same way, which is
-    /// what <c>Plan/03</c> section 3 asks for and what the original did not do. A script
-    /// showing the binoculars and a player pressing Back are talking about the same object.
-    /// </remarks>
     private void RegisterScreenFunctions()
     {
         Register("ShowInventory", _ =>
@@ -1144,10 +871,6 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>
     /// Registers the presentation surface as recorded calls.
     /// </summary>
-    /// <remarks>
-    /// Chosen by measured frequency across the 224 shipped scripts rather than by guess,
-    /// so the most-used calls are the ones that stop producing warnings first.
-    /// </remarks>
     /// <summary>The two people the player controls, for the calls that mean both of them.</summary>
     private static readonly string[] BothCharacters = ["GABRIEL", "GRACE"];
 

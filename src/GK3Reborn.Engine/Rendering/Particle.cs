@@ -49,11 +49,6 @@ public readonly record struct Particle(
     Vector3 Position, float Size, Vector4 Tint, float Spin, float Shape, Vector4 Plume = default)
 {
     /// <summary>Where the bird silhouettes start on <see cref="Shape"/>.</summary>
-    /// <remarks>
-    /// Two rather than something adjoining the disc range, so that no rounding of a
-    /// perfectly ordinary ember can ever land in it: the shader's test is a comparison
-    /// against 1.5, half a unit clear of both.
-    /// </remarks>
     public const float Bird = 2f;
 
     /// <summary>A bird whose wings have reached a given point in their beat.</summary>
@@ -62,11 +57,6 @@ public readonly record struct Particle(
     public static float Flapping(float beat) => Bird + (beat - MathF.Floor(beat));
 
     /// <summary>Where the open flames start on <see cref="Shape"/>.</summary>
-    /// <remarks>
-    /// A whole unit clear of the birds above it, which end at three, for the reason the
-    /// birds are clear of the discs: the shader's tests are comparisons, and nothing any
-    /// other sprite can round to may land in another sprite's range.
-    /// </remarks>
     public const float Fire = 4f;
 }
 
@@ -83,36 +73,14 @@ public readonly record struct Particle(
 /// The plume, for a sprite that is an open flame; zero for every other kind. See
 /// <see cref="Particle.Fire"/>.
 /// </param>
-/// <remarks>
-/// <para>
-/// Six of these per particle in a plain vertex buffer, rather than a storage buffer
-/// expanded by vertex index. Both backends already know how to bind a vertex buffer, and
-/// neither has to agree about anything else for this to draw the same picture on both.
-/// </para>
-/// <para>
-/// The particle's own position is on every corner rather than the corner's world position,
-/// because the corner is not in world space until the camera is known — a sprite faces the
-/// viewer, and the viewer moves after the buffer is written.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct ParticleVertex(
     Vector4 PositionAndSize, Vector4 CornerAndShape, Vector4 Tint, Vector4 Plume)
 {
     /// <summary>How many particles one buffer holds.</summary>
-    /// <remarks>
-    /// A busy room is twelve fires, and a fire drawing more than sixty particles at once is
-    /// drawing more smoke than a room in this game has ever contained. Eight hundred at six
-    /// corners and sixty-four bytes apiece is 307 KB, rewritten once a frame.
-    /// </remarks>
     public const int Capacity = 800;
 
     /// <summary>How many vertices one particle takes.</summary>
-    /// <remarks>
-    /// Six rather than four and an index buffer, which is what the interface's quads do and
-    /// for the same reason: indexing saves a third of the space and costs a second buffer,
-    /// and at a few hundred sprites a frame that is not a trade worth making.
-    /// </remarks>
     public const int Corners = 6;
 
     /// <summary>Writes one particle's two triangles.</summary>
@@ -150,11 +118,6 @@ public readonly record struct ParticleVertex(
     /// <param name="particles">The particles, already in the order they are to be drawn.</param>
     /// <param name="into">Where to write them; at least <see cref="Capacity"/> particles' worth.</param>
     /// <returns>How many vertices were written.</returns>
-    /// <remarks>
-    /// Shared, because both backends want exactly the same vertices and the arithmetic that
-    /// makes them is the one place a sprite can come out inside out on one API and not the
-    /// other.
-    /// </remarks>
     public static int Build(IReadOnlyList<Particle> particles, Span<ParticleVertex> into)
     {
         ArgumentNullException.ThrowIfNull(particles);

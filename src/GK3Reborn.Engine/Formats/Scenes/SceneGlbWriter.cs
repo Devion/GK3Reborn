@@ -6,20 +6,6 @@ namespace GK3Reborn.Formats.Scenes;
 /// <summary>
 /// Exports a parsed scene as glTF binary.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reuses the model exporter by presenting the scene as a set of meshes: one per named
-/// object in the room, with a submesh per texture inside it. That grouping is the one
-/// the original data already carries — several surfaces make up a "door" — so a room
-/// opens in Blender as a named outliner tree rather than as one undifferentiated soup
-/// of triangles.
-/// </para>
-/// <para>
-/// Scene geometry has no per-vertex normals in the original. They are computed from
-/// face winding and averaged across the vertices that share them, which is the best
-/// available reconstruction and enough for the geometry to shade sensibly in a viewer.
-/// </para>
-/// </remarks>
 public static class SceneGlbWriter
 {
     /// <summary>Encodes a scene as a GLB file.</summary>

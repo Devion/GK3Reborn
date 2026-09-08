@@ -13,20 +13,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Marches the room's fog over the finished picture.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One triangle, blended over whatever the room came to. What the shader writes is
-/// premultiplied — the light the fog put in, and in alpha the light it stopped — so the
-/// picture is finished in one blend and this pass never has to read the target it is
-/// drawing onto. That is what lets it run against the lit target directly instead of
-/// needing a copy of it.
-/// </para>
-/// <para>
-/// The three light buffers are the frame's own, bound rather than copied. They are written
-/// once when a room loads and read by everything that shades in it, and a rig this pass had
-/// a private copy of would be a second place for a light to move.
-/// </para>
-/// </remarks>
 public sealed unsafe class FogPipeline : IDisposable
 {
     private static string Vertex => CompositeShaders.Vertex;
@@ -53,12 +39,6 @@ public sealed unsafe class FogPipeline : IDisposable
     }
 
     /// <summary>Whether the pass has been told where to read its rig and depth from.</summary>
-    /// <remarks>
-    /// A draw before that is a read through descriptors nothing has written, which is not a
-    /// dark pixel but a device removed. The renderer binds when the targets are made and
-    /// again whenever they are remade; this is what makes forgetting it a no-op rather than
-    /// a crash.
-    /// </remarks>
     public bool Ready => _bound;
 
     /// <summary>Builds the pass.</summary>

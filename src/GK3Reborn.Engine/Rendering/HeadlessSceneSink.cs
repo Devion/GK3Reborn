@@ -9,14 +9,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Somewhere to put a scene when there is nothing to draw it with.
 /// </summary>
-/// <remarks>
-/// Loading a scene and drawing it are separate jobs, and only the second needs a graphics
-/// device. This takes everything the loader produces, measures it and throws it away, so
-/// the whole of loading — the geometry, the bakes, every texture, the props and the people
-/// — can be exercised on a build agent with no GPU. That is what makes "every scene loads
-/// headlessly" a thing a command can answer rather than a thing somebody checks by
-/// looking.
-/// </remarks>
 public sealed class HeadlessSceneSink : ISceneSink
 {
     private readonly HashSet<string> _textures = new(StringComparer.OrdinalIgnoreCase);
@@ -43,11 +35,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     public int TriangleCount { get; private set; }
 
     /// <summary>How many of the room's objects were drawn from improved geometry.</summary>
-    /// <remarks>
-    /// Reported rather than counted into the triangles, because the thing a corpus sweep
-    /// has to be able to see is the difference between "no overlay was built for this room"
-    /// and "one was built and refused". Both leave the picture identical.
-    /// </remarks>
     public int EnhancedObjects { get; private set; }
 
     /// <summary>What those objects came to.</summary>
@@ -109,10 +96,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Nothing to move: this measures what was loaded rather than keeping it. A sweep that
-    /// wanted to know where a head ended up would have to draw it.
-    /// </remarks>
     public void TurnMesh(ModelPlacement placement, int mesh, Matrix4x4 turn)
     {
     }
@@ -198,21 +181,15 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// A sweep counts distinct textures, so it wants to be told about every one; saying no
-    /// here keeps the count honest and costs a decode nobody is timing.
-    /// </remarks>
     public bool HasTexture(string name) => false;
 
     /// <inheritdoc/>
-    /// <remarks>Nothing to reshape, for the same reason as posing.</remarks>
     public void ShapeMesh(
         ModelPlacement placement, int mesh, int submesh, IReadOnlyList<Vector3> positions)
     {
     }
 
     /// <inheritdoc/>
-    /// <remarks>Nothing to pose: a sweep measures what was loaded rather than keeping it.</remarks>
     public void PoseMesh(ModelPlacement placement, int mesh, Matrix4x4 meshToLocal)
     {
     }
@@ -221,17 +198,12 @@ public sealed class HeadlessSceneSink : ISceneSink
     public int RepaintCount { get; private set; }
 
     /// <inheritdoc/>
-    /// <remarks>Counted rather than obeyed; there is no picture here to change.</remarks>
     public void Repaint(ModelPlacement placement, string texture, string? painted) => RepaintCount++;
 
     /// <summary>How many models the scene asked to be kept out of sight.</summary>
     public int HiddenCount { get; private set; }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Counted rather than obeyed. A sweep wants to know a scene hides things — the
-    /// staging a script later shows — and has nothing to hide them from.
-    /// </remarks>
     public void SetVisible(ModelPlacement placement, bool visible)
     {
         if (!visible)
@@ -244,7 +216,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     public int HiddenPartCount { get; private set; }
 
     /// <inheritdoc/>
-    /// <remarks>Counted rather than obeyed, as <see cref="SetVisible"/> is.</remarks>
     public void SetPartVisible(ModelPlacement placement, int mesh, int submesh, bool visible)
     {
         if (!visible)
@@ -257,10 +228,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     public int SelfLitCount { get; private set; }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Counted, like everything else here. Whether a beam of light is shaded by the room it
-    /// crosses is a question about drawing, and this does not draw.
-    /// </remarks>
     public void SetSelfLit(ModelPlacement placement, bool selfLit)
     {
         if (selfLit)
@@ -278,11 +245,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     private readonly List<ModelPlacement> _billboards = [];
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Recorded rather than turned. Which way a billboard ends up facing is a question
-    /// about a camera, and there is no camera here; that it was <em>asked</em> to turn is
-    /// what a test of the loader can check, and it is the thing that was missing.
-    /// </remarks>
     public void FaceCamera(ModelPlacement placement)
     {
         if (placement.Exists)
@@ -292,10 +254,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Nothing to do: this counts what a scene contains rather than drawing it, and an
-    /// actor who has walked contains exactly what they did before.
-    /// </remarks>
     public void MoveModel(ModelPlacement placement, Matrix4x4 transform)
     {
         _standing[placement.Id] = transform;
@@ -306,7 +264,6 @@ public sealed class HeadlessSceneSink : ISceneSink
         _standing.TryGetValue(placement.Id, out Matrix4x4 where) ? where : Matrix4x4.Identity;
 
     /// <inheritdoc/>
-    /// <remarks>Nothing to keep: this counts a scene rather than displacing one.</remarks>
     public void KeepRelief(IReadOnlySet<string> textures)
     {
         ArgumentNullException.ThrowIfNull(textures);
@@ -318,11 +275,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     public int ReliefTextureCount { get; private set; }
 
     /// <summary>Names of the room's own objects a script has shown or hidden.</summary>
-    /// <remarks>
-    /// Counted rather than drawn, like everything else here. What it is for is the sweep:
-    /// a scene whose script hides an object the geometry does not contain is a name that
-    /// will silently do nothing in the game.
-    /// </remarks>
     public List<string> SceneObjectsToggled { get; } = [];
 
     /// <inheritdoc/>
@@ -336,11 +288,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <summary>The room's own objects a script or an animation has repainted, and with what.</summary>
-    /// <remarks>
-    /// Recorded rather than drawn, like everything else here, and for the same reason
-    /// <see cref="SceneObjectsToggled"/> is: an animation that repaints an object the room
-    /// does not have is a line that will silently do nothing in the game.
-    /// </remarks>
     public List<(string Object, string? Texture)> SceneObjectsPainted { get; } = [];
 
     /// <inheritdoc/>
@@ -354,10 +301,6 @@ public sealed class HeadlessSceneSink : ISceneSink
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Nothing here keeps vertices, so a sweep gets the names and no box. Everything that
-    /// reads this asks whether one object is inside another, and answers no.
-    /// </remarks>
     public IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> SceneObjectBoxes() =>
         [];
 

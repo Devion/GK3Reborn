@@ -8,41 +8,11 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Puts a picture on the device, in whichever form it arrived.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Two ways in, and the difference between them is a quarter of the video memory. A
-/// <see cref="CompressedImage"/> is what the content pipeline produced: the blocks go from
-/// the file to a staging buffer to the texture exactly as they are, one copy a level, with
-/// the mip chain the compressor already built. A <see cref="DecodedImage"/> is a picture
-/// that never went through the pipeline — a screen's own artwork, a frame of film, a
-/// generated texture — and it is uploaded as eight-bit colour with its mips made on the
-/// device.
-/// </para>
-/// <para>
-/// Making them on the device is where Direct3D and Vulkan part company. Vulkan blits each
-/// level from the one above with <c>vkCmdBlitImage</c>; Direct3D has no blit at all. The
-/// mips are made by a compute shader instead — see <see cref="D3D12MipChain"/> — which is
-/// written in the same GLSL as everything else and goes through the same translation.
-/// </para>
-/// <para>
-/// The row pitch is the thing to get right. A texture is copied out of a buffer whose rows
-/// are padded to a multiple of two hundred and fifty-six bytes, which for most widths is
-/// not the width of the picture, and a copy that assumes otherwise produces an image that
-/// shears further with every row. <c>GetCopyableFootprints</c> is asked rather than the
-/// arithmetic being repeated, because it knows the rule for the block formats too, where a
-/// row is a row of blocks.
-/// </para>
-/// </remarks>
 public static unsafe class D3D12TextureUpload
 {
     /// <summary>Which DXGI format a block format is.</summary>
     /// <param name="format">The block format.</param>
     /// <returns>The DXGI format.</returns>
-    /// <remarks>
-    /// BC1 through BC7 are required of every Direct3D 12 device, so unlike the Vulkan path
-    /// there is no case here for expanding the blocks on the host. That path exists on the
-    /// other backend only for Apple silicon, which has no Direct3D.
-    /// </remarks>
     public static Format FormatOf(BlockFormat format) => format switch
     {
         BlockFormat.Bc7Srgb => Format.FormatBC7UnormSrgb,
@@ -60,24 +30,6 @@ public static unsafe class D3D12TextureUpload
     /// <param name="into">An open batch to record into, or null to submit on its own.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created or filled.</exception>
-    /// <remarks>
-    /// <para>
-    /// The pipeline shades in linear space, so a colour texture is declared sRGB and the
-    /// hardware converts on read. Doing it in the shader instead is a common source of
-    /// double-corrected, washed-out output.
-    /// </para>
-    /// <para>
-    /// A normal map is not a colour. Its channels are a direction, and putting one through
-    /// the sRGB path bends every normal towards flat — which reads as a weak, waxy surface
-    /// rather than as the colour-space mistake it is. That is what <paramref name="linear"/>
-    /// is for.
-    /// </para>
-    /// <para>
-    /// <b>A packed atlas must pass <paramref name="mipmaps"/> as false.</b> Each coarser
-    /// level averages texels across tile boundaries, so by the third level a tile is
-    /// visibly contaminated by its neighbours.
-    /// </para>
-    /// </remarks>
     public static D3D12Texture Create(
         D3D12Context context,
         DecodedImage source,
@@ -124,12 +76,6 @@ public static unsafe class D3D12TextureUpload
     /// <returns>The cube map.</returns>
     /// <exception cref="ArgumentException">There are not six square faces of one size.</exception>
     /// <exception cref="D3D12Exception">It could not be created or filled.</exception>
-    /// <remarks>
-    /// The order is Direct3D's own, which is the same order Vulkan wants and the same order
-    /// the game's files are read in. A cube with two faces swapped is not obviously wrong
-    /// from inside it — the sky is still a sky — which is why it is stated here rather than
-    /// left to whoever calls this.
-    /// </remarks>
     public static D3D12Texture CreateCube(
         D3D12Context context, IReadOnlyList<DecodedImage> faces, D3D12Uploads? into = null)
     {
@@ -183,11 +129,6 @@ public static unsafe class D3D12TextureUpload
     /// <param name="into">An open batch to record into, or null to submit on its own.</param>
     /// <returns>The texture.</returns>
     /// <exception cref="D3D12Exception">It could not be created or filled.</exception>
-    /// <remarks>
-    /// The cheap path, and the one worth taking wherever the content pipeline has produced
-    /// a file for. Nothing is decoded, nothing is filtered, and a quarter of the memory is
-    /// asked for.
-    /// </remarks>
     public static D3D12Texture Create(
         D3D12Context context, CompressedImage source, D3D12Uploads? into = null)
     {
@@ -245,12 +186,6 @@ public static unsafe class D3D12TextureUpload
     /// <param name="texture">The texture, which keeps its identity.</param>
     /// <param name="image">The new picture.</param>
     /// <exception cref="D3D12Exception">The copy failed.</exception>
-    /// <remarks>
-    /// One caller: the lightmap, when the time of day changes. The texture surviving is the
-    /// whole point — every material in the room already points at it, and a replacement
-    /// would mean rebuilding several hundred materials to change the light on geometry that
-    /// has not moved.
-    /// </remarks>
     public static void Refresh(D3D12Context context, D3D12Texture texture, DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(context);

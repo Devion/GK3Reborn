@@ -11,12 +11,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the two picture pages: the display, and what upscales it.
 /// </summary>
-/// <remarks>
-/// The same argument the rest of the front end is tested on. Every row here reaches a real
-/// field, and a row that quietly does not is exactly the kind of thing that survives every
-/// amount of looking at the screen — which is why the check is that the setting moved and
-/// not that the row drew.
-/// </remarks>
 public sealed class DisplaySettingsTests
 {
     private static FrontEnd Front(Settings? settings = null) => new(settings ?? new Settings());
@@ -24,13 +18,6 @@ public sealed class DisplaySettingsTests
     /// <summary>
     /// The row with a given identifier, or null.
     /// </summary>
-    /// <remarks>
-    /// Cast to a nullable before the search, because a row is a value type and
-    /// <c>FirstOrDefault</c> on one hands back a default-constructed row rather than
-    /// nothing — whose identifier is the empty string, which is what every label on the
-    /// page has. Written the obvious way, "is there a paper white row" answered yes on
-    /// every page that has an explanation on it.
-    /// </remarks>
     private static MenuItem? Row(FrontEnd front, string id) =>
         front.Items.Cast<MenuItem?>().FirstOrDefault(i => i!.Value.Id == id);
 

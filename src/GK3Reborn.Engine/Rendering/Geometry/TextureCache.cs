@@ -5,32 +5,6 @@ namespace GK3Reborn.Rendering.Geometry;
 /// <summary>
 /// The textures the device holds, kept across rooms.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A room's geometry used to own its textures, so walking through a door threw away 120 of
-/// them and uploaded the next room's from scratch. Most of what it threw away it wanted
-/// back: the characters are in every room they appear in, and props and fittings repeat all
-/// over the hotel.
-/// </para>
-/// <para>
-/// Measured on R25: of a ~350 ms room load, about 200 ms was uploading textures the device
-/// had already been given at some point. Reading and decoding them again cost another 68 ms
-/// on top.
-/// </para>
-/// <para>
-/// So they live here, with the renderer, and outlast any one room. Nothing is evicted: the
-/// game's textures are small — mostly 256 squared — and a session touches a few hundred of
-/// the 6,657, which is tens of megabytes. If that ever stops being true this is where a
-/// bound goes, and it will need to know which textures a frame in flight is still reading.
-/// </para>
-/// <para>
-/// None of the above is about a graphics API, which is why this is here rather than in a
-/// backend. What a texture <em>is</em> differs between the two; which textures a session has
-/// already paid for, which ones carry a colour key, and which height maps are kept as
-/// numbers as well as as pictures, do not. The only thing it asks a device for is to turn a
-/// picture into a texture.
-/// </para>
-/// </remarks>
 public sealed class TextureCache : IDisposable
 {
     private readonly IGeometryDevice _device;
@@ -40,13 +14,6 @@ public sealed class TextureCache : IDisposable
     private readonly HashSet<string> _keyed = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>What the holes in a keyed texture say about the shape drawn on it.</summary>
-    /// <remarks>
-    /// Kept only for the textures that measure as a lattice of bars — some sixty of the
-    /// eight hundred keyed ones in the game, and a handful in any room — because the mask is
-    /// the only thing that knows where a railing's silhouette is once the picture is on the
-    /// device. A 128-square mask is sixteen kilobytes; the ones that are nobody's railing
-    /// are never built. See <see cref="CutoutMask"/>.
-    /// </remarks>
     private readonly Dictionary<string, CutoutMask> _cutouts =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -60,13 +27,6 @@ public sealed class TextureCache : IDisposable
         new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Height maps kept as numbers as well as as pictures.</summary>
-    /// <remarks>
-    /// Only for the surfaces something intends to displace, which is a room's floor and
-    /// nothing else. A field is a quarter of a megabyte and the game has 2,905 height maps;
-    /// keeping one for every map a session ever loads would cost most of a gigabyte to
-    /// answer a question about a hundred and twenty-six of them. See
-    /// <see cref="Rendering.ReliefPlan"/>.
-    /// </remarks>
     private readonly Dictionary<string, HeightField> _fields =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -125,30 +85,15 @@ public sealed class TextureCache : IDisposable
     public IGeometryTexture White { get; }
 
     /// <summary>A normal pointing straight out, bound wherever a surface has no map.</summary>
-    /// <remarks>
-    /// Which is how a partial set stays a perfectly good set: 250 of the game's 6,657
-    /// textures have a normal map so far, and the other 6,407 look exactly as they did.
-    /// </remarks>
     public IGeometryTexture Flat { get; }
 
     /// <summary>Neutral occlusion, roughness and metalness, bound where a surface has none.</summary>
-    /// <remarks>
-    /// Unoccluded, fully rough, not a metal — the material the renderer assumed everywhere
-    /// before there were maps to say otherwise. A batch that binds this looks exactly as it
-    /// did, which is what lets the specular lobe be switched on before the maps exist.
-    /// </remarks>
     public IGeometryTexture Neutral { get; }
 
     /// <summary>A height map at mid grey, bound where a surface has none.</summary>
     public IGeometryTexture Level { get; }
 
     /// <summary>How large a height field is kept for the CPU, in texels.</summary>
-    /// <remarks>
-    /// Displacement samples at whatever spacing its triangle budget affords, which on a
-    /// village street is about seven units — a thirtieth of the 232 units the road texture
-    /// tiles over, so 256 texels leaves eight to a cell to average over. Finer would be
-    /// carrying detail no vertex can express.
-    /// </remarks>
     private const int FieldExtent = 256;
 
     /// <summary>How many normal maps the device is holding.</summary>
@@ -169,22 +114,12 @@ public sealed class TextureCache : IDisposable
     /// <summary>
     /// The textures whose transparency is keyed rather than authored.
     /// </summary>
-    /// <remarks>
-    /// Remembered so the geometry using one can be kept out of the acceleration structure:
-    /// without an any-hit shader a keyed surface casts a solid shadow from the parts of it
-    /// that are holes.
-    /// </remarks>
     public IReadOnlySet<string> Keyed => _keyed;
 
     /// <summary>
     /// Whether keyed textures are measured for the lattice of bars that may be drawn on
     /// them.
     /// </summary>
-    /// <remarks>
-    /// Set before any texture is added, from the setting that gates the whole treatment.
-    /// Off, nothing is measured and nothing is kept, and a room is built exactly as it was
-    /// before any of this existed.
-    /// </remarks>
     public bool MeasureCutouts { get; set; }
 
     /// <summary>What the holes in a texture measured as, if it is a lattice of bars.</summary>
@@ -243,23 +178,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a block-compressed texture, or keeps the one already here.</summary>
     /// <param name="name">Its name, matched without regard to case.</param>
     /// <param name="image">The compressed levels.</param>
-    /// <remarks>
-    /// <para>
-    /// No keying. <see cref="TextureKeying"/> works on texels, and these are blocks; the
-    /// loader is what decides that a texture needing a colour key takes the decoded path
-    /// instead. Only three of the 324 textures in the pilot set do.
-    /// </para>
-    /// <para>
-    /// <b>A packed texture may still carry a cutout, and it arrives here rather than
-    /// above.</b> The packer leaves out only the keyed textures whose enhanced replacement
-    /// did <em>not</em> carry the key across as alpha; the ones that did are packed, as BC7
-    /// with a real alpha channel, so a railing installed with the content packs comes down
-    /// this path and not the decoded one. Measuring only there is why this pass did nothing
-    /// at all in a shipped build while every render made without the packs showed it
-    /// working — the exact shape of failure the rest of this codebase keeps a note about.
-    /// So the largest level is expanded, once, to be measured. See <see cref="CutoutMask"/>.
-    /// </para>
-    /// </remarks>
     public void Add(string name, CompressedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -300,25 +218,12 @@ public sealed class TextureCache : IDisposable
     }
 
     /// <summary>Whether a block format has an alpha channel a cutout could live in.</summary>
-    /// <remarks>
-    /// BC5 is two channels and BC4 one, and neither is ever a base colour: they are the
-    /// normal and height maps, which never come here.
-    /// </remarks>
     private static bool MayCutOut(BlockFormat format) =>
         format is BlockFormat.Bc7Srgb or BlockFormat.Bc7Unorm;
 
     /// <summary>
     /// Expands the level of a packed texture that the silhouette was authored at.
     /// </summary>
-    /// <remarks>
-    /// <b>Not the largest level.</b> A shipped base colour is up to 2,048 square, and
-    /// expanding that costs some forty milliseconds and sixteen megabytes to answer a
-    /// question about a silhouette that was drawn at 128 — every texel above
-    /// <see cref="CutoutMask.ReferenceTexels"/> was invented by an upscaler. Measuring the
-    /// smallest level that still carries the outline costs about a millisecond and gives
-    /// the same answer; taking level zero instead put a second and a quarter on a room's
-    /// load, which is what found this.
-    /// </remarks>
     private static DecodedImage? Expand(CompressedImage image)
     {
         if (!BlockDecoder.CanDecode(image.Format) || image.Mips < 1)
@@ -364,10 +269,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a block-compressed normal map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
-    /// <remarks>
-    /// BC5 is linear by construction — it has no sRGB spelling — so nothing has to be said
-    /// here to keep a direction from being treated as a colour.
-    /// </remarks>
     public void AddNormal(string name, CompressedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -397,9 +298,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a normal map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
-    /// <remarks>
-    /// Uploaded <b>linear</b>, because its channels are a direction rather than a colour.
-    /// </remarks>
     public void AddNormal(string name, DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -416,11 +314,6 @@ public sealed class TextureCache : IDisposable
     }
 
     /// <summary>How much video memory an uncompressed texture and its chain take.</summary>
-    /// <remarks>
-    /// Four bytes a texel and a third again for the chain, which is what the sum of a
-    /// halving series comes to. Close enough to compare a texture set against itself, which
-    /// is the only thing anybody asks this.
-    /// </remarks>
     private static long WithMips(int width, int height) =>
         (long)width * height * 4 * 4 / 3;
 
@@ -444,10 +337,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a block-compressed ORM map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
-    /// <remarks>
-    /// Three channels, so BC7 rather than the BC5 a normal map takes — and BC7 has an sRGB
-    /// spelling, which this must not be given. The format travels with the file.
-    /// </remarks>
     public void AddOrm(string name, CompressedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -465,12 +354,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads an ORM map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
-    /// <remarks>
-    /// Uploaded <b>linear</b>. Occlusion, roughness and metalness are measurements, and
-    /// putting them through the sRGB path pulls every one of them towards one end of its
-    /// range — which reads as a generator that produced bad numbers rather than as a
-    /// renderer that misread good ones.
-    /// </remarks>
     public void AddOrm(string name, DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -506,11 +389,6 @@ public sealed class TextureCache : IDisposable
     /// <summary>Whether a surface's height map is here as numbers the CPU can read.</summary>
     /// <param name="name">The <em>colour</em> texture's name.</param>
     /// <returns>True when <see cref="FieldFor"/> will answer.</returns>
-    /// <remarks>
-    /// Apart from <see cref="HasHeight"/> on purpose. A room that displaces its floor wants
-    /// a map the room before it uploaded and did not keep, and the only way to get one is
-    /// to read the file again — so the loader has to be able to tell the two states apart.
-    /// </remarks>
     public bool HasField(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -554,9 +432,6 @@ public sealed class TextureCache : IDisposable
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
     /// <param name="keepField">Whether to keep a copy for the CPU to read.</param>
-    /// <remarks>
-    /// Linear, like the other two. A height field is a distance.
-    /// </remarks>
     public void AddHeight(string name, DecodedImage image, bool keepField = false)
     {
         ArgumentNullException.ThrowIfNull(name);

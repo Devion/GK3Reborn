@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for the <c>overrides/</c> directory, which outranks the packs and the archives.
 /// </summary>
-/// <remarks>
-/// Two properties are worth pinning and everything else follows from them. A file put
-/// there has to <em>win</em> — over the packs, over a loose build, over the game's own
-/// archives — because an override that loses is indistinguishable from one that was never
-/// read. And a directory that is not there has to cost nothing, because that is every
-/// installation nobody has modified.
-/// </remarks>
 public sealed class ContentOverrideTests : IDisposable
 {
     private readonly string _root = Path.Combine(

@@ -12,29 +12,10 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>How a frame of film is fitted into the window, and what the display wants.</summary>
 /// <param name="Fit">How much of the window the picture covers, and where it starts.</param>
 /// <param name="Display">Which encoding, paper white, and the headroom above it.</param>
-/// <remarks>
-/// One block across both stages. The vertex stage reads the first four floats and the
-/// fragment stage the last four; two stages describing one push constant block differently
-/// is a validation error at best and a driver disagreement at worst.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct MovieConstants(Vector4 Fit, DisplayEncode Display);
 
 /// <summary>A frame of film, letterboxed into the window.</summary>
-/// <remarks>
-/// <para>
-/// <b>Letterboxed rather than stretched.</b> GK3's movies are 4:3 — 320x240 originally, and
-/// larger where they have been re-upscaled — and a modern window is not. Filling it would
-/// make everybody in the cutscene short and wide, so the picture is fitted to whichever
-/// dimension runs out first and the rest is left black. The scans and the parchment
-/// close-ups are not 4:3 at all, which is the other reason to fit rather than assume.
-/// </para>
-/// <para>
-/// Sampled linearly and clamped. A movie is a photograph rather than a bitmap font, so
-/// filtering it is what a player expects; clamping keeps the edge pixels from wrapping round
-/// into the letterbox.
-/// </para>
-/// </remarks>
 public static class MovieShaders
 {
     /// <summary>The vertex stage.</summary>
@@ -74,7 +55,6 @@ public static class MovieShaders
         """;
 
     /// <summary>The fragment stage, with the shared display encode spliced in.</summary>
-    /// <remarks>See <see cref="DisplayEncoding"/>: one copy of ST.2084 rather than four.</remarks>
     public static string Fragment => Prelude + "\n" + DisplayEncoding.Glsl + "\n" + Body;
 
     private const string Prelude = """

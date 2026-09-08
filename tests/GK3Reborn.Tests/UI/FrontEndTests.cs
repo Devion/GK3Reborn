@@ -15,12 +15,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the menu in front of the game.
 /// </summary>
-/// <remarks>
-/// The whole point of keeping the front end free of a window is that this can be checked
-/// without drawing anything: a slider has to move the thing it is labelled with, and a
-/// setting has to survive being written and read back. Both are the sort of thing that is
-/// tedious to verify by hand and silently wrong for months when it breaks.
-/// </remarks>
 public sealed class FrontEndTests
 {
     private static FrontEnd Front(Settings? settings = null, bool inGame = false) =>
@@ -195,12 +189,6 @@ public sealed class FrontEndTests
     /// <summary>
     /// The two towns the port builds out can be put back the way the game shipped them.
     /// </summary>
-    /// <remarks>
-    /// One row for both of them. Whether the geometry is <em>installed</em> is a separate
-    /// question asked of the disc — see <c>Content.SceneDressing</c> — and this is the one
-    /// asked of the player, which is why it is on and means nothing at all on an
-    /// installation with no enhanced content in it.
-    /// </remarks>
     [Fact]
     public void The_rebuilt_towns_can_be_put_back_the_way_they_shipped()
     {

@@ -16,20 +16,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Works out which textures matter, so enhancement effort goes where it shows.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Texture resolution, not geometry, is what dates this game. All 6,658 textures
-/// together hold 213 megapixels — about what twenty-six single 4K textures hold — and
-/// 3,116 of them are 128 pixels or smaller. Gabriel's face is 256x256. No amount of
-/// subdivision addresses that.
-/// </para>
-/// <para>
-/// But 6,658 textures cannot all be treated alike, so this stage assigns each one a
-/// tier from evidence rather than by hand: what references it, whether those things are
-/// characters or set dressing, how many places use it, and how small it currently is.
-/// The tiers are the ones in <c>Plan/02-content-pipeline.md</c> section 5.
-/// </para>
-/// </remarks>
 public sealed class TexturePlanStage
 {
     private readonly Action<string> _log;
@@ -201,12 +187,6 @@ public sealed class TexturePlanStage
     /// <summary>
     /// Normalizes a texture name into a lookup key.
     /// </summary>
-    /// <remarks>
-    /// Names are not reliably free of dots: <c>PREP.HEDGE.BMP</c> is one texture, not a
-    /// file called PREP with an odd extension. Only a known image extension is stripped,
-    /// so both the geometry that references a texture and the texture itself land on the
-    /// same key.
-    /// </remarks>
     private static string Key(string texture)
     {
         string name = Path.GetFileName(texture.Replace('\\', '/')).Trim();
@@ -226,13 +206,6 @@ public sealed class TexturePlanStage
     /// <summary>
     /// Assigns a tier from what uses the texture and how small it currently is.
     /// </summary>
-    /// <remarks>
-    /// Tier 0 is reserved for what the player looks at closely and often: anything a
-    /// character wears or is. Tier 1 covers room surfaces and widely reused props, where
-    /// low resolution is spread across a lot of screen. Tier 2 is everything else that is
-    /// used, and Tier 3 is unreferenced. Small textures are promoted a tier, since a
-    /// 32-pixel texture on screen is the most visible kind of dated.
-    /// </remarks>
     public static int Tier(TextureUsage usage)
     {
         ArgumentNullException.ThrowIfNull(usage);

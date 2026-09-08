@@ -9,26 +9,6 @@ namespace GK3Reborn.Game.Sidney;
 /// <summary>
 /// The pictures Sidney's analyze screen has of what it is analysing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The analysis is about a picture and had none.</b> "Device in upper left corner, the
-/// '+' symbol on line 4, and the text break on line 14 suggest this image" is a paragraph
-/// about something the player cannot see, and the something is in the archives:
-/// <c>PARCHMENT1_BASE.BMP</c>, Poussin's painting, the Teniers, and a finished geometry
-/// plate for each of them.
-/// </para>
-/// <para>
-/// <b>Which picture depends on what has been done to the file.</b> Extracting the anomalies
-/// out of a parchment produces the plate of the raised letters; viewing its geometry
-/// produces the plate with the figure drawn on it; zooming a painting produces the enlarged
-/// corner. So the newest result the player has earned is what is shown, and the plain
-/// picture before any of them.
-/// </para>
-/// <para>
-/// The map is not here: it is not an illustration but a thing to mark places on, and
-/// <see cref="SidneyMap"/> owns it.
-/// </para>
-/// </remarks>
 public static class SidneyPictures
 {
     /// <summary>What each kind of file looks like before anything has been done to it.</summary>
@@ -42,11 +22,6 @@ public static class SidneyPictures
     ];
 
     /// <summary>What an operation on a kind of file produces a picture of.</summary>
-    /// <remarks>
-    /// Newest first within a kind, so the first match is the furthest the player has got.
-    /// Extracting the letters out of parchment one and then reading its geometry should
-    /// leave the geometry on the screen, not the letters.
-    /// </remarks>
     private static readonly (SidneyKind Kind, SidneyAction Action, string Picture)[] Results =
     [
         (SidneyKind.Parchment1, SidneyAction.ViewGeometry, "GEOMPARCH1FINAL"),
@@ -109,11 +84,6 @@ public static class SidneyPictures
     /// <summary>
     /// The four hermetic symbols, in the order the mail's own lines describe them.
     /// </summary>
-    /// <remarks>
-    /// <c>SID_SYMB_1</c> to <c>SID_SYMB_4</c>, 94 pixels square each. The message that
-    /// reports them writes its lines starting at the equals sign — "=  'to mix'" — because
-    /// the symbol goes where the words would have been.
-    /// </remarks>
     public static IReadOnlyList<string> Symbols { get; } =
         ["SID_SYMB_1", "SID_SYMB_2", "SID_SYMB_3", "SID_SYMB_4"];
 }

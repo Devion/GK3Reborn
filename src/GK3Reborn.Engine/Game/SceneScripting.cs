@@ -13,23 +13,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The script functions that need a scene rather than a story.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Most of what a script asks about is the story — flags, counts, who is carrying what —
-/// and lives on <see cref="GameState"/> for as long as the game does. A few questions are
-/// about the room the player is standing in and mean nothing outside it: whether the van
-/// parked across the road is in the way. Those are registered here, against one loaded
-/// scene, and go when it does.
-/// </para>
-/// <para>
-/// Three families so far. The walkers, because a boundary is painted once, before anybody
-/// knows where the van will park, so the scripts move things onto and off the floor as the
-/// story goes. And the cameras, because a camera angle is a <em>name</em> the scene gives —
-/// <c>OPEN_WARDROBE</c>, <c>LONG_FROM_STAIRS</c> — and means nothing in the next room.
-/// And the glances, because who somebody is looking at is a fact about a room with both of
-/// them in it.
-/// </para>
-/// </remarks>
 public static class SceneScripting
 {
     /// <summary>Registers a scene's own functions on a host.</summary>
@@ -42,10 +25,6 @@ public static class SceneScripting
     /// Where a behaviour script named by another one is read from, or null to leave the
     /// fidget calls recorded. Only a caller with the archives can answer it.
     /// </param>
-    /// <remarks>
-    /// Call it again for the next scene: the functions close over this one, and the last
-    /// registration wins, which is what changing rooms means.
-    /// </remarks>
     public static void Attach(
         Gk3SheepApi api,
         LoadedScene scene,
@@ -141,33 +120,11 @@ public static class SceneScripting
     /// <summary>
     /// Pointing the camera at one of the angles the scene names.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Three ways to ask, and the difference between them is the player's. A plain cut
-    /// happens only if the player has left cinematics on, or a script has temporarily
-    /// insisted; a forced cut ignores both, because some things the story has to show. A
-    /// glide is a cut that should take a moment, and until there is a clock to take it in,
-    /// it arrives at the same place — the angle it ends at is the observable part, and the
-    /// travelling is not.
-    /// </para>
-    /// <para>
-    /// A camera the scene does not name is reported rather than ignored. The original logs
-    /// it too, and it is worth hearing: a script pointing the view at nothing leaves the
-    /// player looking at whatever they were looking at before, which reads as the game
-    /// having missed its cue.
-    /// </para>
-    /// </remarks>
     /// <summary>
     /// Makes a conversation change what its participants do while it lasts.
     /// </summary>
     /// <param name="api">The host, which keeps the story's own record of it.</param>
     /// <param name="world">The room, which owns the actors and their scripts.</param>
-    /// <remarks>
-    /// Registered over the state-only pair on the host, rather than instead of them: a
-    /// console, a tool or a save being replayed still has to be able to say a conversation
-    /// is on without a room to hold it in. What this adds is the room's half — the
-    /// <c>[LISTENERS]</c> scripts and the poses that go with them.
-    /// </remarks>
     private static void Conversing(Gk3SheepApi api, SceneUpdate world)
     {
         api.Register("SetConversation", a =>
@@ -319,11 +276,6 @@ public static class SceneScripting
     /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="scene">The room.</param>
-    /// <remarks>
-    /// All three were unanswered, and an unanswered question is worse than an unperformed
-    /// instruction: a script branches on the answer, so a silent zero sends it down the
-    /// wrong path and everything after that is wrong for a reason nothing records.
-    /// </remarks>
     private static void Asking(Gk3SheepApi api, LoadedScene scene)
     {
         bool Placed(string name, PlacedModelKind? kind) =>
@@ -368,12 +320,6 @@ public static class SceneScripting
     }
 
     /// <summary>Puts the view on a camera the scene names.</summary>
-    /// <remarks>
-    /// Split out of <see cref="CutTo"/> because a script is not the only thing that cuts:
-    /// an animation may carry a <c>CAMERA</c> node, and a moment frames itself entirely
-    /// that way. Same rules either way — an unknown name leaves the view where it was, and
-    /// an unforced cut is the player's to switch off.
-    /// </remarks>
     private static void Cut(
         Gk3SheepApi api, LoadedScene scene, string name, bool forced, bool gliding)
     {
@@ -399,26 +345,6 @@ public static class SceneScripting
     /// <summary>
     /// Turning a head to look at something.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The reference implementation registers all of these and every one of them is an
-    /// empty body that returns zero, so no character in that build has ever glanced at
-    /// anything. They are not switched off; they were never written.
-    /// </para>
-    /// <para>
-    /// What they need is unusual and, as it turns out, easier than a skeleton would be.
-    /// GK3's people are a dozen separate meshes with their own transforms, so turning a
-    /// head is placing one mesh differently, about the mesh's own origin — which is where
-    /// the neck is. <see cref="CharacterHead"/> finds which mesh that is from what it is
-    /// painted with, since the format has no room for a name.
-    /// </para>
-    /// <para>
-    /// The duration each of these carries is not obeyed yet: a glance arrives where it is
-    /// going rather than easing there, because easing needs a clock and an update loop.
-    /// The <c>Quick</c> forms are recorded as such so that when there is one, the
-    /// difference between a snap and a turn is already in the data.
-    /// </para>
-    /// </remarks>
     private static void AttachGlances(Gk3SheepApi api, LoadedScene scene, Glances? glances)
     {
         if (glances is null)
@@ -507,10 +433,6 @@ public static class SceneScripting
     }
 
     /// <summary>Where something in the scene is, for an actor to look at.</summary>
-    /// <remarks>
-    /// The middle of it rather than its feet: an actor looking at another looks at their
-    /// head, and one looking at a wardrobe looks at the middle of the wardrobe.
-    /// </remarks>
     private static Vector3? Where(LoadedScene scene, string name)
     {
         if (Placed(scene, name) is { } placed)
@@ -570,11 +492,6 @@ public static class SceneScripting
     /// <summary>How far a placed model reaches, where it is now standing.</summary>
     /// <param name="placed">The model.</param>
     /// <returns>Its corners, or null when it has no geometry at all.</returns>
-    /// <remarks>
-    /// The same walk as <see cref="Middle"/>, kept beside it: seeing something is a
-    /// question about the whole of it rather than about its centre, which for a car, a
-    /// bookcase or a bed is inside the thing and never visible from anywhere.
-    /// </remarks>
     private static (Vector3 Minimum, Vector3 Maximum)? Extent(PlacedModel placed)
     {
         var minimum = new Vector3(float.MaxValue);
@@ -644,13 +561,6 @@ public static class SceneScripting
     /// <summary>
     /// The ground a named object stands on, as a rectangle.
     /// </summary>
-    /// <remarks>
-    /// A box around everything the object is made of, flattened onto the floor by throwing
-    /// the height away — the original does the same, and it is coarse in the right
-    /// direction: an actor walks around a chair rather than through the gap under its seat.
-    /// The name may be a prop standing in the room or an object baked into the geometry,
-    /// because the scene files name both the same way.
-    /// </remarks>
     private static (Vector2 Minimum, Vector2 Maximum)? Footprint(LoadedScene scene, string name)
     {
         if (Bounds(scene, name) is not var (low, high))
@@ -664,11 +574,6 @@ public static class SceneScripting
     /// <summary>
     /// The box round everything named that, whether it is a prop or part of the room.
     /// </summary>
-    /// <remarks>
-    /// The scene files name both the same way, so both are looked for. Height matters
-    /// where a footprint does not: an actor looking at a ceiling fan looks up at it, and
-    /// one told to look at the floor of a wardrobe looks down.
-    /// </remarks>
     internal static (Vector3 Minimum, Vector3 Maximum)? Bounds(LoadedScene scene, string name)
     {
         Vector3 minimum = new(float.MaxValue);
@@ -748,12 +653,6 @@ public static class SceneScripting
     /// <param name="audio">The room's audio.</param>
     /// <param name="scene">The room, for the cameras a conversation may be watched from.</param>
     /// <param name="world">Where the speakers are standing.</param>
-    /// <remarks>
-    /// These were all registered as recorded — the presentation surface named but not
-    /// performed — because there was no device and no decoder. There is both now, so they
-    /// are registered over. A call whose sound cannot be found still returns cleanly: a
-    /// missing footstep should not stop the script that stepped.
-    /// </remarks>
     private static void Speak(
         Gk3SheepApi api, SceneAudio audio, LoadedScene scene, SceneUpdate world)
     {
@@ -894,26 +793,6 @@ public static class SceneScripting
     /// <param name="api">The game, for who is speaking to whom.</param>
     /// <param name="scene">The room, for the cameras it names.</param>
     /// <param name="world">Where the speakers are standing.</param>
-    /// <remarks>
-    /// <para>
-    /// Three answers, in order. The conversation's own <c>initial</c> camera where the
-    /// scene names one; the camera a script asked for with
-    /// <c>SetDefaultDialogueCamera</c>; and otherwise whichever of the scene's cameras
-    /// best holds both speakers — see <see cref="ConversationCamera"/>.
-    /// </para>
-    /// <para>
-    /// The third is the port's own decision rather than the original's. It has to be:
-    /// <c>SetDefaultDialogueCamera</c> does nothing in the reference and the lobby's
-    /// introduction to Emilio names no conversation at all, so there is no authored answer
-    /// for it — and the exchange was playing out with the camera pointed across an empty
-    /// room. Nothing is invented: the choice is between shots the artists framed.
-    /// </para>
-    /// <para>
-    /// Only once per exchange, and never while cinematics are off — that switch exists so
-    /// a player can stop the camera taking itself off them, and this is exactly the kind of
-    /// cut it means.
-    /// </para>
-    /// </remarks>
     private static void Watching(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
         if (!api.State.CinematicsEnabled || api.State.Talking)
@@ -951,12 +830,6 @@ public static class SceneScripting
     /// <summary>
     /// Where the people in a conversation are standing.
     /// </summary>
-    /// <remarks>
-    /// The player and whatever they are talking to, which is what an action is about — a
-    /// topic is <c>EMILIO:T_INTRODUCE</c> and the two of them are the exchange. Anybody the
-    /// room does not have is left out rather than guessed at, and a conversation with only
-    /// one findable speaker still gets a shot that holds them.
-    /// </remarks>
     private static List<Vector3> Speakers(Gk3SheepApi api, SceneUpdate world)
     {
         List<Vector3> where = [];
@@ -973,11 +846,6 @@ public static class SceneScripting
     }
 
     /// <summary>Which way the people in a conversation are facing.</summary>
-    /// <remarks>
-    /// In the same order <see cref="Speakers"/> gives them, and zero for anybody whose facing
-    /// nothing can answer — a zero vector is skipped rather than believed, so an unknown
-    /// facing costs a shot nothing.
-    /// </remarks>
     private static List<Vector3> Looking(Gk3SheepApi api, SceneUpdate world)
     {
         List<Vector3> ahead = [];
@@ -999,20 +867,6 @@ public static class SceneScripting
     /// <param name="api">The host.</param>
     /// <param name="scene">The room being crossed.</param>
     /// <param name="world">What moves them.</param>
-    /// <remarks>
-    /// <para>
-    /// Both forms take a name and mean different things by it. <c>WalkTo</c> names a spot
-    /// the scene declares — <c>TO_B25</c>, the patch of floor in front of the bathroom door
-    /// — and <c>WalkToSee</c> names a <em>model</em>, meaning walk until you can see it.
-    /// Seeing is not worked out yet, so it walks to the model instead, which is the same
-    /// answer for anything in the open and too close for anything behind something else.
-    /// </para>
-    /// <para>
-    /// These say how long they take through <see cref="Gk3SheepApi.SecondsFor"/>, so a
-    /// waited walk holds up the line of dialogue that follows it rather than being spoken
-    /// over on the way.
-    /// </para>
-    /// </remarks>
     private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
         api.Walks = (actor, place, how, hurry, mayRun) => Send(
@@ -1119,21 +973,12 @@ public static class SceneScripting
     }
 
     /// <summary>The radius an argument asks about, in scene units.</summary>
-    /// <remarks>
-    /// A negative one is a mistake in the data rather than a very small circle; the
-    /// original refuses it outright and so does this, which is what the zero means.
-    /// </remarks>
     private static float Distance(IReadOnlyList<SheepValue> arguments, int index) =>
         arguments.Count > index && arguments[index].AsFloat() is > 0 and { } given
             ? given
             : 0f;
 
     /// <summary>Whether a point is within a distance of one of the scene's named spots.</summary>
-    /// <remarks>
-    /// Flat, on the ground plan. The spots carry a height and several of them are authored
-    /// at zero against a floor that is not, so a distance through the vertical would answer
-    /// "far away" about somebody standing on the mark.
-    /// </remarks>
     private static int Near(LoadedScene scene, Vector3? who, string spot, float distance)
     {
         if (who is not { } here ||
@@ -1151,18 +996,6 @@ public static class SceneScripting
     /// <summary>
     /// Starts a walk or a turn, and says how long it will take.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Arriving facing the right way is most of what a walk is for. A scene's named spots
-    /// carry a heading — the way somebody standing there is meant to face — and walking to
-    /// look at something means ending up looking at it. Without either, an actor arrives
-    /// facing whichever way the last corner of the route pointed, which is usually a wall.
-    /// </para>
-    /// <para>
-    /// A turn goes nowhere. 394 of the corpus's approaches are <c>TurnToModel</c>, and
-    /// walking to the thing instead puts the actor on top of what they meant to look at.
-    /// </para>
-    /// </remarks>
     private static double Send(
         LoadedScene scene,
         SceneUpdate world,
@@ -1199,11 +1032,6 @@ public static class SceneScripting
     /// <summary>
     /// Walks an actor to the spot an animation expects them to start from.
     /// </summary>
-    /// <remarks>
-    /// Nothing happens if the animation moves nobody by that name, which is the right
-    /// answer: an <c>approach=anim</c> naming a scenery animation has nobody to walk, and
-    /// refusing to run the action because of it would lose the action as well as the walk.
-    /// </remarks>
     private static double ToAnimationStart(
         LoadedScene scene,
         SceneUpdate world,
@@ -1258,13 +1086,6 @@ public static class SceneScripting
     }
 
     /// <summary>Stops an actor short of the thing they were sent to.</summary>
-    /// <remarks>
-    /// The distance is the character's own <c>WalkerHeight</c> out of <c>CHARACTERS.TXT</c> —
-    /// Gabriel is 76 units — which agrees with what the artists did where they placed an
-    /// approach spot by hand: the few in the corpus that name both a thing and a position
-    /// stand 68 to 184 units off it. See <see cref="Navigation.Walker.StandingOff"/> for why
-    /// walking to the middle is not good enough.
-    /// </remarks>
     private static Vector3 Approach(SceneUpdate world, string actor, Aiming aim)
     {
         if (aim.Look is not { } thing || world.Where(actor) is not { } from)
@@ -1286,13 +1107,6 @@ public static class SceneScripting
     /// <param name="scene">The room, which is what knows the pairing.</param>
     /// <param name="actor">The name the script used.</param>
     /// <returns>The model's own name, or the name given when the room has nobody by it.</returns>
-    /// <remarks>
-    /// <c>CHARACTERS.TXT</c> is keyed by the three-letter model code, and the fallback of
-    /// taking a name's first three letters only works where the two agree. They usually do —
-    /// <c>GABRIEL</c> to <c>GAB</c> — and where they do not, nothing is found: Emilio's noun
-    /// gives <c>EMI</c> and his section is <c>[EML]</c>, so every question about him
-    /// answered "there is no such character" and he stood where he was.
-    /// </remarks>
     private static string Modelled(LoadedScene scene, string actor) =>
         scene.Models
             .FirstOrDefault(m =>
@@ -1305,41 +1119,12 @@ public static class SceneScripting
         world.ModelNamed(actor)?.Name ?? actor;
 
     /// <summary>Standing somebody at a named spot, without walking them there.</summary>
-    /// <remarks>
-    /// <para>
-    /// <c>InitEgoPosition</c> is how a room decides where the player is standing when they
-    /// arrive. A scene's <c>SCENE:ENTER</c> action asks <c>WasLastLocation</c> which door
-    /// they came through and stands them at the matching spot — the hallway alone has one
-    /// for the lobby stairs and one for each of the guest rooms. Left recorded, every
-    /// arrival is wherever the scene's <c>[ACTORS]</c> section put them, which is the front
-    /// door however you got in.
-    /// </para>
-    /// <para>
-    /// It moves the camera as well, when the spot names one. That is the original's
-    /// behaviour and it is the difference between arriving in a room and being teleported
-    /// into it while the view stays where it was.
-    /// </para>
-    /// </remarks>
     /// <summary>
     /// Makes the fidget calls do something.
     /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="world">Where the characters are.</param>
     /// <param name="behaviours">Where a named script is read from.</param>
-    /// <remarks>
-    /// <para>
-    /// A fidget is what a character does when nobody is telling them to do anything, and
-    /// GK3 gives every one of them three: idling, talking and listening. All seven calls
-    /// were recorded, which is a cast standing perfectly still through every conversation
-    /// in the game.
-    /// </para>
-    /// <para>
-    /// <c>SetIdleGAS</c> and its two relatives replace the script; <c>StartIdleFidget</c>
-    /// and its relatives say which of the three to run whatever is happening; and
-    /// <c>StopFidget</c> stands somebody still, which is what a script does before handing
-    /// them something specific to do.
-    /// </para>
-    /// </remarks>
     private static void Fidgeting(
         Gk3SheepApi api, SceneUpdate world, Func<string, GasFile?> behaviours)
     {
@@ -1430,21 +1215,6 @@ public static class SceneScripting
     /// <param name="api">The host.</param>
     /// <param name="scene">The room the models stand in.</param>
     /// <param name="world">Where they are drawn.</param>
-    /// <remarks>
-    /// <para>
-    /// GK3 stages a moment by leaving the pieces of it in the room, declared <c>hidden</c>,
-    /// and having the script show them when they are wanted. <c>ShowModel</c> and
-    /// <c>HideModel</c> were recorded and not performed, which meant every such moment
-    /// happened with its subject missing.
-    /// </para>
-    /// <para>
-    /// RC1 at 102P is the case that was reported: on first leaving the hotel the scene
-    /// shows <c>wmo</c>, plays the clip of it riding past, has Gabriel watch it and hides
-    /// it again. With nothing shown, all the player got was Gabriel saying "A bike! Man, I
-    /// need one of those" at an empty square — which reads as a line from some other part
-    /// of the game playing by mistake.
-    /// </para>
-    /// </remarks>
     private static void Showing(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
         void Set(IReadOnlyList<SheepValue> arguments, bool visible)
@@ -1641,18 +1411,6 @@ public static class SceneScripting
     /// <param name="world">What plays the animations.</param>
     /// <param name="actor">Whose face, by either of their names.</param>
     /// <param name="mood">The mood, or null to clear whatever is on.</param>
-    /// <remarks>
-    /// <para>
-    /// The names are built from the model's three letters and the mood: <c>gab</c> plus
-    /// <c>angry</c> plus <c>on</c>. Six moods are used across the game — confused,
-    /// surprised, happy, angry, and half of the middle two — plus grief.
-    /// </para>
-    /// <para>
-    /// Setting one clears the last, because they are worn rather than stacked: the "off"
-    /// animation is what puts the face back, and skipping it leaves an expression on
-    /// somebody for the rest of the scene.
-    /// </para>
-    /// </remarks>
     private static void Mood(
         Gk3SheepApi api, LoadedScene scene, SceneUpdate world, string actor, string? mood)
     {
@@ -1807,11 +1565,6 @@ public static class SceneScripting
         (Vector3 Minimum, Vector3 Maximum)? Bounds = null);
 
     /// <summary>Where a walking call is pointing.</summary>
-    /// <remarks>
-    /// A named spot on the floor, or the middle of a thing. Tried in that order and
-    /// regardless of which call asked, because the corpus is not perfectly consistent about
-    /// which kind of name it hands to which function.
-    /// </remarks>
     private static Aiming? Aim(LoadedScene scene, string place, bool toModel)
     {
         if (place.Length == 0)
@@ -1850,10 +1603,6 @@ public static class SceneScripting
     /// <summary>
     /// The actor a walking call is about.
     /// </summary>
-    /// <remarks>
-    /// The first argument when there is one, and whoever the player is otherwise. Scripts
-    /// write both, and a walk with no name is always about ego.
-    /// </remarks>
     private static string Actor(Gk3SheepApi api, IReadOnlyList<SheepValue> arguments, int index) =>
         index < arguments.Count && arguments[index].AsString() is { Length: > 0 } named
             ? named
@@ -1867,18 +1616,6 @@ public static class SceneScripting
     /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="world">What plays them.</param>
-    /// <remarks>
-    /// <para>
-    /// The rigid part only. A clip's mesh transforms are applied and its vertex poses are
-    /// not, which plays 2,188 of the corpus's 5,796 clips exactly right — a door, a drawer,
-    /// a telephone — and plays a character as a set of mesh groups that move about without
-    /// deforming. The second of those looks wrong and is still where the geometry goes.
-    /// </para>
-    /// <para>
-    /// They say how long they take through <see cref="Gk3SheepApi.SecondsFor"/>, so a waited
-    /// animation holds up what follows it rather than being talked over.
-    /// </para>
-    /// </remarks>
     private static void Animating(Gk3SheepApi api, SceneUpdate world)
     {
         api.Plays = (name, repeat) => world.Play(name, repeat);

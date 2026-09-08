@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for loading a scene where there is nothing to draw it with.
 /// </summary>
-/// <remarks>
-/// The sink is what makes "every scene loads headlessly" answerable on a build agent, so
-/// what matters is that it takes everything the loader hands it and measures it honestly.
-/// A sink that quietly dropped models would turn a sweep of the whole corpus into a sweep
-/// of the parts that happen to be geometry.
-/// </remarks>
 public sealed class HeadlessSceneSinkTests
 {
     private static ModFile Triangle(Vector3 offset)

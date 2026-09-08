@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for an actor crossing a room.
 /// </summary>
-/// <remarks>
-/// <see cref="WalkPath"/> found routes and nothing moved along them. What matters here is
-/// that a walk covers the distance it was given whatever the frame rate does — a slow frame
-/// should cost smoothness and never distance — and that an actor turns into a corner rather
-/// than snapping round it.
-/// </remarks>
 public sealed class WalkerTests
 {
     private static WalkRoute Route(params Vector3[] points) => new(true, points);
@@ -23,12 +17,6 @@ public sealed class WalkerTests
     /// <summary>
     /// Which way the model actually points, taken from the placement it is given.
     /// </summary>
-    /// <remarks>
-    /// Through <see cref="Walker.Transform"/> rather than off <see cref="Walker.Facing"/>,
-    /// so the −Z the characters are modelled along is exercised rather than restated.
-    /// Asserting a raw angle would only repeat whatever the code under test does, and this
-    /// is what caught it being inverted.
-    /// </remarks>
     private static Vector3 Facing(Walker walker) =>
         Vector3.Normalize(Vector3.TransformNormal(-Vector3.UnitZ, walker.Transform()));
 
@@ -309,11 +297,6 @@ public sealed class WalkerTests
     /// <summary>
     /// The turn at the end of a walk is counted whichever way the actor has to come round.
     /// </summary>
-    /// <remarks>
-    /// Half a turn at six radians a second is a little over half a second, which is the
-    /// difference between a coffee pot poured at the table and one poured in the air beside
-    /// a man still facing the door.
-    /// </remarks>
     [Theory]
     [InlineData(0f, 0f)]
     [InlineData(MathF.PI / 2, MathF.PI / 2 / Walker.TurnRate)]

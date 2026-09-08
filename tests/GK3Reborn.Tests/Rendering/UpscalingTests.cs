@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for what the renderer is asked to upscale, and where it samples while it does.
 /// </summary>
-/// <remarks>
-/// None of this needs a device, which is the point of it living outside
-/// <c>Rendering/Vulkan</c>: the ratios, the clamping and the jitter sequence are arithmetic,
-/// and arithmetic that is wrong here is wrong on every machine rather than on somebody's.
-/// </remarks>
 public sealed class UpscalePlanTests
 {
     [Theory]

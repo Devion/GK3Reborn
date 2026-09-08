@@ -56,22 +56,6 @@ public sealed record Sight(
 /// <param name="Facing">Which way they are facing there.</param>
 /// <param name="Eye">Where the view was before they leaned in.</param>
 /// <param name="Look">Which way it was pointed.</param>
-/// <remarks>
-/// <para>
-/// <b>Leaning in is not going there.</b> <c>BINOCS.TXT</c> says so in its own header —
-/// "zooming the binocs into another scene doesn't process that new scene's sif file" — and
-/// the game's data is written against it: <c>CD1102P.SIF</c>, which is Blanchefort's tower,
-/// carries Madeleine Buthane and a camera position at Coume Sourde, five kilometres away,
-/// because the tower is where the player still is while they look at her.
-/// </para>
-/// <para>
-/// This is what the port had wrong, and it was reported: leaning in <em>moved</em> the
-/// player. Looking at L'Homme Mort from the tower put Gabriel at L'Homme Mort, where his
-/// moped was not, and there was no way to leave — the room's own exit asks whether the
-/// moped is parked there and it was parked at Blanchefort. What the player wanted, and what
-/// the original gives, is a closer look and then the tower back.
-/// </para>
-/// </remarks>
 public sealed record BinocularView(
     string From, Sight Sight, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look);
 
@@ -134,30 +118,6 @@ public sealed record Panorama(
 /// <summary>
 /// The binoculars.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Two places in the game have them — the Armchair of the Devil and the tower at Château de
-/// Blanchefort — and from each, at each time of day, a handful of other places can be
-/// picked out and zoomed into. <c>BINOCS.TXT</c> describes all of it: twenty-one
-/// vantage points, forty-seven things to look at, and four spots that have a line of
-/// dialogue rather than a destination.
-/// </para>
-/// <para>
-/// <b>The panorama is the room, not a picture.</b> The binoculars do not show a painted
-/// backdrop; they narrow the view and let the player pan the camera they already have.
-/// Each thing worth seeing is a rectangle in degrees — heading across, pitch up and down —
-/// and the file's numbers say so: they run from 1 to 189 across and from -7 to 11 up, which
-/// is an arc of hillside and a few degrees either side of the horizon rather than any kind
-/// of image coordinate.
-/// </para>
-/// <para>
-/// <b>Zooming in is a camera, and sometimes a room.</b> Each sight carries the position and
-/// angle the camera takes when the player zooms — usually inside another room entirely,
-/// which is why it also names that room's floor. The enter and exit scripts are the
-/// original's own hooks for hiding and showing whatever has to be in place before the cut;
-/// they are recorded and run through the ordinary script host.
-/// </para>
-/// </remarks>
 public sealed class Binoculars
 {
     private readonly Dictionary<string, Panorama> _views;

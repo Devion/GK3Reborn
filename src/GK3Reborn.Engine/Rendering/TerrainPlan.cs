@@ -48,63 +48,17 @@ public readonly record struct TerrainFrame(
 /// forest, which trees are near enough to be models this frame, and the two constant blocks
 /// a frame is drawn with.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Both backends own buffers, textures and pipelines; neither owns the recipe. What is here
-/// is arithmetic over arrays — a heightfield turned into triangles, a placement file gathered
-/// by species, a camera turned into the backdrop's own metric space — and none of it has any
-/// reason to exist twice. The one thing that would go wrong if it did is the thing hardest
-/// to see: two horizons that are each individually plausible and disagree about where a
-/// ridge is.
-/// </para>
-/// <para>
-/// The backdrop lives in its own metric space — metres around the scene's centre — and is
-/// drawn with its own projection, so no room unit ever meets a terrain metre except at one
-/// constant: <see cref="MetersPerUnit"/> turns the camera's offset from the scene centre into
-/// a movement through the backdrop, which is what gives the horizon parallax instead of the
-/// swimming a camera-glued skybox shows on every cut and glide.
-/// </para>
-/// <para>
-/// It cannot share the room's depth range — the room's projection has no idea what four
-/// kilometres are — so the vertex stages squeeze the backdrop's whole depth into the far tail
-/// of the buffer, above 0.999. The room always wins the depth test against it, the backdrop
-/// still sorts against itself inside the tail, and the generated sky at exactly 1.0 loses to
-/// both.
-/// </para>
-/// <para>
-/// The full recipe and why each rule exists:
-/// <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c>.
-/// </para>
-/// </remarks>
 public sealed class TerrainPlan
 {
     /// <summary>Floats per placed tree: where it is, how big, which way round, which shape.</summary>
     public const int Stride = 6;
 
     /// <summary>How many metres of backdrop one unit of room is worth.</summary>
-    /// <remarks>
-    /// GK3's people are about seventy units for a grown adult, so a unit is roughly an
-    /// inch; 0.025 keeps a walk across a courtyard a walk, not a flight.
-    /// </remarks>
     public const float MetersPerUnit = 0.025f;
 
     /// <summary>
     /// The shapes a distant wood is made of, in the order the offline placement numbers them.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Four silhouettes rather than one. A hillside of identical cones is the tell that
-    /// gave the reconstructed horizon away from across a valley: a real wood is conifers
-    /// and broadleaves mixed, with scrub where it thins out, and at a kilometre the only
-    /// thing that survives of a tree <em>is</em> its silhouette — so the silhouette is the
-    /// one thing worth spending geometry on.
-    /// </para>
-    /// <para>
-    /// Sixteen to twenty-four triangles apiece, which is what an impostor can afford when
-    /// there are twenty thousand of them. The measurements are metres at a scale of one,
-    /// and the offline placement varies that per tree.
-    /// </para>
-    /// </remarks>
     private static readonly (int Sides, float Height, (float At, float Radius)[] Rings)[]
         Impostors =
     [
@@ -147,21 +101,9 @@ public sealed class TerrainPlan
     public float TileMeters { get; set; } = 60f;
 
     /// <summary>How far the camera is kept above the backdrop's own ground, in metres.</summary>
-    /// <remarks>
-    /// About a person's eye height. What it guards is not the view from a hill — where the
-    /// camera stands tens of metres over the terrain and should — but the case where
-    /// <see cref="LiftMeters"/> is larger than the ground under the viewpoint, which buries
-    /// the camera and turns the whole horizon into a rising wall.
-    /// </remarks>
     public float ClearanceMeters { get; set; } = 2f;
 
     /// <summary>How far the whole backdrop is raised against the camera, in metres.</summary>
-    /// <remarks>
-    /// The offline heights put the panorama's own camera at zero, but the room's cameras
-    /// stand wherever the scenes put them — often high enough that whole hillsides sink
-    /// below the visible horizon. Raising the backdrop is done by standing the camera lower
-    /// in it, which carries the fog along for free.
-    /// </remarks>
     public float LiftMeters { get; set; } = 12f;
 
     /// <summary>How strongly the vista's colour is laid over the tiles, zero to one.</summary>
@@ -170,28 +112,9 @@ public sealed class TerrainPlan
     /// <summary>
     /// How much of the light a metre of air at the valley floor takes out.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set so that a hillside half a kilometre off has lost about a third of its contrast
-    /// and one two kilometres off is very nearly the colour of the sky. That is a clear day
-    /// in hill country rather than a foggy one.
-    /// </para>
-    /// <para>
-    /// Per metre, and deliberately not scaled to the size of the set. What decides how hazy
-    /// a mountain looks is how far away it is, and a reconstruction that reaches six
-    /// kilometres should have a hazier rim than one that reaches one.
-    /// </para>
-    /// </remarks>
     public float HazeDensity { get; set; } = 6.5e-4f;
 
     /// <summary>How many metres the haze thins over, above the camera.</summary>
-    /// <remarks>
-    /// The scale height of the air, and what makes this aerial perspective rather than
-    /// distance fog. At a hundred and thirty metres a ridge rising two hundred above the
-    /// camera sits in a fifth of the density its own foot does, so it stands clear of the
-    /// murk in the valley below it — which is the shape the eye reads as depth in real
-    /// country, and the reason a flat fog makes hills look like a painted flat.
-    /// </remarks>
     public float HazeHeight { get; set; } = 130f;
 
     /// <summary>Fraction of the procedural sky occupied by cloud, zero to one.</summary>
@@ -201,34 +124,14 @@ public sealed class TerrainPlan
     public float CloudScale { get; set; } = 1f;
 
     /// <summary>How far the modelled trees may reach, in metres from the camera.</summary>
-    /// <remarks>
-    /// Past this the impostors have it, whatever the budget would allow. Three hundred
-    /// metres is where a fourteen-metre tree is about forty pixels tall on a 720-line
-    /// screen — small enough that a cone with the right silhouette is honestly as good, and
-    /// small enough that the alpha-tested cards start to shimmer rather than resolve.
-    /// </remarks>
     public float ModelReachMeters { get; set; } = 460f;
 
     /// <summary>
     /// How many triangles a frame may spend on the near forest.
     /// </summary>
-    /// <remarks>
-    /// The budget rather than a count of trees, because the two levels of detail differ by
-    /// five times: a full tree is twenty thousand triangles and the cheap one four, so "the
-    /// nearest two hundred" means something very different depending on which is drawn.
-    /// Spending it nearest-first means the trees the player is looking at get the full model
-    /// and the rest get whatever is left.
-    /// </remarks>
     public int ModelTriangleBudget { get; set; } = 3_000_000;
 
     /// <summary>How many of the nearest may be the full model rather than the cheap one.</summary>
-    /// <remarks>
-    /// Both a count and a distance, and the distance is what stops the count being silly. A
-    /// full broadleaf is twenty-two thousand triangles against the cheap one's four, and
-    /// spending the first forty of those on trees a quarter of a kilometre out — where the
-    /// two are indistinguishable — is most of the budget gone before the band that can
-    /// actually use it. Seventy metres is about where the difference stops showing.
-    /// </remarks>
     public int FullDetailTrees { get; set; } = 48;
 
     /// <summary>How near a tree must be to be worth the full model.</summary>
@@ -277,11 +180,6 @@ public sealed class TerrainPlan
     /// <summary>
     /// The near band's placements, six floats a tree, filled by <see cref="Frame"/>.
     /// </summary>
-    /// <remarks>
-    /// Sized once for every tree the budget could reach at the cheapest model, so the
-    /// selection never grows it and a frame never allocates. Only the first
-    /// <see cref="ModelCount"/> times <see cref="Stride"/> floats are live.
-    /// </remarks>
     public float[] ModelInstanceData { get; private set; } = [];
 
     /// <summary>How many trees are drawn as models this frame.</summary>
@@ -695,20 +593,6 @@ public sealed class TerrainPlan
     /// </summary>
     /// <param name="eye">The camera, in backdrop metres.</param>
     /// <returns>Whether the selection was rebuilt.</returns>
-    /// <remarks>
-    /// <para>
-    /// Nearest first, spending a triangle budget: the closest handful get the full model,
-    /// the next few hundred get the cheap one, and the budget stops wherever it stops. What
-    /// that leaves is how far the models actually got, and the impostors are told to start
-    /// there rather than at a constant, so a dense wood and a thin one both hand over
-    /// exactly where the models ran out.
-    /// </para>
-    /// <para>
-    /// Only when the camera has moved. A room camera is a fixed viewpoint and the trees do
-    /// not move, so the answer is the same frame after frame; recomputing it would sort
-    /// twenty thousand distances sixty times a second to arrive back where it was.
-    /// </para>
-    /// </remarks>
     private bool SelectTreeModels(Vector3 eye)
     {
         if (Models.Length == 0)
@@ -832,11 +716,6 @@ public sealed class TerrainPlan
     /// <param name="x">Where, east.</param>
     /// <param name="z">Where, north.</param>
     /// <returns>The height, or nought when there is no grid to ask.</returns>
-    /// <remarks>
-    /// Bilinear, and off the full-resolution grid rather than the drawn mesh: this is asked
-    /// once a frame and what it is for is keeping the camera out of the hill, so it should
-    /// agree with the ground rather than with the stride the ground is drawn at.
-    /// </remarks>
     private float Ground(float x, float z)
     {
         if (_grid < 2 || _heights.Length != _grid * _grid || _extent <= 0f)

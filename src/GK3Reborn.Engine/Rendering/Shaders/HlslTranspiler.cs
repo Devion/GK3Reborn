@@ -7,40 +7,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// Turns SPIR-V back into HLSL, so that shaders written once can be given to DXC.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The engine's shading is GLSL (ADR 0008) and Direct3D cannot read a word of it. The
-/// alternative to this class is a second copy of every shader in HLSL, which was rejected:
-/// two dialects of the same lighting drift apart, and the symptom of the drift is a
-/// picture that differs between backends in a way nobody can attribute to a line.
-/// </para>
-/// <para>
-/// SPIRV-Cross's HLSL back end is what makes this workable rather than merely possible.
-/// It knows the constructs the renderer actually uses — <c>rayQueryEXT</c> becomes
-/// <c>RayQuery</c> and <c>TraceRayInline</c>, <c>nonuniformEXT</c> becomes
-/// <c>NonUniformResourceIndex</c>, a read-only storage buffer becomes a
-/// <c>ByteAddressBuffer</c> — and it lays the bindings out exactly as
-/// <see cref="ShaderBindings"/> describes without being asked to.
-/// </para>
-/// <para>
-/// It is asked for three things all the same. Push constants are placed deliberately,
-/// because left alone they land on top of whatever is at <c>b0</c>; the vertex Y flip is
-/// undone, because the projection carries one for Vulkan's clip space and Direct3D's is the
-/// other way up; and a vertex shader's outputs are masked down to what its fragment shader
-/// actually reads.
-/// </para>
-/// <para>
-/// <b>That last one is not an optimisation.</b> The two stages are translated
-/// independently, and DXC packs each one's varyings into consecutive hardware registers by
-/// itself. The mesh shader's vertex stage writes six varyings and its fragment stage reads
-/// five — location 4 goes unread — so the vertex stage packs its sixth into register five
-/// and the fragment stage packs the same varying into register four. Direct3D refuses the
-/// pipeline: <c>Semantic 'TEXCOORD' is defined for mismatched hardware registers between
-/// the output stage and input stage</c>. Masking the unread output makes both stages pack
-/// the same way, which is why <see cref="StageInputLocations"/> exists and why the fragment
-/// shader has to be translated first.
-/// </para>
-/// </remarks>
 public sealed class HlslTranspiler : IDisposable
 {
     private readonly Cross _cross = ShaderToolchain.Cross;
@@ -50,11 +16,6 @@ public sealed class HlslTranspiler : IDisposable
     /// <param name="name">Name used in error messages.</param>
     /// <returns>The locations, which for a fragment shader are the varyings it consumes.</returns>
     /// <exception cref="ShaderCompilationException">The module could not be read.</exception>
-    /// <remarks>
-    /// Asked of a fragment shader so that its vertex shader can be translated with everything
-    /// else masked off. See the note on stage linkage above: without it the two stages pack
-    /// their varyings into different registers and Direct3D refuses the pipeline.
-    /// </remarks>
     public IReadOnlySet<uint> StageInputLocations(
         ReadOnlySpan<byte> spirv, string name = "shader") =>
         Locations(spirv, name, ResourceType.StageInput);
@@ -255,11 +216,6 @@ public sealed class HlslTranspiler : IDisposable
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Nothing to release; see <see cref="ShaderToolchain"/>. Every SPIRV-Cross context
-    /// this class creates is destroyed by the call that created it, and the library handle
-    /// is not this class's to give back.
-    /// </remarks>
     public void Dispose()
     {
     }

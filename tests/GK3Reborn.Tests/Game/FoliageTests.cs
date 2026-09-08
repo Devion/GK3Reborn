@@ -13,13 +13,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for growing modelled trees over GK3's flat foliage cards.
 /// </summary>
-/// <remarks>
-/// Two properties carry the whole feature. A card has to be <em>measured</em> rather than
-/// guessed at, because the picture on it is the artist's whole description of the tree; and
-/// the same card has to produce the same tree on every load, because a wood that reshuffles
-/// itself when the player walks out of a room and back in is worse than a wood of identical
-/// trees, and it makes two renders of one scene impossible to compare.
-/// </remarks>
 public sealed class FoliageTests : IDisposable
 {
     private static readonly string[] PineSprites = ["PINE2", "PINE2FLAT"];
@@ -206,10 +199,6 @@ public sealed class FoliageTests : IDisposable
     }
 
     /// <summary>MCF's maple, measured from the room's own cards.</summary>
-    /// <remarks>
-    /// The numbers are the ones the room actually produces, so that a change to how a card
-    /// is measured shows up here as a test that has stopped describing the game.
-    /// </remarks>
     private static readonly TreeSite Maple = new(
         new TreeSpecies
         {

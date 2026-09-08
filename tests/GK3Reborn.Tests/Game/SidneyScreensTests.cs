@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for Sidney's search, suspects and identity screens.
 /// </summary>
-/// <remarks>
-/// These three were the ones that said "not implemented yet", and one of them —
-/// fingerprint matching — decides whether a murder can be pinned on anybody. The test that
-/// matters most is the mislabelled print: <c>BUCHELLIS_FINGERPRINT_LABELED_WILKES</c> is
-/// Buchelli's however it is labelled, and an engine that believed the label would quietly
-/// convict the wrong man.
-/// </remarks>
 public sealed class SidneyScreensTests
 {
     private const string Text = """

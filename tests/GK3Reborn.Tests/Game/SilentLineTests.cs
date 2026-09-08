@@ -9,19 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for a line of dialogue whose recording is not there and whose words are.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A <c>.YAK</c> is the line: its <c>[SOUNDS]</c> names the recording and its <c>[GK3]</c>
-/// carries the caption. When the developers cut a puzzle they deleted the recordings and
-/// left the YAKs, so eighteen of the crow's-nest puzzle's nineteen lines are a caption with
-/// no sound behind it, and the shipped game has a few of its own.
-/// </para>
-/// <para>
-/// Those were dropped on the floor: the caption was read off the animation and cleared in
-/// the same call, while the waited <c>StartVoiceOver</c> that asked for the line went on
-/// spending its three seconds. Reported as looking at the crow's nest doing nothing at all.
-/// </para>
-/// </remarks>
 public sealed class SilentLineTests
 {
     /// <summary>A device that plays nothing and would say so if it were asked to.</summary>
@@ -177,10 +164,6 @@ public sealed class SilentLineTests
     /// <summary>
     /// A line with nothing to hear and nothing to read is still skipped outright.
     /// </summary>
-    /// <remarks>
-    /// Which is the case the old behaviour was written for: an animation with no audio and
-    /// no words has nothing to hold the queue up for.
-    /// </remarks>
     [Fact]
     public void A_line_with_no_words_either_is_still_skipped()
     {

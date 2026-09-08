@@ -3,12 +3,6 @@ namespace GK3Reborn.Formats.Rebarn;
 /// <summary>
 /// CRC-32, so a pack can say whether an entry survived the disk.
 /// </summary>
-/// <remarks>
-/// The ordinary IEEE polynomial, the one zip and PNG use. It is here rather than taken
-/// from <c>System.IO.Hashing</c> because that is a package this project does not otherwise
-/// need, and this is thirty lines. It guards a pack's contents; the index has its own
-/// checksum, in the header, and that one is checked on every open.
-/// </remarks>
 public static class Crc32
 {
     private static readonly uint[] Table = Build();

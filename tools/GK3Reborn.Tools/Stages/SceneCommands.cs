@@ -13,11 +13,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// The scene-geometry subcommands: cut a room into objects, and put them back.
 /// </summary>
-/// <remarks>
-/// These parse their own arguments, for the same reason the pack commands do: a room list
-/// and a crease angle belong to these two commands and to nothing else, and putting them
-/// into the record every command shares would make the rest of the help worse.
-/// </remarks>
 public static class SceneCommands
 {
     /// <summary>The commands this handles.</summary>

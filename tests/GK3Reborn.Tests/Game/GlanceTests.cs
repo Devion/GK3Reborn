@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for an actor turning their head.
 /// </summary>
-/// <remarks>
-/// GK3's people have no skeleton: a character is a dozen separate meshes with their own
-/// transforms, so turning a head is placing one mesh differently, about its own origin.
-/// Finding which mesh that is has to come from what it is painted with, because the format
-/// has nowhere to write a name.
-/// </remarks>
 public sealed class GlanceTests
 {
     private static ModMesh Mesh(float height, params string[] textures) =>

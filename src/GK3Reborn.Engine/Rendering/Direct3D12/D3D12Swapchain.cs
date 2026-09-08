@@ -8,37 +8,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// The chain of images the window is presented from, and the colour space they carry.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The flip model, which is the only model Direct3D 12 has. Its consequences are worth
-/// stating because they differ from Vulkan's in ways that are easy to get wrong: a
-/// back buffer may not be multisampled, the buffer index is chosen by DXGI rather than
-/// acquired by the application, and — the one that bites — a buffer must be back in the
-/// <c>Present</c> state before it is presented, every time, or the runtime removes the
-/// device.
-/// </para>
-/// <para>
-/// There is no <c>ErrorOutOfDateKhr</c> here. Vulkan tells the application its swapchain
-/// has gone stale; DXGI resizes on request and says nothing, so a resize is something the
-/// renderer notices from the window rather than from a present. That makes recreation
-/// simpler and one thing harder: nothing will remind you.
-/// </para>
-/// <para>
-/// <b>The format is not a preference.</b> It decides what the numbers in the last shader
-/// mean, and the three cases are genuinely different pictures rather than three qualities
-/// of one. See <see cref="Choose"/>.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Swapchain : IDisposable
 {
     /// <summary>How many back buffers the chain holds.</summary>
-    /// <remarks>
-    /// Three rather than two. The flip model does not block on present the way the old
-    /// model did, so a third buffer costs one frame of memory and removes the stall that
-    /// two buffers leave when the CPU finishes a frame while the display still holds one.
-    /// It is also what frame generation needs: a generated frame is presented between two
-    /// rendered ones, and there has to be somewhere to put it.
-    /// </remarks>
     public const uint BufferCount = 3;
 
     private readonly D3D12Context _context;
@@ -64,25 +36,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     public Format Format { get; private set; } = Format.FormatR8G8B8A8Unorm;
 
     /// <summary>The format a pass drawing onto a back buffer must be built for.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Not the same as <see cref="Format"/>, and the difference is the whole of the
-    /// standard-range encode.</b> A flip-model swapchain may not be created with an sRGB
-    /// format, so the buffers are plain <c>UNORM</c>; but every pass that writes them —
-    /// the output encode, the film, the interface, the fade — writes linear light and
-    /// expects the hardware to apply the curve. So the render target view declares the sRGB
-    /// form of the same bits, which is what makes the hardware do it.
-    /// </para>
-    /// <para>
-    /// Getting this wrong is not an error anywhere. It is a game that is far too dark, with
-    /// its darks crushed together and its colours pulled towards the primaries — which reads
-    /// as a lighting bug rather than as a missing encode.
-    /// </para>
-    /// <para>
-    /// On a high dynamic range surface the two are the same. There is no hardware curve for
-    /// ST.2084 and the shader does the encode itself.
-    /// </para>
-    /// </remarks>
     public Format RenderFormat { get; private set; } = Format.FormatR8G8B8A8UnormSrgb;
 
     /// <summary>How the numbers in a back buffer are to be read by the display.</summary>
@@ -153,12 +106,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <param name="list">The list to record into.</param>
     /// <param name="index">Which buffer.</param>
     /// <param name="to">The state it should be in.</param>
-    /// <remarks>
-    /// The state is tracked per buffer rather than per frame, because with three buffers
-    /// and two frames in flight the two do not line up. Tracking it per frame is how a
-    /// buffer comes to be presented from the render target state, which removes the device
-    /// with no message beyond the removal itself.
-    /// </remarks>
     public void Transition(ID3D12GraphicsCommandList4* list, uint index, ResourceStates to)
     {
         D3D12Context.Transition(list, _buffers[index].Handle, _states[index], to);
@@ -169,12 +116,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <param name="verticalSync">Whether to wait for the display.</param>
     /// <returns>False when the chain needs rebuilding before the next frame.</returns>
     /// <exception cref="D3D12Exception">The present failed for a reason a rebuild will not fix.</exception>
-    /// <remarks>
-    /// Tearing is offered only with vertical sync off and only where DXGI says the machine
-    /// allows it, which is not everywhere: it needs a tearing-capable adapter and a
-    /// borderless window, and asking for it when either is missing fails the present with
-    /// an invalid call rather than falling back.
-    /// </remarks>
     public bool Present(bool verticalSync = true)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -223,12 +164,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     public bool AllowsTearing { get; private set; }
 
     /// <summary>Whether the chain is one Streamline made and can therefore generate into.</summary>
-    /// <remarks>
-    /// The one thing that decides whether frame generation can run. It is false whenever
-    /// there is no runtime, and false when there is one that would not proxy the factory —
-    /// and in the second case the picture is exactly as correct as before, which is why this
-    /// is reported rather than thrown.
-    /// </remarks>
     public bool Proxied { get; private set; }
 
     /// <summary>Rebuilds the chain at a new size.</summary>
@@ -237,11 +172,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <param name="wantHdr">Whether to present high dynamic range if the display accepts it.</param>
     /// <param name="transfer">Which wide encoding to prefer, where one is wanted.</param>
     /// <exception cref="D3D12Exception">The chain could not be resized.</exception>
-    /// <remarks>
-    /// Every reference to a back buffer must be gone before the resize and the device must
-    /// have finished with them, or DXGI refuses and says only that a call was invalid. The
-    /// wait is the caller's to have done; releasing the buffers is this method's.
-    /// </remarks>
     public void Resize(
         int width, int height, bool wantHdr = false,
         HdrTransfer transfer = HdrTransfer.Automatic)
@@ -304,11 +234,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <summary>The format a render target view of a back buffer declares.</summary>
     /// <param name="format">The format the buffers were created with.</param>
     /// <returns>The format to write through.</returns>
-    /// <remarks>
-    /// The sRGB form of the eight-bit format, so the hardware applies the standard-range
-    /// curve; anything else unchanged, because a ten-bit surface carries ST.2084 and the
-    /// shader encodes that itself.
-    /// </remarks>
     private static Format ViewOf(Format format) => format switch
     {
         Format.FormatR8G8B8A8Unorm => Format.FormatR8G8B8A8UnormSrgb,
@@ -320,31 +245,6 @@ public sealed unsafe class D3D12Swapchain : IDisposable
     /// <param name="wantHdr">Whether high dynamic range was asked for.</param>
     /// <param name="space">How the display should read the numbers.</param>
     /// <returns>The format.</returns>
-    /// <remarks>
-    /// <para>
-    /// Three genuinely different pictures rather than three qualities of one:
-    /// </para>
-    /// <para>
-    /// <b>R8G8B8A8_UNORM, written through an sRGB view.</b> Eight bits a channel, encoded
-    /// by the hardware. The buffers cannot be created in the <c>_SRGB</c> format — a
-    /// flip-model swapchain refuses it — so the format here is the plain one and
-    /// <see cref="RenderFormat"/> is its sRGB form, which is what the render target view and
-    /// every pipeline that writes a back buffer declare. The passes write linear light and
-    /// the curve is applied on write, exactly as on the Vulkan surface, which picks an
-    /// <c>_SRGB</c> format outright because Vulkan allows one.
-    /// </para>
-    /// <para>
-    /// <b>R10G10B10A2_UNORM with ST.2084.</b> HDR10. Ten bits a channel is enough for a
-    /// PQ curve and eight is not — eight bits of PQ bands visibly in the dark parts, which
-    /// is where an adventure game set at night spends its time.
-    /// </para>
-    /// <para>
-    /// <b>R16G16B16A16_FLOAT with linear scRGB.</b> What frame generation wants, because a
-    /// PQ buffer is not linear and an interpolator that averages two PQ frames averages the
-    /// wrong quantity. Not chosen here — the renderer asks for it when it needs it — but
-    /// named, because the reason it exists is not obvious from the format.
-    /// </para>
-    /// </remarks>
     /// <param name="transfer">Which encoding was asked for.</param>
     private Format Choose(bool wantHdr, HdrTransfer transfer, out ColorSpaceType space)
     {

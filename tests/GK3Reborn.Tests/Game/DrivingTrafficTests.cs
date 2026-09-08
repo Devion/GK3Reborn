@@ -7,28 +7,9 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the traffic on the driving map.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported: clicking Wilkes's moped or Madeleine's van as they went past the Blanchefort
-/// parking lot brought the map up again and nothing else happened, so L'Ermitage, Coume
-/// Sourde and L'Homme Mort could not be discovered at all. Two things were missing — the
-/// chase itself, which <c>FollowOnDrivingMap</c> was recording rather than running, and
-/// anybody on the map to give chase to.
-/// </para>
-/// <para>
-/// The road network here is invented. It carries the junction names the game's own routes
-/// are written in, because those are what the code joins up, and none of its coordinates
-/// or bends are the shipped file's: what is being tested is that a route becomes a road,
-/// not what the Aude valley looks like.
-/// </para>
-/// </remarks>
 public sealed class DrivingTrafficTests
 {
     /// <summary>Eight junctions of a valley that is not the game's.</summary>
-    /// <remarks>
-    /// Enough of a network to have the two shapes that matter: a leg that is one road, and
-    /// a leg between two junctions with no road between them.
-    /// </remarks>
     private const string Roads =
         """
         NodeBegin Plo
@@ -108,10 +89,6 @@ public sealed class DrivingTrafficTests
         Timeblock.TryParse(code, out Timeblock parsed) ? parsed : default;
 
     /// <summary>A leg with a road under it bends the way the road does.</summary>
-    /// <remarks>
-    /// The whole reason the segments are read at all. Without them the moped flies between
-    /// villages in a straight line over a painting of a valley whose roads are drawn on it.
-    /// </remarks>
     [Fact]
     public void A_route_follows_the_road_rather_than_the_straight_line()
     {
@@ -136,10 +113,6 @@ public sealed class DrivingTrafficTests
     /// <summary>
     /// A leg between two junctions with no road between them goes the way round there is.
     /// </summary>
-    /// <remarks>
-    /// Madeleine's drive to Coume Sourde is written <c>plo/pl3/rl1/in4/pl2</c> and there is
-    /// no road from <c>In4</c> to <c>Pl2</c>. Read literally her van crosses a hillside.
-    /// </remarks>
     [Fact]
     public void A_leg_with_no_road_of_its_own_is_joined_up_through_the_network()
     {
@@ -162,10 +135,6 @@ public sealed class DrivingTrafficTests
     }
 
     /// <summary>And each of them stops once they have been followed.</summary>
-    /// <remarks>
-    /// Which is what they are out there for. The room's own action writes the count — see
-    /// <c>PLO102P.NVC</c> — and the retail driving layer asks the same question.
-    /// </remarks>
     [Fact]
     public void Somebody_already_followed_is_no_longer_on_the_roads()
     {
@@ -301,10 +270,6 @@ public sealed class DrivingTrafficTests
     /// <summary>
     /// Coume Sourde and L'Homme Mort arrive on the map when Madeleine has been followed.
     /// </summary>
-    /// <remarks>
-    /// The whole of what the chase is for. Before it, neither place exists as far as the
-    /// map is concerned, and neither does L'Ermitage.
-    /// </remarks>
     [Fact]
     public void Following_Madeleine_puts_Coume_Sourde_on_the_map()
     {
@@ -335,10 +300,6 @@ public sealed class DrivingTrafficTests
     /// And the story hands them over anyway once it has moved past the afternoon they
     /// belong to.
     /// </summary>
-    /// <remarks>
-    /// The retail layer's own safety net, and the reason a player who missed the chase is
-    /// not locked out of the second half of the first day.
-    /// </remarks>
     [Fact]
     public void The_afternoon_after_puts_all_three_on_the_map_regardless()
     {

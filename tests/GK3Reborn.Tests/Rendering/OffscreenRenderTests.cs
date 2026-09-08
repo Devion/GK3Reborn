@@ -9,11 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Render tests that need a working GPU.
 /// </summary>
-/// <remarks>
-/// These skip rather than fail where no Vulkan device is available, so a build agent
-/// without a GPU still reports a green run. A machine that *does* have one gets the real
-/// check, which is the only way to tell "drew nothing" apart from "did not crash".
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class OffscreenRenderTests
 {

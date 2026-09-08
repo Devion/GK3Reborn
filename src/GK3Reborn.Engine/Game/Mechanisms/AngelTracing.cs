@@ -5,45 +5,14 @@ namespace GK3Reborn.Game.Mechanisms;
 /// <summary>
 /// The four angels in the church, and the shape drawn between them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Four angels stand at the corners of the nave. Touching them in turn lights a dot on
-/// each and a line between each pair, and touching all four round the outside draws the
-/// tilted square that Le Serpent Rouge asks for. Touching them in the wrong order draws
-/// one of the two diagonals instead, and the player has to erase and start again.
-/// </para>
-/// <para>
-/// <b>The shape is ten props the scene already ships.</b> <c>CHU.SIF</c> declares
-/// <c>chu_laserdot01</c> to <c>04</c> and <c>chu_laser01</c> to <c>06</c>, every one of
-/// them <c>hidden</c>: four dots and six lines, being the four sides of the square and its
-/// two diagonals. Nothing here draws anything — it decides which of the ten to show.
-/// </para>
-/// <para>
-/// <b>What the scripts read back is a noun-verb count.</b> Laying a dot sets
-/// <c>Four_Angels ERASE</c> to one, which is what <c>CHU_ALL.NVC</c>'s
-/// <c>VALID_TO_ERASE</c> asks about and the only reason the erase action appears; closing
-/// the square sets <c>Four_Angels TRACE</c> to one, which is how the rest of the story
-/// learns the shape was found. Both are counts rather than flags because the action files
-/// only know how to ask about counts.
-/// </para>
-/// <para>
-/// Adapted from G-Engine's <c>SceneFunctions.cpp</c> under GPL-3, attributed in NOTICE.
-/// </para>
-/// </remarks>
 public sealed class AngelTracing : SceneMechanism
 {
     /// <summary>The four dots, in the order the scripts number the angels.</summary>
-    /// <remarks>Top, right, bottom, left — which is what makes the edge table below read.</remarks>
     private readonly PlacedModel?[] _dots = new PlacedModel?[4];
 
     /// <summary>
     /// The six lines that can be drawn between them.
     /// </summary>
-    /// <remarks>
-    /// In the order the scene file declares them: left-to-top, top-to-right,
-    /// right-to-bottom, bottom-to-left, then the two diagonals, top-to-bottom and
-    /// left-to-right. The first four are the square; the last two are the mistake.
-    /// </remarks>
     private readonly PlacedModel?[] _edges = new PlacedModel?[6];
 
     /// <summary>Which angel was touched last, or -1 before any of them.</summary>
@@ -52,22 +21,11 @@ public sealed class AngelTracing : SceneMechanism
     /// <summary>
     /// Which of the six lines have been drawn.
     /// </summary>
-    /// <remarks>
-    /// Kept here rather than read back off the models. The shape is the puzzle and the
-    /// props are how it is shown; a room missing one of its ten pieces of art would
-    /// otherwise be a room where the square can never be closed, and the failure would look
-    /// like the player tracing it wrong.
-    /// </remarks>
     private readonly bool[] _drawn = new bool[6];
 
     /// <summary>
     /// Whether Grace has already said the line she says on laying the first dot.
     /// </summary>
-    /// <remarks>
-    /// Not a story flag, and deliberately: the original says it again every time the player
-    /// walks back into the church, so it is forgotten with the room rather than remembered
-    /// with the game.
-    /// </remarks>
     private bool _spoken;
 
     /// <summary>Creates the mechanism.</summary>
@@ -218,11 +176,6 @@ public sealed class AngelTracing : SceneMechanism
     /// <summary>
     /// Which line joins two angels, or null when there is no line to draw.
     /// </summary>
-    /// <remarks>
-    /// Symmetric, and the two diagonals are the pairs that face each other: top to bottom
-    /// is edge four and left to right is edge five. Those are the two the player must not
-    /// draw, and the reason the puzzle can be got wrong at all.
-    /// </remarks>
     private static int? Between(int from, int to)
     {
         if (from < 0 || from == to)

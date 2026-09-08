@@ -11,40 +11,11 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// Renders loaded scene geometry into an offscreen image.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Headless by design. A render that needs no window runs on a build agent, produces a
-/// file that can be compared between runs, and can be inspected without anyone watching
-/// the screen at the right moment — none of which is true of a screenshot.
-/// </para>
-/// <para>
-/// It draws the same frame the windowed renderer draws, deferred stages included: the room
-/// writes its parts, the occlusion is traced and filtered, and a compositing pass puts them
-/// back together. It did not always. For a while it bound the picture alone and threw the
-/// rest of the frame away, which at any ray-traced level meant the rig's light went to a
-/// target nothing read and every character came out lit by the ambient floor — a whole
-/// class of shading bug the tool could not show, and three tests that could not pass.
-/// </para>
-/// <para>
-/// Two differences from the windowed renderer remain, and both are deliberate. There is no
-/// sky, because nothing here has a room's cube map to draw. And <b>a single frame has no
-/// previous picture to reflect</b>, so the reflection pass marches against black and adds
-/// nothing: reflections are the host's to show. What that buys is the thing a regression
-/// image needs and the host cannot give — the same scene renders to the same pixels every
-/// time, because no stage here carries anything over from a frame before.
-/// </para>
-/// </remarks>
 public sealed unsafe class SceneRenderer : IOffscreenRenderer
 {
     /// <summary>
     /// sRGB, not UNORM.
     /// </summary>
-    /// <remarks>
-    /// Textures decode to linear on sample and shading happens in linear space, so the
-    /// target has to encode back on write. Writing linear values into a UNORM target and
-    /// calling the result sRGB is what makes an otherwise correct render come out about a
-    /// gamma too dark.
-    /// </remarks>
     public const Format ColorFormat = Format.R8G8B8A8Srgb;
 
     /// <summary>Depth format used by the offscreen path and the swapchain alike.</summary>
@@ -92,31 +63,12 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     public bool SupportsRayTracing => _rayTraced is not null;
 
     /// <summary>How much ray tracing to do.</summary>
-    /// <remarks>
-    /// Changing this costs nothing: both pipelines exist from the start, and every level
-    /// above <see cref="RayTracingQuality.None"/> differs only in numbers the shader
-    /// reads from a uniform. Only <see cref="RayTracingQuality.None"/> switches pipeline,
-    /// and it does so to avoid the ray-tracing shader's cost entirely rather than because
-    /// it would give a different picture.
-    /// </remarks>
     /// <summary>How the room's lights are divided up, once a scene has been given some.</summary>
-    /// <remarks>
-    /// Reported rather than drawn. The whole point of the grid is that nothing looks
-    /// different — a fragment gets the same lights, reached more cheaply — so the only way
-    /// to know it is working is the numbers: how many cells, and how many lights the
-    /// average one holds against how many the room declares.
-    /// </remarks>
     public SceneLightGrid? LightGrid { get; private set; }
 
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
     /// <summary>The tier's settings, with anything set here in place of them.</summary>
-    /// <remarks>
-    /// The four levels are what a player chooses between, and setting this is how anything
-    /// else asks for a combination they do not offer — one knob moved and the rest of the
-    /// tier left alone, which is what it takes to attribute a change in the picture to that
-    /// knob rather than to the four differences between two levels.
-    /// </remarks>
     public RayTracingSettings? Overriding { get; set; }
 
     /// <summary>What this frame is actually being traced with.</summary>
@@ -192,20 +144,10 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// <summary>
     /// Where the wind stands, in seconds, when this renders.
     /// </summary>
-    /// <remarks>
-    /// Zero, and it stays zero unless a caller moves it. A headless render is the thing
-    /// two versions of this engine are compared with, so it renders a still afternoon by
-    /// default; <c>render-scene --wind SECONDS</c> is how the movement itself is looked at.
-    /// </remarks>
     public float Seconds { get; set; }
 
     /// <summary>Gives the room its smoke and embers.</summary>
     /// <param name="particles">The particles, furthest from the eye first.</param>
-    /// <remarks>
-    /// Empty unless a caller sets it, so a headless render draws a room with its fires
-    /// standing still — which is what two versions of this engine are compared with. See
-    /// <see cref="Game.FlameParticles"/> for what fills it.
-    /// </remarks>
     public void SetParticles(IReadOnlyList<Particle> particles)
     {
         ArgumentNullException.ThrowIfNull(particles);
@@ -214,11 +156,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
     /// <summary>Gives the room its fog.</summary>
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
-    /// <remarks>
-    /// None unless a caller sets it. A room that is given one pays for a depth target it can
-    /// sample and a pass over the frame; a room that is not pays for neither, which is every
-    /// room but the handful <see cref="Game.SceneFog"/> names.
-    /// </remarks>
     public void SetFog(FogVolume fog) => _fog = fog;
 
     /// <summary>Renders geometry and returns the image.</summary>
@@ -418,12 +355,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// in the layout this pass wants to read it in.
     /// </param>
     /// <returns>True when fog was drawn, which leaves the depth readable by a shader.</returns>
-    /// <remarks>
-    /// The pipeline is built the first time a room with fog in it is rendered and kept — it
-    /// is a pipeline and two shader modules, and building it per render would put a compile
-    /// in the middle of every frame of a corpus sweep. The descriptors are written every
-    /// time, because the depth target is made and destroyed with each render.
-    /// </remarks>
     private bool RecordFog(
         CommandBuffer command,
         ImageView picture,
@@ -601,14 +532,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Viewport height.</param>
     /// <returns>The stages, or nulls if they could not be built.</returns>
-    /// <remarks>
-    /// Built for one render and thrown away with it. They are the frame's memory — the
-    /// denoiser reprojects the last frame's answer into this one, and the reflection pass
-    /// keeps the last picture to march against — and a tool that renders two scenes
-    /// through one renderer must not let the first leak into the second. Keeping them
-    /// would save a few milliseconds and cost the one property a regression image exists
-    /// for.
-    /// </remarks>
     private (ShadowDenoiser?, Reflections?, CompositePipeline?) BuildDeferred(int width, int height)
     {
         ShadowDenoiser? denoiser = null;
@@ -665,10 +588,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// <param name="picture">Where the finished frame goes.</param>
     /// <param name="width">Viewport width.</param>
     /// <param name="height">Viewport height.</param>
-    /// <remarks>
-    /// Outside the room's rendering scope, because the tracing reads the depth and the
-    /// normals that scope wrote and an attachment cannot be sampled while it is still one.
-    /// </remarks>
     private void Compose(
         CommandBuffer command,
         ShadowDenoiser denoiser,
@@ -836,20 +755,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     }
 
     /// <summary>Gives the reflection binding something real to point at.</summary>
-    /// <remarks>
-    /// <para>
-    /// A single black texel. <b>Nothing here ever samples it</b> — the mirror flag is only
-    /// given to a surface once <see cref="SceneGeometry.ChooseMirror"/> has run, and only
-    /// the windowed renderer runs it, so a mirror photographed through this path draws the
-    /// picture painted on it exactly as it always has.
-    /// </para>
-    /// <para>
-    /// It exists because a binding a shader declares must be a real descriptor whether or
-    /// not the branch that reads it runs. Leaving it unwritten is not "a texture nobody
-    /// looks at"; it is a descriptor set the validation layers reject and a driver may do
-    /// anything with.
-    /// </para>
-    /// </remarks>
     private void BindPlaceholderReflection()
     {
         _placeholder = CreateTarget(
@@ -934,10 +839,6 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 /// <summary>
 /// The Vulkan recording steps a scene draw needs, independent of where it is drawn.
 /// </summary>
-/// <remarks>
-/// Shared between the offscreen renderer and the windowed one so that what a regression
-/// image shows and what a player sees cannot drift apart.
-/// </remarks>
 public static unsafe class VulkanSceneDraw
 {
     /// <summary>Begins rendering into the frame's colour targets and its depth.</summary>

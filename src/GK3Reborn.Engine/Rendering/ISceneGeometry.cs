@@ -7,23 +7,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// A scene that has been put on a device, and what came of putting it there.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <see cref="ISceneSink"/> is the seam a scene is loaded *through*; this is the seam it is
-/// held *behind*. The two are separate because they face opposite ways. Loading writes into
-/// a sink and asks it nothing; the game, the launcher and the tools then ask the result a
-/// great many questions — how many triangles, how much of the floor was displaced, which
-/// objects were rounded and how far, what the texture cache did — and every one of those
-/// answers is a fact about the scene rather than about the API holding it.
-/// </para>
-/// <para>
-/// That is what makes this interface possible at all. A backend's geometry is buffers,
-/// descriptor sets and an acceleration structure, none of which appears below; what appears
-/// below is what <c>render-scene</c>, <c>check-scenes</c> and the load report print, and
-/// those must read the same whichever backend built them or the corpus sweep stops being a
-/// comparison. See <c>docs/scene-geometry.md</c>.
-/// </para>
-/// </remarks>
 public interface ISceneGeometry : ISceneSink, IDisposable
 {
     /// <summary>Draw calls the scene resolves to.</summary>
@@ -78,23 +61,14 @@ public interface ISceneGeometry : ISceneSink, IDisposable
     IReadOnlyList<string> Rounded { get; }
 
     /// <summary>Whether a keyed card is given the thickness of the thing drawn on it.</summary>
-    /// <remarks>
-    /// Set before the room's textures are added: it gates the measurement as well as the
-    /// geometry, and the measurement happens as a texture is uploaded.
-    /// </remarks>
     bool ThickenCutoutCards { get; set; }
 
     /// <summary>
     /// Whether the room's own surfaces are drawn only on the side their winding faces.
     /// </summary>
-    /// <remarks>
-    /// Read per draw, so it may be changed after the room is built. Placed models keep both
-    /// faces whatever it says.
-    /// </remarks>
     bool CullBackFaces { get; set; }
 
     /// <summary>Whether a thickened card also casts a traced shadow.</summary>
-    /// <remarks>Set before the room is added; it decides what goes into the structure.</remarks>
     bool CardShadows { get; set; }
 
     /// <summary>Cards the thickening pass gave a shell.</summary>
@@ -116,10 +90,5 @@ public interface ISceneGeometry : ISceneSink, IDisposable
     LoadTimeline? Timeline { get; set; }
 
     /// <summary>Says that nothing more will be added, and builds what depends on that.</summary>
-    /// <remarks>
-    /// The acceleration structure above all, which cannot be built while triangles are
-    /// still arriving. Calling it twice is not an error; not calling it at all is a scene
-    /// that draws and does not trace.
-    /// </remarks>
     void Finish();
 }

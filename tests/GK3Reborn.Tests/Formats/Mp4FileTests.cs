@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the MP4 demuxer.
 /// </summary>
-/// <remarks>
-/// The embedded file is the five-frame CABAC stream of <see cref="H264DecoderTests"/>
-/// as FFmpeg muxes it with <c>+faststart</c>: one video track, an edit list for the
-/// B-frame delay, composition offsets, and a single sync sample. Small enough to carry,
-/// and it exercises every table a real clip has.
-/// </remarks>
 public sealed class Mp4FileTests
 {
     private const string TinyMp4 =

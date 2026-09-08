@@ -12,24 +12,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// The machine Sidney runs on: the laptop, and the screen inside it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Sidney is a thing in the room, not a page in front of it.</b> The original drew the
-/// laptop and put its interface inside the screen, and the port's first pass drew a panel
-/// over the room instead — which reads as the game's own menu rather than as Grace opening
-/// her computer. The art for the laptop has been in the archives all along, unreferenced:
-/// four pieces that assemble into a 1024x768 picture with a 640x480 hole where the screen
-/// is.
-/// </para>
-/// <para>
-/// <b>The four pieces carry the room behind them</b> — the wallpaper of Gabriel's room is
-/// painted into their outer edges, which is what the original shipped and what makes the
-/// laptop sit on a desk rather than float. They are drawn to fit the window's height and
-/// centred, so the sides of a wide window show the room the player is actually standing in,
-/// darkened. That is the compromise the art allows: the picture is not separable from its
-/// backing.
-/// </para>
-/// </remarks>
 public static class SidneyLaptop
 {
     /// <summary>How wide the assembled picture is, in its own pixels.</summary>
@@ -70,26 +52,6 @@ public static class SidneyLaptop
     /// <param name="width">The window's width in pixels.</param>
     /// <param name="height">Its height.</param>
     /// <returns>The rectangle the whole picture occupies, which may be larger than the window.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The screen is what the window is fitted to, not the picture.</b> Fitting the whole
-    /// 1024x768 into a 16:9 window spends a fifth of the height on the desk above the lid
-    /// and the keyboard below it, and leaves the interface in a 600-pixel box in the middle
-    /// of a large monitor. So what is fitted is the screen with a band of case around it —
-    /// enough lid to read as a laptop and enough of the bottom for the photograph propped
-    /// against it — and the rest is allowed to run off the edges, where the clip takes it.
-    /// </para>
-    /// <para>
-    /// <b>Which middle it is centred on depends on whether anything is cropped.</b> When the
-    /// window is wider than the picture's shape the height is what runs out, some of the
-    /// case is lost off the top and bottom, and what should sit in the middle of the window
-    /// is the band. When the window is taller — a portrait monitor, or a window dragged
-    /// tall — the whole picture fits and centring on the band instead pushes it up the
-    /// screen and leaves a dead strip of black under the keyboard. Reported as the interface
-    /// going strange after a resize, and it is: nothing is cropped, so the picture is what
-    /// wants centring.
-    /// </para>
-    /// </remarks>
     public static Vector4 Fit(int width, int height)
     {
         float band = MathF.Min(ArtHeight, ScreenTop + ScreenHeight + Below) - (ScreenTop - Above);
@@ -125,11 +87,6 @@ public static class SidneyLaptop
     /// <param name="surface">Where to draw.</param>
     /// <param name="laptop">Where the picture goes.</param>
     /// <returns>True when the game's own art was used.</returns>
-    /// <remarks>
-    /// Falls back to a drawn case when the art is not there, which is what a run against a
-    /// half-copied installation looks like. Without one the interface would appear to float
-    /// in the middle of the room with no explanation.
-    /// </remarks>
     public static bool DrawShell(SidneySurface surface, Vector4 laptop)
     {
         ArgumentNullException.ThrowIfNull(surface);

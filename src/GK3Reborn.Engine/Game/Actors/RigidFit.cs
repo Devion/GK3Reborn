@@ -5,34 +5,9 @@ namespace GK3Reborn.Game.Actors;
 /// <summary>
 /// The rotation and translation that best carries one set of points onto another.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 animates by moving vertices, so a clip says where every point of a head is on every
-/// frame and never says that the head turned. This puts that back: given the head as the
-/// model authored it and the head as a clip shapes it, it recovers the single rigid motion
-/// between them — which is all the clip was ever expressing, because a head does not
-/// deform. Measured over the whole corpus — 3,069 clips, 122,034 recorded frames, all 56
-/// models that have any — the leftover is 1.0% of head width for the median model and 4.1%
-/// for the worst. See <c>docs/head-refinement.md</c>.
-/// </para>
-/// <para>
-/// That is what lets a character's head be replaced with denser geometry without touching
-/// the <c>.ACT</c> files: the clip keeps addressing the original 1,200-odd vertices, the
-/// fit turns what it says into a transform, and the transform will carry any mesh at all.
-/// </para>
-/// <para>
-/// The method is Kabsch's, with the orthogonal factor found by Higham's Newton iteration
-/// rather than by a singular value decomposition, which <c>System.Numerics</c> does not
-/// have and which would be a great deal of code for a 3×3.
-/// </para>
-/// </remarks>
 public static class RigidFit
 {
     /// <summary>How many Newton steps before giving up on convergence.</summary>
-    /// <remarks>
-    /// The iteration is quadratically convergent, so this is a backstop rather than a
-    /// budget: well-conditioned input is done in five or six.
-    /// </remarks>
     private const int Steps = 24;
 
     /// <summary>Close enough that another step would not move it.</summary>
@@ -46,11 +21,6 @@ public static class RigidFit
     /// Zero means the two sets really are one rigid motion apart.
     /// </param>
     /// <returns>The transform, or null when the points do not determine one.</returns>
-    /// <remarks>
-    /// Null rather than an identity, because the two answers mean opposite things: an
-    /// identity says the head did not move, and a caller that cannot tell them apart draws
-    /// a head that snaps back to rest on every frame the fit fails.
-    /// </remarks>
     public static Matrix4x4? Solve(
         ReadOnlySpan<Vector3> from, ReadOnlySpan<Vector3> to, out float residual)
     {
@@ -123,22 +93,6 @@ public static class RigidFit
     /// <summary>The nearest rotation to a matrix.</summary>
     /// <param name="matrix">The covariance, with the 3×3 part in the upper left.</param>
     /// <returns>The rotation, or null when there is not one to find.</returns>
-    /// <remarks>
-    /// <para>
-    /// Higham's iteration, <c>R ← ½(R + R⁻ᵀ)</c>, which converges on the orthogonal factor
-    /// of the polar decomposition — the same matrix an SVD would give as <c>UVᵀ</c>.
-    /// </para>
-    /// <para>
-    /// <b>A negative determinant is refused rather than corrected.</b> The nearest
-    /// orthogonal matrix to a covariance with a negative determinant is a reflection, and
-    /// the usual correction — flip the smallest singular value — needs the decomposition
-    /// this is avoiding. It also should not arise: a head and the same head a frame later
-    /// are a rotation apart, not a mirror. If it does, the points are degenerate and no
-    /// answer is better than a mirrored head. GK3's world is left-handed, which is a
-    /// property of the space these points are expressed in and not of the motion between
-    /// two poses within it; the determinant here is of the motion.
-    /// </para>
-    /// </remarks>
     private static Matrix4x4? Orthogonalise(Matrix4x4 matrix)
     {
         if (Determinant(matrix) <= 0f)

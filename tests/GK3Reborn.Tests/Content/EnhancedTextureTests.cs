@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for putting higher-resolution textures in front of the archives.
 /// </summary>
-/// <remarks>
-/// A layer, not a replacement: the archives stay as they are and a texture with no
-/// enhanced version loads from them as before, so a partial set is a perfectly good set.
-/// That is the property worth pinning, along with what happens when one of the files is
-/// bad — which, for generated content, is a matter of when rather than if.
-/// </remarks>
 public sealed class EnhancedTextureTests : IDisposable
 {
     private readonly string _directory = Path.Combine(

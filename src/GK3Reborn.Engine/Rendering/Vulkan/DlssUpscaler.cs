@@ -15,29 +15,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// NVIDIA DLSS, driven through Streamline.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Streamline has to be started before the Vulkan device exists, because the features it
-/// loads ask for device extensions and for queues of their own, and both have to be in the
-/// <c>vkCreateDevice</c> call. So the object this talks to — <see cref="Streamline"/> — is
-/// made by the host at startup and handed to the renderer, and this class is only the
-/// per-frame half: tag the four images, hand over the camera, evaluate the feature.
-/// </para>
-/// <para>
-/// <b>Ray reconstruction instead of the engine's denoiser.</b> When the picture is being
-/// traced and the player has the ray-reconstruction runtime installed, the feature
-/// evaluated is DLSS-D rather than DLSS: it denoises and upscales in one pass, and running
-/// it after this engine's own spatiotemporal filter would be two temporal filters over one
-/// signal, which is how a picture ends up smeared. See <c>VulkanRenderer.PrepareDeferred</c>,
-/// which leaves its own denoiser unbuilt in that case.
-/// </para>
-/// <para>
-/// This project is GPL-3.0. Loading a separately-installed proprietary upscaler at runtime
-/// is a deliberate exception, taken because the alternative is a worse picture for every
-/// player who has the hardware for a better one; see <c>NOTICE</c>. Nothing of NVIDIA's is
-/// redistributed here and the game runs without it.
-/// </para>
-/// </remarks>
 internal sealed class DlssUpscaler : IUpscaler
 {
     private readonly Streamline _streamline;
@@ -153,12 +130,6 @@ internal sealed class DlssUpscaler : IUpscaler
     /// <summary>Says what this frame is in the terms Streamline asks for.</summary>
     /// <param name="frame">The frame.</param>
     /// <returns>The same frame, described without naming Vulkan.</returns>
-    /// <remarks>
-    /// Streamline takes a handle, a size, a format and a layout, and keeps the last two as
-    /// numbers it never interprets — it knows which API it was given a device for. So the
-    /// runtime is neutral and this is the one place that knows an image layout is a Vulkan
-    /// image layout.
-    /// </remarks>
     private static StreamlineFrame Describe(in UpscaleFrame frame) => new(
         Surface(frame.Colour, ImageLayout.ShaderReadOnlyOptimal),
         Surface(frame.Depth, ImageLayout.ShaderReadOnlyOptimal),

@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Foundation;
 /// <summary>
 /// The read-only-install rules, checked on a machine that is not a Mac.
 /// </summary>
-/// <remarks>
-/// Bundle detection is deliberately a question about the shape of a path rather than about
-/// the operating system, which is what makes it checkable here at all. The rest is the
-/// writable-directory fallback, which has nothing macOS-specific in it either: a directory
-/// that cannot be written to behaves the same way everywhere.
-/// </remarks>
 public sealed class InstallPathsTests
 {
     [Theory]

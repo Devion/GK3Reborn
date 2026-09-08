@@ -11,38 +11,9 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Holding a jet of water on something until it comes down.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The cut crow's-nest puzzle ends in an interface the game never shipped. Its rules name
-/// it and its case says how long it wants:
-/// </para>
-/// <code>
-/// //WATER_INTERFACE,  AIM,  ON_NEST_FOR_10_SECONDS,  script={...}
-/// </code>
-/// <para>
-/// So: ten seconds of water on the nest. Everything else about it is a choice, and the
-/// choices here are the smallest ones that make it a thing to do rather than a thing to
-/// wait through — the jet lags behind the aim because a hose under pressure does, and the
-/// nest sways because it is in a tree. Neither is hard; together they are enough that the
-/// player is holding something rather than parking a cursor.
-/// </para>
-/// <para>
-/// It is deliberately forgiving. Time on target is banked and only bleeds away at half the
-/// rate it fills, so a wobble costs a moment rather than the attempt, and there is no
-/// failure state at all: the way to not solve it is to leave. A 1999 adventure game would
-/// have made it a reflex test; <c>Plan/03</c> section 3 asks for an interface easier than
-/// that one's.
-/// </para>
-/// <para>
-/// This holds no world state and awards nothing. When it says it is done, the caller
-/// performs <c>WATER_INTERFACE</c>/<c>AIM</c> and the original's own script does the rest.
-/// </para>
-/// </remarks>
 public sealed class WaterAiming
 {
     /// <summary>How long the water must stay on the nest, in seconds.</summary>
-    /// <remarks>Not a choice: the case in the game's own file is called
-    /// <c>ON_NEST_FOR_10_SECONDS</c>.</remarks>
     public const float SecondsNeeded = 10f;
 
     /// <summary>How close the jet must be to count, as a fraction of the panel's width.</summary>
@@ -79,10 +50,6 @@ public sealed class WaterAiming
 
     /// <summary>Points the hose.</summary>
     /// <param name="at">Where, in panel space.</param>
-    /// <remarks>
-    /// Clamped rather than ignored outside the panel: a pointer that leaves the window
-    /// should let go of the aim at the edge, not park it wherever it was.
-    /// </remarks>
     public void PointAt(Vector2 at) =>
         Aim = new Vector2(Math.Clamp(at.X, 0f, 1f), Math.Clamp(at.Y, 0f, 1f));
 

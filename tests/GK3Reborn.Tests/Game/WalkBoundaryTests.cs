@@ -9,20 +9,11 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for where an actor is allowed to stand.
 /// </summary>
-/// <remarks>
-/// The mapping is the part worth testing. A boundary applied upside down, or with the
-/// offset's sign the wrong way, still produces a mask that covers plausible-looking ground
-/// — so these pin the corners rather than the shape.
-/// </remarks>
 public sealed class WalkBoundaryTests
 {
     /// <summary>
     /// A four-by-four boundary: open along the top row of the image, wall below it.
     /// </summary>
-    /// <remarks>
-    /// The image's top row is the <em>far</em> end of the room in world space, because the
-    /// bitmap's rows run from the bottom of the covered area upward.
-    /// </remarks>
     private static WalkBoundary Fixture(Vector2? offset = null)
     {
         byte[] indices =

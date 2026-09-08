@@ -15,41 +15,6 @@ namespace GK3Reborn.Tools.Stages;
 /// Works out which of GK3's assets differ between languages, and writes each language's
 /// own copies into the workspace for packing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Sierra localised GK3 by re-cutting every archive.</b> A French disc is not an English
-/// disc with a French patch on it; it is a whole second copy of the game, and nothing in
-/// the data says which of its forty thousand assets are actually different. That is what
-/// this stage is for: given one directory per language, it compares them and writes out
-/// only what differs, so a language ships as a few hundred megabytes rather than as a
-/// second installation.
-/// </para>
-/// <para>
-/// <b>Two ways a language differs, and they need different treatment.</b> Most assets keep
-/// their 1999 name and change their contents — the same <c>27KASHAF.BMP</c> with different
-/// words painted on it, the same <c>A014ED3S.6J1</c> with a different actor saying a
-/// different sentence. A few change their <em>name</em> instead: the string table is
-/// <c>ESTRINGS.TXT</c> in English and <c>FSTRINGS.TXT</c> in French, and every line of
-/// dialogue's lip-sync and every scripted moment carries the language's letter in front of
-/// it. Those families are listed in <see cref="PrefixedExtensions"/>, and they are the
-/// reason the set is worked out per <em>canonical</em> name rather than per file name: the
-/// English pack has to hold <c>E014ED3S6J1.YAK</c> exactly where the French one holds
-/// <c>F014ED3S6J1.YAK</c>, and a comparison by file name would see two unrelated files.
-/// </para>
-/// <para>
-/// <b>Bitmaps are compared as pictures, not as bytes.</b> GK3's own container is a raw
-/// RGB565 bitmap with an eight-byte header, and a dumped localisation may well have been
-/// written back out as an ordinary Windows bitmap. Those two files never compare equal and
-/// always decode to the same picture, so a byte comparison would declare every bitmap in
-/// the game localised and the packs would be six times the size they need to be.
-/// </para>
-/// <para>
-/// <b>What it will not do is guess.</b> An asset present in one language and absent from
-/// every other is reported rather than packed silently: it is usually a dump that was taken
-/// with a different filter, occasionally a genuine difference between two builds of the
-/// game, and the two are not distinguishable from here. See <c>docs/localization.md</c>.
-/// </para>
-/// </remarks>
 public sealed class LocalizationExtractStage
 {
     /// <summary>The manifest schema this stage writes.</summary>
@@ -58,13 +23,6 @@ public sealed class LocalizationExtractStage
     /// <summary>
     /// The asset families whose <em>name</em> carries the language's letter.
     /// </summary>
-    /// <remarks>
-    /// <c>.YAK</c> is a line of dialogue's lip-sync and there are about 7,400 of them;
-    /// <c>.MOM</c> is a scripted moment and there are 38. The string table is the third and
-    /// is handled by name rather than by extension, because <c>.TXT</c> as a whole is not a
-    /// prefixed family — <c>ESIDNEY.TXT</c> keeps its <c>E</c> in the French release and
-    /// changes its contents, exactly like a bitmap.
-    /// </remarks>
     public static readonly string[] PrefixedExtensions = [".YAK", ".MOM"];
 
     /// <summary>The string table's name, without the language's letter.</summary>
@@ -76,12 +34,6 @@ public sealed class LocalizationExtractStage
     /// <summary>
     /// Below this many differing assets, a release is not a translation of anything.
     /// </summary>
-    /// <remarks>
-    /// The smallest real localisation in the corpus changes 8,150 assets - Spanish, which
-    /// re-recorded nothing and only retranslated its text and its pictures. Two hundred is
-    /// far below anything a translation could be and far above the handful of incidental
-    /// differences between two pressings of the same disc.
-    /// </remarks>
     private const int Threadbare = 200;
 
     private readonly Action<string> _log;
@@ -399,12 +351,6 @@ public sealed class LocalizationExtractStage
     /// <summary>
     /// Writes one language's assets into the workspace, and describes what it wrote.
     /// </summary>
-    /// <remarks>
-    /// Into <c>enhanced/localized/&lt;CODE&gt;/localized</c>, which is the directory the
-    /// packer takes <see cref="RebarnKind.Localized"/> from — the same
-    /// kind-named layout <c>pack-extract</c> writes and <c>overrides/</c> reads, so a set
-    /// can be moved between the three without anything being renamed.
-    /// </remarks>
     private LocalizationLanguageEntry Write(
         LocaleSource source,
         HashSet<string> names,
@@ -558,13 +504,6 @@ public sealed class LocalizationExtractStage
     /// <summary>
     /// Every extension GK3 uses for something that is not a line of dialogue.
     /// </summary>
-    /// <remarks>
-    /// The list exists so that everything <em>else</em> can be recognised. GK3 puts a
-    /// recording's sequence number where a type would go — <c>A0NQIB44.QR1</c> and
-    /// <c>.QR2</c> are two takes of two different lines — so a localisation has about six
-    /// and a half thousand distinct "extensions", one or two files each. A report that
-    /// listed them would be four thousand rows long and would say nothing.
-    /// </remarks>
     private static readonly HashSet<string> KnownExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".BMP", ".MOD", ".ACT", ".ANM", ".YAK", ".MOM", ".MUL", ".BSP", ".SIF", ".SCN",
@@ -591,28 +530,6 @@ public sealed class LocalizationExtractStage
     /// <param name="workspace">The content workspace root.</param>
     /// <param name="bitmaps">Every bitmap this language differs on.</param>
     /// <returns>The ones a room, a prop or a character refers to, in a stable order.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Six hundred and fifty of the seven hundred and fifty are the 1999 interface.</b>
-    /// Sidney's buttons, the options screens, the binocular controls, the toolbar - every one
-    /// of them was a picture with a word painted on it, every one of them was localised, and
-    /// the port draws none of them: it renders its own interface, with its own text, at the
-    /// size of the window. Repainting those would be somebody's month spent on pictures
-    /// nothing displays.
-    /// </para>
-    /// <para>
-    /// What is left is about a hundred, and those are the ones that matter: a road sign, a
-    /// shop front, a note on a table, a label on a bottle. They are painted onto geometry and
-    /// there is no other way to change what they say.
-    /// </para>
-    /// <para>
-    /// The test is the texture plan's own reference count - whether any room, prop or
-    /// character names this texture. That is a fact the plan already has, derived from the
-    /// whole corpus, and it is a far better answer than any list of name prefixes: nothing
-    /// about <c>BLUEAPPLE</c> or <c>ABBEPRNT3</c> says "interface" except that no piece of
-    /// geometry has ever asked for it.
-    /// </para>
-    /// </remarks>
     private static IReadOnlyList<string> Surfaces(
         string workspace, IReadOnlyList<string> bitmaps)
     {
@@ -715,11 +632,6 @@ public sealed class LocalizationExtractStage
     }
 
     /// <summary>Which recordings the enhanced audio set already restores.</summary>
-    /// <remarks>
-    /// Named without their <c>.wav</c> wrapper, because that is how the packer names them
-    /// and how a script asks for one: <c>A0NQIB44.QR1.wav</c> on disk is
-    /// <c>A0NQIB44.QR1</c> to the game.
-    /// </remarks>
     private static HashSet<string> RestoredAudio(string workspace)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -753,13 +665,6 @@ public sealed class LocalizationExtractStage
     }
 
     /// <summary>Whether two copies of an asset are the same asset.</summary>
-    /// <remarks>
-    /// By bytes for everything but bitmaps, and by pixels for those. GK3's own container is
-    /// a raw RGB565 bitmap with an eight-byte header; a dumped localisation may have been
-    /// written back out as a 24-bit Windows bitmap, and the two forms never compare equal
-    /// while always showing the same picture. Comparing bytes there would declare all 6,657
-    /// of the game's bitmaps localised.
-    /// </remarks>
     private static bool Same(string name, byte[]? mine, byte[] theirs)
     {
         if (mine is null)
@@ -802,18 +707,6 @@ public sealed class LocalizationExtractStage
     /// <summary>
     /// The name an asset answers to with its language's letter taken out.
     /// </summary>
-    /// <remarks>
-    /// <c>F014ED3S6J1.YAK</c> in French and <c>E014ED3S6J1.YAK</c> in English are one
-    /// asset, and this is its name: <c>*014ED3S6J1.YAK</c>. Everything else is its own
-    /// canonical name — <c>27KASHAF.BMP</c> is <c>27KASHAF.BMP</c> in every language and
-    /// differs in its contents.
-    /// <para>
-    /// The letter is only taken out when it <em>is</em> this language's letter. GK3's
-    /// cutscene lip-sync files are named for the scene rather than for a line —
-    /// <c>205PEND.YAK</c> — and stripping their first character would make five different
-    /// assets collide.
-    /// </para>
-    /// </remarks>
     public static string Canonical(string name, GameLanguage language)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -901,19 +794,6 @@ public sealed class LocalizationExtractStage
 /// <summary>
 /// One language's release, however it happens to be laid out.
 /// </summary>
-/// <remarks>
-/// Two forms, because both turn up. A language sourced properly is a set of <c>*.brn</c>
-/// archives and is read with the engine's own reader in the engine's own search order; a
-/// language somebody dumped is a tree of loose files, which may be flat, may be one
-/// directory per archive, and may be both at once with the same name in each. Either way
-/// what this offers is a set of 1999 names and their bytes, which is all the comparison
-/// needs to know.
-/// <para>
-/// Where a name appears more than once in a dumped tree the shallowest copy wins, and then
-/// the alphabetically first. That is arbitrary and it has to be: a dump has thrown away
-/// which archive an entry came from, which is the only thing that could decide it.
-/// </para>
-/// </remarks>
 internal sealed class LocaleSource : IDisposable
 {
     private readonly Dictionary<string, string> _files = new(StringComparer.OrdinalIgnoreCase);
@@ -931,19 +811,9 @@ internal sealed class LocaleSource : IDisposable
     public GameLanguage Language { get; }
 
     /// <summary>Where its assets were read from.</summary>
-    /// <remarks>
-    /// The directory holding the archives when it is a release, and the language directory
-    /// itself when it is a dumped tree.
-    /// </remarks>
     public string Root { get; }
 
     /// <summary>Where its movies are.</summary>
-    /// <remarks>
-    /// The same directory as <see cref="Root"/>. A GK3 release keeps its BIKs beside its
-    /// archives in <c>Data</c>, and a dump keeps them beside whatever was dumped, so one
-    /// answer serves both — but it is named separately because the two are different
-    /// questions and one of them is asked by a different stage.
-    /// </remarks>
     public string MediaRoot { get; }
 
     /// <summary>How many distinct names it holds.</summary>
@@ -954,22 +824,6 @@ internal sealed class LocaleSource : IDisposable
         _archives is not null ? _archives.Names() : _files.Keys;
 
     /// <summary>Opens a language directory, however it is laid out.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Archives first.</b> A directory with real <c>.brn</c> files in it is a release,
-    /// and reading it with the game's own reader gets the game's own search order for free —
-    /// which matters, because several archives hold the same name and only that order says
-    /// which one the game would have read.
-    /// </para>
-    /// <para>
-    /// They are looked for in the release's own shape rather than only at the top: an
-    /// unpacked GK3 is <c>GK3.exe</c> beside a <c>Data</c> directory, and insisting the
-    /// archives be loose in the language directory would silently take the whole release
-    /// for a dump and index <c>GK3.EXE</c> and eight <c>.BRN</c> files as though they were
-    /// assets. That is exactly what it did, and it reported ten localised assets for a
-    /// complete German release.
-    /// </para>
-    /// </remarks>
     public static LocaleSource Open(GameLanguage language, string root)
     {
         if (Archives(root) is { } data)
@@ -1004,11 +858,6 @@ internal sealed class LocaleSource : IDisposable
     /// them.
     /// </summary>
     /// <returns>That directory, or null when this is not a release.</returns>
-    /// <remarks>
-    /// <c>core.brn</c> is the test rather than "any .brn", because it is the one archive
-    /// every GK3 installation has and the one G-Engine's own <c>DataHelper</c> looks for.
-    /// A directory with a stray <c>pl.brn</c> in it and nothing else is not a release.
-    /// </remarks>
     public static string? Archives(string root)
     {
         if (!Directory.Exists(root))

@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for pointing the camera at one of the angles a scene names.
 /// </summary>
-/// <remarks>
-/// A camera angle is a name the scene gives — <c>OPEN_WARDROBE</c> — and means nothing in
-/// the next room, so this is scene scripting rather than story state. The three ways to
-/// ask differ by whose decision they respect, which is the part worth pinning: a player
-/// who has turned cinematics off should stay where they are unless the story insists.
-/// </remarks>
 public sealed class SceneCameraTests
 {
     private static LoadedScene Scene() =>

@@ -41,12 +41,6 @@ public sealed record FaceConfig(
     /// <summary>The bitmap a face part rests at when nothing is painted over it.</summary>
     /// <param name="part">Which part.</param>
     /// <returns>Its texture name.</returns>
-    /// <remarks>
-    /// The naming convention the file documents at the top: <c>xxx_face</c>,
-    /// <c>xxx_eyelids</c>, <c>xxx_forehead</c>, and a mouth per shape. It is a convention
-    /// and not a list, which is why there is nothing to read here — only the four
-    /// characters whose face bitmap does not follow it say so, with a <c>Face Name</c>.
-    /// </remarks>
     public string RestingTexture(Formats.Animation.FacePart part) => part switch
     {
         Formats.Animation.FacePart.Eyelids => $"{Identifier}_EYELIDS",
@@ -57,31 +51,12 @@ public sealed record FaceConfig(
     /// <summary>The bitmap for a mouth shape.</summary>
     /// <param name="shape">The shape as an animation names it, such as <c>MOUTH03</c>.</param>
     /// <returns>Its texture name.</returns>
-    /// <remarks>
-    /// A <c>LIPSYNCH</c> node names the shape and not the bitmap, because the same eight
-    /// shapes belong to all forty-odd characters. The code in front of it is what says
-    /// whose mouth it is.
-    /// </remarks>
     public string MouthTexture(string shape) => $"{Identifier}_{shape}";
 }
 
 /// <summary>
 /// <c>FACES.TXT</c> — how each character's face is assembled.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's people have no facial geometry at all. A head is one mesh painted with one
-/// bitmap, and everything a face does — talking, blinking, raising an eyebrow — is done by
-/// patching regions of that bitmap while the game runs. This file is the only place the
-/// regions are written down: where the mouth sits on the texture and how big it is, where
-/// the eyelids and forehead go, which blink animations a character uses and how often.
-/// </para>
-/// <para>
-/// Thirty-two characters have an entry. Two of them — <c>CON-XXX</c> and <c>EM2-xxx</c> —
-/// carry the suffix the file's own header says to remove once the art exists, so they are
-/// not art that shipped and are skipped rather than half-read.
-/// </para>
-/// </remarks>
 public sealed class FaceLibrary
 {
     private readonly Dictionary<string, FaceConfig> _faces =
@@ -160,11 +135,6 @@ public sealed class FaceLibrary
     /// <summary>Finds a character by the name a model or a scene uses.</summary>
     /// <param name="name">A model name, which may carry more than the character's code.</param>
     /// <returns>Their face, or null.</returns>
-    /// <remarks>
-    /// The same rule as <see cref="CharacterLibrary.Of"/>: a scene places <c>gab</c> and the
-    /// file lists <c>GAB</c>, and the clothing variants — <c>gabclothes110a</c> and the rest
-    /// — are the same person wearing the same face.
-    /// </remarks>
     public FaceConfig? Of(string? name)
     {
         if (name is not { Length: > 0 })
@@ -191,10 +161,6 @@ public sealed class FaceLibrary
             : null;
 
     /// <summary>Reads a pair of numbers, however the file happens to separate them.</summary>
-    /// <remarks>
-    /// Offsets are written <c>90,132</c> and sizes <c>78x82</c>. The same shape, two
-    /// separators, and both mean the same thing.
-    /// </remarks>
     private static FaceSpot? Spot(IniSection section, string key, char separator = ',')
     {
         if (Value(section, key) is not { } value)
@@ -212,11 +178,6 @@ public sealed class FaceLibrary
     }
 
     /// <summary>Reads the blink animations and the odds of each.</summary>
-    /// <remarks>
-    /// <c>gabblink,90,gabblink2,10</c> — pairs of a name and a weight. Every character in
-    /// the file uses the same ninety/ten split between an ordinary blink and a double one,
-    /// which is what keeps blinking from looking metronomic.
-    /// </remarks>
     private static List<BlinkChoice> Blinks(IniSection section)
     {
         if (Value(section, "Blink Anims") is not { } value)
@@ -239,11 +200,6 @@ public sealed class FaceLibrary
     }
 
     /// <summary>How long between blinks, in seconds, falling back to the file's default.</summary>
-    /// <remarks>
-    /// Written in milliseconds — <c>5000,12000</c> — and the only entry the file says is
-    /// worth copying from <c>[DEFAULT]</c>. A character with neither blinks every five to
-    /// twelve seconds like everybody else.
-    /// </remarks>
     private static (double From, double To) Frequency(IniSection section, IniSection? defaults)
     {
         FaceSpot? range = Spot(section, "Blink Frequency") ??

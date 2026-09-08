@@ -54,10 +54,6 @@ public sealed record SoundtrackSound
     public int Volume { get; init; } = 100;
 
     /// <summary>Whether it repeats until something stops it.</summary>
-    /// <remarks>
-    /// A looping sound stops the rest of the list running, which is how a soundtrack that
-    /// is meant to be continuous is written: everything before it is an introduction.
-    /// </remarks>
     public bool Loop { get; init; }
 
     /// <summary>How long it fades in over, in milliseconds.</summary>
@@ -67,12 +63,6 @@ public sealed record SoundtrackSound
     public SoundtrackStop Stop { get; init; }
 
     /// <summary>How long it fades out over, in milliseconds.</summary>
-    /// <remarks>
-    /// Parsed and read by nothing. Its one consumer was the room-to-room crossfade, removed
-    /// on 2026-08-27 because three seconds of two beds on one bus is audibly two rooms. Kept
-    /// because it is in the file, and because anything that fades a bed out again will want
-    /// the artists' own number rather than a new one.
-    /// </remarks>
     public int FadeOutMs { get; init; }
 
     /// <summary>Whether it is positioned in the room rather than played flat.</summary>
@@ -100,10 +90,6 @@ public sealed record SoundtrackNode
     /// <summary>
     /// How many times round the list it still runs, or zero for always.
     /// </summary>
-    /// <remarks>
-    /// Counted down whether or not the node actually did anything, so a node that failed
-    /// its chance still uses up one of its turns.
-    /// </remarks>
     public int Repeat { get; init; }
 
     /// <summary>Percentage chance it happens at all, from 1 to 100.</summary>
@@ -122,26 +108,6 @@ public sealed record SoundtrackNode
 /// <summary>
 /// Reader for GK3's soundtracks.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A <c>.STK</c> is not a piece of music. It is a little script — an INI file of numbered
-/// steps the game walks in order and then repeats — that builds room tone out of clips:
-/// wait a second, play the room's theme, wait five to ten seconds, play a mood, wait one
-/// to four, play another. Repeating that with different waits each time is what keeps a
-/// hotel room from sounding like a loop. 269 of them, named by 554 scene files.
-/// </para>
-/// <para>
-/// <c>[PRS]</c> is the one section that is not what it looks like. Consecutive ones are
-/// <em>one</em> step — pick one of these at random — rather than several steps in a row, so
-/// they accumulate until some other section ends the run. Reading each as its own step
-/// would play all three of the vampire's hisses at once instead of one of them.
-/// </para>
-/// <para>
-/// Documented from G-Engine's <c>Soundtrack::Load</c>. Unknown keys and sections are
-/// reported and ignored, which is also what the original does, and there are four in the
-/// corpus worth knowing about — see <c>docs/formats/soundtracks.md</c>.
-/// </para>
-/// </remarks>
 public sealed class SoundtrackFile
 {
     private SoundtrackFile(string name, SoundtrackKind kind, IReadOnlyList<SoundtrackNode> nodes)
@@ -411,10 +377,6 @@ public sealed class SoundtrackFile
     }
 
     /// <summary>A whole number, however the file spelt it.</summary>
-    /// <remarks>
-    /// Volumes are written <c>80.0</c> as often as <c>80</c>, and the original reads both
-    /// through an integer conversion that stops at the point.
-    /// </remarks>
     private static int Number(IniLine line, int fallback) =>
         line.Head.AsNumber() is { } value ? (int)value : fallback;
 

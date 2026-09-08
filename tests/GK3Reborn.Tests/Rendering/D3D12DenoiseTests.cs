@@ -9,13 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// The tracing and denoising pipelines, built on a real device from the real shaders.
 /// </summary>
-/// <remarks>
-/// These are the three compute shaders the ray-traced path is made of, and they are where
-/// the declared layout is most likely to drift from the shader: sixteen bindings in one of
-/// them, with the tracing pass's masks deliberately out of order because the light rig took
-/// the bindings between them. Direct3D refuses a pipeline whose root signature does not
-/// satisfy its shader, so a pipeline that creates is the two agreeing.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12DenoiseTests
 {

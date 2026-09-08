@@ -16,20 +16,6 @@ using GK3Reborn.Rendering.Shaders;
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>Traces occlusion once a pixel and filters it into something smooth.</summary>
-/// <remarks>
-/// <para>
-/// Two signals go through the same five stages: how much of the direct light reaches each
-/// pixel, and how open the sky is above it. Each is one ray a frame, which is a single bit
-/// and looks like static; the filter chain — AMD's, ported in <see cref="DenoiserShaders"/>
-/// — turns a bit a frame into a smooth fraction by remembering where every pixel was and
-/// what it answered last time.
-/// </para>
-/// <para>
-/// This replaces tracing inside the mesh shader. That could only afford a handful of rays
-/// per pixel per light and had nothing to average them with, so its grain was pinned to
-/// the screen and read as dirt on whatever it fell on.
-/// </para>
-/// </remarks>
 internal sealed unsafe class ShadowDenoiser : IDisposable
 {
     /// <summary>How many pixels across a bitmask tile is.</summary>
@@ -105,20 +91,9 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     /// The denoised fraction of the direct light that the things standing in the room —
     /// characters and props — leave alone.
     /// </summary>
-    /// <remarks>
-    /// One where nothing is in the way, which is every pixel of a scene with nobody in it,
-    /// so a room with no one in it composites exactly as it did before this existed.
-    /// <see cref="Shadow"/> is the room's own shadowing and is the half the bake already
-    /// contains; this is the half it cannot.
-    /// </remarks>
     public ImageView DynamicShadow => _channels[2].Result.View;
 
     /// <summary>Where each channel's tile bitmask is bound in the trace stage.</summary>
-    /// <remarks>
-    /// Not <c>3 + c</c>. The rig uniform sits at five and a third channel would have
-    /// landed on it — silently, because a descriptor write does not object to being
-    /// pointed at a binding of another type until the shader reads it.
-    /// </remarks>
     private static ReadOnlySpan<uint> TraceMaskBinding => [3, 4, 8];
 
     /// <summary>Where each channel's per-pixel fraction image is bound.</summary>
@@ -236,11 +211,6 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
     /// <param name="structure">The scene's acceleration structure.</param>
     /// <param name="rig">The buffer of lights.</param>
     /// <param name="rigBytes">How long that buffer is.</param>
-    /// <remarks>
-    /// Called once for a set of targets rather than once a frame: nothing here changes
-    /// between frames except the contents, and the moments swap by having two sets rather
-    /// than by rewriting one.
-    /// </remarks>
     public void Bind(
         ImageView depth,
         ImageView normal,
@@ -440,11 +410,6 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
 
     /// <summary>Points the tracing stage at a rebuilt acceleration structure.</summary>
     /// <param name="structure">The structure to trace against now.</param>
-    /// <remarks>
-    /// It is rebuilt whenever anything in the room moves, which means a new handle and a
-    /// stale descriptor — so this is checked every frame and does the one write when it
-    /// has to.
-    /// </remarks>
     public void Point(AccelerationStructureKHR structure)
     {
         if (structure.Handle == _structure.Handle)
@@ -644,10 +609,6 @@ internal sealed unsafe class ShadowDenoiser : IDisposable
 
     /// <summary>Puts every image this owns into the layout the stages expect.</summary>
     /// <param name="command">Command buffer to record into.</param>
-    /// <remarks>
-    /// Once, when the images are new. They stay in <c>General</c> from then on, which is
-    /// the only layout a storage image can be written through.
-    /// </remarks>
     public void Settle(CommandBuffer command)
     {
         foreach (Channel channel in _channels)

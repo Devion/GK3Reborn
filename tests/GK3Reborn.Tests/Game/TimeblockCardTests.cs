@@ -9,18 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for lifting a timeblock card's lettering off its painting.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The fixtures are synthetic and have to be: the real frames are original game art. What
-/// they reproduce is the one property the whole thing rests on — a frame of lettering is
-/// the painting itself with white blended into it, so subtracting the painting gives the
-/// coverage back exactly and no pixel of a frame is ever darker than the painting under it.
-/// </para>
-/// <para>
-/// The painting here is noise rather than a gradient on purpose. A smooth picture matches
-/// itself at several offsets and would let a placement test pass by accident.
-/// </para>
-/// </remarks>
 public sealed class TimeblockCardTests
 {
     /// <summary>Where 102P's lettering sits from the left, which is where the engine looks.</summary>
@@ -233,11 +221,6 @@ public sealed class TimeblockCardTests
     /// <param name="seed">Which noise.</param>
     /// <param name="height">How tall, for the one painting that is not the usual height.</param>
     /// <returns>The picture.</returns>
-    /// <remarks>
-    /// Kept below 200 so that every channel has room for the lettering to lighten it. Where
-    /// a painting is already white there is no room and no answer, which is a real case and
-    /// not the one these tests are about.
-    /// </remarks>
     private static DecodedImage Painting(int seed, int height = TimeblockCard.CardHeight)
     {
         var random = new Random(seed);

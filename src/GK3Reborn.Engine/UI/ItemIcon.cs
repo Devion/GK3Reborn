@@ -10,12 +10,6 @@ namespace GK3Reborn.UI;
 /// </param>
 /// <param name="Width">Its width in pixels, as painted.</param>
 /// <param name="Height">Its height.</param>
-/// <remarks>
-/// The size travels with the number because the pictures are not all one shape — a
-/// passport is wider than it is tall and a dagger is the other way about — and a screen
-/// that squares them up hands the player a squashed picture of something they are trying
-/// to recognise at a glance.
-/// </remarks>
 public readonly record struct ItemIcon(int Picture, int Width, int Height)
 {
     /// <summary>Whether there is anything to draw.</summary>

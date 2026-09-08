@@ -12,13 +12,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for where an <c>approach=anim</c> sends the actor.
 /// </summary>
-/// <remarks>
-/// The approach names an animation rather than a place, so the place has to be read out of
-/// the animation's opening frame: the hip axis triad is where the actor stands, and the
-/// mesh's own basis says which way they face. Getting either wrong is not a crash — the
-/// actor walks somewhere plausible and starts pouring coffee into the air — so it is worth
-/// pinning the arithmetic down rather than judging it by eye.
-/// </remarks>
 public sealed class AnimationStartTests
 {
     private const int RightShoe = 0;
@@ -35,11 +28,6 @@ public sealed class AnimationStartTests
     /// <summary>
     /// One frame posing the three triads, with a chosen hip basis.
     /// </summary>
-    /// <remarks>
-    /// The shoes are set a little apart across the actor's X and the hips above and between
-    /// them, which is the arrangement the facing test reads: the triangle they make has a
-    /// normal, and flattened onto the floor that normal is the way the body is pointing.
-    /// </remarks>
     private static ClipBuilder Clip(Matrix4x4 hips, Vector3 point) =>
         new ClipBuilder(3, "gab")
             .Frame(

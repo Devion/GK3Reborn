@@ -1,11 +1,6 @@
 namespace GK3Reborn.Sheep;
 
 /// <summary>The Sheep virtual machine's instruction set.</summary>
-/// <remarks>
-/// Taken from G-Engine's <c>SheepInstruction</c>. Opcode <c>0x0C</c> is absent: the
-/// original documentation describes it as a deprecated export instruction, and no
-/// retail script uses it.
-/// </remarks>
 public enum SheepOpcode : byte
 {
     /// <summary>Spin in place forever. Used to halt a thread deliberately.</summary>
@@ -166,10 +161,6 @@ public enum SheepOpcode : byte
 }
 
 /// <summary>What kind of operand an opcode carries, if any.</summary>
-/// <remarks>
-/// Members are named for Sheep's own types rather than .NET's, matching the language
-/// specification, which is why CA1720 is suppressed.
-/// </remarks>
 [System.Diagnostics.CodeAnalysis.SuppressMessage(
     "Naming",
     "CA1720:Identifier contains type name",

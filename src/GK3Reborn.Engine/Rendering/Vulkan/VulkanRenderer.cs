@@ -20,25 +20,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// A minimal Vulkan renderer: opens a device, builds a swapchain, and presents.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is P5's foundation rather than its finished form. It establishes the parts every
-/// later pass depends on and which are painful to retrofit: queue family selection,
-/// swapchain creation and recreation, per-frame synchronisation, and command recording.
-/// A render graph and the passes themselves sit on top of exactly this.
-/// </para>
-/// <para>
-/// Frames are double-buffered with a fence per frame in flight, so the CPU may run ahead
-/// but never overwrites a command buffer the GPU is still reading. Getting that wrong
-/// produces corruption that only appears under load, which is the worst kind to find
-/// late.
-/// </para>
-/// <para>
-/// Swapchain recreation is a normal event, not an error. A resize, a monitor change or a
-/// minimise all invalidate it, and the driver says so through <c>ErrorOutOfDateKhr</c>
-/// and <c>SuboptimalKhr</c> rather than by failing.
-/// </para>
-/// </remarks>
 public sealed unsafe class VulkanRenderer : IRenderer
 {
     private const int FramesInFlight = 2;
@@ -69,15 +50,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// The size the room is actually drawn at, which is the window's size divided by
     /// whatever the upscaler was asked for.
     /// </summary>
-    /// <remarks>
-    /// Everything between the first triangle and the upscale is this size: the depth
-    /// buffer, the whole G-buffer, the traced occlusion, the reflections and the lit
-    /// picture. Everything after it — the encode onto the swapchain, the movie, the
-    /// interface and the fade — is <see cref="_extent"/>. Getting an interface drawn at
-    /// render resolution and then stretched is the single most visible way to do this
-    /// wrong, which is why the two are separate fields with separate names rather than one
-    /// field and a multiplier.
-    /// </remarks>
     private Extent2D _renderExtent;
 
     private CommandPool _commandPool;
@@ -92,13 +64,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private ShaderCompiler? _shaderCompiler;
 
     /// <summary>The bring-up triangle, when this renderer was asked for one.</summary>
-    /// <remarks>
-    /// <b>Not part of the game.</b> It is what a smoke test draws to prove a device, a
-    /// swapchain and a present loop work on a machine with nothing else to show, and it is
-    /// built only when <c>Create</c> is asked for it. Built always, it is what the frame
-    /// with no room and no picture in it fell back to — which is how one frame of a
-    /// red-green-blue triangle got in between the publisher's logo and the opening film.
-    /// </remarks>
     private TrianglePipeline? _triangle;
     private OverlayPipeline? _overlay;
 
@@ -107,25 +72,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private SkyboxPipeline? _skybox;
 
     /// <summary>The reconstructed horizon, when the scene carries one.</summary>
-    /// <remarks>
-    /// Drawn between the room and the sky: real geometry with the far tail of the depth
-    /// buffer to itself, so the room occludes it, it occludes itself, and the painted
-    /// sky only shows above its ridge line.
-    /// </remarks>
     private TerrainPipeline? _terrain;
 
     /// <summary>The movie over everything, when one is playing.</summary>
-    /// <remarks>
-    /// Built the first time a frame is handed over rather than at startup, because most of
-    /// a session never plays one and a pipeline nobody uses is a pipeline nobody has tested.
-    /// </remarks>
     private MoviePipeline? _movie;
 
     /// <summary>The colour drawn over the finished picture, when the picture is fading.</summary>
-    /// <remarks>
-    /// Last of everything, over the interface as well as the room, because a scene change
-    /// fades the picture rather than what is in it. See <see cref="Fade"/>.
-    /// </remarks>
     private FadePipeline? _fadePipeline;
     private SceneGeometry? _skyOwner;
     private OverlayAtlas? _overlayAtlas;
@@ -141,12 +93,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// What the wind runs on: wall-clock seconds since the renderer was made.
     /// </summary>
-    /// <remarks>
-    /// The renderer's own rather than the game's, because it drives presentation and not
-    /// state. A paused game, a menu over the room and a conversation waiting on a line of
-    /// dialogue all leave the trees moving, which is what they should do; nothing that
-    /// reads this can affect anything the story can see.
-    /// </remarks>
     private readonly System.Diagnostics.Stopwatch _wind = System.Diagnostics.Stopwatch.StartNew();
 
     private bool _rayTracingEnabled;
@@ -160,35 +106,16 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private bool _denoiserFailed;
 
     /// <summary>The picture, while it is only half of one.</summary>
-    /// <remarks>
-    /// Ray tracing draws the room into this rather than into the swapchain, because what
-    /// the mesh pass produces at that point is the indirect half of the lighting and not
-    /// yet a picture. The two halves and their two occlusion terms meet in a pass of their
-    /// own afterwards.
-    /// </remarks>
     private Image _sceneImage;
     private DeviceMemory _sceneMemory;
     private ImageView _sceneView;
 
     /// <summary>The finished picture, before it is copied out to be shown.</summary>
-    /// <remarks>
-    /// Reflections need a lit picture to reflect, and the one they are being added to is
-    /// not finished yet. They read this one, a frame old, and reproject it — a frame of
-    /// lag in a reflection is not something anybody has ever seen. It holds the sky as
-    /// well, so a floor can reflect that, but not the interface, which is drawn after the
-    /// copy so that it never appears underfoot.
-    /// </remarks>
     private Image _litImage;
     private DeviceMemory _litMemory;
     private ImageView _litView;
 
     /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
-    /// <remarks>
-    /// One image, not one per mirror: a frame reflects the one piece of glass it is about.
-    /// It is bound to every frame's descriptor set whether a room has a mirror or not,
-    /// because a shader's declared binding has to be a real descriptor whether the branch
-    /// that reads it runs or not.
-    /// </remarks>
     private Image _mirrorImage;
     private DeviceMemory _mirrorMemory;
     private ImageView _mirrorView;
@@ -211,12 +138,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private ImageView _depthView;
 
     /// <summary>The picture at the size it will be shown, when something upscaled it.</summary>
-    /// <remarks>
-    /// Absent when nothing is being upscaled, and the output pass reads the lit target
-    /// directly. Keeping it optional rather than always allocating one and copying into it
-    /// is worth about 32 MB at 4K and, more to the point, means the picture nobody upscaled
-    /// is not resampled twice.
-    /// </remarks>
     private Image _upscaledImage;
     private DeviceMemory _upscaledMemory;
     private ImageView _upscaledView;
@@ -235,19 +156,9 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// How many frames have been drawn, which is where the jitter sequence is up to.
     /// </summary>
-    /// <remarks>
-    /// Never reset. The sequence is taken modulo its own length, so a counter that runs for
-    /// the length of a session is a valid index into it, and restarting it at every scene
-    /// change would put every room's first frames on the same few sample points.
-    /// </remarks>
     private long _frameIndex;
 
     /// <summary>Whether the next frame has no usable history.</summary>
-    /// <remarks>
-    /// Set by a resize, a new upscaler, and by whoever loads a room. A temporal upscaler
-    /// that is not told smears the last frame of the hotel lobby across the first frame of
-    /// the street outside.
-    /// </remarks>
     private bool _resetHistory = true;
 
     private readonly System.Diagnostics.Stopwatch _sinceLastFrame =
@@ -262,11 +173,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Streamline, when the host started it — which it must do before this device exists.
     /// </summary>
-    /// <remarks>
-    /// Its features ask for device extensions and for queues of their own, so it has to be
-    /// consulted between choosing the physical device and creating the logical one. That is
-    /// the whole reason it is passed in rather than started here.
-    /// </remarks>
     private readonly Streamline? _streamline;
 
     private VulkanRenderer(
@@ -293,30 +199,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
     public string DeviceName { get; private set; } = "unknown";
 
     /// <summary>Who made it.</summary>
-    /// <remarks>
-    /// Read by the settings page, which does not offer DLSS on a card that could never run
-    /// it. Showing a row that is permanently unavailable teaches the player that the game
-    /// does not support their hardware properly, when the truth is that NVIDIA's upscaler
-    /// only runs on NVIDIA's cards.
-    /// </remarks>
     public GpuVendor Vendor { get; private set; } = GpuVendor.Unknown;
 
     /// <summary>
     /// Which upscalers it makes sense to offer the player on this machine.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Off and the built-in one always. FSR whatever the card is, because FidelityFX is
-    /// compute and runs anywhere — an NVIDIA player without NVIDIA's runtime installed can
-    /// still use AMD's. DLSS only on NVIDIA, and only because the alternative is a row that
-    /// can never be made to work.
-    /// </para>
-    /// <para>
-    /// A vendor the driver did not identify gets DLSS offered rather than hidden: a card
-    /// nobody here has heard of is more likely to be a new one than a wrong one, and
-    /// selecting it on a card that cannot run it falls back with a message either way.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<UpscalerKind> OfferedUpscalers => Vendor is GpuVendor.Nvidia or GpuVendor.Unknown
         ? [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr, UpscalerKind.Dlss]
         : [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr];
@@ -344,21 +231,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
         SceneGeometry.Create(GeometryDevice, Textures);
 
     /// <summary>The seam a scene is put on this device through.</summary>
-    /// <remarks>
-    /// One per renderer rather than one per room, because the descriptor pools it opens for
-    /// repainted faces are worth keeping for as long as the textures they point at are.
-    /// </remarks>
     public VulkanGeometryDevice GeometryDevice =>
         field ??= new VulkanGeometryDevice(Context, MeshPipeline);
 
     /// <summary>
     /// The textures the device is holding, across every room it has drawn.
     /// </summary>
-    /// <remarks>
-    /// A room's geometry used to own them, so going through a door threw away 120 textures
-    /// and uploaded the next room's from scratch — about 200 ms of a 350 ms room load spent
-    /// getting back what had just been discarded.
-    /// </remarks>
     public TextureCache Textures =>
         field ??= new TextureCache(GeometryDevice, SceneGeometry.CheckerBoard());
 
@@ -367,40 +245,16 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>How much ray tracing to do.</summary>
     /// <summary>How the room's lights are divided up, once a scene has been given some.</summary>
-    /// <remarks>
-    /// Reported rather than drawn. The whole point of the grid is that nothing looks
-    /// different — a fragment gets the same lights, reached more cheaply — so the only way
-    /// to know it is working is the numbers: how many cells, and how many lights the
-    /// average one holds against how many the room declares.
-    /// </remarks>
     public SceneLightGrid? LightGrid { get; private set; }
 
     public RayTracingQuality Quality { get; set; } = RayTracingQuality.None;
 
     /// <summary>Which of the vendors' runtimes the player has installed.</summary>
-    /// <remarks>
-    /// Handed in rather than found here, because where to look is a command-line question
-    /// and the renderer is not where command lines are read. Null means nothing was
-    /// offered, which is the same as nothing being installed.
-    /// </remarks>
     public UpscalerRuntimes? Runtimes { get; set; }
 
     /// <summary>
     /// What the upscaler is asked to do.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Settable at any time, including in the middle of a game. Changing it marks the
-    /// frame's targets for rebuilding at the top of the next frame, which is the only place
-    /// it is safe to do — a resize does the same thing for the same reason. The player sees
-    /// one frame at the old size and then the new one; there is no stall and no reload.
-    /// </para>
-    /// <para>
-    /// The plan handed back is what was <em>asked for</em>. What is actually running is
-    /// <see cref="UpscalerName"/>, which differs whenever a vendor runtime could not be
-    /// built and the fallback took over.
-    /// </para>
-    /// </remarks>
     public UpscalePlan Upscaling
     {
         get => _upscaling;
@@ -424,11 +278,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>How the finished picture is encoded for the display.</summary>
-    /// <remarks>
-    /// Also settable at any time. A change of colour space needs a new swapchain and a new
-    /// output pipeline, so it goes through the same rebuild; a change of paper white or of
-    /// the sun's brightness needs neither and takes effect on the next frame.
-    /// </remarks>
     public OutputPlan Output
     {
         get => _output;
@@ -463,18 +312,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Whether frames wait for the display.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// On means FIFO, which is the only present mode the specification guarantees exists
-    /// and the only one that cannot tear. Off asks for mailbox and then for immediate, and
-    /// quietly stays on FIFO where the surface offers neither — which is a real outcome on
-    /// some Wayland compositors and is not worth failing over.
-    /// </para>
-    /// <para>
-    /// Changing it needs a new swapchain, which is why it goes through the same rebuild as
-    /// a resize rather than taking effect on the next frame.
-    /// </para>
-    /// </remarks>
     public bool VerticalSync
     {
         get;
@@ -497,10 +334,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
         : "off";
 
     /// <summary>Whether DLSS started and this device can run it.</summary>
-    /// <remarks>
-    /// Distinct from the files being installed. A GeForce older than Turing has all the
-    /// files and none of the hardware, and the settings page should say which.
-    /// </remarks>
     public bool DlssAvailable => _streamline is { Ready: true };
 
     /// <summary>Whether DLSS can denoise the traced light as well as upscale it.</summary>
@@ -514,12 +347,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     public bool DlssFrameGeneration => _streamline is { HasFrameGeneration: true };
 
     /// <summary>Whether the surface gave back a high dynamic range colour space.</summary>
-    /// <remarks>
-    /// Asked for is not got. A monitor in SDR mode, a compositor that does not pass HDR
-    /// through, a driver that offers the extension and no HDR format: all of them leave
-    /// this false with the setting on, and the settings page says so rather than leaving
-    /// somebody to wonder why nothing looks different.
-    /// </remarks>
     public bool HighDynamicRangeActive =>
         _colorSpace is ColorSpaceKHR.SpaceHdr10ST2084Ext or ColorSpaceKHR.SpaceExtendedSrgbLinearExt;
 
@@ -530,12 +357,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Says that the next frame has nothing to accumulate against.
     /// </summary>
-    /// <remarks>
-    /// Called by whoever changes what is on screen discontinuously: a new room, a camera
-    /// cut, the end of a cutscene. Without it a temporal upscaler spends several frames
-    /// reconciling the last room with this one, which reads as the new room arriving
-    /// smeared.
-    /// </remarks>
     public void ResetHistory() => _resetHistory = true;
 
     /// <summary>Sets the lights anything without baked lighting is lit by.</summary>
@@ -553,10 +374,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>Sets what to draw, and from where.</summary>
     /// <param name="scene">The geometry, or null to draw nothing.</param>
     /// <param name="camera">Where to look from.</param>
-    /// <remarks>
-    /// The renderer does not take ownership: the caller keeps the geometry alive for as
-    /// long as it is set, and disposes it afterwards.
-    /// </remarks>
     public void SetScene(SceneGeometry? scene, Camera? camera)
     {
         // A different room has nothing in common with the last one, so nothing a temporal
@@ -579,10 +396,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>What this renderer's instance can see, for the startup report.</summary>
-    /// <remarks>
-    /// Asked of the instance the renderer already has. Surveying separately means creating a
-    /// second instance and throwing it away, which is 145 ms nobody is waiting to read.
-    /// </remarks>
     public DeviceReport Survey() => VulkanDeviceSelector.Survey(_vk, _instance);
 
     /// <summary>Creates a renderer for a window.</summary>
@@ -745,20 +558,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Moves this frame's sample point, and measures how long the last frame took.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Only a temporal upscaler wants a jitter. Moving the camera by half a pixel with
-    /// nothing accumulating the result is not anti-aliasing, it is a picture that wobbles —
-    /// so with the spatial upscaler or none at all the offset is exactly zero and the
-    /// motion vectors, which have this added back into them, are unchanged.
-    /// </para>
-    /// <para>
-    /// Set on the camera the renderer was handed rather than on a copy. Everything in the
-    /// frame has to agree about where it sampled — the raster, the depth, the traced
-    /// occlusion and the reflections all reproject against each other — and one of them
-    /// holding a different matrix is a class of error that looks like a denoiser bug.
-    /// </para>
-    /// </remarks>
     private void Jitter()
     {
         _secondsSinceLastFrame = (float)_sinceLastFrame.Elapsed.TotalSeconds;
@@ -793,20 +592,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Reads back the last frame that was presented.</summary>
     /// <returns>The image, or null if nothing has been presented yet.</returns>
-    /// <remarks>
-    /// <para>
-    /// Copies out of the swapchain image rather than re-rendering, so what comes back is
-    /// exactly what the player saw — including anything a re-render would get differently.
-    /// </para>
-    /// <para>
-    /// <b>An HDR frame is brought back down.</b> A screenshot is an 8-bit sRGB file and
-    /// there is no other kind; a ten-bit PQ frame or a half-float scRGB one is decoded, put
-    /// back into a linear scale where paper white is one, and encoded for sRGB. What that
-    /// loses is exactly what an HDR display was showing that an ordinary one cannot, which
-    /// is unavoidable and worth stating: a screenshot taken in HDR is not a photograph of
-    /// what was on the screen, it is the nearest ordinary picture to it.
-    /// </para>
-    /// </remarks>
     public Formats.Bitmaps.DecodedImage? Capture()
     {
         if (!_presentedAnything || _context is null || _lastImageIndex >= (uint)_images.Length)
@@ -902,12 +687,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="width">Frame width.</param>
     /// <param name="height">Frame height.</param>
     /// <returns>Four bytes a pixel, RGBA, sRGB-encoded.</returns>
-    /// <remarks>
-    /// The exact inverse of what <see cref="OutputPipeline"/> did on the way out, followed
-    /// by the sRGB encode the hardware would have done had the surface been an ordinary
-    /// one. Anything above paper white clips, which is the whole point of the format it is
-    /// being converted into.
-    /// </remarks>
     private byte[] Ordinary(byte[] raw, int width, int height) =>
         HdrCapture.ToOrdinary(
             raw, width, height, _format == Format.R16G16B16A16Sfloat, _output.PaperWhiteNits);
@@ -917,13 +696,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// Two floats a pixel — how far this pixel's surface was from here a frame ago — or
     /// null if nothing has been drawn yet.
     /// </returns>
-    /// <remarks>
-    /// For checking them. A motion vector is not visible in the picture and is wrong in
-    /// ways that look plausible, so the only honest way to know it is right is to read the
-    /// numbers: a still camera should give zero everywhere, a pan should give the same
-    /// vector across the whole frame, and a walking character should be the only thing
-    /// moving in an otherwise still room.
-    /// </remarks>
     public float[]? CaptureMotion()
     {
         if (!_presentedAnything || _context is null || _extraImages[GBuffer.Motion - 1].Handle == 0)
@@ -1006,11 +778,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     public void Invalidate() => _needsRecreate = true;
 
     /// <summary>Waits until the device has finished everything it was given.</summary>
-    /// <remarks>
-    /// Before throwing away a scene's geometry. Frames are still in flight when the player
-    /// walks through a door, and freeing the buffers they are reading is a use-after-free
-    /// that shows up as a driver crash somewhere else entirely.
-    /// </remarks>
     public void Idle() => _vk.DeviceWaitIdle(_device);
 
     /// <summary>Whether an interface can be drawn.</summary>
@@ -1020,18 +787,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// How far the picture is faded out, from nought for the picture itself to one for
     /// nothing but <see cref="FadeColour"/>.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Held on the renderer rather than passed to <see cref="DrawFrame"/> because the
-    /// frames a fade covers are drawn from several places — the room's own loop, and the
-    /// pump that keeps the window alive while the next room is being read — and every one
-    /// of them has to agree about how dark the screen is.
-    /// </para>
-    /// <para>
-    /// Clamped rather than checked: a fade driven from a clock will overshoot its end by
-    /// however long the last frame took, and a transition is not the place to throw.
-    /// </para>
-    /// </remarks>
     public float Fade
     {
         get => _fade;
@@ -1039,32 +794,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>What the picture fades to. Black, unless something says otherwise.</summary>
-    /// <remarks>
-    /// Written straight into the target, which is sRGB — so this is the colour a picker
-    /// would give rather than its linear form, and black is black either way. A white flash
-    /// would want <see cref="OverlayPipeline"/>'s conversion; nothing asks for one yet.
-    /// </remarks>
     public Vector3 FadeColour { get; set; }
 
     private float _fade;
 
     /// <summary>Gives the renderer an interface to draw on top of the room.</summary>
     /// <param name="atlas">The sheet it is drawn from.</param>
-    /// <remarks>
-    /// <para>
-    /// Deferred rather than created with the renderer, because the sheet comes out of the
-    /// game's archives and the renderer exists before anything has been read. Calling it
-    /// again replaces the sheet, which is what changing font — or opening the menu, which
-    /// is cut at its own size — means.
-    /// </para>
-    /// <para>
-    /// <b>The pictures survive it.</b> The screens' own art hangs off the pipeline's
-    /// descriptor pool, and this used to build a new pipeline with a new pool: the driving
-    /// map's seventeen pictures were loaded once at startup and dropped the first time the
-    /// front end drew, leaving the map to fall back to a list of names for the rest of the
-    /// session. Only the sheet changes now.
-    /// </para>
-    /// </remarks>
     public void SetOverlayAtlas(OverlayAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(atlas);
@@ -1095,11 +830,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="name">What to look it up by.</param>
     /// <param name="image">The decoded picture.</param>
     /// <returns>Its number for <see cref="Overlay.Picture"/>, or zero if it could not be held.</returns>
-    /// <remarks>
-    /// The interface is drawn rather than blitted and stays that way. This is for the
-    /// places where the game's own art <em>is</em> the content — the driving map is a
-    /// painting of the countryside and no arrangement of rectangles is that.
-    /// </remarks>
     public int AddOverlayPicture(string name, DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -1126,13 +856,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Forgets the number a picture was given, so the next ask reloads it.</summary>
     /// <param name="name">What it was called.</param>
-    /// <remarks>
-    /// For a picture whose content has changed under its own name — a save slot written over
-    /// with a new game. The picture already uploaded is left where it is: the interface's
-    /// sheet grows by one and is thrown away with the room, which is a great deal simpler
-    /// than freeing one entry out of the middle of it and costs a few hundred kilobytes in a
-    /// session where somebody saved repeatedly over the same slot.
-    /// </remarks>
     public void DropOverlayPicture(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -1157,11 +880,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="cover">
     /// Whether to fill the window rather than letterbox the picture into it.
     /// </param>
-    /// <remarks>
-    /// The renderer knows nothing about what is playing or how far through it is: it is
-    /// given a picture each frame and draws it, which keeps decoding, timing and sound out
-    /// of the one place that has to keep up with the display.
-    /// </remarks>
     public void SetMovieFrame(Formats.Bitmaps.DecodedImage? frame, bool cover = false)
     {
         if (frame is null)
@@ -1199,11 +917,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Sets the picture behind the menu.</summary>
     /// <param name="picture">The image, or null to take it away.</param>
-    /// <remarks>
-    /// The same surface a cutscene uses, so whatever was set last is what shows — which is
-    /// right, because a film and a title screen are never both wanted. It fills the window
-    /// rather than being letterboxed into it.
-    /// </remarks>
     public void SetBackdrop(Formats.Bitmaps.DecodedImage? picture) =>
         SetMovieFrame(picture, cover: true);
 
@@ -1213,10 +926,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Sets the picture behind the menu, from blocks.</summary>
     /// <param name="picture">The compressed image.</param>
-    /// <remarks>
-    /// What a shipped game has: the title screen comes out of a pack in the same form as
-    /// every other texture, and nothing on the way here decompresses it.
-    /// </remarks>
     public void SetBackdrop(Formats.Bitmaps.CompressedImage picture)
     {
         if (_movie is null)
@@ -1660,7 +1369,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>Which queue index in the graphics family Streamline was given.</summary>
-    /// <remarks>Nought when there was no room for one of its own, and it shares.</remarks>
     private uint _streamlineQueue;
 
     /// <summary>How many queues a family has.</summary>
@@ -1789,13 +1497,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// Picks how frames are handed to the display.
     /// </summary>
     /// <returns>The present mode, which is FIFO unless the player asked otherwise.</returns>
-    /// <remarks>
-    /// FIFO is the only mode the specification guarantees, so it is both the default and
-    /// the fallback. With the wait switched off, mailbox first — it is the one that does
-    /// not tear — and immediate after it. A surface offering neither leaves the setting on
-    /// in fact while the row says off, which is the honest outcome and is why the row does
-    /// not promise a frame rate.
-    /// </remarks>
     private PresentModeKHR ChoosePresentMode()
     {
         if (VerticalSync)
@@ -1832,25 +1533,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Picks the swapchain's format and colour space from what the surface actually offers.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Standard range is the easy half: an sRGB surface means the display hardware does the
-    /// encoding on write, so shading stays linear and there is nothing to decide.
-    /// </para>
-    /// <para>
-    /// High dynamic range is asked for and not demanded. A surface may offer the colour
-    /// space and no format the game can write, a monitor may be in SDR mode, a compositor
-    /// may not pass HDR through at all — and none of those is a reason to fail to open a
-    /// window. What is chosen here is reported through
-    /// <see cref="HighDynamicRangeActive"/>, so the settings page can say "asked for, not
-    /// available" rather than leaving somebody to wonder why nothing changed.
-    /// </para>
-    /// <para>
-    /// PQ before scRGB when both are offered and the player expressed no preference. Ten
-    /// bits through ST.2084 carry further up the luminance range than ten bits of anything
-    /// linear, and PQ is what a television and most HDR monitors are actually driven with.
-    /// </para>
-    /// </remarks>
     private SurfaceFormatKHR ChooseFormat()
     {
         uint count = 0;
@@ -2025,24 +1707,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="r">Clear red.</param>
     /// <param name="g">Clear green.</param>
     /// <param name="b">Clear blue.</param>
-    /// <remarks>
-    /// <para>
-    /// Four stages, in one order whatever the settings say. The room is drawn at
-    /// <see cref="_renderExtent"/> into a floating-point target; something may then upscale
-    /// that to <see cref="_extent"/>; the result is tone-mapped and encoded onto the
-    /// swapchain; and the movie, the interface and the fade go on top at the size of the
-    /// window.
-    /// </para>
-    /// <para>
-    /// It used to be two orders — the traced path composited into a target and copied out,
-    /// the plain path drew straight onto the screen — and every feature since has had to be
-    /// written twice or has silently only worked on one of them. Unifying them costs one
-    /// full-screen pass in the plain path and buys upscaling, HDR and tone mapping in both.
-    /// The interface staying at the size of the window is not a detail: an interface drawn
-    /// at render resolution and stretched with the room is the most visible way to get an
-    /// upscaler wrong.
-    /// </para>
-    /// </remarks>
     private void RecordClear(CommandBuffer buffer, Image image, ImageView view, float r, float g, float b)
     {
         _vk.ResetCommandBuffer(buffer, 0);
@@ -2295,19 +1959,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// </summary>
     /// <param name="buffer">The frame's command buffer.</param>
     /// <returns>True when the upscaled target holds the picture.</returns>
-    /// <remarks>
-    /// <para>
-    /// Built here rather than at startup for the same reason the denoiser is: it needs to
-    /// know the two sizes, and the player can change what it is at any moment. A backend
-    /// that will not build, or that declines a frame, is logged once and switched off for
-    /// the rest of the session — the fallback is the picture at render resolution, stretched
-    /// by the output pass, which is worse and is not nothing.
-    /// </para>
-    /// <para>
-    /// Every backend is handed its inputs in shader-read layout and its output in general
-    /// layout, and this is the only place that decides so. See <see cref="IUpscaler"/>.
-    /// </para>
-    /// </remarks>
     private bool Upscale(CommandBuffer buffer)
     {
         if (!_upscaling.Active || _upscalerFailed || _context is null ||
@@ -2438,19 +2089,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="named">What the player asked for.</param>
     /// <param name="wanted">The file that would have made it possible.</param>
     /// <returns>The spatial upscaler, told which backend it is standing in for.</returns>
-    /// <remarks>
-    /// <para>
-    /// Falling back rather than switching off, because the player asked for the picture to
-    /// be drawn small and stretched, and the engine can do that without anybody's runtime.
-    /// What they do not get is the quality they were expecting, which is why this is said
-    /// out loud and why the settings page says the same thing where they can read it.
-    /// </para>
-    /// <para>
-    /// The stand-in is told what it is standing in for. Without that it answers "no" when
-    /// asked whether it serves a plan that names DLSS, and the frame loop dutifully tears
-    /// it down and builds another one — every frame, with a warning each time.
-    /// </para>
-    /// </remarks>
     private SpatialUpscaler Fallback(UpscalerKind named, string wanted)
     {
         // Two quite different reasons, and the player can only act on one of them. A
@@ -2477,10 +2115,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="image">The swapchain image.</param>
     /// <param name="view">Its view.</param>
     /// <param name="picture">The linear frame to encode, at the size of the window.</param>
-    /// <remarks>
-    /// All four in one rendering scope. The encode covers every pixel, so there is nothing
-    /// to load; everything after it blends over what it wrote.
-    /// </remarks>
     private void Present(CommandBuffer buffer, Image image, ImageView view, ImageView picture)
     {
         Transition(buffer, image, ImageLayout.Undefined, ImageLayout.ColorAttachmentOptimal);
@@ -2584,12 +2218,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// What every pass writing the swapchain has to do to its colours.
     /// </summary>
-    /// <remarks>
-    /// One answer, derived from the colour space the surface actually gave back rather than
-    /// from what was asked for. A frame where the room encoded for HDR10 and the interface
-    /// did not is not a subtle mismatch: it is a correct picture with a washed-out menu over
-    /// it, which is what it looked like before this existed.
-    /// </remarks>
     private DisplayEncode Encoding() => HighDynamicRangeActive
         ? new DisplayEncode(
             _colorSpace == ColorSpaceKHR.SpaceHdr10ST2084Ext
@@ -2603,10 +2231,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="buffer">The frame's command buffer.</param>
     /// <param name="image">The swapchain image.</param>
     /// <param name="source">The picture, in shader-read layout.</param>
-    /// <remarks>
-    /// The path taken only when the output pass could not be built. A blit rather than a
-    /// copy because the two differ in format and may differ in size.
-    /// </remarks>
     private void Blit(CommandBuffer buffer, Image image, Image source)
     {
         if (source.Handle == 0)
@@ -2659,10 +2283,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>Builds the denoiser and the compositing pass, and keeps them pointed
     /// at the right things.</summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <remarks>
-    /// Not at startup: none of it can be built until there is a scene with an acceleration
-    /// structure to trace against, and the quality setting can turn the whole path off.
-    /// </remarks>
     private void PrepareDeferred(CommandBuffer buffer)
     {
         // Once it has failed it will fail the same way every frame, and retrying five
@@ -2768,16 +2388,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Traces the occlusion, filters it, and puts the picture together.</summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <remarks>
-    /// Between the room's pass and the upscale: the tracing reads the depth and the normals
-    /// the first one wrote, which cannot be sampled while they are still attachments, and
-    /// the sky belongs on top of what this produces rather than underneath it.
-    /// <para>
-    /// It leaves the lit target holding the finished room in shader-read layout, which is
-    /// where the upscale and the encode expect to find it — and where the <em>next</em>
-    /// frame's reflections expect to find last frame's picture.
-    /// </para>
-    /// </remarks>
     private void Compose(CommandBuffer buffer)
     {
         Transition(
@@ -2901,10 +2511,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Gives the room its smoke and embers.</summary>
     /// <param name="particles">The particles, furthest from the eye first.</param>
-    /// <remarks>
-    /// Set every frame by whoever is running the room; empty is the ordinary state of a
-    /// room with no fire in it, and the pass then records nothing at all.
-    /// </remarks>
     public void SetParticles(IReadOnlyList<Particle> particles)
     {
         ArgumentNullException.ThrowIfNull(particles);
@@ -2918,21 +2524,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// Marches the room's fog over the picture, in a scope of its own.
     /// </summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <remarks>
-    /// <para>
-    /// In the same place as the particles and for the same reason: both paths through the
-    /// room leave the lit target readable by a shader with the depth beside it, so this is
-    /// the one point in the frame where the state is the same whether the room was traced
-    /// or not. Before them rather than after, because a fire's smoke stands where the fire
-    /// does and the depth behind it is the wall — fogging the plume against that would dim
-    /// its near side by however far away the wall happened to be.
-    /// </para>
-    /// <para>
-    /// <b>At render resolution, before the upscale.</b> The depth it marches to is the
-    /// room's own and exists at no other size, and fog is part of the picture an upscaler is
-    /// meant to be reconstructing rather than something laid over its answer.
-    /// </para>
-    /// </remarks>
     private void RecordFog(CommandBuffer buffer)
     {
         if (!_fog.Any || _fogPipeline is not { Ready: true } || _camera is null ||
@@ -2995,24 +2586,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// Draws the room's smoke and embers over the picture, in a scope of their own.
     /// </summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <remarks>
-    /// <para>
-    /// After the picture is finished and before anything is upscaled or presented. Both
-    /// paths through the room leave the lit target readable by a shader and the depth
-    /// alongside it, so this is the one point in the frame where the state is the same
-    /// whether the room was traced or not.
-    /// </para>
-    /// <para>
-    /// <b>It is drawn at render resolution, and so has no motion vectors.</b> The
-    /// G-buffer's motion target was written by the room and read by the denoiser long
-    /// before this, and a smoke sprite has no surface to report the movement of. A
-    /// temporal upscaler therefore sees the particles as pixels that changed without
-    /// moving, which it smears rather than resolves. It is the reason the pass is here and
-    /// not later: later means after the upscale, where there is no depth at the right size
-    /// to test against and every fire in the game would burn through the wall in front of
-    /// it. Trails behind a spark are the smaller of the two faults.
-    /// </para>
-    /// </remarks>
     private void RecordParticles(CommandBuffer buffer)
     {
         if (_particles.Count == 0 || _particlePipeline is null || _camera is null ||
@@ -3093,11 +2666,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <summary>Draws the fade over whatever the frame ended up as.</summary>
     /// <param name="buffer">Command buffer being recorded.</param>
-    /// <remarks>
-    /// Both places the interface is recorded call this straight afterwards, because a fade
-    /// covers the whole picture and the picture is finished in two different passes
-    /// depending on whether the room was traced.
-    /// </remarks>
     private void RecordFade(CommandBuffer buffer)
     {
         if (_fadePipeline is null || _fade <= 0f)
@@ -3114,11 +2682,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Read at the top of a frame like the other two plans, so that both rows on the
-    /// Picture page are things the player can watch happen rather than things that wait for
-    /// the next door.
-    /// </remarks>
     public ReflectionPlan Reflections
     {
         get => _reflectionPlan;
@@ -3133,30 +2696,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="buffer">Command buffer to record into.</param>
     /// <param name="width">Render width in pixels.</param>
     /// <param name="height">Render height in pixels.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>It borrows the frame's own normal, motion and depth targets.</b> The pipeline
-    /// declares all three and a rendering scope has to bind every attachment its pipeline
-    /// writes, so a reflection cannot be drawn into a colour target alone — and it does not
-    /// need targets of its own, because the pass that follows clears and overwrites all
-    /// three. One extra image for the whole feature, and nothing downstream ever sees the
-    /// reflection's normals.
-    /// </para>
-    /// <para>
-    /// <b>Always the plain pipeline, whatever the tracing setting.</b> The traced pipeline
-    /// writes light rather than a picture and needs a compositing pass to become one; a
-    /// reflection drawn through it and sampled directly would be raw irradiance in a mirror.
-    /// What the glass shows is therefore lit by the rig without traced shadows even at High.
-    /// That is a real difference from the room around it and a small one at the size a
-    /// mirror is drawn; compositing the reflection as well would want a second set of every
-    /// deferred target.
-    /// </para>
-    /// <para>
-    /// No sky. The reflected camera stands behind the mirror, and the skybox is drawn
-    /// without regard to the clip plane, so it would paint over the whole reflection from
-    /// the far side of the wall the mirror hangs on.
-    /// </para>
-    /// </remarks>
     private void RecordReflection(CommandBuffer buffer, int width, int height)
     {
         if (_scene is null || _camera is null || _mirrorView.Handle == 0 ||
@@ -3369,21 +2908,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Points the fog pass at the rig it lights the layer with and the depth it stops at.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>The raster set's rig, whichever pipeline the frame ends up using.</b>
-    /// <see cref="SetLights"/> writes the same lights into both sets, and the three buffers
-    /// each set owns are written once when a room loads rather than once a frame — so there
-    /// is one rig here regardless of tier, and no reason for this pass to know which
-    /// pipeline drew the room.
-    /// </para>
-    /// <para>
-    /// Called where the targets are made and remade, and nowhere else. Rewriting a
-    /// descriptor set a frame in flight may still be reading is the same hazard as
-    /// rewriting its vertex buffer; both places this is called from have just waited for
-    /// the device.
-    /// </para>
-    /// </remarks>
     private void PointFogAtDepth()
     {
         if (_fogPipeline is null || _frames is null || _depthView.Handle == 0)
@@ -3397,12 +2921,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Points every frame's descriptor set at the image a reflection is drawn into.
     /// </summary>
-    /// <remarks>
-    /// Both sets, and every slot of both. The traced path draws the room and the plain path
-    /// draws the reflection, so the two never read this at the same time — but the binding
-    /// is declared by one shader source compiled for both, and a declared binding has to be
-    /// a real descriptor whether the branch that reads it runs or not.
-    /// </remarks>
     private void PointFramesAtMirror()
     {
         if (_mirrorView.Handle == 0 || _mirrorSampler.Handle == 0)
@@ -3420,13 +2938,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Builds, or rebuilds, everything that writes straight onto the swapchain.
     /// </summary>
-    /// <remarks>
-    /// A graphics pipeline carries the format of the attachment it writes, so the four
-    /// passes that end up on the swapchain — the encode, the fade, the interface and a
-    /// movie — have to be rebuilt when that format changes. Which it does exactly once in a
-    /// session, when somebody turns HDR on: an 8-bit sRGB surface becomes a ten-bit one and
-    /// every pipeline built for the first is invalid against the second.
-    /// </remarks>
     private void RebuildForFormat()
     {
         if (_context is null || _shaderCompiler is null || _format == _builtForFormat)
@@ -3499,10 +3010,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>Creates the normal and motion targets the frame writes beside its picture.</summary>
-    /// <remarks>
-    /// The same size as the swapchain and rebuilt with it. Both are sampled afterwards, so
-    /// both carry the transfer and sampled usages a filter needs to read them.
-    /// </remarks>
     private void CreateGBuffer()
     {
         Format[] formats = [GBuffer.NormalFormat, GBuffer.MotionFormat, GBuffer.LightFormat];
@@ -3606,21 +3113,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Builds the finished room, in linear light and at the size it was drawn.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Floating point rather than the swapchain's format, and that is the change everything
-    /// else here rests on. A ray-traced highlight, a lamp on an HDR display and a temporal
-    /// upscaler's history all need values above one to survive to the end of the frame, and
-    /// an 8-bit target clips every one of them at white. It is also what the two vendor
-    /// runtimes expect to be handed.
-    /// </para>
-    /// <para>
-    /// Both paths write into this now — the traced one through the compositing pass and the
-    /// plain one directly — which is what lets the upscale and the encode be one place
-    /// rather than two. The interface is emphatically not in here: it is drawn afterwards,
-    /// onto the swapchain, at the size of the window.
-    /// </para>
-    /// </remarks>
     private void CreateLitTarget()
     {
         var imageInfo = new ImageCreateInfo
@@ -3674,13 +3166,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>Builds the target a mirror's reflection is drawn into.</summary>
-    /// <remarks>
-    /// The same format and the same size as the picture, because it <em>is</em> a picture of
-    /// the room: the same shading, the same lights, the same exposure, seen from the camera
-    /// reflected through the glass. The size has to match exactly — the glass reads it at
-    /// its own screen position, which is only the right texel if the two renders share a
-    /// grid.
-    /// </remarks>
     private void CreateMirrorTarget()
     {
         var imageInfo = new ImageCreateInfo
@@ -3802,12 +3287,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <summary>
     /// Builds the image an upscaler fills, at the size of the window.
     /// </summary>
-    /// <remarks>
-    /// Only when something is upscaling. With no upscaler the lit target is already the
-    /// size of the window and the output pass reads it directly — allocating a second
-    /// full-resolution float image to copy it into would cost 32 MB at 4K and a resample
-    /// nobody asked for.
-    /// </remarks>
     private void CreateUpscaleTarget()
     {
         if (!_upscaling.Active)
@@ -4032,10 +3511,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     }
 
     /// <summary>Puts the depth buffer into the layout rendering expects.</summary>
-    /// <remarks>
-    /// Done every frame rather than once, because the contents are cleared at the start of
-    /// each pass and so the previous layout is never worth preserving.
-    /// </remarks>
     private void TransitionDepth(CommandBuffer buffer)
     {
         if (_depthImage.Handle == 0)

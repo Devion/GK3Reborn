@@ -16,30 +16,12 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Marches a room's fog over the finished picture, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Vulkan pass's counterpart, from the same two shaders: see
-/// <see cref="Vulkan.FogPipeline"/> for what it draws and <see cref="FogShaders"/> for how.
-/// </para>
-/// <para>
-/// <b>Not a <see cref="D3D12ScreenPass"/>, and the reason is the rig.</b> That class covers
-/// every full-screen pass that reads nothing but textures, which is all of the others; this
-/// one reads three buffers as well, so its table is written here. What is shared is the
-/// layout and the shader, which is where two backends actually drift apart.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12FogPass : IDisposable
 {
     /// <summary>How many descriptors one draw's table holds.</summary>
-    /// <remarks>The rig, the cells, the list inside a cell, and the depth.</remarks>
     private const uint TableSize = 4;
 
     /// <summary>How many frames of descriptors the ring holds.</summary>
-    /// <remarks>
-    /// Three, for the reason <see cref="D3D12ScreenPass"/> gives: the run is written once a
-    /// frame and read for as long as that frame is on the device, so it has to outlast the
-    /// deepest thing that can still be reading it.
-    /// </remarks>
     private const uint RingDepth = 3;
 
     private readonly D3D12Context _context;

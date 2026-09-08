@@ -12,21 +12,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// The programs on Sidney's desktop.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One method each, all drawing into the rectangle the window frame leaves them, and all of
-/// them putting their lists inside a scrolling region rather than stopping at the bottom of
-/// the glass. That last part is not a nicety: the suspects list held ten people and drew
-/// nine, and the tenth is the one whose print is worth linking.
-/// </para>
-/// <para>
-/// The words are the game's own throughout — <see cref="SidneyWords"/> asks
-/// <c>ESIDNEY.TXT</c> for each of them by its 1999 key — so a screen says what the original
-/// said, in the language the game is being played in, even where this arranges it
-/// differently. Nothing here writes a button's text out itself: that is how a German game
-/// came to draw a German analysis under an English <c>START ANALYSIS</c>.
-/// </para>
-/// </remarks>
 public static class SidneyApps
 {
     /// <summary>The programs, in the order they sit on the desktop.</summary>
@@ -211,11 +196,6 @@ public static class SidneyApps
     /// <summary>
     /// The mail: a list of messages on the left and the one open beside it.
     /// </summary>
-    /// <remarks>
-    /// Sender, subject and when it arrived, which is what a mail program has shown since
-    /// before this one was set. The first pass listed the six subjects alone, which is the
-    /// data the file happens to be keyed on rather than the thing a reader wants.
-    /// </remarks>
     private static void Mail(SidneySurface surface, SidneyMachine machine, Vector4 body)
     {
         IReadOnlyList<SidneyMail> inbox = machine.Library.Mail();
@@ -466,11 +446,6 @@ public static class SidneyApps
     /// <summary>
     /// Search: a box to type in, and a page of the encyclopedia.
     /// </summary>
-    /// <remarks>
-    /// The subject list is not shown. Three hundred and ninety-one pages offered as a menu
-    /// is a walkthrough — the puzzle is knowing what to look up — so the player types, and
-    /// what they type is checked against the spellings the game itself lists.
-    /// </remarks>
     private static void Search(SidneySurface surface, SidneyMachine machine, Vector4 body)
     {
         float row = surface.Line + surface.Em(12);
@@ -894,12 +869,6 @@ public static class SidneyApps
     /// <summary>
     /// Translate: a file, what it is written in, and what it says in English.
     /// </summary>
-    /// <remarks>
-    /// The screen the port answered "Not implemented yet" with. Everything on it — the four
-    /// languages, the refusal for choosing the wrong one, both halves of every piece of text
-    /// and the exchange that finishes the Arcadia inscription — is in the game's own
-    /// translate section and had simply never been read.
-    /// </remarks>
     private static void Translate(SidneySurface surface, SidneyMachine machine, Vector4 body)
     {
         List<SidneyFile> can = [.. machine.Files.Where(machine.Translator.CanTranslate)];
@@ -1335,12 +1304,6 @@ public static class SidneyApps
     /// </summary>
     /// <param name="action">The operation.</param>
     /// <returns>True when running it once does not finish it.</returns>
-    /// <remarks>
-    /// The analyses are one-shot: a parchment's anomalies come out once and the note they
-    /// produce is what the story reads afterwards. Everything the map does is not — points
-    /// are entered and cleared and entered again, the grid comes and goes, a figure is
-    /// turned a step at a time — and the screen has to keep offering them.
-    /// </remarks>
     private static bool Repeatable(SidneyAction action) => action is
         SidneyAction.EnterPoints or
         SidneyAction.ClearPoints or

@@ -102,29 +102,6 @@ public readonly record struct HudState(
 /// <summary>
 /// The game's interface, laid out fresh every frame.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The brief this is written against is in <c>docs/screens.md</c> and comes down to one
-/// thing: a player should never have to learn the interface to use it. The original made
-/// you hold a button to raise a verb ring, pick from icons whose meaning you had to
-/// discover, and go through a separate screen to look in your own pockets. So here the
-/// noun under the pointer says what a click will do, in words, before the click happens;
-/// the full list is one right-click away and is a plain list of verbs; and the inventory
-/// is a strip along the bottom that is always visible and always one click from being
-/// used.
-/// </para>
-/// <para>
-/// Nothing here is retained. It is a function from what the game is doing to a list of
-/// rectangles, so there is no widget tree to keep in step with the world and no way for
-/// the interface to be showing something that stopped being true.
-/// </para>
-/// <para>
-/// Hit testing is the same layout run twice: <see cref="Build"/> lays the verb menu out
-/// and remembers where each row went, and <see cref="VerbAt"/> reads that back. Deriving
-/// both from one pass is what keeps the thing you click and the thing you see from
-/// drifting apart.
-/// </para>
-/// </remarks>
 public sealed class GameHud
 {
     private static readonly Vector4 Panel = new(0.06f, 0.07f, 0.09f, 0.82f);
@@ -135,11 +112,6 @@ public sealed class GameHud
     private static readonly Vector4 Rule = new(0.30f, 0.32f, 0.36f, 0.8f);
 
     /// <summary>The console's own ground, darker and more opaque than the rest.</summary>
-    /// <remarks>
-    /// Nearly solid on purpose. Everything else here is a label over a room the player is
-    /// looking at; this is a surface being read line by line, and the room behind it is a
-    /// distraction rather than context.
-    /// </remarks>
     private static readonly Vector4 Console = new(0.03f, 0.04f, 0.06f, 0.97f);
 
     private static readonly Vector4 Complaint = new(0.92f, 0.45f, 0.40f, 1f);
@@ -164,40 +136,15 @@ public sealed class GameHud
     /// <summary>
     /// What the game calls the player's things, in the player's own language.
     /// </summary>
-    /// <remarks>
-    /// Handed over rather than opened here, because which string table is read is a fact
-    /// about the language the game was started in and the interface has no business opening
-    /// archives. <see cref="Game.GameStrings.None"/> when there is no table, which is what
-    /// this drew before it existed: the identifier, tidied up.
-    /// </remarks>
     public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
 
     /// <summary>
     /// How much bigger everything is than the layout was written against.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Every measurement here — padding, panel heights, the gap between inventory slots —
-    /// is written in the units of a nineteen-pixel line, which is what <c>F_ARIAL_T12</c>
-    /// gives, and multiplied by this. So changing the font changes the whole interface
-    /// together rather than leaving 1999-sized gaps around 2026-sized letters.
-    /// </para>
-    /// <para>
-    /// It is derived from the font rather than set, because a bitmap font has exactly one
-    /// size: there is no scaling a sheet, and drawing a seventeen-pixel one at thirty-four
-    /// pixels is a blurry seventeen-pixel one. Making the text bigger means picking a
-    /// bigger sheet, and everything else follows from which sheet was picked.
-    /// </para>
-    /// </remarks>
     public float Scale => Math.Max(1f, Overlay.LineHeight / 19f);
 
     /// <summary>Draws the interface with a different font.</summary>
     /// <param name="atlas">The new atlas.</param>
-    /// <remarks>
-    /// For a window that changed size enough to want a different rung of the font ladder.
-    /// The interface object survives it, because the room loop holds one and hands it the
-    /// same instance every frame.
-    /// </remarks>
     public void Retarget(OverlayAtlas atlas)
     {
         ArgumentNullException.ThrowIfNull(atlas);
@@ -208,11 +155,6 @@ public sealed class GameHud
     }
 
     /// <summary>How much of the foot of the screen the interface takes.</summary>
-    /// <remarks>
-    /// Nothing, now that the inventory strip is gone. Kept as a name because the captions
-    /// sit above it and would otherwise have to learn that there is no longer an "it" — and
-    /// because a strip may yet come back as something the player can turn on.
-    /// </remarks>
     public static float InventoryHeight => 0f;
 
     /// <summary>Lays the interface out.</summary>
@@ -277,20 +219,6 @@ public sealed class GameHud
     /// </summary>
     /// <param name="state">What the game is doing.</param>
     /// <param name="height">Window height, which is what decides how big it is drawn.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The picture is the device.</b> <c>GPSLER_L.BMP</c> is the whole handheld — bezel,
-    /// green contour screen, and the words <c>LNG:</c> and <c>LAT:</c> printed on its face —
-    /// so all this adds is the cross showing where Grace is standing and the two readings
-    /// beside the labels the artists left room for. Everything is placed in the picture's own
-    /// 222 by 332 pixels and scaled by one number, so the parts cannot drift apart.
-    /// </para>
-    /// <para>
-    /// <b>Over the room, not in front of it.</b> The original's is the same: the player walks
-    /// about with it up, watching the numbers change, which is how the cave is found. Top
-    /// left, where nothing else in this interface goes.
-    /// </para>
-    /// </remarks>
     private void Gps(HudState state, int height)
     {
         if (state.Gps is not { } reading ||
@@ -354,19 +282,6 @@ public sealed class GameHud
     /// <summary>
     /// The developer console.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Across the top rather than the bottom, because the inventory strip and the captions
-    /// both live along the bottom edge and a console over either of them would hide the
-    /// thing a command was about to change.
-    /// </para>
-    /// <para>
-    /// The completion list hangs below the input line and is the reason the console is worth
-    /// having: the command language is the game's own 139 Sheep functions, and nobody can be
-    /// expected to know their names. Each row carries its prototype, so the arguments are
-    /// visible before they are typed rather than after they are wrong.
-    /// </para>
-    /// </remarks>
     private void Terminal(GameConsole console, int width, int height)
     {
         float unit = Scale;
@@ -472,11 +387,6 @@ public sealed class GameHud
     /// <summary>Which row of the open menu a point is on.</summary>
     /// <param name="point">Where the pointer is, in pixels.</param>
     /// <returns>The row's index, or -1 when the point is not on one.</returns>
-    /// <remarks>
-    /// So that moving the pointer over a row can move the selection the wheel also moves.
-    /// Both end up pointing at the same thing, which is what stops the highlight and the
-    /// click from disagreeing.
-    /// </remarks>
     public int RowAt(Vector2 point)
     {
         for (int i = 0; i < _rows.Count; i++)
@@ -493,11 +403,6 @@ public sealed class GameHud
     /// <summary>What the row at an index is, or null when there is no such row.</summary>
     /// <param name="index">Which row.</param>
     /// <returns>Its verb, its item, or <see cref="UseRow"/>.</returns>
-    /// <remarks>
-    /// The menu is no longer one row per verb: it carries a row that opens the bag and a
-    /// row for each thing in it. So what a row means has to be asked rather than looked up
-    /// by position in the verb list, which was only ever right while the two agreed.
-    /// </remarks>
     public string? RowNamed(int index) =>
         index >= 0 && index < _rows.Count ? _rows[index].Verb : null;
 
@@ -507,10 +412,6 @@ public sealed class GameHud
     /// <summary>The middle of a menu row, in pixels.</summary>
     /// <param name="index">Which row.</param>
     /// <returns>Its centre, or the origin when there is no such row.</returns>
-    /// <remarks>
-    /// So that "what was drawn" and "what answers to a click" can be checked against one
-    /// another without a mouse. Nothing in the game calls it.
-    /// </remarks>
     public Vector2 RowMiddle(int index) =>
         index >= 0 && index < _rows.Count ? Middle(_rows[index].Bounds) : Vector2.Zero;
 
@@ -538,12 +439,6 @@ public sealed class GameHud
     /// <summary>Whether a point is on the interface rather than on the room behind it.</summary>
     /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>True when the interface is what was clicked.</returns>
-    /// <remarks>
-    /// The inventory strip is an opaque bar across the foot of the screen and it is always
-    /// there. Without this a click on it goes through to whatever the ray finds behind it,
-    /// which is nearly always the floor at the player's feet — so putting the pointer on
-    /// the interface would walk them.
-    /// </remarks>
     public bool OverInterface(Vector2 point) =>
         Inside(point, _strip) ||
         ButtonAt(point) is { Length: > 0 } ||
@@ -570,11 +465,6 @@ public sealed class GameHud
         point.Y >= bounds.Y && point.Y <= bounds.Y + bounds.W;
 
     /// <summary>The corner that says where you are, and what you have scored.</summary>
-    /// <remarks>
-    /// The score goes at the other end of the same bar rather than in a corner of its own.
-    /// It is the game's own line — <c>ScoreText = Score: %03d of %03d</c> out of the string
-    /// table — so it reads the way the original's toolbar read.
-    /// </remarks>
     private void Where(HudState state, int width)
     {
         float unit = Scale;
@@ -641,21 +531,6 @@ public sealed class GameHud
     /// <param name="state">What the game is doing.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>Deliberately the largest thing on the screen.</b> Every other control here is a
-    /// label the player finds by pointing at the room; this one exists because there is
-    /// something to do that pointing at the room will not find, so it goes where the eye
-    /// already is at a size that cannot be missed — centred, low, and as wide as its own
-    /// words plus a wide margin.
-    /// </para>
-    /// <para>
-    /// Dim while it may not be pressed, and registered as a button either way: a control
-    /// that vanishes between presses reads as a bug, and one that quietly swallows the
-    /// press reads as a worse one. The mechanism decides which state it is in and
-    /// <see cref="Game.Mechanisms.SceneMechanism.Press"/> decides what a press does.
-    /// </para>
-    /// </remarks>
     private void Prompt(HudState state, int width, int height)
     {
         _reserved = 0f;
@@ -697,23 +572,11 @@ public sealed class GameHud
     }
 
     /// <summary>How big the headset is drawn, in units of a line.</summary>
-    /// <remarks>
-    /// Half again the height of the bar it hangs under. It was inside the bar first, at the
-    /// height of a row, and was too easy to miss - a control the player has to notice is
-    /// there at all cannot be the smallest thing on the screen. The art is a 32-pixel
-    /// square, so this is a mild enlargement at the smallest font rung and native size or
-    /// better at every rung above it.
-    /// </remarks>
     private const float HeadsetSide = 44f;
 
     /// <summary>Where the headset sits, whether or not it is drawn.</summary>
     /// <param name="unit">The scale everything here is measured in.</param>
     /// <returns>Its square.</returns>
-    /// <remarks>
-    /// Under the bar rather than in it. The bar is a row of words about where the player is;
-    /// this is a thing Gabriel is wearing that they can pick up and use, so it stands over
-    /// the room on the room's own margin, at a size that says it can be pressed.
-    /// </remarks>
     private Vector4 HeadsetBounds(float unit)
     {
         float bar = Overlay.LineHeight + (10f * unit);
@@ -726,25 +589,6 @@ public sealed class GameHud
     /// The headset Gabriel wears in the temple, under the top bar at the left.
     /// </summary>
     /// <param name="state">What the game is doing.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The picture is the original's.</b> <c>RC_RADIO_STD</c> and its hover, down and
-    /// disabled states are the four the game's own option bar used for this button -
-    /// <c>RC_LAYOUT.TXT</c> names them - so a returning player is looking at the thing they
-    /// already know. It is a headset with a boom microphone, drawn at a size that is a
-    /// function of the font, which is a function of the window.
-    /// </para>
-    /// <para>
-    /// <b>Under the bar and half again its height.</b> Inside it, beside the room's name, it
-    /// read as another label rather than as something to press, and at a row's height it was
-    /// the smallest thing on the screen.
-    /// </para>
-    /// <para>
-    /// Dim rather than absent when there is nothing to ask. The headset is on his head for
-    /// the whole hour whatever room he is in, and a button that came and went would be
-    /// telling the player which rooms have something in them worth asking about.
-    /// </para>
-    /// </remarks>
     private void Headset(HudState state)
     {
         if (!state.RadioWorn)
@@ -804,12 +648,6 @@ public sealed class GameHud
     /// <param name="state">What the game is doing.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// Laid out like the verb menu and hit-tested the same way, because it is the same
-    /// gesture: a short list of things to do, one click to take one. It hangs from the
-    /// button rather than from the pointer — the button is where the player just clicked and
-    /// a list that opened somewhere else would be a list they have to go and find.
-    /// </remarks>
     private void Radio(HudState state, int width, int height)
     {
         if (!state.RadioOpen || state.Radio is not { Count: > 0 } topics)
@@ -917,22 +755,6 @@ public sealed class GameHud
     /// <param name="state">What the game is doing, including where each noun is.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <remarks>
-    /// <para>
-    /// A 1999 adventure game hides what can be clicked and expects the player to sweep the
-    /// pointer across the furniture until something lights up. Holding a key answers the
-    /// question outright, which is what <c>Plan/03</c> section 3 means by an interface easier
-    /// than the original's.
-    /// </para>
-    /// <para>
-    /// <b>Laid out so that no two labels overlap.</b> Rooms put a dozen nouns within a few
-    /// degrees of each other — a desk, its drawer, the register on it, the bell beside it —
-    /// and a heap of labels on the same spot answers nothing. Each is pushed down until it
-    /// clears the ones already placed, in order of depth so the nearest keeps its own place
-    /// and the ones behind give way. A label with nowhere left to go is dropped rather than
-    /// stacked, because a wrong label is worse than a missing one.
-    /// </para>
-    /// </remarks>
     private void Hotspots(HudState state, int width, int height)
     {
         if (state.Hotspots is not { Count: > 0 } spots)
@@ -990,11 +812,6 @@ public sealed class GameHud
     /// <summary>
     /// The label that follows the pointer.
     /// </summary>
-    /// <remarks>
-    /// The one piece of the interface that has to be right. It says, in words, what a click
-    /// will do, before the click — which is the whole difference between this and hunting
-    /// for a hotspot.
-    /// </remarks>
     private void Pointing(HudState state, int width, int height)
     {
         if (state.Noun is not { Length: > 0 } noun)
@@ -1043,11 +860,6 @@ public sealed class GameHud
     /// <summary>
     /// The full list of verbs, where the pointer was when they were asked for.
     /// </summary>
-    /// <remarks>
-    /// Anchored to <see cref="HudState.MenuAt"/> and not to where the pointer is now. The
-    /// two are only the same on the frame it opened, and using the live position means the
-    /// menu moves with the hand reaching for it and can never be clicked.
-    /// </remarks>
     private void Menu(HudState state, int width, int height)
     {
         float unit = Scale;
@@ -1200,10 +1012,6 @@ public sealed class GameHud
     }
 
     /// <summary>The row that stands for "use something on this".</summary>
-    /// <remarks>
-    /// A sentinel rather than a verb, because no verb in the game is spelt with a control
-    /// character and this one must never be mistaken for something the player can perform.
-    /// </remarks>
     public const string UseRow = "\u0001use";
 
     /// <summary>What a menu row reads as.</summary>
@@ -1213,20 +1021,9 @@ public sealed class GameHud
     /// <summary>
     /// What one of the player's things reads as.
     /// </summary>
-    /// <remarks>
-    /// The game's own name for it where there is one — "Tape of Abbé's phone call" rather
-    /// than "Abbe Tape", and "Jumelles" rather than "Binoculars" in a French game — and the
-    /// tidied identifier otherwise. It is the only per-object text GK3 ever localised; see
-    /// <see cref="Game.GameStrings.Item"/>.
-    /// </remarks>
     /// <summary>
     /// The port's own words, in the language the game is being played in.
     /// </summary>
-    /// <remarks>
-    /// Beside <see cref="Names"/>: that is GK3's own string table, and this is what the
-    /// port says that GK3 never did — the toolbar, and the ninety verbs the original drew
-    /// as pictures. See <see cref="UiText"/>.
-    /// </remarks>
     public UiText Text { get; set; } = UiText.English;
 
     private string Owned(string item) => Thing(item);
@@ -1236,25 +1033,6 @@ public sealed class GameHud
     /// </summary>
     /// <param name="noun">Its noun, as the action files spell it: <c>MASKING_TAPE</c>.</param>
     /// <returns>The game's own name for it, or the tidied identifier.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The same table the bag reads.</b> GK3's tooltips are keyed on the noun rather
-    /// than on the inventory — <c>v_masking_tape</c> is "Morceau de scotch" in French —
-    /// and the roll of tape on the desk is the same noun as the roll of tape in the
-    /// pocket. The label under the cursor was drawing the identifier with its underscores
-    /// taken out instead, so a French game pointed at "Masking Tape" and a French bag held
-    /// a "Morceau de scotch".
-    /// </para>
-    /// <para>
-    /// <b>Most of the room is not in that table</b> — <c>DRESSER</c> is scenery and GK3
-    /// never named it in any language — so the port carries its own, keyed
-    /// <c>noun.DRESSER</c> in <c>interface-&lt;code&gt;.json</c> beside the ninety verbs and
-    /// written rather than extracted, for the 875 nouns the corpus declares. The 1999 table
-    /// is asked first, because where GK3 did name a thing its own words are the right ones.
-    /// A noun in neither still falls through to the tidied identifier, so a mod's noun draws
-    /// a word rather than nothing.
-    /// </para>
-    /// </remarks>
     private string Thing(string noun) =>
         Names.Item(noun) ??
         Text.Say("noun." + noun.ToUpperInvariant(), Pretty(noun));
@@ -1264,39 +1042,12 @@ public sealed class GameHud
     /// </summary>
     /// <param name="verb">Its noun, as the action files spell it: <c>PICK_UP</c>.</param>
     /// <returns>The word, in the player's own language where there is one.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>GK3 has no table of verb names and never needed one</b>: the original drew them
-    /// as icons, so the word "LOOK" is not written anywhere in its data in any language.
-    /// The port draws them as words, so it has to have them — and this is the text a player
-    /// reads more often than anything else in the game, because it is under the cursor.
-    /// </para>
-    /// <para>
-    /// A closed set: <c>VERBS.TXT</c> lists 287 entries and 90 of them are verbs, the rest
-    /// being the things the player carries — which <em>are</em> in the string table and are
-    /// answered by <see cref="Owned"/>. So ninety keys cover it, and a verb some mod adds
-    /// falls back to its own tidied name.
-    /// </para>
-    /// </remarks>
     private string Verb(string verb) =>
         verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
 
     /// <summary>
     /// The strip along the bottom, which is no longer drawn.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// It duplicated the right-click menu, which already says which of the player's things a
-    /// noun will take, and it lay across the foot of the screen — exactly where the floor at
-    /// the player's feet is drawn, so every click on the ground in front of you had to be
-    /// tested against it first and a good many were swallowed.
-    /// </para>
-    /// <para>
-    /// Kept rather than deleted. It is the layout for a strip if one is ever wanted as
-    /// something the player can turn on, and deleting it to write it again would be the
-    /// worse trade.
-    /// </para>
-    /// </remarks>
     private void Inventory(HudState state, int width, int height)
     {
         float unit = Scale;
@@ -1369,11 +1120,6 @@ public sealed class GameHud
     }
 
     /// <summary>Breaks a line of dialogue to fit the width it is given.</summary>
-    /// <remarks>
-    /// On spaces only. GK3's captions are ordinary prose and a word long enough to need
-    /// breaking mid-word does not occur in them; splitting one would look worse than
-    /// letting it overhang.
-    /// </remarks>
     private List<string> Wrap(string text, float width)
     {
         List<string> lines = [];
@@ -1405,11 +1151,6 @@ public sealed class GameHud
     /// <summary>
     /// Turns an internal name into something a player can read.
     /// </summary>
-    /// <remarks>
-    /// The action files are written in shouting with underscores —
-    /// <c>BATHROOM_DOOR</c>, <c>T_GABRIEL</c> — because they are identifiers. Showing them
-    /// raw is the single loudest way an interface can say it was built for its authors.
-    /// </remarks>
     private static string Pretty(string name)
     {
         if (name.Length == 0)

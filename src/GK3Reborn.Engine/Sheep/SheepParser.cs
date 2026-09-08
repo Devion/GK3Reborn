@@ -7,27 +7,6 @@ namespace GK3Reborn.Sheep;
 /// <summary>
 /// Reads Sheep source into a syntax tree.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Recursive descent, following the BNF in the original team's <c>SHEEP ENGINE.DOC</c>.
-/// <c>Plan/01-architecture.md</c> section 6 chose to hand-write this rather than port
-/// G-Engine's flex/bison output, and the specification is what makes that cheap: the
-/// grammar did not have to be recovered from generated code.
-/// </para>
-/// <para>
-/// A script is an optional <c>symbols { }</c> block of typed declarations and an optional
-/// <c>code { }</c> block of functions. Both are optional and either may come first in
-/// principle; the content always writes symbols first.
-/// </para>
-/// <para>
-/// Precedence follows C, which the language reference says it was modelled on:
-/// <c>||</c> lowest, then <c>&amp;&amp;</c>, equality, relational, additive,
-/// multiplicative, unary. <see cref="SheepExpression"/> parses the same production for
-/// action-file conditions, which are expressions written as text rather than compiled;
-/// the two agree deliberately, and this one builds a tree where that one evaluates as it
-/// goes.
-/// </para>
-/// </remarks>
 public sealed class SheepParser
 {
     private readonly IReadOnlyList<SheepToken> _tokens;
@@ -129,10 +108,6 @@ public sealed class SheepParser
     }
 
     /// <summary>Reads one function: a user name, empty parentheses, and a body.</summary>
-    /// <remarks>
-    /// Sheep functions take no arguments. The parentheses are written all the same, which
-    /// is what makes a definition look like a definition rather than a label.
-    /// </remarks>
     private SheepFunctionNode Function()
     {
         SheepToken name = Current;
@@ -284,11 +259,6 @@ public sealed class SheepParser
     /// <summary>
     /// Reads a wait in each of its three forms.
     /// </summary>
-    /// <remarks>
-    /// <c>wait;</c> on its own, <c>wait Call();</c> applied to one call, and
-    /// <c>wait { … }</c> applied to a group. The last is what makes several calls one
-    /// wait: the block is over when the slowest of them is.
-    /// </remarks>
     private SheepWaitNode Wait(int line)
     {
         Take();

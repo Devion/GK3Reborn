@@ -14,12 +14,6 @@ namespace GK3Reborn.Game.Mechanisms;
 /// <param name="Latitude">The reading, already written out.</param>
 /// <param name="Longitude">The other one.</param>
 /// <param name="Reading">Where the two readings are lettered, in the same pixels.</param>
-/// <remarks>
-/// <b>Everything is in the device picture's own pixels.</b> The picture is the whole
-/// handheld — bezel, screen, and the words <c>LNG:</c> and <c>LAT:</c> printed on it — so
-/// the cross and the two numbers have to land in the places the artists left for them.
-/// Whatever draws it scales the lot by one number and they stay together at any size.
-/// </remarks>
 public readonly record struct GpsReading(
     string Map,
     float Across,
@@ -31,29 +25,6 @@ public readonly record struct GpsReading(
 /// <summary>
 /// The coordinate-fixing device Grace carries on the third day.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A handheld GPS. Switched on it puts a small map of wherever she is standing in the
-/// corner of the screen, with a cross showing where on it she is and a latitude and
-/// longitude that count up and down as she walks — which is the whole of how the player
-/// finds the cave at Le Serpent Rouge's coordinates, and the reason it exists.
-/// </para>
-/// <para>
-/// <b>It is not a Sheep call.</b> Three scenes reach it through
-/// <c>CallSceneFunction("on")</c> and <c>("off")</c> and nothing else in the game does,
-/// which is why it is here with the puzzles rather than beside the other screens.
-/// </para>
-/// <para>
-/// <b>Everything about the mapping is in <c>GPS.TXT</c>.</b> One section per location —
-/// <c>mcf</c>, <c>ler</c>, <c>bec</c> — giving where the room's origin falls on the map
-/// image as a fraction of it, how wide a slice of the world the image covers (in inches),
-/// how far the room's +X axis is rotated off north, and one <em>point of significance</em>
-/// whose latitude and longitude are written down. Every reading is that point plus an
-/// offset. Adapted from G-Engine's <c>GPSOverlay</c> under GPL-3, attributed in NOTICE;
-/// its author notes the readings are close rather than exact, and that they land the
-/// player in the right spot, which is what the puzzle needs of them.
-/// </para>
-/// </remarks>
 public sealed class CoordinateDevice : SceneMechanism
 {
     /// <summary>What the file says about one location.</summary>
@@ -70,12 +41,6 @@ public sealed class CoordinateDevice : SceneMechanism
     /// <summary>
     /// Where the parts of the device sit on the picture of it.
     /// </summary>
-    /// <remarks>
-    /// <c>GPS.TXT</c> gives three of these, one per screen size the original supported, and
-    /// the largest is the one worth having: this interface draws the picture at whatever
-    /// fraction of the window suits and scales these with it, so the 640-pixel and
-    /// 800-pixel variants have nothing to offer.
-    /// </remarks>
     private sealed record Layout(
         string Suffix, float Corner, float CornerDown, float MapWidth, float Text,
         float Latitude, float Longitude);
@@ -102,11 +67,6 @@ public sealed class CoordinateDevice : SceneMechanism
     public bool On { get; private set; }
 
     /// <summary>Where the file is read from, when there is anything to read it out of.</summary>
-    /// <remarks>
-    /// Handed over by the launcher rather than opened here: a mechanism is built for rooms
-    /// that have no archives at all — every tool builds one — and a device with no file
-    /// draws nothing and breaks nothing.
-    /// </remarks>
     public GameArchives? Archives { get; init; }
 
     /// <inheritdoc/>
@@ -156,10 +116,6 @@ public sealed class CoordinateDevice : SceneMechanism
     /// <summary>
     /// What the device is showing, or null when it is off or has nothing to show.
     /// </summary>
-    /// <remarks>
-    /// Read once a frame by whatever draws it. Everything in it is derived from where the
-    /// player is standing at the moment it is asked, so there is no state to keep in step.
-    /// </remarks>
     public GpsReading? Reading()
     {
         if (!On || _here is not { } place ||
@@ -198,14 +154,6 @@ public sealed class CoordinateDevice : SceneMechanism
     /// <summary>
     /// Where a point in the room falls on the map, as a fraction of the image.
     /// </summary>
-    /// <remarks>
-    /// <b>Fractions rather than pixels.</b> The reference works in the pixels of whichever
-    /// of the three map sizes it picked for the window; this interface draws the map at
-    /// whatever size the window affords, so the answer has to be independent of that. The
-    /// arithmetic is the same otherwise: flatten to the ground plane, negate Z because the
-    /// image counts down and the world counts up, scale by how much world the image covers,
-    /// and turn it by however far the room's axes are off north.
-    /// </remarks>
     private static Vector2 Pixels(Mapped place, Vector3 world)
     {
         var flat = new Vector2(world.X, -world.Z) / MathF.Max(place.WorldWidth, 1f);
@@ -232,12 +180,6 @@ public sealed class CoordinateDevice : SceneMechanism
     }
 
     /// <summary>Reads the file's locations; its three layout sections are not wanted.</summary>
-    /// <remarks>
-    /// The layouts say which of three sizes of the same art to use for a 640, an 800 or a
-    /// 1024-pixel screen, and pick a bitmap font to letter it with. Neither survives the
-    /// port: the map is drawn at a fraction of the window and lettered in the interface's
-    /// own face, so there is one size of everything and it fits any display.
-    /// </remarks>
     private void Read(string text)
     {
         foreach (IniSection section in IniDocument.Parse(text, "GPS.TXT").Sections)
@@ -344,10 +286,6 @@ public sealed class CoordinateDevice : SceneMechanism
     /// <summary>
     /// A number off a line, with the file's own trailing comment thrown away.
     /// </summary>
-    /// <remarks>
-    /// Nearly every line in this file carries one — <c>angXtoN = 0 // in degrees</c> — and
-    /// the reader hands over what follows the equals sign whole.
-    /// </remarks>
     private static float Number(string value)
     {
         int comment = value.IndexOf("//", StringComparison.Ordinal);

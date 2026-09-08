@@ -7,28 +7,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// The one way a shader gets from its source to a backend.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Every shader in the engine has a single source, in the language ADR 0008 chose, and
-/// two possible destinations. Vulkan wants SPIR-V and stops after the first step;
-/// Direct3D 12 wants DXIL and goes on through SPIRV-Cross and DXC to get it. The steps
-/// themselves are <see cref="SpirvCompiler"/>, <see cref="HlslTranspiler"/> and
-/// <see cref="DxilCompiler"/>; this is what sequences them and remembers the answer.
-/// </para>
-/// <para>
-/// Results are cached on disk by a hash of the source, entry point, stage and target.
-/// After the first build the compilation is effectively offline, which is what the plan
-/// wanted from DXC in the first place, and a cache miss is the only time any compiler runs
-/// at all. That matters more on the Direct3D path than on the Vulkan one, because it is
-/// three tools deep rather than one.
-/// </para>
-/// <para>
-/// The three tools are created on first use and not before. A Vulkan session never loads
-/// <c>dxcompiler</c>, a Direct3D session that finds every shader in the cache loads none
-/// of the three, and a machine with no Direct3D at all can still compile everything it
-/// needs without the missing library being an error.
-/// </para>
-/// </remarks>
 public sealed class ShaderCompiler : IDisposable
 {
     private readonly string? _cacheDirectory;
@@ -40,51 +18,18 @@ public sealed class ShaderCompiler : IDisposable
     private bool _disposed;
 
     /// <summary>How this compiler is set up, as part of every cache key.</summary>
-    /// <remarks>
-    /// <para>
-    /// A cache key has to cover everything that changes the output, and the source is not all
-    /// of it: the flags the compilers are driven with change it too. That was found the hard
-    /// way. Turning off glslang optimisation for the Direct3D path changed every module it
-    /// produces and changed no source, so the cache went on handing back the modules from
-    /// before — and the pipeline went on being refused for a reason that had already been
-    /// fixed.
-    /// </para>
-    /// <para>
-    /// <b>Raise this whenever the toolchain is driven differently.</b> A new optimisation
-    /// level, a new shader model, a different set of DXC arguments, a SPIRV-Cross option:
-    /// all of them belong here, because none of them appears in the text of a shader.
-    /// </para>
-    /// </remarks>
     private const string Recipe = "6";
 
     /// <summary>
     /// Where compiled shaders are cached when nobody has said otherwise.
     /// </summary>
-    /// <remarks>
-    /// Beside the executable, so an unpacked install stays self-contained and carries its
-    /// warm cache when it is moved. On a macOS <c>.app</c> in <c>/Applications</c> nothing
-    /// can be written beside the executable at all — the bundle is read-only, and writing
-    /// into a signed one would invalidate the signature even where the permissions allow
-    /// it — so the cache moves to the user's own directory instead. See
-    /// <see cref="InstallPaths.WritableDirectory"/>.
-    /// </remarks>
     public static string DefaultCacheDirectory => InstallPaths.WritableDirectory("shader-cache");
 
     /// <summary>The shader model the DXIL is compiled for, as D3D writes it (0x65 is 6.5).</summary>
-    /// <remarks>
-    /// The device decides it — see <see cref="Direct3D12.D3D12Context.DxilShaderModel"/> —
-    /// and it is part of the cache key, because a module compiled for 6.5 is not the module
-    /// a 6.1 device can load and the two would otherwise share a name. Ignored for SPIR-V.
-    /// </remarks>
     public uint DxilShaderModel { get; init; } = DxilCompiler.DefaultShaderModel;
 
     /// <summary>Creates a compiler.</summary>
     /// <param name="cacheDirectory">Where to cache compiled shaders, or null to not cache.</param>
-    /// <remarks>
-    /// A cache that cannot be created is not an error: every shader still compiles, just
-    /// not once. Refusing to start the renderer because a directory is read-only would
-    /// trade a slow first frame for no frames at all.
-    /// </remarks>
     public ShaderCompiler(string? cacheDirectory = null)
     {
         if (cacheDirectory is null)
@@ -112,10 +57,6 @@ public sealed class ShaderCompiler : IDisposable
     /// <param name="language">Which language the source is written in.</param>
     /// <returns>SPIR-V words as bytes.</returns>
     /// <exception cref="ShaderCompilationException">The shader did not compile.</exception>
-    /// <remarks>
-    /// The shape the Vulkan backend has always called, kept so that the backend reads the
-    /// same as it did before there were two of them.
-    /// </remarks>
     public byte[] Compile(
         string source,
         ShaderStage stage,
@@ -176,22 +117,6 @@ public sealed class ShaderCompiler : IDisposable
     /// <param name="language">Which language the sources are written in.</param>
     /// <returns>The two compiled stages.</returns>
     /// <exception cref="ShaderCompilationException">Either stage did not survive a step.</exception>
-    /// <remarks>
-    /// <para>
-    /// The two stages have to be compiled together for Direct3D, and it is not a convenience.
-    /// Each is translated to HLSL on its own and DXC packs each stage’s varyings into
-    /// consecutive hardware registers by itself, so a varying the fragment shader does not
-    /// read leaves a hole in one stage and not the other. The mesh shader has exactly that:
-    /// six outputs, five of them read. Direct3D refuses the pipeline outright, and the message
-    /// it gives names a semantic rather than a location.
-    /// </para>
-    /// <para>
-    /// So the fragment shader is reflected first, and the vertex shader is translated with
-    /// every output the fragment shader does not read masked off. Vulkan needs none of this -
-    /// it links by location and does not care about holes - which is why the SPIR-V path
-    /// simply compiles the two.
-    /// </para>
-    /// </remarks>
     public (byte[] Vertex, byte[] Fragment) CompileGraphics(
         ShaderTarget target,
         string vertexSource,
@@ -277,12 +202,6 @@ public sealed class ShaderCompiler : IDisposable
     /// <param name="language">Which language the source is written in.</param>
     /// <returns>Generated HLSL.</returns>
     /// <exception cref="ShaderCompilationException">The shader did not survive a step.</exception>
-    /// <remarks>
-    /// Not on the path to a pipeline — <see cref="CompileTo"/> goes straight through to
-    /// DXIL — but it is what makes a translation failure legible. A shader that DXC
-    /// refuses is refused at a line of source nobody wrote, and being able to print that
-    /// source is the difference between a fixable report and a mystery.
-    /// </remarks>
     public string Translate(
         string source,
         ShaderStage stage,

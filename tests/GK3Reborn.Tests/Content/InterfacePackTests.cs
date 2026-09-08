@@ -10,19 +10,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests that a language's pack carries the port's own words.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The assembly carries them too, and that is what a player with no packs reads. The pack's
-/// copy exists so that a translation can be corrected — or one written for a language the
-/// port carries nothing for — without rebuilding the game, which is the same bargain every
-/// other layer here strikes.
-/// </para>
-/// <para>
-/// It is worth a test rather than an eye because the failure is silent in the one direction
-/// that matters: a pack built without the file is a pack that works, reads correctly, and
-/// gives back the assembly's words instead of its own.
-/// </para>
-/// </remarks>
 public sealed class InterfacePackTests : IDisposable
 {
     private readonly string _root =

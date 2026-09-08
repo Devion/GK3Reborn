@@ -5,21 +5,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Turns GK3's magenta colour key into an alpha channel that survives filtering.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The original discards magenta texels in the fragment shader and never builds mips, so
-/// the key colour is either sampled exactly or not at all. A modern renderer does both:
-/// linear filtering between a magenta texel and its neighbour produces a colour that is
-/// neither, and mip generation spreads it further. The result is the magenta fringe that
-/// appears around window mullions and railings once mips are switched on.
-/// </para>
-/// <para>
-/// The fix is to remove the colour before it can be blended: keyed texels get zero alpha,
-/// and their colour is replaced by the nearest opaque colour so that filtering pulls in
-/// something plausible instead. The shader then tests alpha, which blurs gracefully,
-/// rather than testing for a colour, which does not.
-/// </para>
-/// </remarks>
 public static class TextureKeying
 {
     private const int KeyTolerance = 24;
@@ -27,11 +12,6 @@ public static class TextureKeying
     /// <summary>Whether an image has anything the colour key would remove.</summary>
     /// <param name="image">The decoded image.</param>
     /// <returns>True when at least one texel is magenta or already transparent.</returns>
-    /// <remarks>
-    /// Asked of the <em>original</em>, so that the loader can decide whether a texture may
-    /// take the block-compressed path. Blocks cannot be keyed, and a keyed texture that
-    /// skips this comes out with GK3's magenta painted where its holes should be.
-    /// </remarks>
     public static bool NeedsKey(DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(image.Pixels);
@@ -52,21 +32,6 @@ public static class TextureKeying
     /// <summary>Whether a decoded image already has holes in it.</summary>
     /// <param name="image">The decoded image, whose alpha channel is meaningful.</param>
     /// <returns>True when at least one texel is see-through.</returns>
-    /// <remarks>
-    /// <para>
-    /// Asked of a picture that has <em>already been keyed</em>, which is what a packed
-    /// texture is: <c>pack-content</c> encodes the enhanced set, and the enhanced set
-    /// resolved GK3's magenta into a real alpha channel before it was ever compressed. So
-    /// the question here is not <see cref="NeedsKey"/>'s — is there a key colour to remove —
-    /// but whether the removal already happened.
-    /// </para>
-    /// <para>
-    /// The same threshold as <see cref="NeedsKey"/>, and asked of the level the silhouette
-    /// was drawn at rather than of the largest: a hole authored at 256 texels is still a
-    /// hole there, and expanding a 2,048-square base colour to answer this costs a second of
-    /// a room's load. See <c>CutoutMask.ReferenceTexels</c>.
-    /// </para>
-    /// </remarks>
     public static bool HasHoles(DecodedImage image)
     {
         ArgumentNullException.ThrowIfNull(image.Pixels);
@@ -131,11 +96,6 @@ public static class TextureKeying
     /// <summary>
     /// Spreads opaque colour into the transparent texels, a ring at a time.
     /// </summary>
-    /// <remarks>
-    /// Four passes is enough for the fringe: filtering only ever reaches a texel or two,
-    /// and the coarsest mips of a small texture are a flat average anyway. Running it to
-    /// completion would fill entire transparent regions for no visible benefit.
-    /// </remarks>
     private static void Bleed(byte[] pixels, bool[] keyed, int width, int height)
     {
         bool[] transparent = (bool[])keyed.Clone();

@@ -11,20 +11,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// How a whole picture — a frame of film, or the still behind a menu — sits in the window.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Shared by both backends because it has to be. It was written twice, once each, and the
-/// two answers were not the same: one letterboxed a cutscene and covered a backdrop by
-/// stretching it, the other kept the shape in both cases. A 4:3 title screen was therefore
-/// the right shape on one machine and short and wide on the next.
-/// </para>
-/// <para>
-/// It is also the only way anything drawn <em>over</em> a picture can know where the
-/// picture went. The card between two parts of the day has lettering that belongs at a
-/// particular spot on its painting, and the spot is in the painting's own coordinates; see
-/// <c>IRenderer.PictureRect</c>, which turns this into window pixels.
-/// </para>
-/// </remarks>
 public static class PictureFit
 {
     /// <summary>
@@ -39,20 +25,6 @@ public static class PictureFit
     /// The share of the window the picture spans, horizontally and vertically. One means
     /// exactly the window; less leaves a bar; more runs off the edge and is cropped.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The picture's shape is never changed.</b> Whatever comes back,
-    /// <c>windowWidth * x</c> over <c>windowHeight * y</c> is the picture's own aspect —
-    /// which is the one property of this worth testing, and the one nobody notices is
-    /// broken until everybody in a cutscene is short and wide.
-    /// </para>
-    /// <para>
-    /// Fitting puts the whole picture in the window and leaves bars. Covering fills the
-    /// window and crops — <b>but only so far</b>. Past <see cref="MostCropped"/> it stops
-    /// and lets the bars come back, because a 4:3 title screen on an ultrawide display
-    /// would otherwise be cropped until the game's own name ran off the bottom of it.
-    /// </para>
-    /// </remarks>
     public static (float X, float Y) Fit(
         int pictureWidth, int pictureHeight, int windowWidth, int windowHeight, bool cover)
     {
@@ -84,12 +56,6 @@ public static class PictureFit
     /// <param name="windowHeight">Its height.</param>
     /// <param name="cover">Whether it fills the window rather than fitting inside it.</param>
     /// <returns>Left, top, width and height, centred on the window.</returns>
-    /// <remarks>
-    /// A covered picture is larger than the window and the rectangle says so: its left and
-    /// top go negative and its size overruns. That is the point — something placed against
-    /// the picture has to move off the edge with the part of the picture it belongs to,
-    /// not be clamped back into view on its own.
-    /// </remarks>
     public static Vector4 Rectangle(
         int pictureWidth, int pictureHeight, int windowWidth, int windowHeight, bool cover)
     {
@@ -104,10 +70,5 @@ public static class PictureFit
     /// <summary>
     /// How far a covering picture may be cropped before bars are preferred.
     /// </summary>
-    /// <remarks>
-    /// A third. It is enough to fill any ordinary display with the game's 4:3 title art —
-    /// 16:9 needs exactly a third — and not enough for an ultrawide to cut the lettering
-    /// off the bottom of it.
-    /// </remarks>
     public const float MostCropped = 1.34f;
 }

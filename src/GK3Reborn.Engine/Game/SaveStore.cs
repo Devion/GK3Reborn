@@ -39,33 +39,6 @@ public sealed record SaveSlot(
 /// <summary>
 /// Where saved games live, and the only thing that writes them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// In the user's own profile beside the settings — <c>%AppData%\GK3Reborn\saves</c> on
-/// Windows, <c>~/.config/GK3Reborn/saves</c> on Linux — for the same reasons the settings
-/// are: a game directory may be read-only, shared between accounts, or replaced wholesale
-/// by an update, and none of those should cost somebody their progress.
-/// </para>
-/// <para>
-/// <b>Every write is atomic.</b> A save is written to a temporary file, flushed, and moved
-/// into place; a process that dies halfway through leaves the previous save untouched
-/// rather than a half-written one. This is the single most important property here — the
-/// plan's own words are that "failures cannot corrupt the last good save" — and it is why
-/// <see cref="AtomicFile"/> exists.
-/// </para>
-/// <para>
-/// <b>A save is never overwritten from a game that failed to start.</b> Nothing here
-/// decides that; the caller does, by saving after the state is real rather than before.
-/// The autosave slot is written on arriving somewhere, which is the point at which the
-/// story is at rest.
-/// </para>
-/// <para>
-/// Slots are files, and the name is the slot: <c>autosave</c>, <c>quicksave</c>,
-/// <c>slot-01</c>. A name is checked before it becomes a path, because a slot name reaches
-/// this from a console command and a save called <c>..\..\settings</c> must not be a way
-/// to write one.
-/// </para>
-/// </remarks>
 public sealed class SaveStore
 {
     /// <summary>The slot a new room writes.</summary>
@@ -92,18 +65,6 @@ public sealed class SaveStore
         _directory = directory ?? DefaultDirectory;
 
     /// <summary>Where saves live.</summary>
-    /// <remarks>
-    /// <para>
-    /// A <c>saves</c> folder beside the game, rather than buried in the player's profile
-    /// where the settings live. Saves are something a player copies, backs up and sends to
-    /// somebody else; a preferences file is not, and the two do not want the same home.
-    /// </para>
-    /// <para>
-    /// Falls back to the profile when the game is somewhere it cannot write — a read-only
-    /// install, or a folder needing a prompt nobody is there to answer. Refusing to save at
-    /// all because of where the game was put would be the worse failure.
-    /// </para>
-    /// </remarks>
     public static string DefaultDirectory => InstallPaths.WritableDirectory("saves");
 
     /// <summary>Where this store keeps its files.</summary>
@@ -120,11 +81,6 @@ public sealed class SaveStore
     /// </summary>
     /// <param name="slot">The name.</param>
     /// <returns>True when it is safe.</returns>
-    /// <remarks>
-    /// Letters, digits and hyphens, and nothing else. Slot names arrive from a console
-    /// command, and a store that joined one onto a path without asking would let
-    /// <c>..\..\settings</c> be a save.
-    /// </remarks>
     public static bool IsSlotName(string? slot)
     {
         if (slot is not { Length: > 0 and <= 64 })
@@ -147,11 +103,6 @@ public sealed class SaveStore
     /// <param name="slot">Which slot.</param>
     /// <param name="save">The game.</param>
     /// <returns>True when it was written.</returns>
-    /// <remarks>
-    /// Failure is reported rather than thrown, and the previous save survives it. A player
-    /// whose disk is full should be told, not crashed, and should still have the game they
-    /// saved an hour ago.
-    /// </remarks>
     public bool Write(string slot, SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
@@ -232,11 +183,6 @@ public sealed class SaveStore
 
     /// <summary>What is in every slot, newest first.</summary>
     /// <returns>The slots, which is empty when nothing has been saved.</returns>
-    /// <remarks>
-    /// A file that cannot be read is left out rather than reported here. The list is what
-    /// the player may load, and offering something that will fail is worse than not
-    /// offering it; <see cref="Read"/> is where a fault gets a name.
-    /// </remarks>
     public IReadOnlyList<SaveSlot> List()
     {
         if (!System.IO.Directory.Exists(_directory))
@@ -287,11 +233,6 @@ public sealed class SaveStore
     /// </summary>
     /// <param name="save">The save as read.</param>
     /// <returns>The save this build understands.</returns>
-    /// <remarks>
-    /// Each step reads a version and returns the next one, so a save two versions behind
-    /// goes through both. The alternative — discovering at the first schema change that
-    /// every save in the wild is unreadable — is much harder to fix then than now.
-    /// </remarks>
     private static SaveGame Migrate(SaveGame save)
     {
         if (save.SchemaVersion < 2)
@@ -312,27 +253,6 @@ public sealed class SaveStore
     /// </summary>
     /// <param name="save">A save written before score events were recorded.</param>
     /// <returns>The same save, with what is recoverable recovered.</returns>
-    /// <remarks>
-    /// <para>
-    /// Schema 1 wrote the player's total and never which events made it up. That was always
-    /// a defect — loading such a save and doing the same thing again scored it twice — and
-    /// the journal is what made it visible, because it reads those events to know what has
-    /// been done.
-    /// </para>
-    /// <para>
-    /// <b>What is recoverable is everything belonging to a point in the story the player is
-    /// past.</b> The story cannot advance out of a timeblock until its own rules are
-    /// satisfied, so a save sitting in Day 2 has been through the whole of Day 1. Marking
-    /// those events earned is also strictly protective: it is what stops the player being
-    /// paid twice for them.
-    /// </para>
-    /// <para>
-    /// <b>What is not recoverable is the block they are standing in</b>, and nothing is
-    /// invented about it. Those objectives show as unfinished until the player does them
-    /// again, which costs them a little repetition and never a wrong answer — and the score
-    /// itself is the number the save recorded, not one recomputed from this.
-    /// </para>
-    /// </remarks>
     private static SaveGame ToSchema2(SaveGame save)
     {
         var reached = new Timeblock(save.Day, save.Hour, save.Afternoon);
@@ -355,22 +275,6 @@ public sealed class SaveStore
     /// </summary>
     /// <param name="save">A save written before introductions were recorded.</param>
     /// <returns>The same save, with what is recoverable recovered.</returns>
-    /// <remarks>
-    /// <para>
-    /// A game played through in this engine needs nothing done to it: the labels ask the
-    /// game's own conditions and a save has always carried the topic counts those conditions
-    /// are about. What this step is for is the one kind of save that cannot answer them —
-    /// a game brought across from the original by a build that did not yet do this on
-    /// import, which sits in the store with a timeblock, a score, and no history at all.
-    /// </para>
-    /// <para>
-    /// <b>Which is what identifies it</b>, and identifies it exactly. Not one topic has been
-    /// raised, and the story is past ten in the morning: no game played here can be in that
-    /// position, because the first timeblock cannot be left until four separate topics have
-    /// been. A save still standing in ten in the morning is left alone whichever it is — at
-    /// that point the list would be most of the cast and the least earned.
-    /// </para>
-    /// </remarks>
     private static SaveGame ToSchema3(SaveGame save)
     {
         var reached = new Timeblock(save.Day, save.Hour, save.Afternoon);
@@ -393,12 +297,6 @@ public sealed class SaveStore
     /// <summary>Where a slot's picture of the room lives.</summary>
     /// <param name="slot">The slot.</param>
     /// <returns>The path, whether or not anything is there.</returns>
-    /// <remarks>
-    /// Beside the save rather than inside it. A saved game is JSON a person can read and a
-    /// picture is not, and base64 in the middle of it would make the file unreadable to keep
-    /// two things together that are perfectly happy apart. Deleting a save takes its picture
-    /// with it; a picture with no save is ignored.
-    /// </remarks>
     public string PictureOf(string slot)
     {
         ArgumentNullException.ThrowIfNull(slot);
@@ -412,11 +310,6 @@ public sealed class SaveStore
     /// <param name="slot">The slot it belongs to.</param>
     /// <param name="picture">The frame, already reduced to a thumbnail.</param>
     /// <returns>True when it was written.</returns>
-    /// <remarks>
-    /// Failure is silent on purpose. A save whose picture could not be written is still a
-    /// save, and refusing the whole thing over a decoration would be the worse trade — which
-    /// is the same reasoning that makes the picture a separate file in the first place.
-    /// </remarks>
     public bool Illustrate(string slot, Formats.Bitmaps.DecodedImage picture)
     {
         ArgumentNullException.ThrowIfNull(slot);

@@ -6,28 +6,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Runs a <c>.STK</c> — the little program a room's sound is written as.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A soundtrack is not a piece of music. It is a list walked in order and then walked
-/// again: wait a second, play the room's theme, wait five to ten seconds, play one of
-/// three moods, and round again with a different wait each time. That is what keeps a
-/// hotel room from sounding like a loop, and playing only its first sound — which is what
-/// happened before this — gives a room its tone and none of its variety. 97 files, 5,755
-/// steps, 125 sounds across the corpus.
-/// </para>
-/// <para>
-/// The program decides; it does not play. What to start and when is arithmetic and a
-/// random draw, and both are worth testing without a sound device — so the caller passes
-/// in something that starts a sound and answers how long it lasts, and that is the whole
-/// of the coupling.
-/// </para>
-/// <para>
-/// <b>A looping sound ends the walk.</b> Not a special case bolted on: a soundtrack meant
-/// to be continuous is written as an introduction followed by something that loops, and
-/// there is no way past that node. Everything after it in the file is unreachable, as the
-/// original has it.
-/// </para>
-/// </remarks>
 public sealed class SoundtrackProgram
 {
     private readonly SoundtrackFile _track;
@@ -68,10 +46,6 @@ public sealed class SoundtrackProgram
     public SoundtrackKind Kind => _track.Kind;
 
     /// <summary>The sound the current step started, or null when it started none.</summary>
-    /// <remarks>
-    /// What a stop has to look at: how a soundtrack stops — play to the end, fade, or cut
-    /// — is a property of the sound that happens to be playing rather than of the file.
-    /// </remarks>
     public SoundtrackSound? Sounding { get; private set; }
 
     /// <summary>Whether every node has run as often as it says it should.</summary>
@@ -92,12 +66,6 @@ public sealed class SoundtrackProgram
     /// could not be played, which costs the step its turn and no time — the same as the
     /// original, where a missing asset returns a length of nothing.
     /// </param>
-    /// <remarks>
-    /// A step's own length is what times the next one: a wait says how long to wait, and a
-    /// sound is followed by the next step when the sound is over. The list can therefore
-    /// take several steps in one frame — three waits that all fail their chance take no
-    /// time at all — so this is a loop with a guard rather than a single step.
-    /// </remarks>
     public void Advance(double seconds, Func<SoundtrackSound, double> play)
     {
         ArgumentNullException.ThrowIfNull(play);
@@ -179,10 +147,6 @@ public sealed class SoundtrackProgram
     }
 
     /// <summary>How long a wait waits.</summary>
-    /// <remarks>
-    /// A maximum below the minimum, or none at all, means the minimum exactly — which the
-    /// corpus writes often, and reading it as a range would wait for no time at all.
-    /// </remarks>
     private double Waiting(SoundtrackNode node)
     {
         int least = Math.Max(0, node.MinWaitMs);
@@ -197,11 +161,6 @@ public sealed class SoundtrackProgram
     }
 
     /// <summary>Starts a step's sound, and answers how long the step lasts.</summary>
-    /// <remarks>
-    /// A run of <c>[PRS]</c> sections is one step with several sounds in it, and one of
-    /// them is picked — reading them as separate steps plays all three of the vampire's
-    /// hisses at once. A plain <c>[SOUND]</c> arrives here as a step with one.
-    /// </remarks>
     private double Playing(SoundtrackNode node, Func<SoundtrackSound, double> play)
     {
         if (node.Sounds.Count == 0)
@@ -229,11 +188,6 @@ public sealed class SoundtrackProgram
     }
 
     /// <summary>Whether there is nothing left for the program to do.</summary>
-    /// <remarks>
-    /// A soundtrack that loops is finished only when every node has spent its repeats, and
-    /// most nodes declare none — so most soundtracks never finish, which is right for room
-    /// tone. One played once is finished when every node has run at all.
-    /// </remarks>
     private bool Exhausted()
     {
         for (int i = 0; i < _track.Nodes.Count; i++)

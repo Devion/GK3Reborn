@@ -54,69 +54,20 @@ public sealed record SavedTimer(string Noun, string Verb, double Seconds);
 /// <summary>
 /// A game, written down.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The contents are not a design decision so much as a reading of
-/// <see cref="GameState.ComputeHash"/>: that method already enumerates everything
-/// observable about a run, in a fixed order, because a state hash that missed something
-/// would be useless for the comparison it exists for. A save that stores less than the hash
-/// covers is a save that can be loaded into a different game than the one that was saved,
-/// so the two lists are kept deliberately identical and a test compares the hash across a
-/// round trip rather than comparing fields.
-/// </para>
-/// <para>
-/// <b>Presentation is not in here.</b> Which screen was open, where the camera was
-/// gliding, what was half-said — none of it is state the story reads, and restoring it
-/// would mean restoring a moment rather than a position. A loaded game puts the player in
-/// the room, at the scene's own camera, with nothing in front of it.
-/// </para>
-/// <para>
-/// <b>Schema version is checked, not assumed.</b> A save from a future build is refused by
-/// name rather than half-read; a save from a past one goes through
-/// <see cref="SaveStore"/>'s migration, which is a real place to put work rather than a
-/// promise. Two steps exist, and both recover what a point in the story implies rather than
-/// inventing anything: see <see cref="Scored"/> and <see cref="Introduced"/>.
-/// </para>
-/// </remarks>
 public sealed record SaveGame
 {
     /// <summary>The schema this build writes.</summary>
-    /// <remarks>
-    /// <para>
-    /// Two adds the score events earned and the journal's hints. The first of those was
-    /// always missing rather than newly needed: a save has always carried the player's total
-    /// and never which events made it up, so loading one and doing the same thing again
-    /// scored it twice. The journal made that visible, because it reads those events to know
-    /// what has been done.
-    /// </para>
-    /// <para>
-    /// Three adds who the player has been introduced to, for the saves that cannot say it
-    /// any other way. See <see cref="Introduced"/>.
-    /// </para>
-    /// </remarks>
     public const int CurrentSchema = 3;
 
     /// <summary>Which schema this save was written with.</summary>
     public required int SchemaVersion { get; init; }
 
     /// <summary>Every score event earned.</summary>
-    /// <remarks>
-    /// Empty in a schema-1 save, which never wrote them. <see cref="SaveStore"/>'s migration puts back
-    /// what can honestly be put back and invents nothing.
-    /// </remarks>
     public IReadOnlyList<string> Scored { get; init; } = [];
 
     /// <summary>
     /// Who the player is to be treated as having met, whatever else the save says.
     /// </summary>
-    /// <remarks>
-    /// Empty in a game played through in this engine, and correctly so: the labels ask the
-    /// game's own conditions — <c>MET_BUTHANE</c>, <c>INTRODUCED_EMILIO</c> — and a save
-    /// carries the topic counts those conditions are about. It is filled for a game brought
-    /// across from the original, whose file has a timeblock and a score in it and not one
-    /// topic count, so the question has to be answered from the point in the story instead.
-    /// See <see cref="Story.Introductions.MetBy"/>.
-    /// </remarks>
     public IReadOnlyList<string> Introduced { get; init; } = [];
 
     /// <summary>How many hints the player has asked for, per objective.</summary>
@@ -159,21 +110,11 @@ public sealed record SaveGame
     /// <summary>
     /// How many numbers the story has drawn from the generator.
     /// </summary>
-    /// <remarks>
-    /// Saved so a reloaded game draws the same sequence a continued one would. Without it,
-    /// reloading is a way to re-roll anything the story left to chance, which is not what
-    /// a save is for. See <see cref="Foundation.DeterministicRandom"/>.
-    /// </remarks>
     public int RandomDraws { get; init; }
 
     /// <summary>
     /// The generator's own four words, so a reloaded game draws what a continued one would.
     /// </summary>
-    /// <remarks>
-    /// The count alone cannot restore it — the generator is a state machine, not a
-    /// position in a stream — and replaying the draws to catch up would be both slow and a
-    /// lie, since nothing records how many of them a script asked for rather than took.
-    /// </remarks>
     public IReadOnlyList<ulong> RandomState { get; init; } = [];
 
     /// <summary>Flags that are set. The rest are not.</summary>
@@ -215,11 +156,6 @@ public sealed record SaveGame
     /// <summary>
     /// The places marked on Sidney's map, as "x,y" in the map's own 1,368 pixels.
     /// </summary>
-    /// <remarks>
-    /// The map puzzle is several sittings long — mark a village, go and read a painting's
-    /// geometry, come back and lay the figure it saved over the marks — so what is on the
-    /// map has to survive a save like everything else the story remembers.
-    /// </remarks>
     public IReadOnlyList<string> SidneyMarks { get; init; } = [];
 
     /// <summary>The figures laid over it, in the order they were laid.</summary>

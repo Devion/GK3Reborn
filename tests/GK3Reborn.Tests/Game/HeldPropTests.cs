@@ -16,21 +16,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for a prop that is animated in somebody else's space rather than the room's.
 /// </summary>
-/// <remarks>
-/// <para>
-/// POU's second morning is what these are about. Six props stand in that scene with no
-/// position — <c>model=abebinocs, type=prop, hidden</c> and five like it — because the
-/// Abbé's binoculars, Buchelli's magnifier, his notepad and pencil, and Lady Howard's
-/// camera and lens are meant to be in somebody's hands. Their clips were exported from the
-/// same scene the character was, so they are authored around the character's own origin: a
-/// median of 27.6 units away from it across the corpus's 314 held clips, and never more
-/// than 94.3.
-/// </para>
-/// <para>
-/// Play one in the room's own coordinates and it lands at the world origin, animating
-/// correctly and in the wrong place — the shape the defect was reported in.
-/// </para>
-/// </remarks>
 public sealed class HeldPropTests
 {
     /// <summary>Records where each mesh was posed, and forwards the rest.</summary>

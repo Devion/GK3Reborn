@@ -9,23 +9,6 @@ using System.Text.Json.Serialization;
 namespace GK3Reborn.Content.Manifests;
 
 /// <summary>What the geometry pipeline should do with one of a room's objects.</summary>
-/// <remarks>
-/// <para>
-/// A room is not one thing. <c>din_chandilier</c> and <c>din_walls</c> are in the same
-/// file, are made of the same kind of data, and want opposite treatments: one is a curved
-/// object whose whole character is its silhouette, the other is flat panels that have to
-/// keep meeting exactly. So the disposition is decided per object, and it decides which
-/// modifier stack — if any — the object is put through.
-/// </para>
-/// <para>
-/// Names carry more weight here than they do for models. A <c>.MOD</c> file's name is a
-/// filename and lies routinely (see <c>ModelRoleManifest</c>); an object name inside a
-/// room is an artist's own label for a part of that room — <c>cem_fountain</c>,
-/// <c>dinchair03</c>, <c>mop_moped</c> — and there is no other declaration channel for
-/// them at all. Every name-derived disposition is still gated on what the geometry
-/// contains, and the reason is recorded, so a wrong call is visible rather than silent.
-/// </para>
-/// </remarks>
 [JsonConverter(typeof(JsonStringEnumConverter<SceneObjectDisposition>))]
 public enum SceneObjectDisposition
 {
@@ -48,12 +31,6 @@ public enum SceneObjectDisposition
     /// <summary>
     /// Walls, floors, doorways, stairs: the edges are bevelled and the flats left alone.
     /// </summary>
-    /// <remarks>
-    /// The conservative case, and the one where a modifier stack does the most damage:
-    /// walls and floors have to keep meeting exactly, and rounding an edge a wall abuts
-    /// opens a visible seam. An angle-limited bevel touches only the edges that are
-    /// already sharp and adds nothing across a flat panel.
-    /// </remarks>
     [JsonStringEnumMemberName("architecture")]
     Architecture,
 
@@ -68,13 +45,6 @@ public enum SceneObjectDisposition
     /// <summary>
     /// A painted view of somewhere else: a distant hillside, a street through a window.
     /// </summary>
-    /// <remarks>
-    /// Separate from <see cref="Flat"/> because a backdrop is not always one plane —
-    /// <c>hal_r33_gbkg</c> is 83 orientations over 786 triangles — and separate from
-    /// everything else because refining one is worse than leaving it: the geometry is a
-    /// stage flat whose whole job is to disappear behind its own picture, and rounding its
-    /// edges puts a lit rim on something that is meant to read as distance.
-    /// </remarks>
     [JsonStringEnumMemberName("backdrop")]
     Backdrop,
 
@@ -120,11 +90,6 @@ public sealed record SceneObjectRole
     /// <summary>
     /// How many distinct plane orientations its faces sit on.
     /// </summary>
-    /// <remarks>
-    /// The single most useful number here, and the one that says what not to spend
-    /// triangles on. One means the object is a flat card. Four is a box. Twelve and up on
-    /// a small object means something lathed, which is what subdivision was made for.
-    /// </remarks>
     public required int PlaneCount { get; init; }
 
     /// <summary>The longest edge of its bounding box, in world units.</summary>
@@ -153,11 +118,6 @@ public sealed record SceneObjectRoom
     public required string Directory { get; init; }
 
     /// <summary>SHA-256 of the original geometry the objects were cut out of.</summary>
-    /// <remarks>
-    /// What tells a set apart from the room it claims to replace. Surface indices are
-    /// positions in a file; extract from a different build of that file and every index
-    /// in every material name means something else.
-    /// </remarks>
     public required string SourceSha256 { get; init; }
 
     /// <summary>Surfaces in the room.</summary>

@@ -3,23 +3,6 @@
 /// <summary>
 /// A scene to load, and the point in the story to load it at.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The timeblock a caller names can mean one of two things, and the difference matters.
-/// <c>202P</c> is a point in the story: the scene file's conditions can be decided against
-/// it, so the scene comes out in exactly one state, with the right bed made, the right
-/// door in place and the right asset and bake chosen by the file itself. <c>A</c> is only
-/// the suffix on an asset name — several timeblocks share one afternoon bake — so it picks
-/// geometry and lighting and says nothing about the story.
-/// </para>
-/// <para>
-/// Both are useful. The suffix form is how a tool asks to see a scene's afternoon
-/// lighting without inventing a story state to justify it, and it is what the render
-/// tooling has always taken. Naming no timeblock at all leaves the conditions undecided
-/// and loads the union of every state the scene can be in, which is the right answer for
-/// a corpus survey and the wrong one for a game.
-/// </para>
-/// </remarks>
 public sealed class SceneRequest
 {
     private SceneRequest(string scene, string? assetSuffix, GameState? state, Gk3SheepApi? api = null)
@@ -43,12 +26,6 @@ public sealed class SceneRequest
     /// <summary>
     /// The timeblock's code, which is half the name of the scene's second file.
     /// </summary>
-    /// <remarks>
-    /// A scene may have a file named for the location and the timeblock together —
-    /// <c>R25202P.SIF</c> — holding what is happening in the room rather than what the room
-    /// is. Null when the caller gave only an asset suffix: <c>A</c> covers seven timeblocks
-    /// and names none of them.
-    /// </remarks>
     public string? TimeblockCode => State?.Timeblock.ToString();
 
     /// <summary>The evaluator to read the scene file through, when there is a state.</summary>
@@ -57,23 +34,11 @@ public sealed class SceneRequest
     /// <summary>
     /// Whether building this room is the player arriving in it.
     /// </summary>
-    /// <remarks>
-    /// True for every ordinary room. False for the two rooms the binoculars build: the one
-    /// being looked at, which the player is only looking at, and the one they were standing
-    /// in all along, which they never left. Both are rooms the engine puts up and neither is
-    /// somewhere anybody went, so neither counts as a visit, runs an entry script or is
-    /// worth an autosave. See <see cref="BinocularView"/>.
-    /// </remarks>
     public bool Counts { get; private init; } = true;
 
     /// <summary>
     /// The script host the conditions are decided through, when there is a state.
     /// </summary>
-    /// <remarks>
-    /// Shared with whatever else has to ask the story a question while the scene stands —
-    /// the action files, above all, whose cases are Sheep expressions over the same state.
-    /// Giving them a second host would give them a second answer.
-    /// </remarks>
     public Gk3SheepApi? Api { get; }
 
     /// <summary>
@@ -82,24 +47,6 @@ public sealed class SceneRequest
     /// <param name="api">The host the story has been running against.</param>
     /// <param name="scene">Where the player is going.</param>
     /// <returns>The request.</returns>
-    /// <remarks>
-    /// <para>
-    /// <see cref="For"/> starts a story; this continues one. The difference is the whole
-    /// point of walking through a door: a new state would forget everything the player has
-    /// done, and a new host would forget every function the last room registered and every
-    /// script it had loaded.
-    /// </para>
-    /// <para>
-    /// The arrival is <em>not</em> recorded here. A scene file asks
-    /// <c>GetEgoCurrentLocationCount() &lt; 1</c> to mean "the first time here", so while
-    /// the file is being read the count still has to be the number of <em>previous</em>
-    /// visits; the scripts that run once the room is standing ask for one instead. Counting
-    /// the arrival first satisfies the scripts and not the file, and the two disagreeing is
-    /// how RC1 came to play Gabriel's line about Wilkes's moped over a square with no moped
-    /// in it — the scene had already decided not to place it. See
-    /// <see cref="GameState.EnterLocation"/>, which the caller runs once the room is up.
-    /// </para>
-    /// </remarks>
     public static SceneRequest Continuing(Gk3SheepApi api, string scene)
     {
         ArgumentNullException.ThrowIfNull(api);
@@ -136,12 +83,6 @@ public sealed class SceneRequest
     /// <param name="api">The host the story has been running against.</param>
     /// <param name="scene">The room being looked at.</param>
     /// <returns>The request.</returns>
-    /// <remarks>
-    /// <see cref="Continuing"/> without the two lines that move anybody. The story's idea of
-    /// where the player is has to go on being the room they are standing in, because every
-    /// question the room being looked at might ask about them — and every question the room
-    /// they are standing in asks while they look — is about somebody at the vantage point.
-    /// </remarks>
     public static SceneRequest Peeking(Gk3SheepApi api, string scene)
     {
         ArgumentNullException.ThrowIfNull(api);
@@ -156,12 +97,6 @@ public sealed class SceneRequest
     /// <param name="api">The host the story has been running against.</param>
     /// <param name="scene">The room, which is the one the player never left.</param>
     /// <returns>The request.</returns>
-    /// <remarks>
-    /// <see cref="Continuing"/>, minus the arrival. Its two moves are idempotent here —
-    /// the story already says the player is in this room — so what is left to say is that
-    /// putting the room back is not walking into it: the tower's entry script does not run
-    /// a second time because somebody lowered a pair of binoculars.
-    /// </remarks>
     public static SceneRequest Resuming(Gk3SheepApi api, string scene)
     {
         ArgumentNullException.ThrowIfNull(api);

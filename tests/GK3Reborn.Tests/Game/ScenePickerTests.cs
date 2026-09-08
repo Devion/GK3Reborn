@@ -11,13 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for what is under a point on the screen.
 /// </summary>
-/// <remarks>
-/// The room here is three walls facing the camera, one behind the other along +Z, so that
-/// "which one did the ray reach first" is the question every test is really asking. Their
-/// meaning comes from the initialisation file rather than the geometry, which is the part
-/// worth pinning: the same slab is a door, a hit test or nothing at all depending on a
-/// line of text somewhere else.
-/// </remarks>
 public sealed class ScenePickerTests
 {
     /// <summary>A camera at the origin looking down +Z, the way the fixtures are built.</summary>
@@ -127,21 +120,12 @@ public sealed class ScenePickerTests
     /// <summary>A grown tree standing at a distance, as one triangle facing the camera.</summary>
     /// <param name="named">The geometry object whose cards it replaces.</param>
     /// <param name="z">How far down +Z it stands.</param>
-    /// <remarks>
-    /// Its geometry is at the origin and the placement carries it out to <paramref name="z"/>,
-    /// which is how a real one arrives: <c>Foliage.Standing</c> fits a normalised tree to
-    /// the site the cards measured.
-    /// </remarks>
     private static GrownStand Tree(string named, float z) =>
         new(named,
             Model("tree", null, 0f, PlacedModelKind.Prop).Model,
             Matrix4x4.CreateTranslation(0, 0, z));
 
     /// <summary>The same model, standing in a sink that can be told to move it.</summary>
-    /// <remarks>
-    /// How a model really stands in a room: the sink holds where it is and a walk writes
-    /// a new transform there, so this is the shape the picker has to answer against.
-    /// </remarks>
     private static PlacedModel Standing(
         HeadlessSceneSink stage, string name, string? noun, Matrix4x4 where)
     {
@@ -156,11 +140,6 @@ public sealed class ScenePickerTests
     }
 
     /// <summary>The pick straight ahead, through the middle pixel of a 65x65 image.</summary>
-    /// <remarks>
-    /// Odd, so that one pixel really is the middle. An even image has no centre pixel and
-    /// the nearest one looks a fraction of a degree off axis, which is right but makes
-    /// every distance in these tests a hair longer than the wall is far.
-    /// </remarks>
     private static ScenePick? Ahead(ScenePicker picker) => picker.Pick(Looking(), 32, 32, 65, 65);
 
     [Fact]
@@ -281,12 +260,6 @@ public sealed class ScenePickerTests
     /// <summary>A stand big enough that the picker sorts it into cells.</summary>
     /// <param name="named">The geometry object whose cards it replaces.</param>
     /// <param name="z">Where the nearest of its triangles stands.</param>
-    /// <remarks>
-    /// Six hundred triangles spread through a volume, the way a crown's leaf cards are,
-    /// with one of them square in front of the camera at <paramref name="z"/>. The rest are
-    /// off to the sides and behind it, so a picker that lost a cell would answer with one
-    /// of those or with nothing.
-    /// </remarks>
     private static GrownStand Thicket(string named, float z)
     {
         List<ModMesh> meshes = [];
@@ -632,11 +605,6 @@ public sealed class ScenePickerTests
     /// each mapped to one whole tile of it.
     /// </summary>
     /// <param name="walls">Object name, the Z it stands at, and the texture on it.</param>
-    /// <remarks>
-    /// The shape the church's four angels are in: four quads over the same rectangle, a
-    /// half-unit apart, telling themselves apart by what is painted on them and by nothing
-    /// else.
-    /// </remarks>
     private static BspFile Stack(params (string Name, float Z, string Texture)[] walls)
     {
         List<string> names = [];

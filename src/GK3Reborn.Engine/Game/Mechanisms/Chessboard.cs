@@ -9,31 +9,6 @@ namespace GK3Reborn.Game.Mechanisms;
 /// <summary>
 /// TE1: the giant chessboard, and the trapdoors under it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Gabriel has to cross an eight-by-eight board a knight's move at a time, landing on all
-/// sixteen sword tiles and never on the same tile twice. Landing on a tile he has already
-/// used, or on one of the twelve that are traps from the start, opens it and drops him.
-/// </para>
-/// <para>
-/// <b>The scripts jump; this decides.</b> Clicking a tile does that tile's <c>JUMP</c>
-/// action, and which of three scripts runs is chosen by the case
-/// <c>Te1MoveType == 1</c> — so the answer to "is that a legal move" has to be written
-/// down <em>before</em> the click, from whatever the pointer is over. That is what
-/// <see cref="Pointing"/> does, and it is why this is the one mechanism that watches the
-/// mouse.
-/// </para>
-/// <para>
-/// <b>A legal move is arithmetic.</b> Both differences greater than zero and summing to
-/// three is exactly the set of knight's moves; off the board, the only legal move is onto
-/// the first row. The turn Gabriel makes before jumping is <em>not</em> arithmetic: the
-/// scripts choose an animation from a code number laid out like a numeric keypad centred
-/// on 12, and the table below is that keypad.
-/// </para>
-/// <para>
-/// Adapted from G-Engine's <c>Chessboard</c> under GPL-3, attributed in NOTICE.
-/// </para>
-/// </remarks>
 public sealed class Chessboard : SceneMechanism
 {
     /// <summary>How many rows and columns there are.</summary>
@@ -69,10 +44,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Whether Gabriel is lying in a fall he was not killed by.
     /// </summary>
-    /// <remarks>
-    /// Set only under plot armour, and spent by the <c>Restart$</c> that follows. See
-    /// <see cref="Stand"/>.
-    /// </remarks>
     private bool _fell;
 
     /// <summary>Creates the mechanism.</summary>
@@ -87,11 +58,6 @@ public sealed class Chessboard : SceneMechanism
     public override string Name => "Chess";
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The pitch is in here because everything the board draws over itself is sized from it,
-    /// so a board that was found but could not be measured is a board whose swords are
-    /// silently unlit — and that is a picture nothing else would report.
-    /// </remarks>
     public override string Report() =>
         string.Create(
             CultureInfo.InvariantCulture,
@@ -102,12 +68,6 @@ public sealed class Chessboard : SceneMechanism
     private int _found;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// The board is not set up here: the room's own <c>SCENE, ENTER</c> calls
-    /// <c>Restart$</c>, which calls <c>clearTiles</c>, and the reference says the same. All
-    /// this does is count what it has to work with, because a board whose tiles cannot be
-    /// found is a puzzle that opens no trapdoors and says nothing about it.
-    /// </remarks>
     public override void Begin()
     {
         _found = 0;
@@ -135,12 +95,6 @@ public sealed class Chessboard : SceneMechanism
     /// How far apart the tiles are.
     /// </summary>
     /// <returns>The average gap between neighbours along a row, or nought when unknown.</returns>
-    /// <remarks>
-    /// Measured off the room rather than written down: the board is eight squares of
-    /// whatever size the artists made them, and a glow sized from a guess is either a dot
-    /// in the middle of a tile or a wash over four of them. Averaged so that one tile the
-    /// room is missing does not decide it.
-    /// </remarks>
     private float Pitch()
     {
         float total = 0f;
@@ -272,31 +226,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Puts Gabriel back on his feet after a fall he was not killed by.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>A pose outlives the clip that struck it.</b> Stopping an animation on a character
-    /// deliberately leaves them in it — a person cut off mid-gesture is a person standing
-    /// oddly, not a person snapping to attention, and
-    /// <see cref="SceneUpdate.StopAnimating"/> says so. That is right everywhere except
-    /// here: with plot armour on, <c>Die$</c> is answered by <c>Restart$</c> and
-    /// <c>PostDeath$</c> rather than by the death screen and a reload, so the last thing the
-    /// room played on him is still the last thing on him. He arrives back at the edge of the
-    /// board lying face down in mid-air, and stays that way until something else animates
-    /// him.
-    /// </para>
-    /// <para>
-    /// <c>Restart$</c> does end with <c>StartIdleFidget("Gabriel")</c>, which is the game's
-    /// own way of handing a character back to themselves — but an idle is a breath laid over
-    /// a stance rather than a stance, and it is not owed a frame at any particular moment.
-    /// The room has a clip that is exactly the stance: <c>GabTe1Stand</c>, which is what it
-    /// plays every time he is put on the board in the first place.
-    /// </para>
-    /// <para>
-    /// Next frame rather than now, because this is called from inside <c>Restart$</c> — as
-    /// <c>clearTiles</c>, after the ego has been put back and before the idle is started —
-    /// and a clip begun here would be the one thing begun over.
-    /// </para>
-    /// </remarks>
     private void Stand() => World.Next(() =>
     {
         double settling = World.Play(Standing);
@@ -321,10 +250,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Gabriel is about to leave the tile he is standing on.
     /// </summary>
-    /// <remarks>
-    /// An ordinary tile falls away behind him — a second late, or it goes while he is still
-    /// on it. A sword tile stays: they are the ones he is collecting.
-    /// </remarks>
     private void Takeoff()
     {
         int row = Row;
@@ -341,12 +266,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Gabriel has landed.
     /// </summary>
-    /// <remarks>
-    /// <c>Te1TileState</c> is the landing count and is what the scripts read to decide
-    /// whether this was a death. <c>AllSwords</c> says the sixteenth sword is out; whether
-    /// that <em>finishes</em> the puzzle is the scripts' business, because he also has to
-    /// end on the right one.
-    /// </remarks>
     private void Landed()
     {
         int row = Row;
@@ -388,10 +307,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Stands Gabriel in the middle of the tile he is on.
     /// </summary>
-    /// <remarks>
-    /// The jump animations drift, and after a few of them he is visibly off the middle of
-    /// a square. The original's own answer, called by its scripts after every jump.
-    /// </remarks>
     private void Centre()
     {
         // The middle of the tile, which is part of the room's geometry rather than a prop —
@@ -471,24 +386,6 @@ public sealed class Chessboard : SceneMechanism
     /// <param name="row">The tile's row.</param>
     /// <param name="column">And its column.</param>
     /// <param name="legal">Whether the move is one.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The variable is the rule and the border is the courtesy.</b> The first is what the
-    /// action file's case reads to choose between "jump", "first jump" and "that is too
-    /// far", and is written whatever the answer is. The second is drawn only for a move that
-    /// can actually be made.
-    /// </para>
-    /// <para>
-    /// <b>Why it is worth drawing.</b> Eight of the sixty-four tiles are legal from wherever
-    /// he is standing, the board gives no sign of which, and the cost of guessing wrong is
-    /// the whole attempt. The arithmetic stays the player's: this says which square the
-    /// pointer has landed on, not which square to aim at.
-    /// </para>
-    /// <para>
-    /// And only while the swords are lit. Before <c>LightTiles$</c> the board is a floor and
-    /// there is nothing to jump.
-    /// </para>
-    /// </remarks>
     private void Offer(int row, int column, bool legal)
     {
         Story.SetVariable("Te1MoveType", legal ? Legal : Illegal);
@@ -504,32 +401,6 @@ public sealed class Chessboard : SceneMechanism
     /// </summary>
     /// <param name="eye">Where the camera is. Unused: all of this is light.</param>
     /// <returns>The sprites, in any order.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Two things, and they answer two different questions.</b> The swords say
-    /// <em>which of these have I not taken</em>, and the border says <em>can I get there
-    /// from here</em>. Both are already decided elsewhere — the first by the landing count,
-    /// the second by <see cref="Offer"/> — so nothing here works anything out; it draws what
-    /// the puzzle already knows.
-    /// </para>
-    /// <para>
-    /// <b>The sword textures alone are not enough.</b> A sword still to be taken differs
-    /// from one already taken only in how brightly its blade is painted — <c>TE1SWORDW</c>
-    /// against <c>TE1SWORDW_GLOW</c> is a pale pink blade against a red one, and on the
-    /// eight black squares both of them are dark. Seen at a sharp angle from the far side
-    /// of a dim room that is a difference the player cannot count with, so they count by
-    /// memory instead and lose the whole attempt to a miscount. The ones still to be taken
-    /// are given what a texture cannot do: light of their own, above the surface, breathing.
-    /// </para>
-    /// <para>
-    /// <b>Everything here is fully additive</b>, which puts every sprite on the plain
-    /// soft-disc side of the fragment stage's test — see <c>ParticleShaders</c>, where an
-    /// additiveness below a half cuts value noise out of the sprite and turns a mat of them
-    /// into cloud. Cloud is what TE5's chasm wants and the opposite of what a lit inlay
-    /// wants. It also means the sprites hide nothing behind them, so nothing has to be
-    /// sorted and the order this comes out in does not matter.
-    /// </para>
-    /// </remarks>
     public override IReadOnlyList<Particle> Particles(Vector3 eye)
     {
         // A board whose tiles could not be found is a board with nothing to measure and
@@ -574,30 +445,6 @@ public sealed class Chessboard : SceneMechanism
     /// <param name="where">The middle of the tile.</param>
     /// <param name="row">Which tile, so that no two breathe together.</param>
     /// <param name="column">And the other half of it.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>It is the sword that lights up, not the tile.</b> A wash over the square says
-    /// something is here; the shape says what. So the sprites are laid along the sword the
-    /// artists painted — see <see cref="Shape"/> — in the sword's own red, and what the
-    /// player sees is the inlay glowing rather than a light on the floor above it.
-    /// </para>
-    /// <para>
-    /// <b>And a little of it stands up off the floor.</b> Light in the air is what says a
-    /// thing is switched on rather than merely painted brightly: it moves when the camera
-    /// moves, where a decal does not, and it is the one part of this that reads from an
-    /// angle low enough that the tile itself is nearly edge-on. Low, though — a hand's
-    /// breadth over the marble against a man a dozen times that — because sixteen columns of
-    /// light standing up out of a chessboard would be the assistance becoming the room.
-    /// </para>
-    /// <para>
-    /// <b>Nothing travels along the blade.</b> A brightness running from point to hilt was
-    /// tried and taken out: a sprite is a round soft disc, so a bright one part-way down a
-    /// thin shape does not read as light running through the shape — it reads as a band
-    /// lying across it, and the eye finds the band rather than the sword. What is left
-    /// moving is the slow beat of the whole sword and the rise coming off it, which are both
-    /// motions of the thing itself.
-    /// </para>
-    /// </remarks>
     private void Shine(List<Particle> into, Vector3 where, int row, int column)
     {
         // Its own beat. Sixteen swords breathing in unison read as one mechanism running
@@ -698,24 +545,6 @@ public sealed class Chessboard : SceneMechanism
     /// </summary>
     /// <param name="into">Where the sprites go.</param>
     /// <param name="where">The middle of the tile.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>The outline and nothing else.</b> A tile filled in would be the board telling the
-    /// player where to go; a tile with its edges picked out is the board confirming which
-    /// square the pointer is on. The difference is the whole of the assistance being offered
-    /// here, and it is why this draws no wash inside the square the way TE5's ghost plates
-    /// do.
-    /// </para>
-    /// <para>
-    /// <b>The room's red, banked down.</b> The border and the swords are on screen at
-    /// once and mean opposite things — one is a way to move and the other is a thing to
-    /// collect — but they belong to one puzzle and are lit by one fire, so what tells them
-    /// apart is heat rather than hue: a sword is a bright blade running white where the
-    /// light passes over it, and this is an ember, a dull red line with a small brightening
-    /// travelling round it to say it is following the pointer rather than lying on the
-    /// floor.
-    /// </para>
-    /// </remarks>
     private void Border(List<Particle> into, Vector3 where)
     {
         // A little inside the tile: an outline drawn at the full pitch lands on the seam
@@ -759,29 +588,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// The sword, as sprites: where each sits and how wide it is, in fractions of a tile.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Read off the artwork rather than drawn by eye.</b>
-    /// <c>ContentWorkspace/enhanced/textures/TE1MASK.png</c> is the sword's silhouette on
-    /// the same square as the tile textures carry it, and this is that silhouette sampled
-    /// down a row at a time: the blade runs from nine-tenths of the way to one edge to
-    /// nine-tenths of the way to the other and is a fiftieth of a square wide, and the
-    /// crossguard sits between 0.706 and 0.740 of the way down it and reaches 0.086 of a
-    /// square to each side. Along is measured from the middle towards the point, which is
-    /// the +Z end: every sword on this board is laid the same way round.
-    /// </para>
-    /// <para>
-    /// <b>Wide is a sprite, not the paint.</b> The blade is two units across at this
-    /// board's pitch and a sprite that narrow is nothing at all on screen, so the widths
-    /// here are the painted half-width bloomed out to something that reads, floored where
-    /// the blade is thinnest and pulled back at the point and the pommel so the shape still
-    /// tapers at both ends.
-    /// </para>
-    /// <para>
-    /// Regenerate by sampling the mask's alpha down 16 evenly spaced rows, skipping the
-    /// crossguard's band and replacing it with three sprites across it.
-    /// </para>
-    /// </remarks>
     private static readonly (float Along, float Across, float Wide)[] Shape =
     [
         (+0.434f, +0.000f, 0.050f),
@@ -804,20 +610,9 @@ public sealed class Chessboard : SceneMechanism
     ];
 
     /// <summary>How many sprites rise off each sword.</summary>
-    /// <remarks>
-    /// Half again fewer than the sword itself has. Sixteen swords are on the board at once
-    /// and the buffer holds eight hundred sprites in total, the room's fire included — and
-    /// the rise is a suggestion, so spending on it what the shape below costs would be
-    /// paying twice for the smaller half of the effect.
-    /// </remarks>
     private const int RisePoints = 11;
 
     /// <summary>How far the glow stands off the tile, as a fraction of the pitch.</summary>
-    /// <remarks>
-    /// A fifth of a square, which on this board is about ten units against a man of about a
-    /// hundred and seventy. Ankle height: enough that the light is in the air rather than on
-    /// the floor, and not enough to be a beacon.
-    /// </remarks>
     private const float Rising = 0.20f;
 
     /// <summary>How fast the whole set creeps upward, in heights a second.</summary>
@@ -830,28 +625,15 @@ public sealed class Chessboard : SceneMechanism
     private const float Spreading = 0.45f;
 
     /// <summary>How far a rising sprite wanders to the side, as a fraction of the pitch.</summary>
-    /// <remarks>
-    /// Small, and on a period that has nothing to do with the rise. Light off a hot thing
-    /// does not go straight up, and a set of sprites that does reads as a fence.
-    /// </remarks>
     private const float Wander = 0.018f;
 
     /// <summary>And how fast it wanders.</summary>
     private const float WanderRate = 0.61f;
 
     /// <summary>How far above the floor the sword itself lies, as a fraction of the pitch.</summary>
-    /// <remarks>
-    /// Enough to clear the tiles and the relief cut into them, and not enough to read as a
-    /// thing hovering over the board rather than as the board being lit.
-    /// </remarks>
     private const float Lift = 0.02f;
 
     /// <summary>How bright a lit sword is at its brightest.</summary>
-    /// <remarks>
-    /// The sprites overlap along the blade, so what one contributes is well under what the
-    /// tile shows. High enough to be found at a glance from the far end of the hall, which
-    /// is the whole point, and low enough that the marble under it is still marble.
-    /// </remarks>
     private const float GlowAlpha = 0.42f;
 
     /// <summary>How fast a sword breathes, in radians a second.</summary>
@@ -861,10 +643,6 @@ public sealed class Chessboard : SceneMechanism
     private const float BorderEdge = 0.44f;
 
     /// <summary>How many points trace it.</summary>
-    /// <remarks>
-    /// Nine a side. Fewer and it reads as four dots at the corners; many more and the
-    /// travelling arc stops being a point of light and becomes a lit segment.
-    /// </remarks>
     private const int BorderPoints = 36;
 
     /// <summary>How wide one of them is.</summary>
@@ -880,31 +658,15 @@ public sealed class Chessboard : SceneMechanism
     private const float BorderFocus = 5f;
 
     /// <summary>The colour of a sword still to be taken.</summary>
-    /// <remarks>
-    /// Measured off <c>TE1SWORDW_GLOW</c>'s own hottest pixels, which are (0.93, 0.13,
-    /// 0.08). A gold or an amber here would be a second light source over a red inlay; this
-    /// is the inlay, brighter.
-    /// </remarks>
     private static readonly Vector3 Steel = new(1.00f, 0.16f, 0.09f);
 
     /// <summary>And what it thins to on the way up.</summary>
-    /// <remarks>
-    /// Paler, not another colour. What rises off a red-hot thing is its own light spread
-    /// thin, and giving the air over the board a hue of its own would put a second source in
-    /// the room.
-    /// </remarks>
     private static readonly Vector3 Hot = new(1.00f, 0.55f, 0.38f);
 
     /// <summary>The border at rest: an ember, well under the swords' own red.</summary>
     private static readonly Vector3 Dull = new(0.66f, 0.13f, 0.06f);
 
     /// <summary>And where the arc is passing over it, which is only a little hotter.</summary>
-    /// <remarks>
-    /// Deliberately short of the white a sword goes to. The border is the brightest thing
-    /// on the board for as long as the pointer rests on a square, and a border that outshone
-    /// the sixteen things the player is counting would be the assistance taking over the
-    /// puzzle.
-    /// </remarks>
     private static readonly Vector3 Kindled = new(0.95f, 0.40f, 0.20f);
 
     /// <summary>What <c>Te1MoveType</c> means.</summary>
@@ -914,12 +676,6 @@ public sealed class Chessboard : SceneMechanism
     private const int Illegal = 2;
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// <b>The board is not somewhere to walk.</b> While Gabriel is on it, a click anywhere
-    /// on its floor has to be a jump or nothing — letting the ordinary walk have it sends
-    /// him strolling across tiles that open under him. The one click that means something
-    /// is on the surrounding floor, which is him trying to get off the board again.
-    /// </remarks>
     public override bool TakesClick(ScenePick? under)
     {
         if (Row < 0)
@@ -993,10 +749,6 @@ public sealed class Chessboard : SceneMechanism
     /// <summary>
     /// Whether a tile carries a sword, and which colour.
     /// </summary>
-    /// <remarks>
-    /// Sixteen of them, eight white and eight black, laid on two broken diagonals. There is
-    /// no formula: this is the board as the artists painted it.
-    /// </remarks>
     private static bool? Sword(int row, int column)
     {
         if (!On(row, column))
@@ -1042,14 +794,6 @@ public sealed class Chessboard : SceneMechanism
     /// <param name="down">How many rows away the tile is, signed.</param>
     /// <param name="across">How many columns, signed.</param>
     /// <returns>The code <c>Te1MoveCode</c> carries.</returns>
-    /// <remarks>
-    /// <b>A numeric keypad centred on 12.</b> The scripts pick a turn animation from this
-    /// number, and the numbering is a five-by-five grid of where the tile is relative to
-    /// Gabriel, read left to right and back to front: 12 is standing still, 17 is one step
-    /// forward, 22 is two, 13 is one to the right. The reference works the same twenty-four
-    /// codes out through three pages of branches; they are two lines of arithmetic once the
-    /// grid is seen, and every one of the twenty-four agrees.
-    /// </remarks>
     private static int Code(int down, int across)
     {
         // Two steps in each direction is as far as the grid goes; every move on this board

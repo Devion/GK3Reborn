@@ -4,12 +4,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// One decoded picture as handed to the caller: planes, geometry and the tag of the
 /// access unit it came from.
 /// </summary>
-/// <remarks>
-/// The planes belong to the decoder's picture pool. They stay valid until
-/// <see cref="Release"/> is called, after which the decoder may reuse them; a caller that
-/// wants to keep a frame copies it first. Coordinates are in the coded picture, so the
-/// cropping rectangle has to be applied by whoever reads the samples.
-/// </remarks>
 public sealed class DecodedFrame
 {
     private readonly Picture _picture;
@@ -72,19 +66,6 @@ public sealed class DecodedFrame
 /// the standard the game's cinematics use, with CAVLC and CABAC, all slice types, all
 /// intra modes, weighted and direct prediction, and the deblocking filter.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Managed code throughout, so the cutscenes play on every platform the engine builds for
-/// with nothing to install and nothing to load beside the executable. FFmpeg would be
-/// faster; it would also be sixty megabytes of versioned native libraries per platform,
-/// which is what this replaces.
-/// </para>
-/// <para>
-/// Access units go in one at a time and frames come out in display order through
-/// <see cref="TryGetFrame"/>, delayed by as many pictures as the stream's reordering
-/// needs; <see cref="Flush"/> at the end releases the rest.
-/// </para>
-/// </remarks>
 public sealed class H264Decoder
 {
     private readonly Dictionary<int, SequenceParameterSet> _sps = [];

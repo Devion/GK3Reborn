@@ -12,50 +12,9 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The sun, for the scenes the artists lit without one.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Most exteriors ship a <c>scenekey</c> — the artists' own sun — but it carries the two
-/// hundred unit range 3ds Max left in the file with its attenuation switched off, and that
-/// range is honoured on lightmapped surfaces (see <c>GpuLight.RangeOf</c> for why it must
-/// be). So the authored sun reaches the characters and nothing else: on the ray-traced
-/// tiers the ground under them had no key light at all, nothing outdoors cast a shadow,
-/// and ground cut with real cobble relief read as flat, because relief is legible only
-/// under grazing directional light.
-/// </para>
-/// <para>
-/// So outdoors the scenekey is replaced with this: a single warm sun far enough away to be
-/// effectively directional and unattenuated for real, so it reaches the ground. It subtends
-/// about half a degree — the real sun's size — so its ray-traced shadows have the real
-/// penumbra. The sky-bounce fills stay, interiors are left exactly alone, and so is any
-/// exterior at night.
-/// </para>
-/// <para>
-/// <b>It is aimed by the scenekey it replaces.</b> The scenekey was replaced for its reach,
-/// not for its aim: its two hundred unit range cannot touch the geometry, and its azimuth
-/// and elevation were never the problem. They are the artists' own statement of where the
-/// light was coming from when they baked the room and painted the sky over it, and 749 of
-/// the corpus's 817 sky-lit pairs ship one — none of them below the horizon. Where a room
-/// has a bake for each time of day it has a scenekey for each, so the light still moves
-/// through the day; where it has one asset for the whole game the sun stands still, and so
-/// does everything else in that room.
-/// </para>
-/// <para>
-/// This used to be an arc computed from the hour alone, which knew nothing about the scene
-/// and disagreed with it: measured against the artists' keys across the corpus, the median
-/// pair was 42 degrees apart, the worst 107, and 262 of 573 daytime pairs more than 45.
-/// The arc is still the answer for the 68 sky-lit pairs that ship no scenekey at all — the
-/// case this class was written for — and it still decides, alone, whether there is a sun to
-/// place: the evening blocks' art is painted as dusk and a sun over a night sky argues with
-/// all of it.
-/// </para>
-/// </remarks>
 public static class Sunlight
 {
     /// <summary>How far away the sun stands, in scene units.</summary>
-    /// <remarks>
-    /// Far enough that its direction is the same across the largest exterior — RC1 spans
-    /// about three thousand units — and its light does not measurably fall off across one.
-    /// </remarks>
     private const float Distance = 60_000f;
 
     /// <summary>The emitter's radius, sized so the disc subtends half a degree.</summary>
@@ -66,17 +25,6 @@ public static class Sunlight
     /// <param name="minimum">One corner of the loaded geometry.</param>
     /// <param name="maximum">The other.</param>
     /// <returns>True for a scenekey: distant, unattenuated, and shadow-casting.</returns>
-    /// <remarks>
-    /// Recognised by shape rather than name, the same shape <c>GpuLight.IsDistantKey</c>
-    /// keys on: the attenuation switch off, and a stored range that cannot reach the
-    /// geometry. Measured from the bounding box, not its centre, and for the same reason
-    /// the renderer measures it that way: RC1's evening square is ringed by street lamps
-    /// with the switch off and a couple of hundred units of range, and against the centre
-    /// of a three-thousand-unit town the far corner's lamps read as distant. Against the
-    /// box a lamp standing in the scene is at distance zero, always. The sky-bounce lights
-    /// share the sun's shape but not its shadows, and stay: they are the blue of the sky
-    /// on whatever faces up, which the replacement does not provide.
-    /// </remarks>
     public static bool IsAuthoredSun(AuthoredLight light, Vector3 minimum, Vector3 maximum)
     {
         ArgumentNullException.ThrowIfNull(light);
@@ -96,11 +44,6 @@ public static class Sunlight
     /// <param name="minimum">One corner of the loaded geometry.</param>
     /// <param name="maximum">The other.</param>
     /// <returns>The scenekey, or null where there is none.</returns>
-    /// <remarks>
-    /// The brightest, on the rare asset that declares two shadow-casting distant keys — a
-    /// sun and a moon over the same room. <see cref="LoadedScene.Lights"/> takes every one
-    /// of them out and puts this back, so the one that is kept had better be the sun.
-    /// </remarks>
     public static AuthoredLight? AuthoredSun(
         IReadOnlyList<AuthoredLight>? lights, Vector3 minimum, Vector3 maximum) =>
         lights?
@@ -117,14 +60,6 @@ public static class Sunlight
     /// asset ships none.
     /// </param>
     /// <returns>The light, or null at night.</returns>
-    /// <remarks>
-    /// Aimed by the scenekey wherever there is one, so the light agrees with the bake it is
-    /// replacing and with the sky painted over it. Without one the elevation follows the
-    /// hour: low and warm in the morning, high and near white before noon, sinking and
-    /// warming again through the afternoon, with the azimuth swinging from one side of the
-    /// map to the other. That is not astronomy — a scene with no key light has no compass
-    /// either — but it is a morning that looks like a morning.
-    /// </remarks>
     public static AuthoredLight? For(
         Timeblock timeblock, Vector3 centre, AuthoredLight? authored = null)
     {
@@ -173,11 +108,6 @@ public static class Sunlight
     }
 
     /// <summary>How bright the replacement stands, against the rig it joins.</summary>
-    /// <remarks>
-    /// Above the scenekey's own, which is typically 1.0 at a colour around
-    /// (0.53, 0.48, 0.40). The room it lights has no bake at Medium and High, and this is
-    /// most of what stands in for one.
-    /// </remarks>
     private const float Strength = 1.15f;
 
     /// <summary>
@@ -187,13 +117,6 @@ public static class Sunlight
     /// <param name="authored">The scenekey, or null.</param>
     /// <param name="centre">The middle of the room it lights.</param>
     /// <returns>A unit vector from the scene toward the sun, or null.</returns>
-    /// <remarks>
-    /// Refused below the horizon, and refused for a key standing on top of the room's own
-    /// centre. Neither happens in the corpus — all 749 scenekeys stand between 24 and 62
-    /// degrees up, the lowest of them over an evening — and a rig is a text file that
-    /// anybody may edit, so a light underground has to mean "no answer" rather than a scene
-    /// lit from below.
-    /// </remarks>
     private static Vector3? Aim(AuthoredLight? authored, Vector3 centre)
     {
         if (authored is null)

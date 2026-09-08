@@ -9,13 +9,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for reading the 1999 game's own save files.
 /// </summary>
-/// <remarks>
-/// Built to match three retail saves byte for byte, which disagreed with the reference's
-/// own writer twice: the magic is <c>GK3!Save</c> where G-Engine writes <c>SAVE</c>, and the
-/// summary starts straight at the name with no version number in front of it. The layout
-/// here is the measured one, and <c>OriginalSaves.Summary</c> answers null rather than
-/// nonsense for anything that does not match it.
-/// </remarks>
 public sealed class OriginalSaveTests
 {
     /// <summary>A save file byte-for-byte as the documented layout describes one.</summary>
@@ -113,13 +106,6 @@ public sealed class OriginalSaveTests
 
     /// <summary>An import restores the story position, the implied past, and the pockets.</summary>
     /// <summary>A <c>.gk3</c> dropped into the game's own saves folder is brought across.</summary>
-    /// <remarks>
-    /// The fault this pins: the importer was pointed at the 1999 install root and at the
-    /// "Save Games" folder beside it, and never at the folder the port keeps its own games
-    /// in. Somebody with three <c>.gk3</c> files and no original install — or a deployed
-    /// build with them copied in beside its saves — had nothing happen at all. It is the
-    /// first place to look, not the last.
-    /// </remarks>
     [Fact]
     public void A_save_dropped_into_the_stores_own_folder_is_imported()
     {
@@ -208,13 +194,6 @@ public sealed class OriginalSaveTests
     }
 
     /// <summary>An import knows the people the story has already introduced.</summary>
-    /// <remarks>
-    /// The labels this engine draws ask whether somebody has been met, and every question
-    /// they ask is about a topic count — which is the one thing a <c>.gk3</c> has none of.
-    /// Without this an imported game two days into the story drew "Woman" under Madeleine
-    /// Buthane and "Man" under everybody else, which is the bug the labels exist to avoid
-    /// rather than the spoiler they exist to prevent.
-    /// </remarks>
     [Theory]
     [InlineData("112p", "BUTHANE", "LARRY")]
     [InlineData("102p", "LARRY", null)]

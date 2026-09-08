@@ -6,13 +6,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// How the traced world is divided, and what a ray is allowed to see of it.
 /// </summary>
-/// <remarks>
-/// Two numbers and two rules, and every one of them is a decision that a wrong answer would
-/// not crash: a mask nobody set reads as a character standing in their own shadow, and a
-/// facing rule nobody set reads as half the fences in the game not being there. Both
-/// backends read these, so they are asserted once here rather than twice in a device test
-/// that most machines skip.
-/// </remarks>
 public sealed class TracedWorldTests
 {
     [Fact]

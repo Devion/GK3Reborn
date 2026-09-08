@@ -6,22 +6,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Puts a picture on the device and reads it straight back.
 /// </summary>
-/// <remarks>
-/// <para>
-/// There is one mistake in the texture path that hides, and this is here to find it. A
-/// texture is copied out of a buffer whose rows are padded to a multiple of two hundred and
-/// fifty-six bytes; a copy that treats them as packed produces an image that shears further
-/// with every row. At a width of sixty-four, or a hundred and twenty-eight, or two hundred
-/// and fifty-six, the padding is zero and the mistake is invisible. It is visible at a
-/// width of a hundred, which is why the probe uses one.
-/// </para>
-/// <para>
-/// The mip chain has a second one of the same shape: an odd level halved leaves an edge
-/// column with nothing to average against, and reaching past the end rather than clamping
-/// makes a texture creep sideways as it gets coarser. That needs a picture whose halves
-/// differ, so the probe checks the average of a level rather than a single texel.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12TextureProbe : IDisposable
 {
     private readonly D3D12Context _context;
@@ -46,11 +30,6 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
     /// <param name="mipmaps">Whether to build a mip chain.</param>
     /// <returns>What came back.</returns>
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
-    /// <remarks>
-    /// Uploaded as linear rather than sRGB, so that what comes back is the bytes that went
-    /// in. A colour texture would be encoded on the way out and the comparison would be
-    /// against a curve rather than against the picture.
-    /// </remarks>
     public DecodedImage RoundTrip(DecodedImage source, bool mipmaps = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -95,12 +74,6 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
     /// </param>
     /// <returns>The bytes of that level, which for a colour picture are still encoded.</returns>
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
-    /// <remarks>
-    /// The bytes are returned rather than decoded, because the question this answers is what
-    /// the mip builder wrote. A colour texture is filtered by the device through the sRGB
-    /// decode and re-encoded on the way back out; whether that happened is exactly what a
-    /// caller comparing against Vulkan's blit wants to see.
-    /// </remarks>
     public DecodedImage LevelOf(DecodedImage source, uint level, bool colour = false)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

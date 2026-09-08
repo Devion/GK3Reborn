@@ -20,60 +20,17 @@ namespace GK3Reborn.Game.Actors;
 /// How wide the head is, so a fit's leftover can be reported as a fraction of it rather
 /// than in scene units that mean nothing on their own.
 /// </param>
-/// <remarks>
-/// <b>The sample exists to drop the axis triad.</b> Every mesh group in the game carries
-/// three extra vertices at (60,0,0), (0,60,0) and (0,0,60) — <c>Plan/06</c> §4.3 — which
-/// are four times the size of a head and do not travel with it. Fitting them along with the
-/// head puts three points with enormous leverage on the wrong answer: it reported Mosely as
-/// deforming his head by 40% of its width on a tenth of his frames, and he does not.
-/// </remarks>
 public sealed record HeadRig(int Mesh, Vector3[][] Rest, int[][] Sample, float Span);
 
 /// <summary>
 /// Gives a character a denser head without invalidating a single frame of animation.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>.ACT</c> is addressed by vertex index, so changing a character's topology normally
-/// throws away every clip that character has — which is why <c>Plan/05</c> rules out any
-/// route that re-meshes the cast. The head is the exception, and it is the exception for a
-/// reason that was measured rather than assumed: <b>heads do not deform</b>. Fitting the
-/// authored head onto all 122,034 recorded frames of all 3,069 head clips, for all 56 models
-/// that have any, leaves 1.0% of head width at the median of medians and 4.1% at the worst
-/// model — the encoding's own quantisation noise rather than any deformation. Not one of the
-/// fifty-six fails. <c>GK3Reborn.Tools head-solve</c> is the survey.
-/// </para>
-/// <para>
-/// So the head's vertex track carries a rigid motion and nothing else, and a rigid motion
-/// will drive any mesh at all. The clip keeps addressing the authored vertices, the fit
-/// turns what it says into a transform, and the transform carries a subdivided head that
-/// the clip has never heard of. Nothing is re-authored, no clip is invalidated, and the
-/// thirty-eight characters with no donor are treated exactly like the three with one.
-/// </para>
-/// <para>
-/// This is the smallest useful piece of what <c>Plan/06</c> calls the rig solve — one
-/// bone, no clustering, no weight fitting — and it is worth having on its own because the
-/// head is where the complaint is. Grace's hair is twenty triangles; Madeline's is
-/// thirteen.
-/// </para>
-/// </remarks>
 public static class HeadRefinement
 {
     /// <summary>The most levels worth applying.</summary>
-    /// <remarks>
-    /// Two turns Grace's twenty-triangle hair into three hundred and twenty, which is
-    /// where the silhouette stops being a polygon. A third would be four times the
-    /// vertices to round off something already round.
-    /// </remarks>
     public const int MaximumLevels = 3;
 
     /// <summary>Positions closer together than this are the same point.</summary>
-    /// <remarks>
-    /// Used only to weld normals across submeshes. The authored data agrees to a rounding
-    /// error at those seams — measured at 0.0° of disagreement — and refining each submesh
-    /// separately would introduce a shading seam at the hairline that the original does
-    /// not have.
-    /// </remarks>
     private const float Coincident = 1e-3f;
 
     /// <summary>Refines a character's head, and says how to drive it.</summary>
@@ -83,11 +40,6 @@ public static class HeadRefinement
     /// The model to draw and the rig to drive its head with, or the model unchanged and no
     /// rig when it has no head to refine.
     /// </returns>
-    /// <remarks>
-    /// The rig's rest positions come from the model as it was parsed, before refinement,
-    /// because that is what the clips address. Reading them off the refined mesh would
-    /// compare a clip's 307 vertices against 4,900 and fit nothing.
-    /// </remarks>
     public static (ModFile Model, HeadRig? Rig) Apply(ModFile model, int levels)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -272,12 +224,6 @@ public static class HeadRefinement
             .ToArray())];
 
     /// <summary>How wide the head is across its longest axis.</summary>
-    /// <remarks>
-    /// Every mesh group in the game carries a three-vertex axis triad at (60,0,0),
-    /// (0,60,0) and (0,0,60) — <c>Plan/06</c> §4.3 — which is four times the size of a head
-    /// and would be most of any bounding box measured naïvely. Those three points are
-    /// dropped, exactly as the rig solve drops them.
-    /// </remarks>
     private static float Extent(Vector3[][] rest)
     {
         Vector3 low = new(float.MaxValue);

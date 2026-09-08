@@ -6,37 +6,9 @@ namespace GK3Reborn.Game.Navigation;
 /// <summary>
 /// Whether one point in a room can see another.
 /// </summary>
-/// <remarks>
-/// <para>
-/// For <c>WalkToSee</c>, which is 2,120 of the corpus's 3,000-odd approaches and therefore
-/// the commonest thing anybody in the game does. It means "walk until you can see it", and
-/// without a sight test it can only mean "walk to it" — which is the same answer for
-/// anything standing in the open and much too close for anything on the far side of a
-/// wall, a counter or a doorway.
-/// </para>
-/// <para>
-/// The room's own geometry and nothing else. Props and characters do not block a line of
-/// sight here, which matches the reference — a walker that stopped because somebody was
-/// standing in the way would stop in a different place every time the story moved
-/// somebody, and the walk is planned once before anybody sets off.
-/// </para>
-/// <para>
-/// Rooms hold ten to twenty thousand triangles and a walk asks about thirty positions,
-/// six rays apiece, so the triangles are bucketed by where they stand on the ground plan
-/// and a ray visits only the buckets it crosses. Flat rather than three-dimensional
-/// because a room is wide and short: the height range of a whole scene is a few hundred
-/// units, so dividing it would gain very little and cost a dimension of book-keeping.
-/// </para>
-/// </remarks>
 public sealed class SceneSight
 {
     /// <summary>How far anybody is taken to be able to see, in scene units.</summary>
-    /// <remarks>
-    /// The reference's own figure. It is what stops "walk until you can see it" from
-    /// meaning "do not walk at all" every time the thing is across an open room: Gabriel
-    /// can see the far wall of the lobby from the door, and a walk that ended there would
-    /// leave him describing a painting from thirty feet away.
-    /// </remarks>
     public const float Reach = 200f;
 
     private const int Across = 24;
@@ -143,12 +115,6 @@ public sealed class SceneSight
     /// <param name="minimum">The thing's lower corner.</param>
     /// <param name="maximum">Its upper corner.</param>
     /// <returns>True when any part of it is both near enough and unobstructed.</returns>
-    /// <remarks>
-    /// Six rays: the middle of each face of the box, which is what the reference casts.
-    /// One ray to the centre alone answers "no" about anything whose centre is inside a
-    /// solid thing — a bookcase, a car, a bed — and those are exactly what a scene asks
-    /// somebody to walk over and look at.
-    /// </remarks>
     public bool InView(Vector3 head, Vector3 minimum, Vector3 maximum)
     {
         Vector3 centre = (minimum + maximum) * 0.5f;
@@ -184,12 +150,6 @@ public sealed class SceneSight
     /// <param name="from">One end.</param>
     /// <param name="to">The other.</param>
     /// <returns>True when the segment reaches without crossing a triangle.</returns>
-    /// <remarks>
-    /// The ends are pulled in slightly. A target's own surface is a triangle of the room
-    /// wherever the thing being looked at is part of the room — a door, a noticeboard, a
-    /// panel — so a ray run all the way to it hits it and reports the thing as hidden
-    /// behind itself.
-    /// </remarks>
     public bool Clear(Vector3 from, Vector3 to)
     {
         Vector3 along = to - from;
@@ -228,11 +188,6 @@ public sealed class SceneSight
     }
 
     /// <summary>Which buckets a segment passes through, in no particular order.</summary>
-    /// <remarks>
-    /// A walk along the ground plan, one cell at a time — the standard grid traversal. A
-    /// cell may be visited twice where the segment runs exactly along a boundary, which
-    /// costs a repeated triangle test and no wrong answers.
-    /// </remarks>
     private IEnumerable<int> Crossed(Vector3 origin, Vector3 direction, float span)
     {
         int x = Column(origin.X, _minimumX, _cellX);
@@ -268,10 +223,6 @@ public sealed class SceneSight
     }
 
     /// <summary>Whether a segment crosses one triangle.</summary>
-    /// <remarks>
-    /// Möller–Trumbore, both ways round: a wall is one-sided in the file and a line of
-    /// sight does not care which side of it anybody is on.
-    /// </remarks>
     private bool Hits(Vector3 origin, Vector3 direction, float span, int triangle)
     {
         Vector3 a = _triangles[triangle];

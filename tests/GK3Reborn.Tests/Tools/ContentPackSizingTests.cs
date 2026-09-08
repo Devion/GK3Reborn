@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Tools;
 /// <summary>
 /// What the packer will reuse, and what size it encodes at.
 /// </summary>
-/// <remarks>
-/// Both of these are worth a test because both failed silently in practice. A pack built
-/// from a stale DDS is a valid pack full of last night's pictures, and a texture encoded at
-/// the wrong size is a valid texture — neither throws, and both are discovered by somebody
-/// noticing that a room looks wrong.
-/// </remarks>
 public sealed class ContentPackSizingTests : IDisposable
 {
     private readonly string _directory =

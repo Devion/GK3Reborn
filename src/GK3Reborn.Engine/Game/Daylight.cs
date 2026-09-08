@@ -20,39 +20,9 @@ public readonly record struct Window(string Owner, Vector3 Centre, float Radius)
 /// <summary>
 /// Puts a room's daylight at its windows.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>A baker does not care where a light stands; a tracer does.</b> GK3's rooms fake
-/// daylight with lights the artists named for the window they belong to — CS3's attic has
-/// <c>cs3_turret_window_special_outside</c> at intensity 3 — and they placed them wherever
-/// made the lightmap look right. That one stands at <c>y = 632</c>, which is above the
-/// roof. Nothing checked in 1999 whether it could see the room. Tracing does, finds the
-/// roof, and the attic gets no daylight at all: measured with <c>--no-sun</c>, the interior
-/// is identical with the sun and without it, and doubling that light's range changes
-/// nothing, because range is not what is stopping it.
-/// </para>
-/// <para>
-/// <b>So the light is moved to the window it is named after</b>, and a little outside it.
-/// From there the wall stops most of it and the opening does not, which is what a shaft
-/// <em>is</em>: the beam is shaped by the hole rather than by a number. Nothing else about
-/// the light changes hands — its colour is the artists' answer to what the daylight outside
-/// that room looks like, and their relative strengths say which window matters.
-/// </para>
-/// <para>
-/// <b>Only the misplaced ones.</b> A window light standing inside the room it lights is
-/// already where it can do its job — R25's morning sun lays a window's shape across the
-/// carpet exactly as it should — and moving it would be fixing something that is not
-/// broken. The test is whether the room's own geometry is between the light and the room,
-/// which is what <em>outside the box</em> is a cheap and sufficient proxy for.
-/// </para>
-/// </remarks>
 public static class Daylight
 {
     /// <summary>The words the artists use for a window, in an object name or a light's.</summary>
-    /// <remarks>
-    /// Both spellings, because the corpus uses both and often in one room: CS3 has
-    /// <c>cs3_wndwfrms01</c> for the frame and <c>turret_window_special</c> for the light.
-    /// </remarks>
     private static readonly string[] Named = ["window", "wndw"];
 
     /// <summary>Whether a name is about a window.</summary>
@@ -76,28 +46,12 @@ public static class Daylight
     /// <summary>
     /// How far outside the room a light has to stand to count as misplaced.
     /// </summary>
-    /// <remarks>
-    /// A window is <em>in</em> the wall, so a light the artists put right at one is a few
-    /// units outside the box and is not misplaced at all. This is well past that and well
-    /// short of the six hundred units CS3's is out by.
-    /// </remarks>
     private const float Outside = 60f;
 
     /// <summary>How far outside its window a moved light is put, as a multiple of the opening.</summary>
-    /// <remarks>
-    /// Outside rather than in the plane, and that is the whole trick: from outside, the wall
-    /// stops the light everywhere but the opening, so the opening shapes it. In the plane it
-    /// would light the room from the window like any other lamp, which is what the artists'
-    /// own indoor window lights already do.
-    /// </remarks>
     private const float StandOff = 1.5f;
 
     /// <summary>How bright a moved light is allowed to be.</summary>
-    /// <remarks>
-    /// The artists' number was chosen for a light six hundred units away that reached
-    /// nothing; at the window it is a few units from the room and the same number would be
-    /// a floodlight. Their <em>relative</em> strengths are kept and the scale is set here.
-    /// </remarks>
     private const float Brightest = 1.6f;
 
     /// <summary>
@@ -163,11 +117,6 @@ public static class Daylight
             > Outside;
 
     /// <summary>Which window a light belongs to: the one it is nearest.</summary>
-    /// <remarks>
-    /// Nearest rather than by name. The names pair up in some rooms and not others —
-    /// <c>cs3_turret_window_special_outside</c> and <c>cs3_wndwfrms02</c> share nothing but
-    /// the word — and where a room has one window the question does not arise.
-    /// </remarks>
     private static Window Nearest(IReadOnlyList<Window> windows, Vector3 from)
     {
         Window best = windows[0];

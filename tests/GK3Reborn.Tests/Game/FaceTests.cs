@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for faces: what an animation says a face does, and how one is put together.
 /// </summary>
-/// <remarks>
-/// GK3's characters have no facial geometry, so everything here is about names and pixel
-/// offsets. That is exactly why it is worth testing: nothing about a wrong answer looks
-/// like a mistake at runtime — the face simply does not move, or moves the wrong part.
-/// </remarks>
 public sealed class FaceTests
 {
     private static AnimationFile Read(string text)

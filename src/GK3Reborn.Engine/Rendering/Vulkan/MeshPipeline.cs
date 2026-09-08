@@ -12,21 +12,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// A textured, lit mesh pipeline, optionally with ray tracing compiled in.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Resources are split by how often they change. Set 0 holds the camera, the light rig
-/// and — in the ray-traced variant — the acceleration structure, and is bound once a
-/// frame. Set 1 holds a batch's two textures and never changes at all. What is left, the
-/// model transform and the shading mode, travels as push constants, which need no buffer,
-/// no descriptor and no synchronisation between frames in flight.
-/// </para>
-/// <para>
-/// The two variants exist rather than one shader that branches, because Vulkan requires
-/// every statically used binding to point at something valid whether its branch runs or
-/// not. A device with no ray-tracing extensions cannot supply an acceleration structure,
-/// so its shader must not mention one.
-/// </para>
-/// </remarks>
 public sealed unsafe class MeshPipeline : IDisposable
 {
     private readonly Vk _vk;
@@ -55,11 +40,6 @@ public sealed unsafe class MeshPipeline : IDisposable
     public Pipeline Handle => _pipeline;
 
     /// <summary>The same pipeline with back faces discarded.</summary>
-    /// <remarks>
-    /// What the room's own geometry is drawn with when <c>SceneGeometry.CullBackFaces</c> is
-    /// on, which is what the original does for all opaque world geometry. A placed model
-    /// keeps <see cref="Handle"/> whatever the setting says; see the remark there.
-    /// </remarks>
     public Pipeline CulledHandle => _culled;
 
     /// <summary>That one again for the mirror pass, whose view reverses every winding.</summary>
@@ -145,22 +125,6 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// Whether this is the mirror's pass. Its view is reflected, so a culled draw within it
     /// wants the opposite front face; nothing else about the pass changes.
     /// </param>
-    /// <remarks>
-    /// <para>
-    /// The caller binds the pipeline, the viewport and the frame is descriptor set first;
-    /// this only issues what varies per draw. Nothing here decides anything — which pose is
-    /// current, whether the lightmap applies, how many shells of fur stand over a skin were
-    /// all settled before the draws arrived — which is what lets the same reasoning serve
-    /// the other backend.
-    /// </para>
-    /// <para>
-    /// The pipeline is passed in rather than taken from the geometry, because the raster and
-    /// ray-traced variants have different set 0 layouts and therefore incompatible pipeline
-    /// layouts. Binding a descriptor set or pushing constants through the wrong one is not an
-    /// error Vulkan reports: the vertex shader reads a garbage transform and the geometry
-    /// lands outside the frustum, which looks exactly like drawing nothing at all.
-    /// </para>
-    /// </remarks>
     public static void Record(
         Vk vk,
         CommandBuffer command,

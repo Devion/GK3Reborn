@@ -14,12 +14,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the half of an animation that is about the room rather than about a model.
 /// </summary>
-/// <remarks>
-/// <c>[STEXTURES]</c> and <c>[SVISIBILITY]</c> address a run of surfaces inside the room's
-/// own geometry — a floor, a bar front, a curtain — and 198 lines across 78 of the corpus's
-/// animations use them. They were read past in silence, which is why the bar's dance floor
-/// under a disco ball was the same worn boards it always was.
-/// </remarks>
 public sealed class RoomAnimationTests
 {
     /// <summary>A room whose geometry has one named object in it: the bar's floor.</summary>

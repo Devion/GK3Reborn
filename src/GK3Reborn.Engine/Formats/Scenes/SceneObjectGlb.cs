@@ -47,12 +47,6 @@ public sealed record SceneObjectGeometry
 /// <summary>
 /// Replacement geometry for some of a room's objects, and nothing else about the room.
 /// </summary>
-/// <remarks>
-/// Deliberately partial. An overlay says "draw these objects from here instead"; every
-/// object it does not mention is drawn from the original geometry exactly as before, and
-/// so is every other thing a room is made of — its collision, its walk boundary, its
-/// camera bounds, its lightmaps and its flags. See <c>docs/scene-geometry.md</c>.
-/// </remarks>
 public sealed record SceneOverlay
 {
     /// <summary>The room this belongs to.</summary>
@@ -74,51 +68,14 @@ public sealed record SceneOverlay
 /// <summary>
 /// Reads and writes a room's geometry as one glTF file per object, or one per room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>What the surface index is doing in a material name.</b> A room's geometry can be
-/// improved outside the engine — bevelled, subdivided, remodelled — but only if every
-/// triangle that comes back can still be matched to the surface it came from. The surface
-/// is what carries the texture, the lightmap's offset and scale, and the flags that say
-/// whether the thing is self-lit or casts a shadow; a triangle that has lost its surface
-/// has lost its lighting, and a room lit by nothing is not an improvement.
-/// </para>
-/// <para>
-/// glTF has several places to hang an identifier and only one of them survives a
-/// modelling tool: <b>the material name</b>. Face-to-material assignment is preserved
-/// through every operation that matters — bevel, subdivision, decimation, separating a
-/// mesh, joining two — because that assignment is what a modeller is manipulating.
-/// Custom vertex attributes are interpolated into nonsense by the first bevel, node
-/// extras are dropped by several exporters, and face attributes have nowhere to live in
-/// glTF at all. So a surface is written as <c>TEXTURE#index</c>, and the picture itself
-/// is shared between every material that names it.
-/// </para>
-/// <para>
-/// Object identity is <em>derived</em> rather than carried: every surface knows which
-/// object owns it, so grouping the triangles by surface recovers the objects even when a
-/// tool has renamed, split or joined the meshes. Node names are written for a person to
-/// read and nothing reads them back.
-/// </para>
-/// </remarks>
 public static class SceneObjectGlb
 {
     /// <summary>What separates a texture's name from the surface index after it.</summary>
-    /// <remarks>
-    /// Not a character any of the corpus's 1,786 texture names contains, and legal in a
-    /// material name in every tool this has to pass through.
-    /// </remarks>
     public const char SurfaceSeparator = '#';
 
     /// <summary>
     /// The angle beyond which two faces meeting at a vertex are a crease, in degrees.
     /// </summary>
-    /// <remarks>
-    /// Scene geometry has no normals of its own — the original shades every triangle flat
-    /// — so they are reconstructed here, and reconstructing them badly is worse than not
-    /// reconstructing them. Forty degrees keeps a box a box and lets a lathed vase read as
-    /// a curve, which is the same threshold <c>ObjectRounding</c> reaches
-    /// for and one step below the 60° an eight-sided bell needs.
-    /// </remarks>
     public const float DefaultCrease = 40f;
 
     /// <summary>Encodes one of a room's objects as a glTF binary.</summary>
@@ -183,11 +140,6 @@ public static class SceneObjectGlb
     /// <param name="objects">The geometry to write.</param>
     /// <param name="texturePathPrefix">Relative path prepended to texture file names.</param>
     /// <returns>The complete GLB file.</returns>
-    /// <remarks>
-    /// What the composer uses: it reads a directory of objects that a modelling tool has
-    /// been over and writes the one file per room the game reads. Triangles are grouped
-    /// back into a primitive per surface, which is the form they were handed out in.
-    /// </remarks>
     public static byte[] EncodeOverlay(
         string room,
         BspFile scene,
@@ -279,12 +231,6 @@ public static class SceneObjectGlb
     /// <param name="name">Name used in diagnostics.</param>
     /// <param name="diagnostics">Receives what could not be matched.</param>
     /// <returns>The overlay, which is empty when nothing in the file could be matched.</returns>
-    /// <remarks>
-    /// Triangles whose material names no surface of this room, or names a surface that
-    /// belongs to a different room's numbering, are dropped and counted rather than
-    /// guessed at. A wrong surface index is a wrong lightmap, and a wrong lightmap is a
-    /// wall lit like a floor.
-    /// </remarks>
     public static SceneOverlay Read(
         ReadOnlySpan<byte> glb, BspFile scene, string name, DiagnosticBag? diagnostics = null)
     {
@@ -387,28 +333,6 @@ public static class SceneObjectGlb
     /// </summary>
     /// <param name="piece">The geometry.</param>
     /// <returns>The hash, lower-case hex.</returns>
-    /// <remarks>
-    /// <para>
-    /// What lets a room share a shape with the eight other rooms that are the same room at
-    /// a different hour. It covers positions, normals and texture coordinates exactly, and
-    /// covers which of the object's own surfaces each triangle belongs to as an ordinal
-    /// rather than as an index — the surface numbering is the thing that differs between
-    /// those rooms, and it lives in the placement instead.
-    /// </para>
-    /// <para>
-    /// <b>Order-invariant and quantised, because the tool that produces the geometry is
-    /// neither.</b> Blender given byte-identical input twice writes two meshes that agree
-    /// on every position and normal and differ in the last bit of an interpolated texture
-    /// coordinate — 1.55678988 against 1.55678999 — which is float arithmetic and not a
-    /// defect. Hashing the exact bytes therefore reported nine copies of one chafing dish
-    /// as nine distinct shapes. So each triangle is rotated to start at its own lowest
-    /// corner, which keeps its winding, the triangles are sorted, and every number is
-    /// rounded to a step below what can be seen: a thousandth of a world unit, a
-    /// hundredth of a degree, and a fiftieth of a texel on the largest texture in the set.
-    /// Two shapes that agree to that are the same shape, and shipping either for both is
-    /// a difference nobody can be shown.
-    /// </para>
-    /// </remarks>
     public static string ShapeOf(SceneObjectGeometry piece)
     {
         ArgumentNullException.ThrowIfNull(piece);
@@ -469,12 +393,6 @@ public static class SceneObjectGlb
     private const int CornerBytes = 8 * sizeof(long);
 
     /// <summary>Steps a position, a normal and a texture coordinate are rounded to.</summary>
-    /// <remarks>
-    /// A thousandth of a world unit is a thousandth of the smallest thing anybody
-    /// modelled; a normal to four decimal places is a hundredth of a degree; and a
-    /// sixty-five-thousandth of a texture unit is a fiftieth of a texel on a 2048 map,
-    /// which is the largest anything in the enhanced set is packed at.
-    /// </remarks>
     private const float PositionStep = 1024f;
 
     private const float NormalStep = 4096f;
@@ -511,12 +429,6 @@ public static class SceneObjectGlb
     /// <summary>What a shared shape's material is called.</summary>
     /// <param name="slot">Which of the object's own surfaces, counted from zero.</param>
     /// <returns>The material name.</returns>
-    /// <remarks>
-    /// A shape is geometry that several rooms draw and that nothing in particular owns, so
-    /// its materials cannot name a surface: the same chair is surface 104 in one room and
-    /// 88 in another. They name a position in the object's own surface list instead, and
-    /// the room supplies the list. The separator is the same one, so one parser reads both.
-    /// </remarks>
     public static string SlotNameFor(int slot) =>
         string.Create(CultureInfo.InvariantCulture, $"slot{SurfaceSeparator}{slot:D3}");
 
@@ -527,12 +439,6 @@ public static class SceneObjectGlb
     /// The object's surfaces in the order the slots count them; receives the order used.
     /// </param>
     /// <returns>The complete GLB file.</returns>
-    /// <remarks>
-    /// No textures and no surface numbers: everything that varies between the rooms
-    /// sharing this shape is left to the rooms. What is left is the thing that is actually
-    /// the same — positions, normals and texture coordinates — which is why it can be
-    /// shipped once and read once.
-    /// </remarks>
     public static byte[] EncodeShape(
         string name, SceneObjectGeometry piece, out IReadOnlyList<int> surfaces)
     {
@@ -687,11 +593,6 @@ public static class SceneObjectGlb
     /// <param name="material">The material name, which may carry a tool's own suffix.</param>
     /// <param name="surface">Receives the index.</param>
     /// <returns>True when the name carries one.</returns>
-    /// <remarks>
-    /// Tolerant of what tools do to a name on the way through: a duplicated datablock
-    /// comes back as <c>NAME.001</c>, and an importer may have upper-cased it. Anything
-    /// after the index that is not a plain suffix is refused rather than parsed loosely.
-    /// </remarks>
     public static bool TrySurfaceOf(string? material, out int surface)
     {
         surface = -1;

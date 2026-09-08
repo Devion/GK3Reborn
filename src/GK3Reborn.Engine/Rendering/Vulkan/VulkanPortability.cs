@@ -13,12 +13,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <param name="AnisotropicFiltering">Whether the sampler may ask for anisotropy.</param>
 /// <param name="AstcCompression">Whether ASTC images may be created.</param>
 /// <param name="Etc2Compression">Whether ETC2 images may be created.</param>
-/// <remarks>
-/// A feature is asked for at device creation and is a hard error if the device does not
-/// have it — <c>vkCreateDevice</c> fails outright rather than granting what it can. So
-/// what is asked for has to be the intersection of what is wanted and what is offered,
-/// and the rest of the renderer has to be able to read which way that went.
-/// </remarks>
 public readonly record struct DeviceCapabilities(
     bool BlockCompression,
     bool AnisotropicFiltering,
@@ -50,21 +44,6 @@ public readonly record struct DeviceCapabilities(
 /// <summary>
 /// The parts of instance and device creation that differ between platforms.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Vulkan on macOS is MoltenVK, which translates to Metal and is therefore a
-/// <em>portability</em> driver rather than a conformant one. Two things follow, and both
-/// are refusals rather than degradations if they are not honoured: an instance has to opt
-/// in to enumerating such a device at all, and a device that advertises
-/// <c>VK_KHR_portability_subset</c> must have it in its enabled extension list.
-/// </para>
-/// <para>
-/// Both are no-ops everywhere else. The extension is absent on Windows and Linux
-/// drivers, so nothing is added and nothing changes; keeping the decision here rather
-/// than behind an operating-system check means the same code path is taken on every
-/// platform and a Linux run exercises it.
-/// </para>
-/// </remarks>
 public static unsafe class VulkanPortability
 {
     /// <summary>Instance extension that allows a portability driver to be enumerated.</summary>
@@ -73,12 +52,6 @@ public static unsafe class VulkanPortability
     /// <summary>
     /// Instance extension that lets a surface report colour spaces other than sRGB.
     /// </summary>
-    /// <remarks>
-    /// Nothing to do with portability, and here because this is where instance extensions
-    /// are decided. It is what makes <c>VK_COLOR_SPACE_HDR10_ST2084_EXT</c> and
-    /// <c>VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT</c> appear in the list of formats a
-    /// surface supports; without it the list stops at sRGB whatever the display can do.
-    /// </remarks>
     public const string ColorSpaceExtension = "VK_EXT_swapchain_colorspace";
 
     /// <summary>Device extension a portability driver requires to be enabled.</summary>
@@ -88,13 +61,6 @@ public static unsafe class VulkanPortability
     public const string DynamicRenderingExtension = "VK_KHR_dynamic_rendering";
 
     /// <summary>Answers every query as though the device had no block compression.</summary>
-    /// <remarks>
-    /// <c>--expand-blocks</c>. The path that expands the content pipeline's blocks on the
-    /// host is only reached on hardware that cannot read them, which is a Mac — and a
-    /// path that can only be exercised on hardware nobody has to hand is a path that
-    /// breaks silently. This makes a Windows or Linux machine take it, so a screenshot
-    /// from either can be compared against one from the same scene on the device path.
-    /// </remarks>
     public static bool ForceHostExpansion { get; set; }
 
     /// <summary>The extension list to create an instance with, and the flags to go with it.</summary>
@@ -102,11 +68,6 @@ public static unsafe class VulkanPortability
     /// <param name="wanted">Extensions the caller needs, such as the surface ones.</param>
     /// <param name="flags">Flags to pass with them.</param>
     /// <returns>The list to enable.</returns>
-    /// <remarks>
-    /// Asking for an extension the loader does not have fails instance creation, so the
-    /// portability one is added only where it is present. Adding the flag without the
-    /// extension fails in the same way, which is why the two are decided together.
-    /// </remarks>
     public static string[] InstanceExtensions(
         Vk api, IEnumerable<string> wanted, out InstanceCreateFlags flags)
     {

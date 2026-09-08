@@ -32,10 +32,6 @@ public enum AuthoredLightKind
 /// Nought to one, spreading each flame's rate a quarter either side of
 /// <paramref name="Rate"/> so that two candles on one table never pulse together.
 /// </param>
-/// <remarks>
-/// Not from the scene file: no 1999 light flickers, and this is decided by which lights
-/// stand in a fire. See <see cref="Game.FlameLighting"/>.
-/// </remarks>
 public readonly record struct FlameFlicker(float Swing, float Bias, float Rate, float Seed);
 
 /// <summary>
@@ -77,27 +73,6 @@ public sealed record AuthoredLight(
 /// Reader for scene assets: the geometry, skybox, model list and lights of a scene at one
 /// time of day.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This file answers the question ADR 0002 left open. The plan assumed the original
-/// lighting existed only as baked lightmaps and that light positions would have to be
-/// inferred from them. They do not: every scene asset carries the full rig the artists
-/// authored — position, direction, colour, cone angles, attenuation range, intensity,
-/// emitter radius and whether the light cast shadows in the bake. R25 at night alone
-/// declares 48 of them.
-/// </para>
-/// <para>
-/// That is a far better starting point for a modern re-light than anything derived from
-/// lightmap texels. The derived rigs remain useful as a cross-check — a light in the file
-/// that leaves no trace in the bake was disabled or occluded — but the file is the source
-/// of truth.
-/// </para>
-/// <para>
-/// Units need care. Cone angles are stored in radians and attenuation distances in scene
-/// units, but intensity and colour were tuned for a 1999 renderer with no exposure
-/// control, so they are hints rather than physical quantities.
-/// </para>
-/// </remarks>
 public sealed class SceneAssetFile
 {
     private const string LightPrefix = "Light_";
@@ -281,10 +256,6 @@ public sealed class SceneAssetFile
 /// <param name="Up">Texture for the top face.</param>
 /// <param name="Down">Texture for the bottom face.</param>
 /// <param name="Azimuth">Rotation about the up axis, in radians.</param>
-/// <remarks>
-/// Most scenes name only the faces the player can actually see from the fixed camera
-/// positions, and comment the rest out, so missing faces are normal rather than an error.
-/// </remarks>
 public sealed record SkyboxDefinition(
     string? Left, string? Right, string? Front, string? Back, string? Up, string? Down, float Azimuth)
 {

@@ -11,18 +11,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Pipeline stage C7.video: converts the GK3 cinematic corpus to the runtime format.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Target format, from Plan/02-content-pipeline.md section 2: MP4 / H.264 with
-/// <c>+faststart</c>, AAC 192 kbps resampled once to 48 kHz to match the mixer rate.
-/// Frame size, frame rate and duration are preserved exactly and verified afterwards.
-/// </para>
-/// <para>
-/// Outputs are keyed by uppercase base name with no extension, because GK3 data
-/// references videos that way - GEngine's <c>VideoHelper</c> strips the extension
-/// deliberately so localizations can substitute AVI for BIK.
-/// </para>
-/// </remarks>
 public sealed class VideoImportStage
 {
     /// <summary>Converter identity recorded in the manifest.</summary>
@@ -246,12 +234,6 @@ public sealed class VideoImportStage
     /// <summary>
     /// Builds the encoder command for one source.
     /// </summary>
-    /// <remarks>
-    /// H.264 4:2:0 requires even frame dimensions, and several Sidney scan clips are
-    /// odd sized (41x51, 389x424, 431x350). Padding or cropping would shift the UI
-    /// overlays those clips sit under, so odd-sized sources encode as 4:4:4 instead,
-    /// which permits any dimension. They are tiny, so the cost is negligible.
-    /// </remarks>
     public static List<string> BuildArguments(string sourcePath, MediaProbe probe)
     {
         ArgumentNullException.ThrowIfNull(probe);

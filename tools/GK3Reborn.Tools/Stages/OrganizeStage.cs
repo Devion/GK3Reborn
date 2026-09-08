@@ -16,24 +16,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Pipeline stage C3: lays the corpus out sensibly and converts what needs converting.
 /// </summary>
-/// <remarks>
-/// <para>
-/// C1 dumps every archive entry into one directory per archive, which is faithful and
-/// unusable: 15,966 files land in a single folder and the largest texture format is one
-/// nothing outside the game can open.
-/// </para>
-/// <para>
-/// This stage produces the tree people actually work in. Assets are grouped by what they
-/// are, textures become PNG, and two groupings the data genuinely supports are applied:
-/// animations by the character prefix their names carry, and scene assets by the
-/// three-letter location code GK3 uses throughout. Everything else stays flat inside its
-/// kind, because inventing structure the data does not support is worse than none.
-/// </para>
-/// <para>
-/// The raw extraction stays untouched. This is a derived view, and re-running it is
-/// always safe.
-/// </para>
-/// </remarks>
 public sealed class OrganizeStage
 {
     /// <summary>Stage version. Bumping it invalidates a previous organize run.</summary>
@@ -242,13 +224,6 @@ public sealed class OrganizeStage
     /// <summary>
     /// Chooses the directory an asset belongs in.
     /// </summary>
-    /// <remarks>
-    /// Only two sub-groupings are applied, because only two are supported by the data:
-    /// 5,789 of 5,798 animation files carry a <c>CHARACTER_</c> prefix, and scene assets
-    /// are named after the three-letter location codes the game uses for its rooms.
-    /// Audio is sharded by initial letter purely so no directory holds 7,852 files; that
-    /// is a mechanical split and claims nothing about the contents.
-    /// </remarks>
     public static string DirectoryFor(string assetName, AssetKind kind)
     {
         ArgumentNullException.ThrowIfNull(assetName);

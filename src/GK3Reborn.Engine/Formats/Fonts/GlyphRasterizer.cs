@@ -25,36 +25,12 @@ public readonly record struct RasterGlyph(
 /// <summary>
 /// Turns an outline into pixels.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A scanline fill with the nonzero winding rule, sampled several times down each pixel
-/// row and exactly across it. Vertical accuracy comes from the number of samples and
-/// horizontal accuracy is free, because a span's ends are known to the fraction of a
-/// pixel — which is the right trade for text, where the strokes that matter are vertical.
-/// </para>
-/// <para>
-/// <b>No hinting.</b> The outline is not snapped to the pixel grid, so stems land where
-/// the design puts them and are grey at the edges rather than crisp. That is the modern
-/// answer — it is what a phone does — and it is the only one that keeps a letter the same
-/// shape at every size. The alternative is a bytecode interpreter serving screens that no
-/// longer exist.
-/// </para>
-/// </remarks>
 public static class GlyphRasterizer
 {
     /// <summary>How many times each pixel row is sampled.</summary>
-    /// <remarks>
-    /// Five is where the eye stops noticing on a horizontal edge, and each one costs a
-    /// pass over the edges. Atlases are built once, so this is not a frame cost.
-    /// </remarks>
     private const int Samples = 5;
 
     /// <summary>How finely a curve is broken into straight pieces.</summary>
-    /// <remarks>
-    /// In pixels of the drawn size: a curve is split until no piece bulges further than
-    /// this from the line across it. At a fifth of a pixel the flattening is under the
-    /// antialiasing.
-    /// </remarks>
     private const float Flatness = 0.2f;
 
     /// <summary>Draws a glyph.</summary>
@@ -207,11 +183,6 @@ public static class GlyphRasterizer
     }
 
     /// <summary>Turns the contours into straight edges at the drawn size.</summary>
-    /// <remarks>
-    /// TrueType curves are quadratic and are written with the on-curve points between them
-    /// left out wherever they are the midpoint of two controls — so two control points in
-    /// a row imply a point halfway between them. Missing that draws spikes.
-    /// </remarks>
     private static List<(Vector2 From, Vector2 To)> Flatten(GlyphOutline outline, float scale)
     {
         List<(Vector2, Vector2)> edges = [];

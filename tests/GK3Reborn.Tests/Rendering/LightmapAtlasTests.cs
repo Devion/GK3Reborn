@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for lightmap packing.
 /// </summary>
-/// <remarks>
-/// A packer that overlaps tiles produces a picture that looks lit but is wrong in ways
-/// nobody can attribute, so the tests check the invariant that matters — that no two tiles
-/// claim the same texel — rather than any particular arrangement.
-/// </remarks>
 public sealed class LightmapAtlasTests
 {
     private static DecodedImage Solid(int width, int height, byte level)

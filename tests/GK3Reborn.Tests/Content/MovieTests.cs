@@ -9,10 +9,6 @@ namespace GK3Reborn.Tests.Content;
 /// <summary>
 /// Tests for playing a movie end to end: the container, both decoders, the clock.
 /// </summary>
-/// <remarks>
-/// These need one of the game's converted clips, so they are skipped where the content
-/// workspace is not beside the checkout; the decoders themselves are covered without it.
-/// </remarks>
 public sealed class MovieTests
 {
     private static VideoLibrary? OpenLibrary(out string name)

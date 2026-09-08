@@ -23,38 +23,12 @@ public enum CutContentTier
     /// Those, and the objects that were written and recorded but never modelled, rebuilt
     /// from scratch.
     /// </summary>
-    /// <remarks>
-    /// A step further than the rest of this and labelled apart from it on purpose.
-    /// Everything below is the developers' own data switched back on; this puts geometry in
-    /// their rooms that nobody at Sierra ever made. See <c>tools/blender/make_props.py</c>
-    /// for what each one is and what it is skinned with.
-    /// </remarks>
     Reconstructed = 3,
 }
 
 /// <summary>
 /// Puts back content the game shipped with and cannot reach.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A great deal of GK3 is on the disc and unreachable: rules the developers commented out
-/// with their recordings still in the archives, noun bindings commented out rather than
-/// corrected when a model was renamed, and models folded into a neighbouring noun. See
-/// <c>docs/cut-content.md</c> for the survey, and for the credit — the catalogue that
-/// started it is Bonny Ploeg's.
-/// </para>
-/// <para>
-/// This is a table of edits rather than a set of replacement files, for two reasons. A
-/// rewritten <c>R23210A.SIF</c> would be a derivative of Sierra's asset, and this project
-/// ships none; and an edit that has to find what it is about to change can say so when the
-/// installation underneath is not what it expected, where a wholesale replacement would
-/// silently impose 1999's file on a different release.
-/// </para>
-/// <para>
-/// Nothing is written to the player's installation. The archives are opened read-only and
-/// the edit is applied to the bytes on their way past.
-/// </para>
-/// </remarks>
 public sealed class CutContent
 {
     private readonly Dictionary<string, List<Edit>> _edits = new(StringComparer.OrdinalIgnoreCase);
@@ -82,11 +56,6 @@ public sealed class CutContent
     public int Failed => _failed;
 
     /// <summary>How many lines of the table itself could not be read.</summary>
-    /// <remarks>
-    /// Should be nought, and a test holds it there. A mistyped operation is a restoration
-    /// that never happens, and the whole point of this file is that such things stop being
-    /// silent.
-    /// </remarks>
     public int Unreadable => _unreadable;
 
     /// <summary>Whether there is nothing to do.</summary>
@@ -328,9 +297,6 @@ public sealed class CutContent
     /// <summary>Whether this table has anything to say about an asset.</summary>
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>True when it does.</returns>
-    /// <remarks>
-    /// A dictionary lookup, because every asset the game reads passes through it.
-    /// </remarks>
     public bool Handles(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -346,12 +312,6 @@ public sealed class CutContent
     /// The edited bytes, or <paramref name="original"/> when there is nothing to do or
     /// nothing applied.
     /// </returns>
-    /// <remarks>
-    /// The text assets are Windows-1252 rather than UTF-8 — they were authored in 1999 and
-    /// carry accented French names — so the round trip is Latin-1 in and Latin-1 out. Line
-    /// endings are left exactly as they were found: a file rewritten with different ones
-    /// still parses, but every later diff of it is noise.
-    /// </remarks>
     public byte[] Apply(string name, byte[] original, DiagnosticBag? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -626,17 +586,6 @@ public sealed class CutContent
     }
 
     /// <summary>Adds a line to the end of a named section.</summary>
-    /// <remarks>
-    /// For the one thing the other three cannot do: bringing a whole new action file into a
-    /// room's scope. A restored rule can be uncommented and a restored object bound, but a
-    /// rule that was never written at all has to live in a file of its own, and a file
-    /// nothing lists is a file nothing reads.
-    /// <para>
-    /// Refused when the line is already there, so applying the table twice to one file --
-    /// which the cache makes unlikely and a future caller may make certain -- cannot list
-    /// it twice.
-    /// </para>
-    /// </remarks>
     private static bool ApplyAppend(
         string name,
         Edit edit,
@@ -726,11 +675,6 @@ public sealed class CutContent
     /// <summary>Renders a placement as the scene file writes one.</summary>
     /// <param name="where">Three or four numbers: x, y, z and an optional heading.</param>
     /// <returns>The rest of the model line, or nothing when there is no placement.</returns>
-    /// <remarks>
-    /// A prop borrowed or built for a room it was not modelled for has to be told where it
-    /// goes, because a .MOD's vertices are in the coordinates of whichever room it came
-    /// from. <c>pos</c> means <em>stand here</em>; see <see cref="Formats.Scenes.SceneModel.Position"/>.
-    /// </remarks>
     private static string Placement(string? where)
     {
         if (where is null)

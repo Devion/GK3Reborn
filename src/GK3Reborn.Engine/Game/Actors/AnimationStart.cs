@@ -8,33 +8,6 @@ namespace GK3Reborn.Game.Actors;
 /// <summary>
 /// Where an animation expects somebody to be standing before it starts.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <c>approach=anim</c> is the third most common approach in the game — 398 of the
-/// corpus's 3,617 — and it is the only one whose target is not a place. It names an
-/// animation, and what it means is <b>walk to where that animation begins, then play
-/// it</b>. Pouring the coffee in the hotel dining room is the case: without this Gabriel
-/// starts pouring from wherever he is standing, and the pot is across the room.
-/// </para>
-/// <para>
-/// The animation does not say where it begins in so many words. It says it in the clip:
-/// the first frame poses every mesh, and among a character's meshes are three that are not
-/// body parts at all — an axis triad at the hips and one under each shoe, which is the only
-/// thing in a GK3 character that stands for a skeleton. <c>CHARACTERS.TXT</c> names which
-/// mesh, group and point they are, per character. The hip triad's point is where the actor
-/// stands.
-/// </para>
-/// <para>
-/// Which way they face has to be worked out rather than read, and this is the part that is
-/// not obvious. The triads settle it: the three points make a triangle, and <b>its normal
-/// flattened onto the floor is the facing outright</b> — no half turn, no convention to
-/// choose between, and no reading taken off any mesh's own axes. That is
-/// <c>GKActor::GetModelFacingDirection</c>, and it is the same measure
-/// <c>SceneUpdate.Playing.Correction</c> draws the body by, which is the point: two ways of
-/// asking where somebody is facing is one too many, and the two answered a half turn apart.
-/// Getting it wrong walks the actor to the right spot with their back to the thing.
-/// </para>
-/// </remarks>
 public static class AnimationStart
 {
     /// <summary>Reads where and how an animation stands the actor it moves.</summary>
@@ -111,20 +84,6 @@ public static class AnimationStart
     /// <param name="character">Their entry in <c>CHARACTERS.TXT</c>, for the hip triad.</param>
     /// <param name="toWorld">Where in the room the clip is being played.</param>
     /// <returns>The spot, or null when the clip says nothing about where their hips are.</returns>
-    /// <remarks>
-    /// <para>
-    /// The same measure <see cref="Of"/> takes, at any frame rather than the first: an
-    /// actor stands where the triad under their hips is.
-    /// </para>
-    /// <para>
-    /// It matters wherever a position is read out of a clip rather than differenced across
-    /// one. The average of a character's mesh-group origins moves with exactly the same
-    /// rigid motion, so a <em>difference</em> of two averages is the same answer and much
-    /// cheaper — but one average on its own is that answer plus a constant, and the
-    /// constant is most of a torso. Emilio walked out of the hotel and then set off for his
-    /// bench from a couple of feet behind where he was standing.
-    /// </para>
-    /// </remarks>
     public static Vector3? Standing(
         Formats.Animation.ActFile clip,
         float frame,
@@ -160,11 +119,6 @@ public static class AnimationStart
 
     /// <summary>The height a pose puts a character's soles at, in the room.</summary>
     /// <returns>The height, or null when the clip poses neither shoe.</returns>
-    /// <remarks>
-    /// The lower of the two, which is the one taking their weight: mid-stride the other is
-    /// in the air, and averaging them would have every walk bob half a step deep into the
-    /// floor and half a step above it.
-    /// </remarks>
     private static float? Soles(
         Formats.Animation.ActFile clip,
         float frame,
@@ -207,11 +161,6 @@ public static class AnimationStart
     /// <param name="toWorld">Where the clip's space sits in the room.</param>
     /// <param name="built">Which way their model is built to face, or null to measure it.</param>
     /// <returns>The heading, or null when the clip does not pose the hips.</returns>
-    /// <remarks>
-    /// The same reckoning the opening frame gets, at any frame. A head's glance is measured
-    /// against the body's facing, and while an absolute clip has the body somewhere other
-    /// than its placement the placement's heading is the wrong number to measure against.
-    /// </remarks>
     public static float? FacingAt(
         Formats.Animation.ActFile clip,
         float frame,
@@ -239,46 +188,14 @@ public static class AnimationStart
             : null;
 
     /// <summary>How far the triangle's answer stood from the hip mesh's, last time it was read.</summary>
-    /// <remarks>
-    /// In degrees, for a diagnostic to print. It used to be a dot product, because the
-    /// heading used to be the hip mesh's rotation with the triangle only choosing a sign;
-    /// see <see cref="Facing"/> for why it is no longer. A large number here is a clip whose
-    /// hips are turned relative to the stance, which is ordinary and no longer changes the
-    /// answer.
-    /// </remarks>
     public static float Reading { get; private set; }
 
     /// <summary>Whether the last facing read had a stance to read it from.</summary>
-    /// <remarks>
-    /// False means the clip poses no shoes on that frame and the answer came from the hip
-    /// mesh's own rotation instead, which is a different measurement and routinely a long
-    /// way off. Worth being able to see: it is not an error and it is not the answer either.
-    /// </remarks>
     public static bool Stance { get; private set; }
 
     /// <summary>
     /// Which way the body is facing on the opening frame.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The shoes and the hips make a triangle, and <b>its normal flattened onto the floor is
-    /// the facing outright</b> — <c>GKActor::GetModelFacingDirection</c>, the branch it takes
-    /// whenever nothing is animating the facing helper. No dot product and no rare branch.
-    /// </para>
-    /// <para>
-    /// It used to read the heading off the hip mesh's own rotation and use the triangle only
-    /// to choose between that and a half turn from it, which is a different measurement and
-    /// <b>came out a half turn from this one for Gabriel</b> — measured, on <c>gab_GabYawn</c>:
-    /// the triangle says −179.9° and the mesh rotation said −3.2°. That was one measurement
-    /// too many. <see cref="SceneUpdate.Playing.Correction"/> already draws the body by the
-    /// triangle, so everything that asked here instead was aimed a half turn from the body it
-    /// was aimed at, and every one of those is a reported bug: a head glance turned Emilio's
-    /// head backwards over his shoulders as he crossed the lobby; an <c>approach=anim</c>
-    /// stood Gabriel at the wardrobe facing away from it, so his clip played correctly and
-    /// his idle spun him round the moment it ended; and the opening-pose report accused half
-    /// the cast of facing the wrong way.
-    /// </para>
-    /// </remarks>
     private static float Facing(
         Formats.Animation.ActFile clip,
         CharacterConfig character,

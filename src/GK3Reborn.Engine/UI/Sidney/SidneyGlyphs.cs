@@ -12,27 +12,6 @@ namespace GK3Reborn.UI.Sidney;
 /// <summary>
 /// The pictures on Sidney's desktop icons.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The game has no icons.</b> Its own art for the eight screens is eight 76x13 amber
-/// name plates — <c>B_SEARCH_U.BMP</c> and its hover and pressed states — which are labels,
-/// not pictures, and a desktop of eight identical amber bars is a menu with extra steps. So
-/// the plates stay as the captions they were drawn to be and the picture above each one is
-/// drawn here, from the same rectangles, lines and circles the rest of the interface is
-/// made of.
-/// </para>
-/// <para>
-/// Every glyph is drawn inside a square and scales with it, so the same code covers a
-/// desktop icon and the small mark beside a window's title.
-/// </para>
-/// <para>
-/// <b>Thickness is asked for, never looped over.</b> Drawing a five-pixel ring as five
-/// one-pixel rings costs five times the rectangles, and the display list has a cap: on a
-/// large window the eight icons alone ran it out, and what fell off the end was the taskbar
-/// at the bottom of the screen. Every curve and line here takes its thickness as an
-/// argument and draws it once.
-/// </para>
-/// </remarks>
 public static class SidneyGlyphs
 {
     /// <summary>Draws the picture belonging to one of Sidney's screens.</summary>
@@ -90,10 +69,6 @@ public static class SidneyGlyphs
     /// <param name="surface">Where to draw.</param>
     /// <param name="box">The square to draw it in.</param>
     /// <param name="colour">What colour.</param>
-    /// <remarks>
-    /// The way out of Sidney, and the one symbol on the whole desktop that needs no caption
-    /// in any language — which is why it is here rather than the original's <c>EXIT</c>.
-    /// </remarks>
     public static void Power(SidneySurface surface, Vector4 box, Vector4 colour)
     {
         ArgumentNullException.ThrowIfNull(surface);

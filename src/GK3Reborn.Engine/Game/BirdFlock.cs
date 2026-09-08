@@ -13,64 +13,15 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The birds wheeling over an outdoor room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's skies are paintings and nothing moves in them. A village square with a perfectly
-/// still sky over it reads as a photograph of a village square, and the thing that fixes it
-/// is not detail — the birds here are ten or twenty pixels of silhouette — but movement
-/// that is not the player's own.
-/// </para>
-/// <para>
-/// <b>They are drawn by the pass the smoke is drawn by.</b> A bird is a camera-facing sprite
-/// that is blended over what is behind it and tests the depth the room left, which is
-/// exactly what <see cref="FlameParticles"/> needs and exactly what a bird needs: one behind
-/// a roof is hidden by the roof, and one against the sky is not. What it is <em>not</em> is a
-/// disc, so <see cref="Particle.Shape"/> carries a third value and the fragment stage draws
-/// a silhouette instead. See <see cref="Rendering.Shaders.ParticleShaders"/>.
-/// </para>
-/// <para>
-/// <b>Nothing here is random between runs.</b> The flock is seeded from where it wheels and
-/// stepped at a fixed sixtieth of a second whatever the frame rate, so the same room at the
-/// same elapsed time is the same flock on every machine, in both backends and at any frame
-/// rate. That is not tidiness: comparing two renders of one room is how everything in this
-/// project is checked, and a flock that depended on how long a frame took could not be
-/// compared with itself.
-/// </para>
-/// <para>
-/// <b>What makes it read as birds is the wheel.</b> Flocking alone — pull together, keep
-/// apart, match your neighbours — gives a cloud that mills about, which is what insects do.
-/// Birds over a village go <em>round</em>, all of them the same way, and
-/// <see cref="Flock.Turning"/> is that. The flapping matters much less than it seems it
-/// should, and the one thing it must not do is run at the same rate as everybody else's.
-/// </para>
-/// </remarks>
 public sealed class BirdFlock
 {
     /// <summary>How long one step of the simulation is, in seconds.</summary>
-    /// <remarks>
-    /// Fixed, and the whole reason the flock is reproducible. A step taken at whatever the
-    /// last frame happened to take would put the flock in a different place on a fast
-    /// machine than on a slow one, and two renders of one room could not be compared.
-    /// </remarks>
     private const float Step = 1f / 60f;
 
     /// <summary>How many steps one call may take, however long it has been.</summary>
-    /// <remarks>
-    /// A quarter of a second. A frame that took longer than that is a scene load, a movie or
-    /// a window being dragged, and running the flock through the whole of it costs more than
-    /// the frame that is late already; the birds arrive a little behind where they would have
-    /// been, which nobody can see and nothing depends on.
-    /// </remarks>
     private const int MostSteps = 15;
 
     /// <summary>Where a bird is dark and where it has gone to haze, in world units.</summary>
-    /// <remarks>
-    /// A bird is a black shape against a bright sky near to, and a grey smudge a long way
-    /// off, because there is half a kilometre of air in front of it. Fading a silhouette's
-    /// coverage over the sky is exactly what that air does, so this is aerial perspective
-    /// rather than a draw distance — and it also keeps the far side of a wide wheel from
-    /// being a row of hard black specks.
-    /// </remarks>
     private const float Near = 1800f;
 
     /// <inheritdoc cref="Near"/>
@@ -79,12 +30,6 @@ public sealed class BirdFlock
     /// <summary>
     /// How short the wings may project before the body is what the sprite is laid along.
     /// </summary>
-    /// <remarks>
-    /// The body in the drawn silhouette is about a third of the span, so a third is where
-    /// the two are the same length on the screen and the shorter one stops being what the
-    /// eye is reading. It is about twenty degrees either side of flying straight across the
-    /// view, and a bird is in that band for a fraction of a second at a time.
-    /// </remarks>
     private const float Edge = 0.34f;
 
     private readonly Bird[] _birds;
@@ -174,21 +119,10 @@ public sealed class BirdFlock
     /// <summary>How fast a bird of a given size beats its wings.</summary>
     /// <param name="wingspan">Tip to tip, in world units.</param>
     /// <returns>Beats a second.</returns>
-    /// <remarks>
-    /// Inversely with the span, which is near enough what birds do and is the one part of
-    /// this that would look plainly wrong reversed: a swift's half-metre wing goes at about
-    /// seven beats a second and a buzzard's metre and a bit at three, and a buzzard flapping
-    /// like a swift is a moth.
-    /// </remarks>
     public static float FlapsPerSecond(float wingspan) => 140f / MathF.Max(wingspan, 8f);
 
     /// <summary>Moves the flock on.</summary>
     /// <param name="seconds">How long since the last call.</param>
-    /// <remarks>
-    /// In whole steps of <see cref="Step"/>, with the remainder carried to the next call, so
-    /// that where the flock is depends only on how much time has passed and not on how it
-    /// arrived.
-    /// </remarks>
     public void Advance(float seconds)
     {
         if (_birds.Length == 0 || !(seconds > 0f))
@@ -218,14 +152,6 @@ public sealed class BirdFlock
     /// <summary>Every bird, furthest from the eye first.</summary>
     /// <param name="view">The camera the room is being drawn with.</param>
     /// <returns>The sprites, in the order they have to be drawn.</returns>
-    /// <remarks>
-    /// A bird hides what is behind it, so two that overlap have to arrive in depth order.
-    /// The camera is wanted whole rather than just its position, because a bird is turned to
-    /// lie along the way it is going and which way that is on the screen is a question about
-    /// the camera's own right and up. Built the way the pass builds them — see
-    /// <see cref="Rendering.Shaders.ParticleShaders.Describe"/> — rather than read out of a
-    /// view matrix, and for the same reason.
-    /// </remarks>
     public IReadOnlyList<Particle> Facing(Camera view)
     {
         ArgumentNullException.ThrowIfNull(view);
@@ -282,36 +208,6 @@ public sealed class BirdFlock
     /// <param name="right">The camera's right, in world space.</param>
     /// <param name="up">Its up.</param>
     /// <returns>The turn to hand the pass, in radians.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The wings decide it, not the body.</b> A sprite has one angle and a bird has two
-    /// directions — where it is going and where its wingtips are — and only one of them can
-    /// be right. The wings are the whole width of the silhouette and the body is a
-    /// twelfth of it, so the wings win: the sprite's own x axis is laid along the bird's
-    /// wing axis, which for a level bird is the horizontal at right angles to its flight.
-    /// </para>
-    /// <para>
-    /// <b>Turning it by the heading instead is what a bird flying at the camera exposes.</b>
-    /// Its heading projects to almost nothing on the screen, so the angle derived from it
-    /// swings about on rounding alone, and a bird a hundred metres off stands on its
-    /// wingtip for a frame and then lies down again. Its <em>wing</em> axis projects to
-    /// very nearly the full width whatever it is doing, because a bird flying away from you
-    /// is the case where you see the most of its wings.
-    /// </para>
-    /// <para>
-    /// <b>And it banks.</b> The wing axis is rolled about the flight direction by however
-    /// hard the bird is turning, which is the one thing that makes a wheeling flock read as
-    /// a wheel rather than as a carousel: a bird that comes round the near side of the turn
-    /// shows the eye its back.
-    /// </para>
-    /// <para>
-    /// <b>The wings have their own degenerate case and it is the opposite one.</b> A bird
-    /// flying straight across the view points its wings at the eye, and they project to
-    /// nothing — so the sprite got stood on its wingtip, which is what the vertical marks
-    /// in an early screenshot of RC1 were. There the body is what is seen, so the sprite is
-    /// laid along the flight direction instead; see <see cref="Edge"/>.
-    /// </para>
-    /// </remarks>
     public static float Turned(Vector3 velocity, float bank, Vector3 right, Vector3 up)
     {
         if (velocity.LengthSquared() < 1e-6f)
@@ -571,25 +467,6 @@ public sealed class BirdFlock
     /// <summary>Leans one bird into whatever turn it has just made.</summary>
     /// <param name="bird">The bird.</param>
     /// <param name="was">Which way it was going before this step.</param>
-    /// <remarks>
-    /// <para>
-    /// A bird turns by rolling and letting its wings pull it round, so how far over it is
-    /// leaning <em>is</em> how hard it is turning; a flock that goes round a wheel with its
-    /// wings level is a mobile. Measured off the turn it actually made rather than off the
-    /// turn it was asked to make, so a bird that is pinned against the outside of the wheel
-    /// by its neighbours is not leaning into a turn it never got.
-    /// </para>
-    /// <para>
-    /// <b>In the horizontal, and only there.</b> The vertical part of the change is the
-    /// bird climbing or sinking, which a real one does with its tail rather than by rolling
-    /// over. Rolling for it puts a bird on its side every time it tops out of the bob.
-    /// </para>
-    /// <para>
-    /// <b>Eased rather than set.</b> The steering here is a sum of five terms and jitters
-    /// from step to step; a lean read straight off it flickers, and a bird whose wings
-    /// twitch is a fly.
-    /// </para>
-    /// </remarks>
     private static void Lean(ref Bird bird, Vector3 was)
     {
         var before = new Vector2(was.X, was.Z);
@@ -616,20 +493,6 @@ public sealed class BirdFlock
     }
 
     /// <summary>Moves one bird's wings on.</summary>
-    /// <remarks>
-    /// <para>
-    /// <b>A bird flaps to climb and glides when it does not have to.</b> That is nearly the
-    /// whole of what makes a distant bird look alive: a silhouette beating at a steady rate
-    /// for ever is a metronome, and one that stops on the way down and starts again on the
-    /// way up is a bird. What decides it here is the bird's own climb rate, which is the
-    /// only part of the flight that has anything to do with the effort of it.
-    /// </para>
-    /// <para>
-    /// <b>A gliding bird finishes its stroke first.</b> The beat runs on to the next whole
-    /// number and stops there, which is wings level; stopping wherever it happened to be
-    /// leaves a bird hanging in the sky with one wing up.
-    /// </para>
-    /// </remarks>
     private void Flap(ref Bird bird)
     {
         float climb = bird.Velocity.Y / (_flock.Speed * 0.30f);

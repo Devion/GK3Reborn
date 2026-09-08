@@ -7,20 +7,6 @@
 namespace GK3Reborn.Rendering;
 
 /// <summary>How a high dynamic range frame is turned back into an ordinary picture.</summary>
-/// <remarks>
-/// <para>
-/// A screenshot is an eight-bit sRGB file whatever the swapchain was, so a frame presented
-/// in HDR10 or scRGB has to be brought back down before it can be written out. That is not a
-/// nicety: a ten-bit frame read as though it were four bytes of sRGB is not a slightly wrong
-/// picture, it is the right picture with every value scrambled — the geometry and the
-/// texture detail come through perfectly and the colours are noise, which reads as a
-/// rendering bug rather than as a screenshot bug.
-/// </para>
-/// <para>
-/// Shared between the backends because it is arithmetic about a format rather than about an
-/// API, and because the two of them present the same three formats for the same reasons.
-/// </para>
-/// </remarks>
 public static class HdrCapture
 {
     /// <summary>Turns a wide frame into eight-bit sRGB.</summary>
@@ -30,11 +16,6 @@ public static class HdrCapture
     /// <param name="halfFloat">Whether it is scRGB halves rather than ten-bit ST.2084.</param>
     /// <param name="paperWhite">Where diffuse white sat, in candelas per square metre.</param>
     /// <returns>Four bytes a pixel, sRGB, opaque.</returns>
-    /// <remarks>
-    /// Paper white becomes one, so the picture looks like what a standard-range display would
-    /// have shown of the same frame. Anything above it clips, which is the whole point of the
-    /// format it is being converted into.
-    /// </remarks>
     public static byte[] ToOrdinary(
         ReadOnlySpan<byte> raw, int width, int height, bool halfFloat, float paperWhite)
     {

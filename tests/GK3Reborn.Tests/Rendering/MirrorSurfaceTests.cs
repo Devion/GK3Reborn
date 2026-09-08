@@ -9,12 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// Tests for finding the plane a mirror reflects about, and for the camera on the far side
 /// of it.
 /// </summary>
-/// <remarks>
-/// Both halves of this were wrong once and neither said so. The material marks a whole slab
-/// a mirror and the geometry has to pick the glass out of it; and a mirrored camera cannot
-/// be described by an eye, a target and an up vector, which is a mistake that leaves the
-/// camera in exactly the right place pointing exactly the right way.
-/// </remarks>
 public sealed class MirrorSurfaceTests
 {
     /// <summary>A flat rectangle on the x/y plane at z, facing along the normal.</summary>

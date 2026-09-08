@@ -13,30 +13,9 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A ring of command allocators, so the processor can run ahead of the device.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <see cref="D3D12Context.BeginOneShot"/> waits for the device before it returns, which is
-/// what loading and reference rendering want and what a game must never do: waiting on every
-/// frame means the processor and the device take turns rather than working at once, and the
-/// frame rate is the sum of the two rather than the larger.
-/// </para>
-/// <para>
-/// <b>An allocator may not be reset while the device is still executing what was recorded
-/// into it.</b> That is the whole reason this exists and the whole reason there is a fence
-/// value per slot: the ring is only deep enough to be useful if each slot is waited for
-/// individually, and waiting for the wrong one is a use-after-free the debug layer reports
-/// as a device removal several frames later. The Vulkan side spells the same thing with a
-/// fence per frame in flight.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12FrameRing : IDisposable
 {
     /// <summary>How many frames the processor may be ahead by.</summary>
-    /// <remarks>
-    /// Two. Three would let the processor run further ahead and would add a frame of latency
-    /// to every click, which in a game played entirely by clicking on things is the wrong
-    /// trade.
-    /// </remarks>
     public const uint Depth = 2;
 
     private readonly D3D12Context _context;
@@ -67,11 +46,6 @@ public sealed unsafe class D3D12FrameRing : IDisposable
     }
 
     /// <summary>Which slot the frame being recorded is using.</summary>
-    /// <remarks>
-    /// What anything with per-frame storage of its own indexes by — a ring of descriptors,
-    /// a ring of uniform buffers — so that it is writing the one slot the device has
-    /// finished with.
-    /// </remarks>
     public uint Index => _index;
 
     /// <summary>How many frames deep the ring is.</summary>
@@ -238,10 +212,6 @@ public sealed unsafe class D3D12FrameRing : IDisposable
     }
 
     /// <summary>Waits for everything, without minding whether this is being disposed.</summary>
-    /// <remarks>
-    /// The same split <see cref="D3D12Context"/> makes, and for the same reason: disposal has
-    /// to wait, and by the time it gets there it has already said it is disposed.
-    /// </remarks>
     private void WaitCore()
     {
         foreach (ulong value in _values)

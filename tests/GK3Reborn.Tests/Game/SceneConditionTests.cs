@@ -8,11 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for deciding a scene file's conditions against the story.
 /// </summary>
-/// <remarks>
-/// The fixture is R25 reduced to the parts that change: the hall door that stands in
-/// every timeblock but 202P, the hall backdrop visible only on the first visit that
-/// afternoon, and the suitcases that appear once Gabriel has been up to the room.
-/// </remarks>
 public sealed class SceneConditionTests
 {
     private const string Fixture =

@@ -12,10 +12,6 @@ using GK3Reborn.Rendering.Shaders;
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>One compute stage: its module, its layout and the pipeline itself.</summary>
-/// <remarks>
-/// Every stage of the denoiser is this same shape — one shader, one descriptor set, and a
-/// small push constant — so they share one class rather than one file each.
-/// </remarks>
 internal sealed unsafe class ComputePipeline : IDisposable
 {
     private readonly Vk _vk;

@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the rules that decide when a point in the story is over.
 /// </summary>
-/// <remarks>
-/// The rules themselves are <see cref="TimeblockRules"/>, carried by the engine because the
-/// original kept them in its executable — no script in the game's own archives calls
-/// <c>SetTime</c> at all. What is checked here is that every timeblock has a rule, and that
-/// the clock moves only when everything a timeblock asks for is done.
-/// </remarks>
 public sealed class TimeblockRulesTests
 {
     /// <summary>Everything 110A requires, as noun/verb and topic counts.</summary>

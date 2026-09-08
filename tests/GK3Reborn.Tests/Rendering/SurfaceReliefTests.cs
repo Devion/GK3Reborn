@@ -9,13 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for cutting a floor's height map into its geometry.
 /// </summary>
-/// <remarks>
-/// The failure this guards against is a crack. Every triangle of a floor is cut up
-/// separately, so two of them that share an edge have to arrive at the same vertices along
-/// it independently — and if they do not, the room has a hairline of skybox running across
-/// its floor that only shows from one angle. That is what the lattice is for, and it is
-/// what the first test here checks.
-/// </remarks>
 public sealed class SurfaceReliefTests
 {
     /// <summary>A floor of one or more quads, all on the same object and texture.</summary>
@@ -65,10 +58,6 @@ public sealed class SurfaceReliefTests
     /// <summary>
     /// A square of floor in the XZ plane, with one texture tile over 100 units.
     /// </summary>
-    /// <remarks>
-    /// Wound so the normal points up, which is what a floor's does and what lets a test say
-    /// which way the relief went.
-    /// </remarks>
     private static (Vector3[], Vector2[]) Slab(float fromX, float toX, float fromZ, float toZ) =>
     ([
         new Vector3(fromX, 0, fromZ),

@@ -10,19 +10,6 @@ using System.Runtime.InteropServices;
 namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>What every backdrop stage but the sky is told about the frame.</summary>
-/// <remarks>
-/// <para>
-/// One block for the ground, the impostors and the modelled trees, because all three stand
-/// in the same metric space, are lit by the same sun and are seen through the same air. A
-/// stage reading a different one of these would be a wood floating off its own hillside.
-/// </para>
-/// <para>
-/// A hundred and twenty-eight bytes exactly, which is the push-constant ceiling every
-/// Vulkan implementation is required to offer and the size the Direct3D root signature
-/// reserves thirty-two root constants for. Nothing may be added to it without something
-/// else coming out.
-/// </para>
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public struct TerrainConstants
 {
@@ -42,20 +29,10 @@ public struct TerrainConstants
     /// How far the modelled trees reached, how many kinds of them there are, spare, and the
     /// height the haze thins over.
     /// </summary>
-    /// <remarks>
-    /// The first two are what tells the impostor stage where to start: the cones are drawn
-    /// beyond the band the models cover, and the band is decided per frame by where the
-    /// camera stands. The last is the air. See <c>TerrainShaders.Fragment</c>'s airMass.
-    /// </remarks>
     public Vector4 Haze;
 }
 
 /// <summary>What the generated sky is told about the frame.</summary>
-/// <remarks>
-/// The camera's basis rather than its matrices, for the same reason
-/// <see cref="SkyboxConstants"/> carries one: the ray through a pixel is built forwards
-/// from the basis, never by inverting a projection.
-/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 public struct TerrainSkyConstants
 {
@@ -82,19 +59,6 @@ public struct TerrainSkyConstants
 /// The reconstructed horizon's stages: the ground, its forest as impostors and as models,
 /// and the generated sky behind all three.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Written once, in GLSL, and compiled for whichever backend is asking — the Direct3D side
-/// transpiles it. Lifted out of <c>TerrainPipeline</c> so that the second backend can draw
-/// a backdrop without owning a copy of the recipe: a shader that exists twice is a shader
-/// where the two horizons drift apart, and the drift is a hillside that is a slightly
-/// different colour on one machine.
-/// </para>
-/// <para>
-/// The full recipe and why each rule exists is
-/// <c>ContentWorkspace/enhanced/skyboxes/terrain-plan.md</c>.
-/// </para>
-/// </remarks>
 public static class TerrainShaders
 {
     public const string Vertex = """
@@ -542,21 +506,6 @@ public static class TerrainShaders
         }
         """;
 
-    /// <remarks>
-    /// <para>
-    /// The near band of the same forest, drawn as the models the rooms plant rather than
-    /// as cones. The instance stream is the impostors' own, six floats a tree, so a tree
-    /// that crosses the band changes only what it is built out of — the placement, the
-    /// scale, the yaw and the height jitter are read the same way on both sides, and a
-    /// silhouette that moved as it swapped would be the one thing worse than the cone.
-    /// </para>
-    /// <para>
-    /// Scaled uniformly by its own height. A grown tree is normalised to one unit tall
-    /// with its base at the origin, and the impostor's height for that species is what a
-    /// scale of one means, so the two agree about how tall a given tree is by
-    /// construction.
-    /// </para>
-    /// </remarks>
     public const string TreeModelVertex = """
         #version 450
 

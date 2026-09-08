@@ -3,11 +3,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// Feature tiers selected from queried device capabilities.
 /// </summary>
-/// <remarks>
-/// Plan/01-architecture.md section 5.1. Tiers are additive and cumulative: a device
-/// that supports ray tracing still renders every scene correctly with ray tracing
-/// off, and HDR never prevents raster play.
-/// </remarks>
 [Flags]
 public enum RenderCapabilityTier
 {

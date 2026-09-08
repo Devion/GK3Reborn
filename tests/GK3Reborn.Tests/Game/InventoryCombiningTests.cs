@@ -10,21 +10,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for making one thing out of two, on the shape of the moustache puzzle.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Day one at two: syrup and the fibres off the cat make a moustache, the moustache and
-/// the cap make a disguise, and the disguise is how Gabriel gets the moped. Four
-/// combinations, all of them written as <c>CombineInvItems</c> in <c>INV102P.NVC</c>, and
-/// every one of them guarded by <c>GABE_ALL_INV</c> — which the shipped data defines in
-/// <c>INV_ALL.NVC</c> as being Gabriel with the inventory open.
-/// </para>
-/// <para>
-/// The lines here are the shipped ones, cut down to the first combination. What they check
-/// is the whole path the player takes: the item is offered as a verb on the other item,
-/// only while the inventory is open and only when it is actually carried, and performing
-/// it consumes both and leaves the third.
-/// </para>
-/// </remarks>
 public sealed class InventoryCombiningTests
 {
     private const string Verbs = """

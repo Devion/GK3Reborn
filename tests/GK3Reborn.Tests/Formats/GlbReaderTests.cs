@@ -13,13 +13,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading geometry back out of glTF binary.
 /// </summary>
-/// <remarks>
-/// The property that matters most is the round trip. The toolchain converts a model out to
-/// glTF, somebody improves it in a DCC, and the engine reads the result: if a position or
-/// a texture coordinate moves on the way through, an enhanced model lands somewhere other
-/// than the original it replaces, and that shows up as a tree standing beside its stump
-/// rather than as a parse error.
-/// </remarks>
 public sealed class GlbReaderTests
 {
     private static readonly Vector3[] Triangle =

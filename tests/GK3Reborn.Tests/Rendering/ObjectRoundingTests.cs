@@ -13,12 +13,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// What rounding a scene object may and may not do to it.
 /// </summary>
-/// <remarks>
-/// The first attempt at this shipped a lamp shade whose panels had sagged inward and whose
-/// rim had spiked, so most of what is pinned here is what rounding must <em>not</em> do: no
-/// authored vertex may move, nothing may go inside the shape it started as, and a flat face
-/// must come out flat however many times it is cut up.
-/// </remarks>
 public sealed class ObjectRoundingTests
 {
     /// <summary>A closed lathe of <paramref name="sides"/> sides, as loose triangles.</summary>

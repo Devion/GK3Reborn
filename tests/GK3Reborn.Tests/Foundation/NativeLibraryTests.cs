@@ -8,23 +8,6 @@ namespace GK3Reborn.Tests.Foundation;
 /// <summary>
 /// That Silk.NET can find the native libraries this build produced.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Worth a test of its own because the failure is silent until it is total, and because it
-/// is a failure on one platform only. Silk.NET does its own loading and asks
-/// <c>Microsoft.DotNet.PlatformAbstractions</c> which RID it is running on; on Linux that
-/// answers with the distribution's — <c>ubuntu.24.04-x64</c> — and Silk's map from that to a
-/// portable RID lists sixteen distributions without ubuntu among them. The map fails, no
-/// fallback is produced, and the only directory it looks in is one no package has ever
-/// shipped. Every shader in the tree then fails to compile with "could not load from any of
-/// the possible library names", which reads like a missing package rather than a RID.
-/// </para>
-/// <para>
-/// Both tests below pass on Windows and macOS with or without
-/// <see cref="NativeLibraries"/>, which is the point: this is the only thing in the suite
-/// that would have caught it, and it catches it on the machine where it is wrong.
-/// </para>
-/// </remarks>
 public sealed class NativeLibraryTests
 {
     /// <summary>Where the build put the natives: the packages' own shape, beside the assemblies.</summary>

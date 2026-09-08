@@ -7,10 +7,6 @@
 namespace GK3Reborn.Game.Sidney;
 
 /// <summary>One of the things Sidney's analyze screen can be asked to do.</summary>
-/// <remarks>
-/// The four menus of <c>ESIDNEY.TXT</c>'s analyze screen, minus the ones that are about
-/// drawing on a map. What is here is what the story runs through.
-/// </remarks>
 public enum SidneyAction
 {
     /// <summary>Say what this file is.</summary>
@@ -59,27 +55,6 @@ public enum SidneyAction
 /// <summary>
 /// Sidney, running.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The words are the game's — see <see cref="SidneyLibrary"/> — and this is the machine
-/// underneath them: which file is open, which operations apply to it, what each one says,
-/// and which of them the story is allowed to notice afterwards.
-/// </para>
-/// <para>
-/// <b>What the story notices.</b> Only two things reach the game's own conditions:
-/// <c>DoesSidneyFileExist</c>, which is answered from <see cref="GameState.SidneyFiles"/>,
-/// and the flags an analysis sets when it completes. Everything else here — the text, the
-/// order the menus come in, which operation is offered — is presentation over that, and a
-/// player who never opens the analyze screen is only blocked where the story says so.
-/// </para>
-/// <para>
-/// <b>Operations are offered when they apply.</b> The original left every menu item enabled
-/// and answered "Not implemented yet" or an unhelpful note for the ones that did not fit the
-/// open file. Here a file offers what it can do, which is the same information without
-/// making the player find it by exhaustion — <c>docs/screens.md</c>'s rule that the
-/// interface should never have to be learned.
-/// </para>
-/// </remarks>
 public sealed class SidneyMachine
 {
     private SidneyLibrary _library;
@@ -128,11 +103,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The map, its marks and whatever has been laid over it.
     /// </summary>
-    /// <remarks>
-    /// Read back out of the story whenever the story's copy has moved on without it, which
-    /// is what loading a save looks like from here. The machine is built once and a save may
-    /// be loaded under it at any time, so this cannot be done in the constructor.
-    /// </remarks>
     public SidneyMap Map
     {
         get
@@ -208,18 +178,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// When it is, for the clock in the corner of the screen.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The story's own timeblock rather than the wall clock. Sidney is a machine inside the
-    /// game and a real time of day on it would say the player is not.
-    /// </para>
-    /// <para>
-    /// <b>Said in the string table's words</b> — <c>Day110a = Day 1, 10am - 12pm</c>, and
-    /// <c>Jour 1, 10.00 - 12.00</c> in French — which is the same line the corner of the
-    /// room draws. The port used to build "Day 1  10:00 AM" out of the numbers, which is
-    /// three English words in every language and a different reading of the same block.
-    /// </para>
-    /// </remarks>
     public string Now
     {
         get
@@ -239,11 +197,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="mail">Which message.</param>
     /// <returns>True when it has been read.</returns>
-    /// <remarks>
-    /// A flag on the story, like everything else the machine remembers, so that it survives
-    /// a save. The original had a "NEW E-MAIL" light in the corner of its screen with
-    /// nothing behind it here to turn it off.
-    /// </remarks>
     public bool HasRead(SidneyMail mail)
     {
         ArgumentNullException.ThrowIfNull(mail);
@@ -272,12 +225,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The game's own text, for whatever draws this.
     /// </summary>
-    /// <remarks>
-    /// Settable because the language can be changed while the game is running, and every
-    /// word on these eight screens comes out of <c>ESIDNEY.TXT</c> — which is a different
-    /// file in the new language. Nothing the machine remembers is in here: the files, the
-    /// map, what has been matched and what has been read are all flags on the story.
-    /// </remarks>
     public SidneyLibrary Library
     {
         get => _library;
@@ -295,22 +242,11 @@ public sealed class SidneyMachine
     /// <summary>
     /// The string table, for what the player's own things are called.
     /// </summary>
-    /// <remarks>
-    /// The 293 tooltips are the one family of per-object text GK3 localised, and they are
-    /// what a scanned file should be called: the bag says "Parchemin #1" and Sidney used to
-    /// say "Parchment 1" beside it. Empty in a run with no archives, which is what the
-    /// tests use.
-    /// </remarks>
     public GameStrings Names { get; set; } = GameStrings.None;
 
     /// <summary>
     /// The language the game is being played in, as an ISO 639-1 code.
     /// </summary>
-    /// <remarks>
-    /// It decides only the handful of phrases Sidney says that the 1999 game has no string
-    /// for — see <see cref="SidneyWords"/>. Everything else on the screen comes out of
-    /// <c>ESIDNEY.TXT</c>, which the archives already open through the language pack.
-    /// </remarks>
     public string Language
     {
         get => _language;
@@ -326,11 +262,6 @@ public sealed class SidneyMachine
     public SidneyWords Words => _words ??= new SidneyWords(_library, _language);
 
     /// <summary>Every file that has been scanned in.</summary>
-    /// <remarks>
-    /// Derived from the story rather than kept here, because the story is what a save
-    /// records and what <c>DoesSidneyFileExist</c> reads. Sidney holding its own list would
-    /// be a second answer to the same question.
-    /// </remarks>
     public IReadOnlyList<SidneyFile> Files
     {
         get
@@ -354,11 +285,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="item">Its noun, as the action files spell it.</param>
     /// <returns>The game's own name for it, or the tidied identifier.</returns>
-    /// <remarks>
-    /// The same answer the bag gives, which is the point: <c>ABBE_TAPE</c> is "Tape of
-    /// Abbé's phone call" there and used to be "Abbe Tape" here, and in French it is
-    /// "Enregistrement de l'appel téléphonique de l'abbé" there and was "Abbe Tape" here.
-    /// </remarks>
     public string NameOf(string item) =>
         Names.Item(item) is { Length: > 0 } named ? named : SidneyFiles.Pretty(item);
 
@@ -373,12 +299,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="item">The inventory item.</param>
     /// <returns>What the machine says, or null when it will not take the item.</returns>
-    /// <remarks>
-    /// The story's own script runs separately — the <c>SCANNER</c> verb on that noun, which
-    /// marks the item used and sets <c>SidScanner</c>. What this adds is the file, which is
-    /// the half nothing else does: <c>AddSidneyFile</c> had no caller at all before, so
-    /// every <c>DoesSidneyFileExist</c> in the game answered no for ever.
-    /// </remarks>
     public SidneyResult? Scan(string item)
     {
         if (SidneyFiles.For(item) is not { } file)
@@ -526,22 +446,6 @@ public sealed class SidneyMachine
     /// <c>English</c>, <c>Latin</c> — rather than as the button spelled it.
     /// </param>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// <para>
-    /// Both parchments end by asking what language to break the letters on, and both have
-    /// one right answer and two written wrong ones. The wrong answers are not failures —
-    /// the text for them is in the file, they say what is wrong, and the player may ask
-    /// again — so nothing is lost by picking one.
-    /// </para>
-    /// <para>
-    /// <b>The key, never the word.</b> This used to compare what the button said against
-    /// FRENCH and LATIN, and every release relabels those: the French one offers FRANÇAIS,
-    /// OCCITAN and LATIN, the German one FRANZÖSISCH, DEUTSCH and LATEIN. So in five
-    /// languages out of six the right answer fell through to <c>ParchEnglish</c> — "cannot
-    /// decipher text breaks" — and the Dagobert line the story turns on could not be read
-    /// at all.
-    /// </para>
-    /// </remarks>
     public SidneyResult Answer(string language)
     {
         ArgumentNullException.ThrowIfNull(language);
@@ -602,10 +506,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// What the player says that file is written in, or null.
     /// </summary>
-    /// <remarks>
-    /// The language's key — <c>French</c>, <c>Latin</c> — rather than the word on the
-    /// button, which is different in every release. See <see cref="SidneyChoice"/>.
-    /// </remarks>
     public string? From { get; set; }
 
     /// <summary>Whether the machine is waiting for a string to add to a sentence.</summary>
@@ -710,13 +610,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="suspect">Which of them.</param>
     /// <returns>True once a licence plate has been linked to them.</returns>
-    /// <remarks>
-    /// <b>The game's own screen says this is something that gets determined</b> — its
-    /// refusal for a second licence reads "Vehicle information has already been determined
-    /// for this suspect", which only means anything if there was a point at which it had
-    /// not been. The port printed every suspect's registration the moment the screen was
-    /// opened, which hands the player the answer to the plates they are collecting.
-    /// </remarks>
     public bool KnowsVehicle(SidneySuspect suspect)
     {
         ArgumentNullException.ThrowIfNull(suspect);
@@ -747,11 +640,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="file">The file: a fingerprint, a licence.</param>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// The game's own text carries every refusal — no suspect open, already linked, a
-    /// fingerprint where one is linked already. They are honoured rather than simplified,
-    /// because they are the rules the puzzle is played against.
-    /// </remarks>
     public SidneyResult LinkToSuspect(SidneyFile file)
     {
         ArgumentNullException.ThrowIfNull(file);
@@ -818,14 +706,6 @@ public sealed class SidneyMachine
     /// Runs the fingerprint match against the open suspect.
     /// </summary>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// <b>A known print carries its owner's name, and that is the whole rule.</b>
-    /// ABBE_FINGERPRINT is the Abbe's, and BUCHELLIS_FINGERPRINT_LABELED_WILKES is
-    /// Buchelli's however it is labelled — which is the story point that pair exists to
-    /// make. An <em>unknown</em> print matches nobody, which is exactly what the game's own
-    /// analysis says it is for: bringing it here to be matched against a known one.
-    /// Gabriel's and Grace's prints have their own answers written in the text.
-    /// </remarks>
     public SidneyResult MatchPrint()
     {
         if (Suspect is not { } suspect)
@@ -884,13 +764,6 @@ public sealed class SidneyMachine
     /// <param name="item">The item the file was scanned from.</param>
     /// <param name="suspect">Who it is being tested against.</param>
     /// <returns>True when the item is named after them.</returns>
-    /// <remarks>
-    /// Against the noun the game knows them by, not the surname on the list: the Abbé,
-    /// Estelle and Larry are all named after something else, and comparing surnames left
-    /// their prints matching nobody. A single trailing "s" is dropped from each side, because
-    /// the items are possessive where the nouns are not — <c>BUCHELLIS_FINGERPRINT</c> beside
-    /// <c>BUCHELLI</c> — and <c>WILKES</c> is spelt that way in both.
-    /// </remarks>
     private static bool Belongs(string item, SidneySuspect suspect)
     {
         if (suspect.Noun.Length == 0)
@@ -912,10 +785,6 @@ public sealed class SidneyMachine
     /// <summary>Prints an identity card.</summary>
     /// <param name="identity">Which one.</param>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// Recorded as a flag on the story, because which card Grace is carrying is something
-    /// the game's conditions may read and something a save has to keep.
-    /// </remarks>
     public SidneyResult PrintIdentity(SidneyIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
@@ -948,20 +817,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The shapes the geometry analyses have found, in the order the game names them.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Shapes are earned rather than offered. "The shape has been saved" is what every
-    /// geometry analysis ends with, and until one has been run the map's shape list is
-    /// empty — which is the whole reason to run them.
-    /// </para>
-    /// <para>
-    /// What each grants is what its own text says it found: parchment 2 names "a perfect
-    /// square" and "a circle", Poussin names a triangle and then "hexagram shape", and the
-    /// Teniers analysis names a square four times over. Parchment 1's note is the one that
-    /// names no shape — it says only that the devices "suggest this image" — and it grants
-    /// the circle, which is the figure that locates the site.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<MapShape> Shapes
     {
         get
@@ -1051,13 +906,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Which of the analyze screen's four menus is open, or nought for none.
     /// </summary>
-    /// <remarks>
-    /// The original's analyze screen is four dropdowns — OPEN, TEXT, GRAPHIC and MAP — and
-    /// the port's first pass laid every operation out flat. That is easier to read right up
-    /// until the map, which has eight of them and wrapped onto three rows of a screen that
-    /// is only 640 pixels wide to begin with. The game's own grouping is both the fix and
-    /// what the data describes.
-    /// </remarks>
     public int Menu { get; set; }
 
     /// <summary>
@@ -1085,12 +933,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Which marked place is being dragged, or minus one while none is.
     /// </summary>
-    /// <remarks>
-    /// <b>The original cannot move a place at all</b> — a misplaced click has to be cleared
-    /// and every other place with it. The puzzle is played by clicking villages on a
-    /// photograph and getting one a few pixels out is the ordinary case, so a place can be
-    /// picked up and put down again here.
-    /// </remarks>
     public int Dragging { get; private set; } = -1;
 
     /// <summary>
@@ -1154,13 +996,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// How far into the map the screen is looking, from one.
     /// </summary>
-    /// <remarks>
-    /// <b>The map is 1,368 pixels shown in about 450.</b> Marking the church at
-    /// Rennes-le-Château means clicking a dot three pixels across, and the original's own
-    /// walkthrough says to enter points "on the magnified map" — it has a little map and a
-    /// big one for exactly this reason. Zooming is not part of the puzzle and is not saved:
-    /// it is where the player happens to be looking.
-    /// </remarks>
     public float Zoom { get; private set; } = 1f;
 
     /// <summary>What sits in the middle of the view, in map pixels.</summary>
@@ -1212,19 +1047,6 @@ public sealed class SidneyMachine
     /// Marks the next place the survey itself has a cross on.
     /// </summary>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>An aid to clicking, not an answer to the puzzle.</b> The crosses are three pixels
-    /// across on a map shown in about four hundred and fifty, and a player who knows
-    /// perfectly well that they want Bugarach can still spend a minute failing to hit it.
-    /// This places the next one they have not used; which places matter, and what to make
-    /// of them, is still theirs to work out.
-    /// </para>
-    /// <para>
-    /// Skips a cross already marked — by the working set or by any figure — so pressing it
-    /// four times gives the four the circle wants and not the same one four times.
-    /// </para>
-    /// </remarks>
     public SidneyResult Assist()
     {
         // Asked before anything is drawn, because it draws a great deal. The answer comes
@@ -1245,21 +1067,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="yes">Whether they said to.</param>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Every step it can, in order, and none it cannot.</b> A figure is offered by a
-    /// picture the player has analysed; one they have not earned is one the machine has no
-    /// business knowing about, so the square is drawn only if a parchment gave it up and the
-    /// hexagram only if Poussin's painting did. What it does draw is drawn properly — the
-    /// places are the survey's own crosses and its one ruin — so the flags the story is
-    /// waiting on are set by the ordinary path rather than written directly.
-    /// </para>
-    /// <para>
-    /// It exists because this is a puzzle a player can be genuinely stuck in front of, with
-    /// a timeblock that will not end until the hexagram locks. Being stuck for good is worse
-    /// than being told.
-    /// </para>
-    /// </remarks>
     public SidneyResult Finish(bool yes)
     {
         if (!yes)
@@ -1412,12 +1219,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="shape">The figure.</param>
     /// <returns>The line to show.</returns>
-    /// <remarks>
-    /// <b>How many more places it wants</b> is the one thing the original never says and
-    /// the player most needs. Its own notes only ever report what a finished set turned out
-    /// to be, which leaves somebody four clicks into a six-place figure with no idea whether
-    /// they are nearly there or doing it wrong.
-    /// </remarks>
     private string Note(MapShape shape)
     {
         foreach (LaidShape laid in Map.Laid)
@@ -1493,11 +1294,6 @@ public sealed class SidneyMachine
     /// </summary>
     /// <param name="at">Where, in the map's own pixels.</param>
     /// <returns>What the machine says.</returns>
-    /// <remarks>
-    /// Every mark re-measures the set, because the interesting answer arrives on the fourth
-    /// point and making the player ask for it separately is making them guess that there is
-    /// something to ask about.
-    /// </remarks>
     public SidneyResult Mark(System.Numerics.Vector2 at)
     {
         if (!Map.Enter(at))
@@ -1543,20 +1339,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Which of the game's notes a line between two places earns.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>ESIDNEY.TXT</c> writes five, and which one applies is geography.
-    /// <c>MapLine1Note</c> is the one the whole map puzzle opens on: "A straight line marked
-    /// between the two points intersects with meridian and point 'Arques'" — the sunrise
-    /// line from the church at Rennes-le-Château over the tower at Blanchefort, which runs
-    /// on to Arques. <c>MapLine2Note</c> wants the line tangential to a circle already laid.
-    /// </para>
-    /// <para>
-    /// <b><c>MapLine4Note</c> is not chosen here.</b> "Landmark feature connects points" is
-    /// the snake — the railway north of the site — and the engine has no idea where the
-    /// railway runs. Saying it on a guess would confirm a passage the player had not solved.
-    /// </para>
-    /// </remarks>
     /// <summary>Whether a line was drawn between two named places, either way round.</summary>
     private static bool Between(
         System.Numerics.Vector2 from,
@@ -1647,13 +1429,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Arms the map for marking, or disarms it.
     /// </summary>
-    /// <remarks>
-    /// <b>A toggle, and the map only takes a click while it is on.</b> The picture used to
-    /// be a target the whole time the map was open, so a click meant to reach a menu behind
-    /// the pointer, or a click to dismiss something, put a village on the map — before
-    /// ENTER POINTS had ever been chosen. The original's menu item exists precisely because
-    /// clicking a map is otherwise ambiguous.
-    /// </remarks>
     private SidneyResult Marked()
     {
         Marking = !Marking;
@@ -1759,11 +1534,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// An operation that ends by asking the player something.
     /// </summary>
-    /// <remarks>
-    /// The three languages are offered under their own keys and read back under them. Every
-    /// release relabels them — the French one calls the wrong answer OCCITAN and the German
-    /// one DEUTSCH — while <c>Parch1French</c> stays the right one in all of them.
-    /// </remarks>
     private SidneyResult Asked(string key, string before = "") => new(
         before.Length > 0 ? before + "\n\n" + Say(key) : Say(key),
         Say("Languages"),
@@ -1801,22 +1571,10 @@ public sealed class SidneyMachine
     /// <summary>
     /// The flag an operation sets when it has been run.
     /// </summary>
-    /// <remarks>
-    /// Named so it cannot collide with the story's own flags, and set on the story rather
-    /// than kept here so it survives a save. What Sidney has been asked to do is part of
-    /// the game, not part of the screen.
-    /// </remarks>
     /// <summary>
     /// Records that a figure sits on every marked place.
     /// </summary>
     /// <param name="shape">Which figure.</param>
-    /// <remarks>
-    /// <b>Under the name the game reads.</b> <c>R25307A.NVC</c> will not let its timeblock
-    /// end without <c>GetFlag("LockedHexagram")</c>, and seven conditions across the action
-    /// files ask about <c>LockedSquare</c>. The machine's own
-    /// <c>SidneyShape:Hexagram</c> is kept beside them because the map screen reads it, but
-    /// it is not what the story is listening for.
-    /// </remarks>
     private void Locked(MapShape shape)
     {
         if (shape == MapShape.None)
@@ -1837,20 +1595,6 @@ public sealed class SidneyMachine
     /// <param name="file">The file that was analysed.</param>
     /// <param name="action">What was done to it.</param>
     /// <returns>The flag the story reads, or null where the story does not ask.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>The story asks for these by name and the machine was setting others.</b>
-    /// <c>SidneyDid:fileParchment1:ViewGeometry</c> is the machine's own bookkeeping and
-    /// nothing in the game has ever heard of it; what the action files ask is
-    /// <c>GetFlag("AnalyzedGeomParchment1")</c>. Every such condition answered no, for ever
-    /// — the same fault as <c>AddSidneyFile</c> having had no caller.
-    /// </para>
-    /// <para>
-    /// The four are the two parchments and two of the three paintings, which is exactly the
-    /// set the files are numbered as: <c>filePainting1</c> is the Poussin and
-    /// <c>filePainting3</c> the Teniers without its temple. The third is not asked about.
-    /// </para>
-    /// </remarks>
     private static string? StoryFlag(SidneyFile file, SidneyAction action)
     {
         if (action != SidneyAction.ViewGeometry)

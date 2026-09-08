@@ -29,32 +29,9 @@ internal readonly record struct OutputConstants(Vector4 Tuning, Vector4 Sharpen)
 /// The last thing that happens to a frame: a tone curve, a sharpen, and whatever encoding
 /// the display's colour space wants.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Everything before this writes linear light into a floating-point target, where a value
-/// of one means "diffuse white" and values above it are allowed. That is the only form in
-/// which upscaling, ray tracing and HDR all work; it is also not a picture any display can
-/// accept. This pass turns it into one.
-/// </para>
-/// <para>
-/// It exists in the standard-range path as well, doing almost nothing — a copy with an
-/// optional sharpen — and that is deliberate. Having one place where the frame becomes a
-/// picture is what makes the HDR path a different set of push constants rather than a
-/// different renderer, and what lets the interface keep being drawn afterwards onto the
-/// swapchain in exactly the way it always was.
-/// </para>
-/// <para>
-/// The sharpen is contrast-adaptive: it takes the five-tap cross around a pixel, works out
-/// how much local contrast there is to spend, and sharpens by an amount that cannot
-/// overshoot the neighbourhood. Run over an already-upscaled picture it is what puts back
-/// the acuity a resample costs, and unlike an unsharp mask it will not ring along a hard
-/// edge — which in this game means the hotel's door numbers and Sidney's screen text.
-/// </para>
-/// </remarks>
 internal sealed unsafe class OutputPipeline : IDisposable
 {
     /// <summary>The hardware encodes: write linear and let the sRGB target do the curve.</summary>
-    /// <remarks>The three live on DisplayEncode, which is the block the shader reads.</remarks>
     public const float TransferHardware = DisplayEncode.TransferHardware;
 
     /// <summary>ST.2084, in Rec.2020 primaries, with luminance in absolute nits.</summary>
@@ -106,11 +83,6 @@ internal sealed unsafe class OutputPipeline : IDisposable
     public PipelineLayout Layout { get; }
 
     /// <summary>The format this was built to write into.</summary>
-    /// <remarks>
-    /// Kept so the renderer can tell whether a swapchain rebuild invalidated it. A pipeline
-    /// carries the attachment format it was created with, so one built for an 8-bit sRGB
-    /// swapchain cannot be used to write a 10-bit HDR one.
-    /// </remarks>
     public Format ColorFormat { get; private set; }
 
     /// <summary>Builds the pass.</summary>
@@ -321,11 +293,6 @@ internal sealed unsafe class OutputPipeline : IDisposable
 
     /// <summary>Points the pass at the finished picture.</summary>
     /// <param name="picture">The linear frame, at the size it will be shown.</param>
-    /// <remarks>
-    /// Called whenever that image changes, which is on every resize and every time the
-    /// upscaler is switched — the source is the upscaled image when there is one and the
-    /// rendered one when there is not.
-    /// </remarks>
     public void Bind(ImageView picture)
     {
         if (_set.Handle != 0)

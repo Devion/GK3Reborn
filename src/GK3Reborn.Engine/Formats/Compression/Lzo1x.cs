@@ -6,27 +6,6 @@ namespace GK3Reborn.Formats.Compression;
 /// <summary>
 /// Decompressor for the LZO1X streams used by GK3's Barn archives.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is a managed port of the classic <c>lzo1x_decompress</c>. That routine is
-/// written as a web of <c>goto</c>s between labelled states, and C# will not let a
-/// <c>goto</c> jump into a nested scope, so the labels become an explicit state
-/// machine here. The states and their transitions are named after the originals so
-/// the two can be read side by side — the format is defined by that code rather than
-/// by a specification, and silently "tidying" the control flow is an excellent way to
-/// introduce a corruption that shows up in one asset out of thousands.
-/// </para>
-/// <para>
-/// Unlike the reference, every read and write is bounds-checked against the input and
-/// output spans. A corrupt archive produces a <see cref="FormatParseException"/>
-/// naming the offset, not an out-of-bounds write.
-/// </para>
-/// <para>
-/// Decompressing in managed code rather than binding to native minilzo keeps the
-/// toolchain free of a native dependency that would need building and shipping for
-/// every target platform.
-/// </para>
-/// </remarks>
 public static class Lzo1x
 {
     private const int M2MaxOffset = 0x0800;
@@ -281,11 +260,6 @@ public static class Lzo1x
     /// <summary>
     /// Copies a back-reference one byte at a time.
     /// </summary>
-    /// <remarks>
-    /// The copy must stay byte-wise: matches routinely overlap the write cursor, and a
-    /// block copy would read bytes that have not been produced yet. That overlap is how
-    /// LZO encodes runs.
-    /// </remarks>
     private static void CopyMatch(Span<byte> output, ref int op, int matchPosition, int count, string file)
     {
         if (matchPosition < 0)

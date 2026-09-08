@@ -57,11 +57,6 @@ public readonly record struct SheepToken(
         string.Equals(Text, word, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether this is a name a script gave something of its own.</summary>
-    /// <remarks>
-    /// The language reference is explicit: a user identifier — a function a script defines,
-    /// or a label — <b>ends in a dollar</b>, with no space before it, and a system function
-    /// name does not. It is the only thing that tells the two apart at a call site.
-    /// </remarks>
     public bool IsUserName =>
         Kind == SheepTokenKind.Identifier && Text.EndsWith('$');
 
@@ -77,23 +72,6 @@ public readonly record struct SheepToken(
 /// <summary>
 /// Turns Sheep source into tokens.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Hand-written, as <c>Plan/01-architecture.md</c> section 6 decided: G-Engine's scanner is
-/// flex output and does not port. The rules come from the lexical conventions in the
-/// original team's own <c>SHEEP ENGINE.DOC</c> rather than from reading that output, which
-/// is the whole reason the specification was worth extracting.
-/// </para>
-/// <para>
-/// Four of those rules are not the obvious ones. <b>Underscore counts as a letter</b>, so a
-/// name may start with one. <b>Identifiers are case-insensitive</b>, which is why nothing
-/// downstream compares them with an ordinal comparison. <b>A user identifier ends in a
-/// dollar</b> and the dollar is part of the name. And tokenising is <b>maximal munch</b>:
-/// the next token is the longest string of characters that could be one, which is what
-/// makes <c>&lt;=</c> one token rather than two and <c>&lt;&gt;</c> — the language's second
-/// spelling of "not equal" — a token at all.
-/// </para>
-/// </remarks>
 public sealed class SheepLexer
 {
     /// <summary>Punctuation, longest first, so that maximal munch falls out of the order.</summary>
@@ -205,11 +183,6 @@ public sealed class SheepLexer
     /// <summary>
     /// Reads a number, and says whether it has a fractional part.
     /// </summary>
-    /// <remarks>
-    /// The distinction is the whole of Sheep's static typing at a literal: <c>2</c> is an
-    /// int and <c>2.0</c> is a float, and which one it is decides whether an expression
-    /// containing it compiles to the integer or the floating instruction set.
-    /// </remarks>
     private SheepToken Number(int start, int line)
     {
         bool fractional = false;
@@ -235,11 +208,6 @@ public sealed class SheepLexer
     }
 
     /// <summary>Reads a quoted string.</summary>
-    /// <remarks>
-    /// No escapes. The language reference gives none, and the content agrees: the game's
-    /// strings are asset names, licence plates and nouns. A backslash in one is a
-    /// backslash.
-    /// </remarks>
     private SheepToken Quoted(int start, int line)
     {
         _position++;
@@ -326,7 +294,6 @@ public sealed class SheepLexer
     }
 
     /// <summary>Whether a character may start or continue a name.</summary>
-    /// <remarks>The specification counts underscore as a letter, so a name may begin with one.</remarks>
     private static bool IsLetter(char c) => char.IsAsciiLetter(c) || c == '_';
 
     private FormatParseException Malformed(int offset, string expected, string actual) =>

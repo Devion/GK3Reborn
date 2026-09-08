@@ -13,22 +13,6 @@ namespace GK3Reborn.Foundation.Diagnostics;
 /// <summary>
 /// Where the time went in one scene load.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A wall clock and a list of stamps, because that is what answers the question actually
-/// asked of a slow load: not "how long did it take" — the loader already reports that —
-/// but "which part of it". A profiler answers it too and answers it about a build nobody
-/// is running; this ships, so the number a player reports is the number the loader
-/// measured on their machine.
-/// </para>
-/// <para>
-/// <b>Steps are wall-clock spans between stamps, not the cost of a named call.</b> A stamp
-/// closes whatever has run since the last one, so a step's name has to describe the work
-/// before it. That makes the list total exactly the load, with nothing unattributed —
-/// which is the property that matters, because the time a breakdown loses is the time the
-/// slow thing is hiding in.
-/// </para>
-/// </remarks>
 public sealed class LoadTimeline
 {
     private readonly Stopwatch _clock = Stopwatch.StartNew();
@@ -43,10 +27,6 @@ public sealed class LoadTimeline
 
     /// <summary>Closes the work since the last stamp and names it.</summary>
     /// <param name="step">What ran, in the words somebody reading a log would want.</param>
-    /// <remarks>
-    /// Repeating a name adds to it rather than appending a second row, so a step inside a
-    /// loop — a texture, a model — comes out as one line with its total on it.
-    /// </remarks>
     public void Stamp(string step)
     {
         ArgumentNullException.ThrowIfNull(step);

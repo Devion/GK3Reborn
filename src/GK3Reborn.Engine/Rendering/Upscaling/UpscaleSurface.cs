@@ -15,11 +15,6 @@ namespace GK3Reborn.Rendering.Upscaling;
 /// What it was created for. Vulkan's usage flags; nothing on Direct3D, where a resource
 /// carries its own flags and the runtime can ask.
 /// </param>
-/// <remarks>
-/// Neutral because Streamline is. The runtime takes a handle, a size, a format and a state,
-/// and the only thing that differs between the backends is which numbers those are — which
-/// is why this is a record of numbers rather than an abstraction over two APIs.
-/// </remarks>
 public readonly record struct UpscaleSurface(
     nint Native,
     nint View,

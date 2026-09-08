@@ -31,27 +31,6 @@ public sealed record GlyphOutline(
 /// <summary>
 /// A TrueType font: the outlines, the metrics, and which glyph a character is.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Why this exists at all.</b> GK3's own fonts are bitmap sheets drawn for a 640x480
-/// screen. Magnifying one by a whole number is the best that can be done with it, and on a
-/// modern display the interface is visibly made of enlarged pixels. An outline font is
-/// rasterised at whatever size the window actually is, so the text is crisp everywhere and
-/// the caption ladder stops being a ladder.
-/// </para>
-/// <para>
-/// Written rather than taken from a package, in the same way every other format in this
-/// project is: the game's own parsers are here and this is no harder than the BSP.
-/// </para>
-/// <para>
-/// <b>What is deliberately not read.</b> Hinting instructions are ignored — they are a
-/// bytecode interpreter's worth of work to serve 96-dpi screens that no longer exist, and
-/// a well-made font at menu sizes reads perfectly without them. Kerning lives in
-/// <c>GPOS</c> in modern fonts and is not read either, which costs a little air around a
-/// few pairs and nothing else. <c>CFF</c> outlines — an OpenType font whose curves are
-/// cubic — are refused rather than half-read.
-/// </para>
-/// </remarks>
 public sealed class TrueTypeFile
 {
     private readonly byte[] _data;
@@ -128,10 +107,6 @@ public sealed class TrueTypeFile
     /// <param name="name">What to call it in a diagnostic.</param>
     /// <param name="diagnostics">Where a refusal is reported.</param>
     /// <returns>The font, or null when it is not one this can draw.</returns>
-    /// <remarks>
-    /// Refused rather than guessed at. A font that half-loads draws a menu of blanks, and
-    /// blanks look exactly like a layout bug a long way from here.
-    /// </remarks>
     public static TrueTypeFile? Parse(byte[] data, string name, DiagnosticBag diagnostics)
     {
         ArgumentNullException.ThrowIfNull(data);
@@ -230,10 +205,6 @@ public sealed class TrueTypeFile
     /// <summary>How far the pen moves after a glyph, in font units.</summary>
     /// <param name="glyph">The glyph.</param>
     /// <returns>The advance width.</returns>
-    /// <remarks>
-    /// The last entry of <c>hmtx</c> stands for every glyph after it, which is how a font
-    /// of monospaced digits or a column of identical accents costs two bytes each.
-    /// </remarks>
     public int AdvanceOf(int glyph)
     {
         if (_metrics <= 0)
@@ -249,11 +220,6 @@ public sealed class TrueTypeFile
     /// <summary>Reads a glyph's outline.</summary>
     /// <param name="glyph">Which glyph.</param>
     /// <returns>The outline, or null when the glyph is blank.</returns>
-    /// <remarks>
-    /// A space has no outline and is not an error; nor is a composite glyph, which is one
-    /// or more other glyphs placed and possibly scaled — every accented letter in the
-    /// French this game is set in is one.
-    /// </remarks>
     public GlyphOutline? OutlineOf(int glyph) => Outline(glyph, depth: 0);
 
     private GlyphOutline? Outline(int glyph, int depth)

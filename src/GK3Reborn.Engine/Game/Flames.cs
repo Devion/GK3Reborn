@@ -15,12 +15,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// What sort of fire a flame is.
 /// </summary>
-/// <remarks>
-/// The three bitmap sets the artists painted fires with, and they are three different
-/// fires: a candle is a still teardrop, a hearth is a wood fire with tongues that come
-/// away from it, and the temple's bowl is a body of burning fuel. Nothing else separates
-/// them — the models are all the same flat card — so the bitmap is the evidence.
-/// </remarks>
 public enum FlameKind
 {
     /// <summary>
@@ -50,31 +44,14 @@ public readonly record struct Flame(
     /// How large the fire is, from nought for the smallest flame in the game to one for the
     /// largest.
     /// </summary>
-    /// <remarks>
-    /// The corpus's flames run from a chafing dish's sterno at 1.4 units tall to the
-    /// temple's bowl of fire at 12.6, with the candles, lanterns and braziers between. It
-    /// is the one measurement that separates them, and everything about how a flame behaves
-    /// is scaled off it: how far its light swings, how quickly, and how much smoke it makes.
-    /// </remarks>
     public float Size => Math.Clamp((Height - 1.5f) / 10f, 0f, 1f);
 
     /// <summary>How far its light swings either side of the light the artists set.</summary>
-    /// <remarks>
-    /// A candle wavers by about a tenth and a bonfire surges by a quarter, which is what
-    /// these two numbers say. Larger than either and a room reads as a strobe rather than
-    /// as a room with a fire in it.
-    /// </remarks>
     public float Swing => 0.10f + (0.15f * Size);
 
     /// <summary>
     /// How fast it swings, as the base frequency of the flicker in hertz.
     /// </summary>
-    /// <remarks>
-    /// <b>Larger fires flicker more slowly.</b> A candle is nervous — a small flame is
-    /// pushed about by every draught in the room — and a bonfire surges, because the mass
-    /// of burning gas above it takes time to move. Reading it the other way round is the
-    /// single thing that makes an artificial fire look artificial.
-    /// </remarks>
     public float Rate => 2.2f - (0.9f * Size);
 
     /// <summary>What sort of fire it is; see <see cref="FlameKind"/>.</summary>
@@ -84,18 +61,6 @@ public readonly record struct Flame(
     /// Which of the model's groups draw the flame card, so that they can be taken out of
     /// the picture.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The card is the 1999 fire: a flat quad with a bitmap cycled over it. The volume
-    /// drawn in its place is the whole point of drawing a fire as a shader, and the two
-    /// cannot both be there — the card is opaque where it is lit, so it would stand as a
-    /// grey-brown rectangle in the middle of the flame. See <see cref="Flames.Hide"/>.
-    /// </para>
-    /// <para>
-    /// A list rather than one pair, because a flame card is usually modelled twice, back
-    /// to back, and both halves are one fire.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<(int Mesh, int Submesh)> Cards
     {
         get => _cards ?? [];
@@ -108,18 +73,6 @@ public readonly record struct Flame(
     /// Which part of the card the artists actually painted a flame on: how far up the foot
     /// of it is, how far up the tip, and how much of the width it takes, all as fractions.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>A flame card is nearly always bigger than the flame on it.</b> The bar's fire is
-    /// a quad twenty-four units tall with a low fire painted across the bottom third of it;
-    /// TE4's bowl fills nearly all of its own. Reading the card as the fire makes the bar's
-    /// hearth two and a half times the size it has ever been — a bonfire in a fireplace.
-    /// </para>
-    /// <para>
-    /// Nought to one over the whole card when nothing has measured it, which is what
-    /// <see cref="Flames.In"/> gives when it is not handed anything to read bitmaps with.
-    /// </para>
-    /// </remarks>
     public Vector3 Paint
     {
         get => _paint == default ? new Vector3(0f, 1f, 1f) : _paint;
@@ -129,10 +82,6 @@ public readonly record struct Flame(
     private readonly Vector3 _paint;
 
     /// <summary>How wide the plume is at its widest, in world units.</summary>
-    /// <remarks>
-    /// Half of as much of the card's width as carries any flame. The volume is allowed to
-    /// lean and lick outside that — see the shader — but this is the body of it.
-    /// </remarks>
     public float Radius => MathF.Max(Width * Paint.Z / 2f, 0.05f);
 
     /// <summary>Where the flame stands, at the bottom of the card.</summary>
@@ -147,27 +96,11 @@ public readonly record struct Flame(
     /// <summary>
     /// How fast the shape of the fire itself moves, as a multiplier on the clock.
     /// </summary>
-    /// <remarks>
-    /// The same reading as <see cref="Rate"/> and for the same reason: a small flame is
-    /// pushed about by every draught and a large one takes time to move. This is the shape
-    /// rather than the light, so it is slower than the flicker — a fire that changes
-    /// outline twice a second is a fire in a film played at the wrong speed.
-    /// </remarks>
-    /// <remarks>
-    /// Steeper than it was, reported as a hanging lantern being "way too static": a candle
-    /// at 1.4 was a shape that moved once every second and a half, which for something the
-    /// size of a thumb reads as a painting of a flame rather than as one.
-    /// </remarks>
     public float Churn => 2.6f - (1.7f * Size);
 
     /// <summary>
     /// Where in its own cycle this fire is, so that no two in a room burn in step.
     /// </summary>
-    /// <remarks>
-    /// From where it stands rather than from a stream, because it has to be the same on
-    /// every run and in both backends, and because CS6's twelve lanterns burning as one is
-    /// the thing that gives a room away.
-    /// </remarks>
     public float Phase =>
         MathF.Abs(((Position.X * 0.317f) + (Position.Y * 0.113f) + (Position.Z * 0.531f))
             % 97f);
@@ -176,39 +109,9 @@ public readonly record struct Flame(
 /// <summary>
 /// Finds the open flames in a room.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 draws every fire in the game the same way: a flat quad, always facing the camera,
-/// painted with a flame bitmap that a behaviour script cycles through two to eight frames
-/// of for as long as the room is loaded. <c>model=te4firetransp, type=gasprop,
-/// gas=te4Fire.gas</c> is the temple's bowl of fire, and <c>ANIM Te4FireTransp / LOOP</c>
-/// is the whole of the script.
-/// </para>
-/// <para>
-/// So a flame is found by what it is painted with, and there are three bitmaps: the
-/// generic <c>CS5FLAME</c> that does for candles, lanterns and chafing dishes across seven
-/// rooms, the temple's own <c>TE4FIRETRANSP</c>, and the <c>TE2FIRE</c> set that the
-/// hotel bar, the chapel and the temple's brazier share. Nothing else in the corpus is an
-/// open flame, and no room's own geometry carries one — every fire in the game is a model
-/// the scene places.
-/// </para>
-/// <para>
-/// <b>The authored texture is not enough.</b> Three of them — the bar's fire, the chapel's
-/// and the brazier — ship painted with something else entirely (<c>RL2FLOOR</c>,
-/// <c>TE1CLMS</c>) and become fire only when their script's first <c>[MTEXTURES]</c> line
-/// lands. A model is a flame if <em>any</em> texture it ever draws is one, which is what
-/// reading its behaviour script is for.
-/// </para>
-/// </remarks>
 public static class Flames
 {
     /// <summary>The bitmaps that are an open flame, by the prefix their names share.</summary>
-    /// <remarks>
-    /// Prefixes because every one of them is a numbered set: <c>CS5FLAME</c>,
-    /// <c>CS5FLAME01</c>, <c>CS5FLAME02</c>; <c>TE4FIRETRANSP1</c> through
-    /// <c>TE4FIRETRANSP8</c>; and <c>TE2FIRESM1</c> through <c>TE2FIREHI7T</c>, which is a
-    /// fire in three sizes with a blend between each pair.
-    /// </remarks>
     private static readonly (string Bitmap, FlameKind Kind)[] Bitmaps =
     [
         ("CS5FLAME", FlameKind.Candle),
@@ -219,12 +122,6 @@ public static class Flames
     /// <summary>
     /// How far apart two flame cards of one model have to be to be two flames.
     /// </summary>
-    /// <remarks>
-    /// A flame card is usually modelled twice, back to back, so that it draws from either
-    /// side; both copies occupy the same place and are one fire. <c>TE6_CANDLES</c> is the
-    /// case that says the merge cannot simply be "one model, one flame": it is five candles
-    /// around a tomb in a single file, a hundred units apart.
-    /// </remarks>
     private const float SameFlame = 2f;
 
     /// <summary>Whether a bitmap is an open flame.</summary>
@@ -235,11 +132,6 @@ public static class Flames
     /// <summary>What sort of fire a bitmap is.</summary>
     /// <param name="texture">The texture's name, with or without an extension.</param>
     /// <returns>The kind, or null when it is not a flame at all.</returns>
-    /// <remarks>
-    /// The bitmap is the only evidence there is. Every fire in the game is the same flat
-    /// card with the same script over it, so what tells the temple's bowl of fire from a
-    /// candle in a lantern is which of the three sets was painted onto it.
-    /// </remarks>
     public static FlameKind? KindOf(string? texture)
     {
         if (texture is not { Length: > 0 })
@@ -441,14 +333,6 @@ public static class Flames
     /// The lowest and highest painted row as fractions of the image from the top, and the
     /// painted fraction of its width; the whole image when there is nothing to read.
     /// </returns>
-    /// <remarks>
-    /// <b>Alpha, because these bitmaps are colour-keyed.</b> GK3 marks a texture alpha-tested
-    /// by its top-left pixel being magenta, and the decoder turns that magenta into
-    /// transparency — so a flame bitmap arrives with nothing anywhere the flame is not. A
-    /// threshold rather than any alpha at all: the edge of a keyed shape is a fringe of
-    /// nearly-transparent texels once it has been filtered, and counting those puts the tip
-    /// of the flame a few rows higher than it is.
-    /// </remarks>
     private static Vector3 Painting(
         string? texture,
         ModSubmesh group,
@@ -517,13 +401,6 @@ public static class Flames
     /// <summary>
     /// Turns a band of a bitmap into a band of the card, the way the card is textured.
     /// </summary>
-    /// <remarks>
-    /// The rows are measured from the top of the image and the card is measured from its
-    /// foot, and which way round the two are is the card's own business: a quad may be
-    /// textured either way up. So the mapping is taken from the card itself — the texture
-    /// coordinate at its lowest corner against the one at its highest — rather than
-    /// assumed, and a card textured upside down comes out the same way as one that is not.
-    /// </remarks>
     private static Vector3 Along(
         ModSubmesh group, Vector3[] positions, Matrix4x4 toWorld, Vector3 band)
     {
@@ -585,29 +462,6 @@ public static class Flames
     /// <see cref="Rendering.ISceneSink.SceneObjectBoxes"/>.
     /// </param>
     /// <returns>One entry per object lying in a fire, with the fire it is lying in.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>It finds one thing in the whole game, and that is the point.</b> TE4's bowl of
-    /// fire has a stone at the bottom of it — <c>te4stonefire_scene</c>, a pebble 1.8 units
-    /// across in a bowl ten deep — and taking it out with the right glove is the room's
-    /// puzzle. The flame card is opaque where it is lit, so from anywhere but straight
-    /// above there is nothing in the bowl but fire, and the player is told about the stone
-    /// only by a line of Gabriel's and the scene's own close-up camera.
-    /// </para>
-    /// <para>
-    /// So a thing lying in a fire is given a glint: one still, warm spark held over it,
-    /// drawn in front of the flame rather than inside it. It is not the original's
-    /// behaviour and it is not meant to be — reported as "the fire stone is very hard to
-    /// see unless the camera is pointed straight down into the fire", and the answer is to
-    /// make the fire say there is something in it.
-    /// </para>
-    /// <para>
-    /// The test is geometric rather than a name: an object whose middle is inside the
-    /// flame's own footprint and below its top. Nothing else in the corpus's 49 fires is
-    /// standing in one — the flames sit in lanterns and chafing dishes the room draws as
-    /// part of the wall, which carry no object name of their own.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<(Flame Fire, string Object, Vector3 Centre)> Holding(
         IReadOnlyList<Flame> flames,
         IReadOnlyList<(string Name, Vector3 Minimum, Vector3 Maximum)> objects)
@@ -654,27 +508,6 @@ public static class Flames
     /// <param name="flames">The fires; see <see cref="In"/>.</param>
     /// <param name="models">The models the scene loaded, so the cards can be found again.</param>
     /// <returns>How many cards were taken out of the picture.</returns>
-    /// <remarks>
-    /// <para>
-    /// The 1999 fire is a flat quad with a bitmap cycled over it, and it is what the volume
-    /// drawn by <see cref="Rendering.Shaders.ParticleShaders"/> replaces. The two cannot
-    /// both be drawn: the card is opaque where it is lit and it writes depth, so a fire
-    /// with its card still standing is a flame with a brown rectangle through the middle
-    /// of it.
-    /// </para>
-    /// <para>
-    /// <b>By part rather than by model.</b> A flame is often one group of something larger
-    /// — a lantern, a chafing dish, a candlestick — and hiding the model would take the
-    /// lantern with it. It also has to survive a script: TE6 keeps its candles hidden until
-    /// somebody lights them, and <c>ShowModel</c> puts back the model without putting back
-    /// a part that was switched off separately, which is exactly the behaviour wanted here.
-    /// </para>
-    /// <para>
-    /// What it cannot do is take the card out of the traced world — one instance stands for
-    /// a whole model, so a hidden card still occludes a shadow ray, which is what it did
-    /// while it was being drawn.
-    /// </para>
-    /// </remarks>
     public static int Hide(IReadOnlyList<Flame> flames, IReadOnlyList<PlacedModel> models)
     {
         ArgumentNullException.ThrowIfNull(flames);

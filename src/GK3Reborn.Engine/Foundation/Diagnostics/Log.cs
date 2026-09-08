@@ -7,30 +7,6 @@ namespace GK3Reborn.Foundation.Diagnostics;
 /// <summary>
 /// Everything the game says about itself: on the console, and in <c>log.txt</c>.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A console line is gone the moment the window closes, and on Linux and macOS a game
-/// started from a desktop launcher or from Finder has no console at all - stdout goes
-/// nowhere a player can reach. Somebody whose game will not start therefore has nothing
-/// to send back, and every report of it reduces to a guess. A file fixes that: it is
-/// written whether or not anybody is watching, it survives the crash that produced it,
-/// and it can be attached to a bug report.
-/// </para>
-/// <para>
-/// The console text is deliberately unchanged by going through here - same wording, same
-/// stream, same order, no timestamps or severity tags in front of it. The file is the one
-/// that carries the machinery, because the file is the one being read after the fact by
-/// somebody who was not there. <see cref="Detail"/> is the other half of that split: the
-/// candidates a search walked through and the sizes of things belong in the file and
-/// nowhere near a player's screen.
-/// </para>
-/// <para>
-/// One log per process, so this is static: everything that has something to say already
-/// reaches <c>Console</c> from wherever it is, and threading a logger through the engine
-/// to replace a call that was already global would buy nothing. <see cref="LogFile"/> is
-/// the part with decisions in it, and that is an ordinary object.
-/// </para>
-/// </remarks>
 public static class Log
 {
     private static readonly Lock _gate = new();
@@ -80,11 +56,6 @@ public static class Log
     /// executable on an ordinary install, and in the user's own directory when the install
     /// is read-only, which is what a macOS <c>.app</c> in <c>/Applications</c> is.
     /// </param>
-    /// <remarks>
-    /// Failing to open the file is not a failure to start the game. The reason is kept in
-    /// <see cref="Unavailable"/> so that whoever reports the environment can say it out
-    /// loud once, and everything afterwards goes to the console alone.
-    /// </remarks>
     public static void Open(string? directory = null)
     {
         lock (_gate)
@@ -134,9 +105,6 @@ public static class Log
     /// Says something without ending the line on the console.
     /// </summary>
     /// <param name="text">Text that already carries whatever newlines it wants.</param>
-    /// <remarks>
-    /// For blocks that are assembled whole, such as the graphics survey.
-    /// </remarks>
     public static void Write(string text)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -161,12 +129,6 @@ public static class Log
 
     /// <summary>Says what a diagnostic says, at the severity it carries.</summary>
     /// <param name="diagnostic">The diagnostic.</param>
-    /// <remarks>
-    /// All three severities go to the error stream, which is where diagnostics have always
-    /// gone and where anybody redirecting them expects them. The severity decides how the
-    /// line is tagged in the file, which is what makes a log greppable for the errors in
-    /// among a scene's ordinary complaints about missing assets.
-    /// </remarks>
     public static void Report(Diagnostic diagnostic)
     {
         ArgumentNullException.ThrowIfNull(diagnostic);
@@ -186,11 +148,6 @@ public static class Log
     /// Records something in the file that the player has no reason to read.
     /// </summary>
     /// <param name="message">The line, as somebody debugging should read it.</param>
-    /// <remarks>
-    /// The directories a search looked in, the sizes of what it found, the order things
-    /// happened in. Nothing here is a problem; all of it is what turns "the game will not
-    /// start" into a diagnosis without another round trip to the person reporting it.
-    /// </remarks>
     public static void Detail(string message)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -212,10 +169,6 @@ public static class Log
     }
 
     /// <summary>Flushes and closes the file.</summary>
-    /// <remarks>
-    /// Every write is flushed already, so this is tidiness rather than safety. It runs on
-    /// process exit, which a crash does not always reach - hence the flushing.
-    /// </remarks>
     public static void Close()
     {
         lock (_gate)
@@ -226,7 +179,6 @@ public static class Log
     }
 
     /// <summary>Writes what a reader needs before the first line means anything.</summary>
-    /// <remarks>Call under <c>_gate</c>.</remarks>
     private static void Header()
     {
         Assembly engine = typeof(Log).Assembly;
@@ -265,7 +217,6 @@ public static class Log
     }
 
     /// <summary>Writes to the file, if there still is one.</summary>
-    /// <remarks>Call under <c>_gate</c>.</remarks>
     private static void Record(Level level, string message)
     {
         if (_file is null)

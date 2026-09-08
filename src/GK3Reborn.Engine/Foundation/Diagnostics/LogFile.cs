@@ -7,31 +7,12 @@ namespace GK3Reborn.Foundation.Diagnostics;
 /// <summary>
 /// The file half of <see cref="Log"/>: where it goes, what it replaces, how a line reads.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Separate from <see cref="Log"/> because everything here has a wrong answer worth
-/// catching - a run that silently overwrote the crash it was opened to explain, two
-/// processes interleaving into one file, a multi-line message that arrives as one
-/// unreadable line - and none of it can be tested through a static that opens itself once
-/// per process.
-/// </para>
-/// <para>
-/// Nothing here throws. A game that cannot write a log is a game with no log, not a game
-/// that will not start, and the caller learns why through <c>failure</c> rather than
-/// through an exception it would have to handle at every call.
-/// </para>
-/// </remarks>
 public sealed class LogFile : IDisposable
 {
     /// <summary>The name of the file a run writes.</summary>
     public const string FileName = "log.txt";
 
     /// <summary>The name the previous run's file is kept under.</summary>
-    /// <remarks>
-    /// A player whose game crashes restarts it, and a restart that overwrote the log would
-    /// destroy the evidence in the moment it was asked for. One generation back is enough
-    /// to survive that reflex.
-    /// </remarks>
     public const string PreviousFileName = "log.previous.txt";
 
     /// <summary>What a name's claim file is called: the log's own name, and this.</summary>
@@ -56,15 +37,6 @@ public sealed class LogFile : IDisposable
     /// <param name="directory">Where to write. Created if it does not exist.</param>
     /// <param name="failure">Why there is no file, when none could be opened.</param>
     /// <returns>The open file, or null.</returns>
-    /// <remarks>
-    /// The fallback to a per-process name covers two copies of the game running at once,
-    /// which is ordinary enough - a player comparing settings, a developer with a headless
-    /// run beside a windowed one. Two processes interleaving lines into one file would
-    /// produce something nobody can read, so the second one gets its own rather than
-    /// spoiling the first one's. Which run a name belongs to is settled by
-    /// <see cref="Claim"/> before anything on disk is touched, so a second copy neither
-    /// truncates the first one's file nor rotates it out from under it.
-    /// </remarks>
     public static LogFile? Open(string directory, out string? failure)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
@@ -134,11 +106,6 @@ public sealed class LogFile : IDisposable
     /// <param name="tag">The severity column, already padded.</param>
     /// <param name="message">The message, which may span lines.</param>
     /// <returns>True while the file is still being written.</returns>
-    /// <remarks>
-    /// A message is split rather than written whole because a timestamped line is the unit
-    /// a log is read in: a grep for an error should not return a fragment of a paragraph
-    /// whose first line carried the time.
-    /// </remarks>
     public bool Write(string tag, string message)
     {
         ArgumentNullException.ThrowIfNull(message);
@@ -215,17 +182,6 @@ public sealed class LogFile : IDisposable
     /// <param name="path">The log the claim is for.</param>
     /// <returns>The handle to hold for the life of the file.</returns>
     /// <exception cref="IOException">Another run holds the name.</exception>
-    /// <remarks>
-    /// A file of its own rather than the log itself, because the two things wanted of the
-    /// log pull apart. It has to stay readable while the game runs, which means opening it
-    /// with FileShare.Read - and that is the share mode the platforms disagree about.
-    /// Windows enforces it and refuses a second writer outright; on Linux and macOS a share
-    /// mode is an advisory flock, and everything short of FileShare.None is a shared one,
-    /// which two runs can hold at the same time. There the second copy of the game would
-    /// open the same log.txt, truncate it and interleave into it - the exact failure the
-    /// per-process names exist to prevent. FileShare.None is the one mode both platforms
-    /// enforce, and nothing ever needs to read a lock file.
-    /// </remarks>
     private static FileStream Claim(string path) =>
 
         // Not deleted on close. A claim outliving its run costs an empty file in the log

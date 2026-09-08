@@ -63,20 +63,6 @@ public readonly record struct AssetClassification(AssetKind Kind, string Basis, 
 /// <summary>
 /// Identifies assets from their contents rather than their names.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Extensions cannot be trusted in this corpus. Of 7,852 audio assets in the retail
-/// archives, only 1,170 are named <c>.WAV</c>; the rest carry three-character codes
-/// as their extension - <c>.N61</c>, <c>.6J1</c>, <c>.B61</c> and 2,744 others - which
-/// is why the archives appear to hold 2,775 distinct file types when they hold on the
-/// order of a dozen. Classifying by name would mishandle 85% of the game's audio.
-/// </para>
-/// <para>
-/// Several binary formats write their tag in little-endian order, so a model reads as
-/// <c>LDOM</c> rather than <c>MODL</c> and a lightmap as <c>TLUM</c>. The tags below
-/// are written as they appear on disk.
-/// </para>
-/// </remarks>
 public static class AssetClassifier
 {
     private static readonly (byte[] Magic, AssetKind Kind, string Description)[] BinarySignatures =
@@ -135,11 +121,6 @@ public static class AssetClassifier
     /// <summary>
     /// Decides whether a buffer is text.
     /// </summary>
-    /// <remarks>
-    /// GK3's text assets are Latin-1, and use CRLF - sometimes CR CR LF - line endings.
-    /// Anything mostly printable is treated as text. A NUL in the middle of content is a
-    /// reliable sign of a binary format, but a trailing NUL is just a terminator.
-    /// </remarks>
     private static bool LooksLikeText(ReadOnlySpan<byte> head)
     {
         // Several text assets are NUL-terminated, so a NUL at the very end says nothing

@@ -19,11 +19,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the headset Gabriel wears in the temple, and for the button that opens it.
 /// </summary>
-/// <remarks>
-/// The action files below are the corpus's own, transcribed: the porch's four tile nouns
-/// and the workroom's seven scales are the two places in the game where several nouns are
-/// one radio conversation, and they are the whole reason this has a folding rule at all.
-/// </remarks>
 public sealed class RadioTests
 {
     private static ActionResolver Resolver(GameState state, string file)

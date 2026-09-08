@@ -16,21 +16,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the code the eleven rooms need that their data cannot express.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reported as "the button on the desk makes a sound, but nothing happens in the scene".
-/// It should turn on five laser heads. <c>CallSceneFunction</c> is the one call the whole
-/// family arrives through, and the port resolved it as a Sheep function in the script
-/// named after the location — where there is none, for any of the corpus's 43 calls. Every
-/// puzzle behind it was inert and silent about it.
-/// </para>
-/// <para>
-/// What is checked here is the part that can be: which room gets which mechanism, that a
-/// word reaches it, that a waited call is priced before it is made, and the arithmetic
-/// each one does. Where the props actually end up is a picture, and is checked by looking
-/// at one.
-/// </para>
-/// </remarks>
 public sealed class SceneMechanismTests
 {
     private const string Chateau = """
@@ -648,11 +633,6 @@ public sealed class SceneMechanismTests
     /// <summary>
     /// Gives the board somewhere to put its sprites.
     /// </summary>
-    /// <remarks>
-    /// <see cref="SceneMechanism.Begin"/> measures this off the room's own geometry, and the
-    /// room these tests run in counts instead of drawing. Eight squares of fifty units on a
-    /// grid is the shape of the thing, which is all any of this needs.
-    /// </remarks>
     private static void Measured(Chessboard board)
     {
         var middles = (Vector3?[,])typeof(Chessboard)

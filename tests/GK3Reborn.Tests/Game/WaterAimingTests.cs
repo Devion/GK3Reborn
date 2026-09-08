@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the aiming the cut crow's-nest puzzle ends in.
 /// </summary>
-/// <remarks>
-/// One number in it is not a choice — the case in the game's own action file is called
-/// <c>ON_NEST_FOR_10_SECONDS</c> — and everything else is, so what is pinned here is that
-/// it is a thing to do rather than a thing to wait through, that it is forgiving, and that
-/// it does not get easier on a faster machine.
-/// </remarks>
 public sealed class WaterAimingTests
 {
     [Fact]

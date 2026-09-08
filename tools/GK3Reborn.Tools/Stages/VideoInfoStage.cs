@@ -9,19 +9,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Says which movies a run could play, where each comes from, and whether it decodes.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The same question the game asks, asked without a window: a movie has to be found — in a
-/// ReBarn pack or loose in the workspace — opened, and decoded to pixels. Each of those can
-/// fail on its own and the failures look alike from the outside, which is what this is for.
-/// </para>
-/// <para>
-/// It decodes rather than probing. A container's header will happily report a resolution
-/// and a duration for a file whose frames are missing or whose codec the decoder was not
-/// built with, so the only answer worth having comes from asking for the pixels and
-/// looking at them.
-/// </para>
-/// </remarks>
 public sealed class VideoInfoStage
 {
     private readonly Action<string> _log;

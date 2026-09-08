@@ -16,20 +16,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws the interface on top of the room, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One pipeline, one atlas and one vertex buffer. The interface is a few hundred rectangles
-/// at most and they all come from the same sheet, so the only thing that breaks the draw
-/// into more than one is a screen showing one of the game's own pictures — a map, a scan of
-/// a parchment — which is bound in place of the atlas for the stretch of quads that use it.
-/// </para>
-/// <para>
-/// <b>The vertex buffer is written every frame and read for the life of that frame.</b> With
-/// frames in flight that means one buffer per frame of the ring, not one shared: writing the
-/// buffer the device is still drawing from is the oldest hazard in the renderer and it shows
-/// up as an interface that flickers between two layouts rather than as a crash.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12OverlayPass : IDisposable
 {
     /// <summary>The most pictures the interface can hold at once.</summary>
@@ -39,14 +25,6 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     /// <summary>
     /// The most rectangles one frame of interface may hold.
     /// </summary>
-    /// <remarks>
-    /// Four thousand was enough for a screen of panels and words and is not enough for
-    /// Sidney's map: a circle drawn as axis-aligned rectangles costs about its
-    /// circumference, and four figures laid over a 4K map come to five and a half thousand
-    /// between them. Sixteen thousand is about three megabytes a frame in flight, which is
-    /// nothing beside a texture, and leaves the room the warning below is there to notice
-    /// running out of.
-    /// </remarks>
     private const int Capacity = 16384;
 
     private readonly D3D12Context _context;
@@ -162,13 +140,6 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     /// <summary>Builds the pipeline again, for a target of another format.</summary>
     /// <param name="format">What the target now holds.</param>
     /// <exception cref="D3D12Exception">The pipeline could not be built.</exception>
-    /// <remarks>
-    /// Called when the window moves onto a high dynamic range display or off one, which
-    /// changes the swapchain's format under everything built for it. Only the pipeline is
-    /// rebuilt: the atlas, the pictures and the vertex buffers know nothing about the format
-    /// and an interface that lost its letters every time a display changed would be a worse
-    /// bug than the one this fixes.
-    /// </remarks>
     public void Retarget(Format format)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -200,10 +171,6 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     /// <summary>Puts one of a screen's own pictures on the device.</summary>
     /// <param name="image">The picture.</param>
     /// <returns>Its index in the picture list, counting from one.</returns>
-    /// <remarks>
-    /// Counted from one because nought means the atlas. A quad with no picture is a glyph,
-    /// and a glyph is much the commonest thing the interface draws.
-    /// </remarks>
     public int AddPicture(DecodedImage image)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

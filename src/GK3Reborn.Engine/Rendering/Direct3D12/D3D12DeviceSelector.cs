@@ -10,43 +10,15 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Finds out what Direct3D adapters the machine has and what they can do.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The counterpart of <c>VulkanDeviceSelector</c>, and it answers the same question in a
-/// different vocabulary. Vulkan asks whether an extension is present; Direct3D asks what
-/// tier a capability reached, and the interesting tiers are not the ones a reader would
-/// guess. Ray tracing is the case that matters here: <c>Tier_1_0</c> is DXR with a ray
-/// generation shader and a shader table, which this renderer does not use at all, and
-/// inline ray tracing — <c>RayQuery</c>, which is all it uses — arrived in
-/// <c>Tier_1_1</c>. A device at Tier 1.0 must therefore be told it cannot ray trace, even
-/// though it plainly can, because it cannot do it the way these shaders ask.
-/// </para>
-/// <para>
-/// Surveying is deliberately separate from using. It creates a device, asks it questions
-/// and destroys it again, so that the startup report can say what the machine has before
-/// anything has committed to running on it — and so that a machine with no Direct3D at all
-/// gets a report saying so rather than an exception.
-/// </para>
-/// </remarks>
 public static unsafe class D3D12DeviceSelector
 {
     /// <summary>
     /// The shader model the renderer's shaders are compiled against.
     /// </summary>
-    /// <remarks>
-    /// 6.5, expressed the way Direct3D does: the high nibble is the major version. It is
-    /// the floor for <c>RayQuery</c>, so a device that cannot reach it cannot run the
-    /// ray-traced shaders whatever its ray-tracing tier says.
-    /// </remarks>
     internal const uint RequiredShaderModel = 0x65;
 
     /// <summary>Surveys every Direct3D 12 adapter on the machine.</summary>
     /// <returns>What was found, and which one would be used.</returns>
-    /// <remarks>
-    /// Never throws for a machine that simply has no Direct3D. A report that says so is
-    /// what the startup log wants and what the backend selector needs in order to fall
-    /// back to Vulkan.
-    /// </remarks>
     public static DeviceReport Survey()
     {
         if (!OperatingSystem.IsWindows())
@@ -153,11 +125,6 @@ public static unsafe class D3D12DeviceSelector
     /// <summary>Whether the debug layer is installed and could be turned on.</summary>
     /// <param name="d3d12">The API.</param>
     /// <returns>True if it is there.</returns>
-    /// <remarks>
-    /// It is an optional Windows feature rather than part of the runtime, and asking for it
-    /// when it is absent fails device creation outright rather than degrading. So it is
-    /// checked, not assumed — the same reason the Vulkan side checks for its layers.
-    /// </remarks>
     internal static bool HasDebugLayer(D3D12 d3d12)
     {
         ComPtr<ID3D12Debug> debug = default;
@@ -176,15 +143,6 @@ public static unsafe class D3D12DeviceSelector
     /// <summary>Which adapter the renderer would run on.</summary>
     /// <param name="adapters">Every adapter found, in the order DXGI preferred them.</param>
     /// <returns>The one to use, or null when there is nothing to use.</returns>
-    /// <remarks>
-    /// DXGI has already sorted them by its own idea of performance, so the ordering is
-    /// taken as given and only one thing is overridden: a software adapter is chosen last
-    /// however DXGI ranked it. WARP draws every frame correctly and takes about a minute
-    /// over each one, so a machine that silently picked it would look like a machine that
-    /// had hung. It stays in the report — a log from a machine with nothing else should say
-    /// what it had — and it is still chosen if it is genuinely all there is, because a very
-    /// slow game is worth more than a refusal to start.
-    /// </remarks>
     private static AdapterInfo? Select(List<AdapterInfo> adapters) =>
         adapters.FirstOrDefault(a => !a.Kind.Equals("software", StringComparison.Ordinal))
         ?? adapters.FirstOrDefault();

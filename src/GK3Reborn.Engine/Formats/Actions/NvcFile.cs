@@ -5,10 +5,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Formats.Actions;
 
 /// <summary>One noun/verb/case rule.</summary>
-/// <remarks>
-/// The four columns are the whole interaction model: doing <see cref="Verb"/> to
-/// <see cref="Noun"/> runs <see cref="Script"/>, but only when <see cref="Case"/> holds.
-/// </remarks>
 public sealed record NvcAction
 {
     /// <summary>The thing being acted on, such as <c>STAIRS_LEFT</c> or <c>SCENE</c>.</summary>
@@ -39,20 +35,6 @@ public sealed record NvcAction
 /// <summary>
 /// Reader for GK3's action files.
 /// </summary>
-/// <remarks>
-/// <para>
-/// 390 files defining everything the player can do. Each line is
-/// <c>noun, verb, case</c> followed by optional <c>approach=</c>, <c>target=</c> and
-/// <c>script={…}</c> fields, and a trailing <c>[LOGIC]</c> section names the cases as
-/// Sheep expressions.
-/// </para>
-/// <para>
-/// This is the file the modern interaction model is built from. Asking "what can the
-/// player do to this object right now" means taking every rule for that noun and
-/// evaluating its case — which is exactly what the original engine did to decide whether
-/// a verb appeared on its verb wheel.
-/// </para>
-/// </remarks>
 public sealed partial class NvcFile
 {
     private NvcFile(string name, IReadOnlyList<NvcAction> actions, IReadOnlyDictionary<string, string> cases)
@@ -74,22 +56,6 @@ public sealed partial class NvcFile
     /// <summary>
     /// Cases the engine answers itself rather than reading from a file.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>ALL</c> always applies. <c>GABE_ALL</c> and the rest depend on who the player
-    /// currently is, which matters because GK3 switches between Gabriel and Grace. The
-    /// <c>_TIME</c> family counts how often the player has already done this to this, and
-    /// the two <c>DIALOGUE_TOPICS_LEFT</c> forms ask whether there is anything left to say.
-    /// </para>
-    /// <para>
-    /// <c>TIME_BLOCK</c> and <c>TIME_BLOCK_OVERRIDE</c> are simply true. They mark an
-    /// action a timeblock's own file writes to override one the location's general file
-    /// gives, and the second outranks the first where both could apply. Missing them is
-    /// expensive and silent: <c>TIME_BLOCK_OVERRIDE</c> is used by 90 of the corpus's
-    /// action files and written into the logic section of exactly one, so treating it as
-    /// an undefined case takes 918 actions out of the game.
-    /// </para>
-    /// </remarks>
     public static IReadOnlySet<string> BuiltInCases { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         "ALL", "GABE_ALL", "GRACE_ALL", "DEFAULT", "NOT_GABE_ALL", "NOT_GRACE_ALL",

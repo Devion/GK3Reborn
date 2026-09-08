@@ -14,13 +14,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for what a scene's <c>[LISTENERS]</c> section does to the people in it.
 /// </summary>
-/// <remarks>
-/// An actor's own <c>talk</c> and <c>listen</c> scripts are what they do in any
-/// conversation; a scene's listener lines are what they do in <em>one</em> of them, and 237
-/// lines across 75 rooms say so. The pairing that matters is enter and exit: the enter
-/// animation is what leans Mosely on the Armorer's counter, and without its exit he is
-/// still leaning on it for the rest of the afternoon.
-/// </remarks>
 public sealed class ConversationFidgetTests
 {
     private static List<string> Played(SceneUpdate update) =>

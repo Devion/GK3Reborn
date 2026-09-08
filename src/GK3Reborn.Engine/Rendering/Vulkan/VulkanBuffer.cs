@@ -7,13 +7,6 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <summary>
 /// A device-local buffer, filled through a staging copy.
 /// </summary>
-/// <remarks>
-/// Vertex and index data goes into memory the GPU reads fastest, which the CPU usually
-/// cannot write to directly. The data therefore lands first in a small host-visible
-/// staging buffer and is copied across, and the staging buffer is destroyed immediately
-/// afterwards — keeping it would double the memory cost of every mesh for no benefit,
-/// since this data never changes again.
-/// </remarks>
 public sealed unsafe class VulkanBuffer : IDisposable
 {
     private readonly VulkanContext _context;
@@ -36,13 +29,6 @@ public sealed unsafe class VulkanBuffer : IDisposable
     public ulong Size { get; }
 
     /// <summary>This buffer's address on the device.</summary>
-    /// <remarks>
-    /// Acceleration structure builds take their inputs by address rather than by handle,
-    /// so any buffer feeding one must have been created with
-    /// <see cref="BufferUsageFlags.ShaderDeviceAddressBit"/> and backed by memory
-    /// allocated for addressing. Asking otherwise returns zero and the build silently
-    /// reads nothing.
-    /// </remarks>
     public ulong DeviceAddress
     {
         get
@@ -77,11 +63,6 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// An open batch to record the copy into, or null to submit it on its own and wait.
     /// </param>
     /// <returns>The buffer, whose contents are there once the batch has been submitted.</returns>
-    /// <remarks>
-    /// <b>Submitting on its own means waiting for the whole queue to drain, and a room is
-    /// hundreds of buffers.</b> See <see cref="BufferUploads"/>: batched, the copies are one
-    /// submission instead of seven hundred.
-    /// </remarks>
     public static VulkanBuffer CreateDeviceLocal<T>(
         VulkanContext context, ReadOnlySpan<T> data, BufferUsageFlags usage, BufferUploads? into)
         where T : unmanaged
@@ -158,11 +139,6 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// <param name="usage">What the buffer will be used for.</param>
     /// <param name="addressable">Whether its device address will be taken.</param>
     /// <returns>The buffer.</returns>
-    /// <remarks>
-    /// Used for per-draw uniforms, which change every frame and are small enough that the
-    /// slower memory costs less than a staging copy would, and for the instance
-    /// descriptions an acceleration structure build reads.
-    /// </remarks>
     public static VulkanBuffer CreateHostVisible(
         VulkanContext context, ulong size, BufferUsageFlags usage, bool addressable = false)
     {
@@ -187,10 +163,6 @@ public sealed unsafe class VulkanBuffer : IDisposable
     /// <param name="usage">What the buffer will be used for.</param>
     /// <param name="addressable">Whether its device address will be taken.</param>
     /// <returns>The buffer.</returns>
-    /// <remarks>
-    /// For memory the GPU fills itself — acceleration structure storage and the scratch
-    /// space a build needs — where uploading anything would be wasted work.
-    /// </remarks>
     public static VulkanBuffer CreateEmpty(
         VulkanContext context, ulong size, BufferUsageFlags usage, bool addressable = false)
     {

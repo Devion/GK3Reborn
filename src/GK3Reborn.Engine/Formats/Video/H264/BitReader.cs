@@ -5,13 +5,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// Reads an RBSP most-significant-bit first: fixed fields and Exp-Golomb codes.
 /// </summary>
-/// <remarks>
-/// Over a buffer that has already had its emulation-prevention bytes removed, so the
-/// reader itself never has to look for <c>00 00 03</c>. Reading past the end yields zero
-/// bits rather than throwing; parsers check <see cref="Overrun"/> where a truncated header
-/// would matter, and a truncated slice merely decodes as garbage in its last macroblocks,
-/// which is what every other decoder does with it too.
-/// </remarks>
 internal struct BitReader
 {
     private readonly byte[] _data;

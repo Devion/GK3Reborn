@@ -413,11 +413,6 @@ public sealed class FogTests
     /// <summary>
     /// Blocks the night rooms are reached in with the sun up, as the corpus names them.
     /// </summary>
-    /// <remarks>
-    /// The first and last of the day on each of the three, plus the noon the château is
-    /// toured in. Every one of these is a block that at least one of the rooms above ships a
-    /// scene file for, so each is a picture somebody can actually be looking at.
-    /// </remarks>
     private static Timeblock[] Daylight { get; } =
     [
         new(1, 10, IsAfternoon: false),
@@ -434,12 +429,6 @@ public sealed class FogTests
     /// <summary>
     /// A layer thick enough to see across six units of test room.
     /// </summary>
-    /// <remarks>
-    /// The corpus's own densities are thousandths of a unit because its rooms are hundreds
-    /// of units across; this quad is eight, so the same layer over it would be invisible.
-    /// The top is well above the camera, which puts the whole of the view inside the layer —
-    /// the tests that want an edge move it down.
-    /// </remarks>
     private static FogVolume Everywhere { get; } = new(
         Colour: new Vector3(0.8f, 0.8f, 0.8f),
         Density: 0.35f,

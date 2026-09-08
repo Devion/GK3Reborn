@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the binoculars.
 /// </summary>
-/// <remarks>
-/// Everything about them is data — twenty-one vantage points in <c>BINOCS.TXT</c>, each
-/// naming what can be seen from it as a rectangle of sky in degrees. What can be wrong is
-/// the reading: the file writes its headings and its bodies in inconsistent case, and a
-/// case-sensitive lookup silently loses four of the forty-seven sights.
-/// </remarks>
 public sealed class BinocularsTests
 {
     private const string Data = """
@@ -122,12 +116,6 @@ public sealed class BinocularsTests
     /// <summary>
     /// Leaning in on somewhere leaves the player where they were standing.
     /// </summary>
-    /// <remarks>
-    /// The reported fault, at its root. Looking at L'Homme Mort from the tower at
-    /// Blanchefort moved Gabriel to L'Homme Mort, where the moped he arrived on was not,
-    /// and the room's own exit asks whether it is parked there — so there was no way out
-    /// of the game from the moment the binoculars came down.
-    /// </remarks>
     [Fact]
     public void Looking_at_somewhere_else_is_not_going_there()
     {
@@ -180,12 +168,6 @@ public sealed class BinocularsTests
 /// <summary>
 /// Tests for Sidney's map.
 /// </summary>
-/// <remarks>
-/// The puzzle the books are about: mark the churches and the ruins and see what they fall
-/// on. The geometry is measured rather than checked against a list of right answers, so
-/// these tests are about the measuring — a circle has to be recognised from four points
-/// given in any order, and four points that merely look roughly round must not be.
-/// </remarks>
 public sealed class SidneyMapTests
 {
     /// <summary>Four points exactly on a circle, at the given angles.</summary>
@@ -354,12 +336,6 @@ public sealed class SidneyMapTests
 /// <summary>
 /// Tests for the shape laid over Sidney's map.
 /// </summary>
-/// <remarks>
-/// "Select points to lock down feature", the game says, and the note it is working towards
-/// is "Shape locked and confirmed." So the thing that must be true is that a shape laid over
-/// places that are genuinely on it locks, and one laid over places that are not does not —
-/// otherwise the confirmation confirms nothing.
-/// </remarks>
 public sealed class SidneyShapeTests
 {
     /// <summary>Points at the given angles on a circle.</summary>

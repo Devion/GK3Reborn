@@ -6,37 +6,11 @@ namespace GK3Reborn.Game.Navigation;
 /// <summary>
 /// Where an actor is allowed to stand, as a bitmap laid over the floor.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 does not describe walkable ground with geometry. Each scene names a small
-/// palettised bitmap — <c>boundary=R25wlkBnds, size={369.06, 386.20}, offset={39.95,
-/// -32.00}</c> — stretched over the world's X/Z plane, and the palette index at a point
-/// says what is there. R25's is sixty-four pixels square for a room three hundred units
-/// across, so a texel is about five units: fine enough for a doorway, coarse enough that
-/// this is a navigation aid rather than collision.
-/// </para>
-/// <para>
-/// The index is the region. Zero to seven is open floor, and the ascending values are a
-/// gradient away from the walls that the original's pathfinder used to keep actors from
-/// scraping along them. 255 is wall. Values from 128 up are named regions a script can
-/// open and close — a door that unlocks, a corridor that a guard blocks — which is why the
-/// unwalkable set is state rather than a constant. Across the corpus's 66 boundary bitmaps
-/// only 0-8, 229-238 and 245-255 ever appear.
-/// </para>
-/// <para>
-/// Anything outside the bitmap is outside the room, and unwalkable.
-/// </para>
-/// </remarks>
 public sealed class WalkBoundary
 {
     /// <summary>
     /// The regions that are closed unless a script opens them.
     /// </summary>
-    /// <remarks>
-    /// 255 is wall. 8 and 9 are the far end of the gradient, close enough to a wall that
-    /// the original treats them as wall too — 9 never appears in the corpus and is carried
-    /// for the same reason the original carries it.
-    /// </remarks>
     private static readonly int[] ClosedByDefault = [8, 9, 255];
 
     private readonly IndexedImage _image;
@@ -113,12 +87,6 @@ public sealed class WalkBoundary
     /// <summary>Opens or closes a region.</summary>
     /// <param name="region">The palette index.</param>
     /// <param name="open">True to let actors through.</param>
-    /// <remarks>
-    /// Anything may be closed — a script that wants a stretch of open floor shut off is
-    /// entitled to shut it, and to open it again afterwards. What it may not do is open
-    /// something that was never open: wall is wall whatever a script says, and letting one
-    /// open region 255 would make every scene's boundary vanish at once.
-    /// </remarks>
     public void SetRegionOpen(int region, bool open)
     {
         if (!open)
@@ -137,12 +105,6 @@ public sealed class WalkBoundary
     /// <param name="name">What is standing there; blocking the same name twice moves it.</param>
     /// <param name="minimum">Lower corner, on X and Z.</param>
     /// <param name="maximum">Upper corner, on X and Z.</param>
-    /// <remarks>
-    /// How a script puts a thing in the way. The boundary is painted once, before anybody
-    /// knows where the van will park or which door the story will leave open, so what
-    /// occupies the floor at a given moment is kept beside the bitmap rather than in it —
-    /// which also means it can be taken away again without repainting anything.
-    /// </remarks>
     public void Block(string name, Vector2 minimum, Vector2 maximum)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -167,11 +129,6 @@ public sealed class WalkBoundary
     /// <summary>The texel a world position falls in.</summary>
     /// <param name="world">The point. Only X and Z are read.</param>
     /// <returns>Column and row, from the top-left, which may be outside the bitmap.</returns>
-    /// <remarks>
-    /// The bitmap's rows run from the bottom of the room upward, so the row is flipped: a
-    /// boundary applied the other way up is still a plausible-looking mask and puts every
-    /// wall where the floor should be.
-    /// </remarks>
     public (int X, int Y) ToTexel(Vector3 world)
     {
         float u = (world.X + Offset.X) / Size.X;
@@ -224,12 +181,6 @@ public sealed class WalkBoundary
     /// <summary>The nearest texel an actor may stand on.</summary>
     /// <param name="world">The point. Only X and Z are read.</param>
     /// <returns>Column and row, or null when nothing in the bitmap is open.</returns>
-    /// <remarks>
-    /// A brute-force sweep of the bitmap. These are sixty-four pixels square and this is
-    /// asked once at the ends of a walk, so the obvious thing is fast enough; the nearest
-    /// open texel to a point outside the room is what makes a click on a wall still walk
-    /// the actor up to it.
-    /// </remarks>
     public (int X, int Y)? NearestWalkableTexel(Vector3 world)
     {
         (int x, int y) = ToTexel(world);
@@ -288,10 +239,6 @@ public sealed class WalkBoundary
 
     /// <summary>How many texels an actor may stand on.</summary>
     /// <returns>The count, useful as a sanity check that a boundary loaded at all.</returns>
-    /// <remarks>
-    /// Counts what is walkable now, so a scene with a van parked across the road reports
-    /// fewer texels than the bitmap alone would suggest.
-    /// </remarks>
     public int WalkableTexels()
     {
         int count = 0;

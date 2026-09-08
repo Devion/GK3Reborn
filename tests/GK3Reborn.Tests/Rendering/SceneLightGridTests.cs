@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for which lights reach which part of a room.
 /// </summary>
-/// <remarks>
-/// The grid exists to make the shading loop short, and the only way it can be wrong is by
-/// making it too short: a light that reaches a point and is not in that point's cell is a
-/// lamp that stops lighting the thing under it. That is the invariant every test here is
-/// about, and it is checked exhaustively against the honest answer — the distance — rather
-/// than against another implementation of the same idea.
-/// </remarks>
 public sealed class SceneLightGridTests
 {
     private static readonly Vector3 Low = new(-1000, -200, -1000);

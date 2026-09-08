@@ -20,12 +20,6 @@ public enum SpeakerLayout
 }
 
 /// <summary>How a spoken line is placed in the output field.</summary>
-/// <remarks>
-/// From the project brief: Gabriel's voice is always centered; other speakers in the
-/// room are localized in 3D unless the player enables the centered-dialogue option.
-/// Plan/03 section 7.2 adds that LFE is an endpoint and bass-management concern, so
-/// dialogue is never routed into the LFE channel directly.
-/// </remarks>
 public enum DialogueRouting
 {
     /// <summary>
@@ -48,7 +42,6 @@ public sealed record DialogueRoutingOptions
     public bool CenterAllDialogue { get; init; }
 
     /// <summary>Speaker ids that are always centered regardless of the option above.</summary>
-    /// <remarks>Gabriel is the default member; see Plan/README.md item 6.</remarks>
     public IReadOnlySet<string> AlwaysCenteredSpeakers { get; init; } =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "GABRIEL" };
 

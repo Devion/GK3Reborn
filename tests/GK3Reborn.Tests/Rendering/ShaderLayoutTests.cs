@@ -9,29 +9,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// A pipeline's declared layout has to say what its shaders actually bind.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A <see cref="ShaderLayout"/> is one statement built two ways: Direct3D turns it into a
-/// root signature and Vulkan into descriptor set layouts. Nothing checks it against the
-/// shaders it describes, and neither API will. Direct3D refuses a root signature that does
-/// not satisfy a shader, so a shortfall there is a startup failure somebody sees. Vulkan
-/// binds what it is given and reads what it is asked for: a binding the layout leaves out is
-/// a descriptor the shader reads and nothing backs, with no error, no validation message on
-/// a machine without the layers, and a picture that is merely wrong.
-/// </para>
-/// <para>
-/// That is not hypothetical. The reflection pass's Vulkan layout listed ten bindings where
-/// the shaders and the root signature have eleven, leaving <c>planarReflection</c> unbacked
-/// while a descriptor was written for it anyway. Every prop in the room came out reflecting
-/// the frame back at itself — the march answered with full confidence where it should have
-/// answered with none — and it brightened over about a second and stayed. Direct3D was
-/// correct throughout, which is why it went unnoticed.
-/// </para>
-/// <para>
-/// The Vulkan side is derived from the shared layout now, so the two backends cannot come
-/// apart. This is the other half: that the shared layout matches the GLSL.
-/// </para>
-/// </remarks>
 public sealed partial class ShaderLayoutTests
 {
     /// <summary>Each shared layout, and the shaders built against it.</summary>
@@ -63,19 +40,6 @@ public sealed partial class ShaderLayoutTests
     }
 
     /// <summary>The set-zero binding numbers a GLSL source declares.</summary>
-    /// <remarks>
-    /// <para>
-    /// Read out of the source rather than out of the compiled module: the point is to check
-    /// what was written, and a compiler that dropped an unused binding would hide exactly the
-    /// mistake this is looking for.
-    /// </para>
-    /// <para>
-    /// The whole qualifier list, then the two qualifiers out of it, because their order is
-    /// the author's — the denoiser's light rig is <c>layout(std430, set = 0, binding = 5)</c>
-    /// and everything around it puts the set first. A pattern that expected one order read
-    /// that binding as absent, which is the failure this test exists to report.
-    /// </para>
-    /// </remarks>
     private static IEnumerable<int> BindingsIn(string source) =>
         LayoutQualifier().Matches(source)
             .Select(m => m.Groups["qualifiers"].Value)

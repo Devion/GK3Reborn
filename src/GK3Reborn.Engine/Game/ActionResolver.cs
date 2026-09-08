@@ -9,24 +9,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Decides what the player can do to something right now.
 /// </summary>
-/// <remarks>
-/// <para>
-/// This is the hinge between the original data and the modern interaction model. The
-/// game's action files list every noun, verb and the condition under which that pairing
-/// applies; the original engine used the same information to decide which verbs to put on
-/// its verb wheel. Asking it for one noun's currently valid verbs is the same query,
-/// answered for a different interface.
-/// </para>
-/// <para>
-/// <c>Plan/03-gameplay-ui-audio.md</c> section 2.3 requires that modernising input must
-/// not change what an action does, so this resolver only ever *selects*: the script it
-/// returns is the original script, unchanged, and execution still goes through Sheep.
-/// </para>
-/// <para>
-/// It also never mutates state. A resolver that evaluated a condition by trying the
-/// action would corrupt the save just by hovering the cursor.
-/// </para>
-/// </remarks>
 public sealed class ActionResolver
 {
     private readonly List<NvcFile> _files = [];
@@ -41,11 +23,6 @@ public sealed class ActionResolver
     }
 
     /// <summary>Which verbs are topics, and which of those recur.</summary>
-    /// <remarks>
-    /// Null treats every verb as an ordinary one, which offers every line of every topic at
-    /// once and never uses any of them up. The launcher reads <c>VERBS.TXT</c> once and
-    /// sets it.
-    /// </remarks>
     public Actions.VerbLibrary? Verbs { get; set; }
 
     /// <summary>Diagnostics raised while resolving.</summary>
@@ -53,10 +30,6 @@ public sealed class ActionResolver
 
     /// <summary>Adds an action file to the set in scope.</summary>
     /// <param name="file">The file.</param>
-    /// <remarks>
-    /// Several files are usually in scope at once — one for the location, one for the
-    /// timeblock, one shared across a day — and their rules combine.
-    /// </remarks>
     public void Add(NvcFile file)
     {
         ArgumentNullException.ThrowIfNull(file);
@@ -72,12 +45,6 @@ public sealed class ActionResolver
     /// </summary>
     /// <param name="verb">The verb to look for.</param>
     /// <returns>The nouns, whether or not any of their cases hold now.</returns>
-    /// <remarks>
-    /// The candidates for a list of one verb's worth of things to do — the radio's topics
-    /// are this, resolved. Deliberately unconditioned: <see cref="Find"/> is what decides
-    /// whether a rule applies, and asking that question here as well would be two places
-    /// that have to agree.
-    /// </remarks>
     public IReadOnlyList<string> NounsFor(string verb)
     {
         ArgumentNullException.ThrowIfNull(verb);
@@ -172,14 +139,6 @@ public sealed class ActionResolver
     /// <summary>
     /// Every verb any file offers on a noun, in the order the files list them.
     /// </summary>
-    /// <remarks>
-    /// <c>ANY_OBJECT</c> first, because it is a wildcard noun and the lowest priority
-    /// there is: whatever it offers, a rule written about the thing itself replaces. It is
-    /// how looking at something nobody wrote a line for still gets an answer —
-    /// <c>ANY_OBJECT, LOOK, ALL</c> is Gabriel saying nothing about it is interesting.
-    /// <c>ANY_INV_ITEM</c> is left out: it is a wildcard <em>verb</em> and only means
-    /// anything once a particular item is named, which <see cref="Find"/> handles.
-    /// </remarks>
     private List<string> VerbsFor(string noun)
     {
         List<string> verbs = [];
@@ -219,18 +178,6 @@ public sealed class ActionResolver
     /// <summary>
     /// The nouns a click on one noun also answers to.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// GK3 writes a handful of rules about two people at once and expects clicking either
-    /// of them to find it. Nothing in the data declares the equivalence — the reference
-    /// implementation hard-codes the same list and says so — so this is the shipped
-    /// content's own shape rather than a rule anything can derive.
-    /// </para>
-    /// <para>
-    /// Without them, Lady Howard and Estelle answer to nothing they share, and the
-    /// Armchair's two bodies lose every line written about their clothes and their throats.
-    /// </para>
-    /// </remarks>
     private static IEnumerable<string> NamesOf(string noun)
     {
         yield return noun;
@@ -260,20 +207,6 @@ public sealed class ActionResolver
     /// <summary>
     /// Whether a rule is the Talk that exists only to reach the topics.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <c>TALK</c> is a real verb with 127 rules of its own, and most of them do something
-    /// no topic does: Larry has a line, Prince James has a conversation, and nine rules are
-    /// guarded by <c>NOT_DIALOGUE_TOPICS_LEFT</c> and are what a character says once there
-    /// is nothing left to ask them. Those all stay.
-    /// </para>
-    /// <para>
-    /// Thirty-two are guarded by <c>DIALOGUE_TOPICS_LEFT</c>, and that case means exactly
-    /// "there is something to ask about". In the original, choosing Talk there opened the
-    /// list of <c>T_</c> verbs; this port puts them on the menu itself, so offering Talk
-    /// beside them is offering the player a door into the room they are standing in.
-    /// </para>
-    /// </remarks>
     private static bool OpensTheTopicList(NvcAction action) =>
         string.Equals(action.Verb, "TALK", StringComparison.OrdinalIgnoreCase) &&
         string.Equals(action.Case, "DIALOGUE_TOPICS_LEFT", StringComparison.OrdinalIgnoreCase);
@@ -283,18 +216,6 @@ public sealed class ActionResolver
     /// <param name="verb">What is being done to it.</param>
     /// <param name="ego">Who the player currently is.</param>
     /// <returns>The rule, or null when nothing applies.</returns>
-    /// <remarks>
-    /// <para>
-    /// Four sets of rules can answer, from the most general to the most particular, and the
-    /// last one that does wins: the wildcard pair, the wildcard noun with this verb, this
-    /// noun with the wildcard item verb, and finally the pair actually asked about. The two
-    /// item forms are consulted only for an inventory verb, because <c>ANY_INV_ITEM</c>
-    /// means "whatever is in hand" and there is nothing in hand otherwise.
-    /// </para>
-    /// <para>
-    /// Selecting still changes nothing; performing is <see cref="ActionRunner"/>'s job.
-    /// </para>
-    /// </remarks>
     public NvcAction? Find(string noun, string verb, string ego = "GABRIEL")
     {
         ArgumentNullException.ThrowIfNull(noun);
@@ -329,37 +250,6 @@ public sealed class ActionResolver
     /// <param name="file">The file the rule is written in, which says when it belongs.</param>
     /// <param name="action">The rule.</param>
     /// <returns>True when it cannot sensibly run now.</returns>
-    /// <remarks>
-    /// <para>
-    /// Reported as the church's four angels offering "Trace" on the first morning, two days
-    /// before the puzzle that verb belongs to. The shipped data really does allow it: the
-    /// case is <c>VALID_TO_TRACE</c>, which reads <c>!GetFlag("LockedSquare") &amp;&amp;
-    /// GetNounVerbCount("Four_Angels","Trace") == 0</c>, and both halves are true from the
-    /// moment the game begins. The original offers it early too.
-    /// </para>
-    /// <para>
-    /// The clue is the script the rule hands off to. Those actions end in
-    /// <c>CallSheep("chu205p", "Done")</c>, which is the completion of one point in the
-    /// story, and running it from another is running that point's ending out of turn.
-    /// 107 distinct timeblock scripts are called this way across the corpus, so reading the
-    /// name is a general reading of the data rather than a patch for one statue. A rule
-    /// that names no such script is not filtered by it at all.
-    /// </para>
-    /// <para>
-    /// <b>Only for a file that makes no claim about when it belongs.</b> The name of an
-    /// action file is a condition — <see cref="TimeblockRange"/> — and a file that names a
-    /// timeblock, a stretch of one or a day has already been checked against the clock
-    /// before it was brought into scope, so its rules are meant for now whatever script
-    /// they call. That is not a nicety: <c>TR1102P04P.NVC</c> covers two o'clock and four,
-    /// and every one of the taxi driver's topics hands off to <c>tr1102p</c> — the only
-    /// script the pair of them has. Filtered on the name alone, the whole conversation
-    /// disappeared at four while <c>DIALOGUE_TOPICS_LEFT</c> went on answering yes, so Talk
-    /// stayed on the bar, walked Gabriel over, and had nothing to say. Five more rules went
-    /// the same way, among them picking up the glass in the hotel corridor and petting the
-    /// cat. Only <c>CHU_ALL.NVC</c> and its kind span the whole story and say nothing, and
-    /// there the script really is the only clue there is.
-    /// </para>
-    /// </remarks>
     private bool Elsewhen(NvcFile file, NvcAction action)
     {
         if (Now is not { } now ||
@@ -397,11 +287,6 @@ public sealed class ActionResolver
     }
 
     /// <summary>Where the story has got to, when anything told the resolver.</summary>
-    /// <remarks>
-    /// Null leaves <see cref="Elsewhen"/> filtering nothing, which is what the tools want:
-    /// a sweep asks what a room can do across the whole story rather than at one moment in
-    /// it, and a resolver with no clock must not quietly answer a narrower question.
-    /// </remarks>
     public Timeblock? Now { get; set; }
 
     /// <summary>
@@ -410,26 +295,6 @@ public sealed class ActionResolver
     /// <param name="rule">The rule that is going to run.</param>
     /// <param name="ego">Who the player currently is.</param>
     /// <returns>The same rule, or a copy of it carrying an approach.</returns>
-    /// <remarks>
-    /// <para>
-    /// In the original, asking somebody about something took two steps. <c>TALK</c> carried
-    /// the approach — <c>EMILIO, TALK, DIALOGUE_TOPICS_LEFT, approach=ANIM,
-    /// target=GabEmlLbyShake</c> walks Gabriel over and shakes his hand — and the topics it
-    /// then opened carried none, because by that point he was already standing there.
-    /// </para>
-    /// <para>
-    /// <see cref="OpensTheTopicList"/> drops that Talk and puts the topics on the menu
-    /// directly, which is the improvement <c>docs/screens.md</c> asks for; it also dropped
-    /// the walk along with the step it replaced, so Gabriel could hold a conversation with
-    /// Emilio from the phone-room curtains on the far side of the lobby.
-    /// </para>
-    /// <para>
-    /// Only the approach is borrowed. The script a topic runs is its own and is untouched,
-    /// which is what <c>Plan/03</c> section 2.3 requires of anything that modernises input.
-    /// A topic that states its own approach keeps it, and a noun whose Talk states none
-    /// gains nothing.
-    /// </para>
-    /// </remarks>
     private NvcAction Approaching(NvcAction rule, string ego)
     {
         if (rule.Approach is { Length: > 0 } ||
@@ -465,22 +330,6 @@ public sealed class ActionResolver
     /// <param name="asked">The verb actually being done, which is what decides its kind.</param>
     /// <param name="ego">Who the player currently is.</param>
     /// <returns>The rule to run, or null when none of them applies.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Not the first one the files list.</b> Several rules for one pair are ordinary —
-    /// the lobby writes <c>REGISTER, LOOK, GABE_ALL</c> above <c>REGISTER, LOOK,
-    /// NOT_SEEN_REGISTER</c> — and taking whichever came first gives Gabriel the line he
-    /// says about a register he has already read, the first time he reads it.
-    /// </para>
-    /// <para>
-    /// The case decides, on the original's own ladder: the catch-alls are worth least, a
-    /// timeblock's override more, a condition somebody actually wrote more still, and
-    /// "the first time you did this" most of all. Where two hand-written conditions tie,
-    /// the more specific file wins, and where that ties too the original falls back on
-    /// comparing the case names — see <see cref="Sooner"/>, which is as strange as it looks
-    /// and is what the shipped data was authored against.
-    /// </para>
-    /// </remarks>
     private NvcAction? Best(string noun, string written, string asked, string ego)
     {
         NvcAction? best = null;
@@ -547,12 +396,6 @@ public sealed class ActionResolver
     /// <param name="file">The file the rule is in, which is asked first about the name.</param>
     /// <param name="caseName">The case.</param>
     /// <returns>Its rank, higher being stronger.</returns>
-    /// <remarks>
-    /// The original's ladder, lowest first: the catch-alls, then the ego-specific ones,
-    /// then a timeblock's plain marker, then "not the first time", then the two questions
-    /// about whether there is anything left to say, then a timeblock's override, then any
-    /// condition written in a logic section, and above everything the counted ones.
-    /// </remarks>
     private int Worth(NvcFile file, string caseName) => caseName.ToUpperInvariant() switch
     {
         "ALL" or "ALL_INV" or "DEFAULT" => 1,
@@ -576,13 +419,6 @@ public sealed class ActionResolver
     /// <param name="candidate">The case being considered.</param>
     /// <param name="standing">The case it would replace.</param>
     /// <returns>True when the candidate wins.</returns>
-    /// <remarks>
-    /// Not an ordinal comparison. A digit beats anything that is not one and a smaller
-    /// digit beats a larger; an underscore beats any letter; otherwise the earlier letter
-    /// wins. Where one name is a prefix of the other the shorter wins. It is written down
-    /// here because it decides which of two hand-written conditions the player gets, and
-    /// nothing about it is guessable from the data.
-    /// </remarks>
     private static bool Sooner(string candidate, string standing)
     {
         string a = candidate.ToUpperInvariant();
@@ -731,10 +567,6 @@ public sealed class ActionResolver
         ego.StartsWith("GAB", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a topic has exactly one line left, which its closing case is for.</summary>
-    /// <remarks>
-    /// Counted over every file in scope, because a topic's lines are spread between the
-    /// location's general action file and its timeblock ones.
-    /// </remarks>
     private bool IsLastWord(string noun, string verb)
     {
         int lines = 0;
@@ -765,11 +597,6 @@ public sealed class ActionResolver
     private int Raised(string noun, string verb) =>
         Ask("GetTopicCount", [SheepValue.FromString(noun), SheepValue.FromString(verb)]);
 
-    /// <remarks>
-    /// Through the host, like every other question this class asks about the story. A host
-    /// that does not answer gives zero, and a topic then reads as never said — which is
-    /// what an unplayed game should look like.
-    /// </remarks>
     private int Ask(string function, IReadOnlyList<SheepValue> arguments)
     {
         try
@@ -784,13 +611,6 @@ public sealed class ActionResolver
     }
 
     /// <summary>How often the player has already done this to this.</summary>
-    /// <remarks>
-    /// Asked of the host rather than of a game state this class does not have, which is the
-    /// same route the file's own conditions take when they write
-    /// <c>GetNounVerbCount("BLOOD_POOL","LOOK")</c>. A host that does not implement it
-    /// answers zero, and every count-based case then reads as the first time — which is
-    /// what an unplayed game should look like anyway.
-    /// </remarks>
     private int Done(string noun, string verb)
     {
         try
@@ -807,12 +627,6 @@ public sealed class ActionResolver
     }
 
     /// <summary>Whether a story flag is set.</summary>
-    /// <remarks>
-    /// Through the host, like <see cref="Done"/> and for the same reason: a resolver has no
-    /// game state of its own, and the route a file's own conditions take when they write
-    /// <c>GetFlag("EGG")</c> is the route this should take too. A host that does not
-    /// implement it answers zero, which reads as unset.
-    /// </remarks>
     private bool Flag(string name)
     {
         try
@@ -827,29 +641,6 @@ public sealed class ActionResolver
     }
 
     /// <summary>Whether anything is left to say to someone.</summary>
-    /// <remarks>
-    /// <para>
-    /// A topic is a verb: dialogue is written as actions whose verbs are named
-    /// <c>T_SOMETHING</c>, so "is there anything left to ask" is "would any of them be
-    /// offered on this noun right now".
-    /// </para>
-    /// <para>
-    /// <b>It is asked through <see cref="Find"/>, which is the same question the menu
-    /// asks.</b> This used to answer it on its own terms — a topic whose case holds and
-    /// whose noun/verb count is nought — and the two came apart, which is a defect with no
-    /// symptom of its own: <c>DIALOGUE_TOPICS_LEFT</c> is what puts Talk on the bar, and
-    /// <see cref="Resolve"/> takes Talk off again precisely when there are topics to show
-    /// instead. Where this said yes and the menu found nothing, the player got a Talk that
-    /// walked their character over and then stood there. Reported from the Couiza station
-    /// with the taxi driver, whose topics <see cref="Elsewhen"/> was withholding.
-    /// </para>
-    /// <para>
-    /// One <see cref="Find"/> per distinct topic verb, stopping at the first that answers.
-    /// A topic whose own case is <c>DIALOGUE_TOPICS_LEFT</c> would ask this question to
-    /// answer this question; nothing in the shipped data does, and the guard answers no to
-    /// the inner one rather than leaving that to a stack overflow.
-    /// </para>
-    /// </remarks>
     private bool HasTopicsLeft(string noun, string ego)
     {
         if (_asking)
@@ -898,19 +689,7 @@ public sealed class ActionResolver
     /// <summary>
     /// Classifies a verb for presentation.
     /// </summary>
-    /// <remarks>
-    /// Only inspection is singled out, because the brief fixes left click to it. Marking
-    /// anything else as the primary action is a design decision the resolver should not
-    /// be making on its own; <c>Plan/03</c> section 2.1 requires that no puzzle action
-    /// fires because the engine guessed.
-    /// </remarks>
     /// <summary>Which of the three kinds of row a verb makes.</summary>
-    /// <remarks>
-    /// An inventory verb is its own kind, because it is an item being held against the
-    /// thing rather than something the thing does. <see cref="Verbs"/> is the only place
-    /// that says which verbs those are; with no library every verb is an ordinary one,
-    /// which is what a tool reading the files without <c>VERBS.TXT</c> should see.
-    /// </remarks>
     private ActionCategory CategoryFor(string verb) =>
         Verbs?.KindOf(verb) == Actions.VerbKind.Inventory
             ? ActionCategory.Item

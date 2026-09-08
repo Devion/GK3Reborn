@@ -19,11 +19,6 @@ public readonly record struct SkyboxConstants(
     Vector4 Forward, Vector4 Right, Vector4 Up, Vector4 Viewport);
 
 /// <summary>The sky, sampled from a cube through the ray each pixel looks along.</summary>
-/// <remarks>
-/// One triangle and a cubemap. Nothing is passed between the stages: the direction to sample
-/// is worked out in the fragment stage from where the fragment is, which is the one input
-/// that was ever demonstrably reaching it.
-/// </remarks>
 public static class SkyboxShaders
 {
     /// <summary>Works out where the camera is pointing and how wide it sees.</summary>
@@ -32,20 +27,6 @@ public static class SkyboxShaders
     /// <param name="width">Viewport width in pixels.</param>
     /// <param name="height">Its height.</param>
     /// <returns>The block the fragment stage reads.</returns>
-    /// <remarks>
-    /// <para>
-    /// Shared, because it is the one place a sky can be wrong in a way that looks nearly
-    /// right. The basis is built the way <c>CreateLookAtLeftHanded</c> builds it — this
-    /// world is left-handed — rather than read out of the view matrix: the rows of a view
-    /// matrix are the basis of the inverse, so taking them gives a sky that is plausible
-    /// until the camera turns and then points the wrong way down every axis.
-    /// </para>
-    /// <para>
-    /// Turning the sky by its azimuth is turning the ray the other way, which is why the
-    /// rotation is negative. It is applied to three vectors rather than as a matrix through
-    /// the whole pass.
-    /// </para>
-    /// </remarks>
     public static SkyboxConstants Describe(
         Camera camera, float azimuth, int width, int height)
     {

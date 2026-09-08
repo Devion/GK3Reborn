@@ -11,11 +11,6 @@ namespace GK3Reborn.Tools;
 /// Entry point for the offline toolchain: content import, content compilation,
 /// asset inspection and Sheep utilities.
 /// </summary>
-/// <remarks>
-/// These were separate executables at first. They share the same parsers, manifests
-/// and diagnostics, and none of them is large, so they are one command with
-/// subcommands instead. See ADR 0005.
-/// </remarks>
 public static class Program
 {
     /// <summary>Runs the requested subcommand.</summary>
@@ -206,10 +201,6 @@ public static class Program
     }
 
     /// <summary>Where the enhanced textures are, if the caller asked for any.</summary>
-    /// <remarks>
-    /// A relative path is taken from the workspace, because that is where enhanced content
-    /// lives and typing the whole thing every time is how a flag stops being used.
-    /// </remarks>
     private static string? EnhancedDirectory(Options options)
     {
         if (options.Enhanced is not { Length: > 0 } directory)
@@ -866,28 +857,12 @@ public static class Program
         public string? RayTracing { get; init; }
 
         /// <summary>Which graphics API to render through, or null for whichever suits.</summary>
-        /// <remarks>
-        /// The reason the reference renders are worth having twice. The same room, the same
-        /// camera and the same shaders on either backend, with two pictures that can be put
-        /// side by side — which is the only way to tell a backend that draws the game from
-        /// one that merely draws.
-        /// </remarks>
         public string? Backend { get; init; }
 
         /// <summary>Which upscaler to run, and how hard, or null for none.</summary>
-        /// <remarks>
-        /// A reference render with an upscaler in it is worth having for one reason above
-        /// all: an upscaler that is running and doing nothing looks exactly like one that is
-        /// not running, and the only way to tell is a picture drawn small and shown large.
-        /// </remarks>
         public string? Dlss { get; init; }
 
         /// <summary>Where the upscaler runtimes are, or null to look beside the tool.</summary>
-        /// <remarks>
-        /// A game ships them in its own libs directory and finds them there. A tool run out
-        /// of a build tree has no such directory, so a reference render with DLSS in it has
-        /// to be pointed at them.
-        /// </remarks>
         public string? Runtimes { get; init; }
 
         public string? Output { get; init; }
@@ -936,54 +911,27 @@ public static class Program
         /// <summary>
         /// Whether render-scene draws a room's objects from improved geometry.
         /// </summary>
-        /// <remarks>
-        /// What the room looked like with 1999's infinitely sharp edges, for comparison —
-        /// the same purpose --no-relief and --no-trees serve for the other two pieces of
-        /// geometry work.
-        /// </remarks>
         public bool Improved { get; init; } = true;
 
         /// <summary>
         /// Whether render-scene gives a keyed card the thickness of what is drawn on it.
         /// </summary>
-        /// <remarks>
-        /// The A/B for railings, fences and chains, and the only way to see the pass at all:
-        /// its whole effect is a silhouette that survives being looked at from the side, so
-        /// two renders of the same rail from the same oblique angle are what show it.
-        /// </remarks>
         public bool ThickCards { get; init; } = true;
 
         /// <summary>
         /// Whether render-scene lets a thickened card stop a shadow ray.
         /// </summary>
-        /// <remarks>
-        /// The other half of the same A/B, and it has to be separable: what is drawn and
-        /// what is traced are two different sets of triangles built from one silhouette, so
-        /// a picture in which a fence looks right and shades wrongly says which of the two
-        /// to go and read.
-        /// </remarks>
         public bool CardShadows { get; init; } = true;
 
         /// <summary>
         /// Whether render-scene draws the room's surfaces only on the side they face.
         /// </summary>
-        /// <remarks>
-        /// The A/B for the culling. Off is what every build before it drew, and the picture
-        /// that says what it is worth is a room with an open door in it: R25's dumbwaiter,
-        /// whose shaft is sealed by its own room-side wall when both faces are drawn.
-        /// </remarks>
         public bool Cull { get; init; } = true;
 
         /// <summary>Whether render-scene grows modelled trees over the foliage cards.</summary>
         public bool Trees { get; init; } = true;
 
         /// <summary>Whether render-scene draws the fog of a room that has any.</summary>
-        /// <remarks>
-        /// The A/B for the layer, and the only way to see what it is worth: two renders of
-        /// one room from one camera that differ in nothing else. Only two rooms in the game
-        /// have any, so on everything else it changes nothing at all — see
-        /// <see cref="Game.SceneFog"/>.
-        /// </remarks>
         public bool Fog { get; init; } = true;
 
         /// <summary>Expand block-compressed textures on the host, as a Mac has to.</summary>

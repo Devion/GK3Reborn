@@ -6,40 +6,14 @@ namespace GK3Reborn.Sheep;
 /// <summary>
 /// Writes a compiled script back out in the container the game ships.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The inverse of <see cref="SheepScriptFile.Parse"/>, and the reason it exists is
-/// verification rather than authoring: a compiler that produces something only its own
-/// reader understands has not been checked against anything. Writing the container and
-/// reading it back is a round trip through the format's real rules — the length-prefixed
-/// strings with their trailing byte, the section table, the offsets that are relative to
-/// the header — and any of those misunderstood shows up immediately instead of in a
-/// disassembly nobody compares.
-/// </para>
-/// <para>
-/// The five sections are written in the order the reader expects to find them named, each
-/// with its own twelve-byte name, its size, its count and its own offset table.
-/// </para>
-/// </remarks>
 public static class SheepScriptWriter
 {
     /// <summary>How much of the header comes before the section table.</summary>
-    /// <remarks>
-    /// Eight bytes of magic and five 32-bit fields. The header's declared size is this plus
-    /// the table, and it is what every section offset is measured from — which is checkable
-    /// against the content and checks out: all 224 shipped scripts declare exactly
-    /// <c>28 + 4 × sections</c>.
-    /// </remarks>
     private const int BeforeTable = 28;
 
     /// <summary>Writes a script.</summary>
     /// <param name="script">The script.</param>
     /// <returns>The bytes of a <c>.SHP</c> file.</returns>
-    /// <remarks>
-    /// A section with nothing in it is left out rather than written empty, which is what
-    /// the game does: 206 of its scripts declare no variables and carry four sections,
-    /// and the 17 that do declare some carry five.
-    /// </remarks>
     public static byte[] Write(SheepScriptFile script)
     {
         ArgumentNullException.ThrowIfNull(script);
@@ -117,12 +91,6 @@ public static class SheepScriptWriter
     /// <summary>
     /// Writes the string pool, keyed by the offsets the bytecode already carries.
     /// </summary>
-    /// <remarks>
-    /// These offsets are the only ones in the file that are read rather than skipped:
-    /// <c>GetString</c> looks a constant up by where it starts in the pool. The compiler
-    /// chose them when it interned the strings, so this lays the pool out to match rather
-    /// than the other way round.
-    /// </remarks>
     private static byte[] Strings(SheepScriptFile script)
     {
         List<int> offsets = [.. script.StringConstants.Keys.Order()];
@@ -193,12 +161,6 @@ public static class SheepScriptWriter
     /// <summary>
     /// Writes the code, which is one block and has always been one block.
     /// </summary>
-    /// <remarks>
-    /// The section's "count" is a count of blocks rather than of entries, and its one
-    /// offset is where that block starts — zero, in all 224 of the game's scripts. The
-    /// reader refuses anything else rather than reading the first block and ignoring the
-    /// rest.
-    /// </remarks>
     private static byte[] Code(SheepScriptFile script) =>
         Section("Code", [0], [.. script.Bytecode]);
 
@@ -209,12 +171,6 @@ public static class SheepScriptWriter
     /// <param name="offsets">Where each entry starts within the body.</param>
     /// <param name="body">The entries.</param>
     /// <returns>The section.</returns>
-    /// <remarks>
-    /// Twelve bytes of name, then the header's own size written <b>twice</b>, then the size
-    /// of the body, then the number of entries, then their offsets. The doubled size is the
-    /// original's and it checks out across the corpus: every section in every shipped script
-    /// declares <c>12 + 16 + 4 × entries</c> in both fields.
-    /// </remarks>
     private static byte[] Section(string name, List<int> offsets, List<byte> body)
     {
         int header = 12 + 16 + (4 * offsets.Count);

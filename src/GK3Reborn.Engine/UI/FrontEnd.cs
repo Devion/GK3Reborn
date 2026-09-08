@@ -12,22 +12,6 @@ namespace GK3Reborn.UI;
 /// <summary>
 /// Which page of the front end is showing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The five settings pages are sections of one screen and not pages in their own
-/// right.</b> They used to be reached by choosing a row on a Settings page and walking back
-/// out of it again, which is seven keystrokes to compare a row on the Picture page against
-/// a row on the Display one; now they are a list down the side of a single screen and the
-/// comparison is one keystroke. They stay separate members here because what is showing is
-/// still one of five things and the front end still has to say which.
-/// </para>
-/// <para>
-/// Upscaling was a page and is now a group of rows on Picture, and Made Easier was a page
-/// and is now a group of rows on Playing. Both were pages because a single column had no
-/// other way to group anything; a two-column page with headings does, so a page apiece for
-/// six rows and two rows was a page apiece too many.
-/// </para>
-/// </remarks>
 public enum FrontEndPage
 {
     /// <summary>The first thing the game shows.</summary>
@@ -88,19 +72,6 @@ public enum FrontEndOutcome
 /// <summary>
 /// The menu in front of the game: what each page holds and what choosing a row does.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Deliberately free of any window, renderer or device. It turns settings into rows and
-/// rows back into settings, so the whole of the front end's behaviour can be tested without
-/// drawing anything — which is the only way to check that a slider moves the thing it says
-/// it moves.
-/// </para>
-/// <para>
-/// It doubles as the pause menu. The same pages serve both; the only difference is that
-/// there is a room to go back to, so the first row says Resume rather than New Game and
-/// leaving means leaving the game rather than the menu.
-/// </para>
-/// </remarks>
 public sealed class FrontEnd
 {
     private static readonly SpeakerLayout[] Layouts =
@@ -129,17 +100,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The frame-generation settings this machine can actually reach.
     /// </summary>
-    /// <remarks>
-    /// Trimmed to what the runtime says the card will do, rather than offered in full and
-    /// refused. Asking for more generated frames than a card supports is not clamped — the
-    /// runtime declines the whole call and generation goes off — so a menu that offers
-    /// four-times on a card that does two is a menu with a setting in it that quietly means
-    /// "off".
-    ///
-    /// Nought is not a card that will generate none: it is a front end nothing has told yet,
-    /// which is what a test looks like and what the first frame of a run looks like. There
-    /// the whole list stands, and the row is disabled by the runtime check instead.
-    /// </remarks>
     private FrameGeneration[] Generations =>
         FrameGenerationMaximum <= 0
             ? [.. FrameGenerations.All]
@@ -158,10 +118,6 @@ public sealed class FrontEnd
         [ToneMapping.Clip, ToneMapping.Reinhard, ToneMapping.Filmic];
 
     /// <summary>The ends of the text-size slider.</summary>
-    /// <remarks>
-    /// Named from the settings rather than written again, so the row cannot offer a size
-    /// the file will clamp away the moment it is saved.
-    /// </remarks>
     private const float SmallestText = GK3Reborn.Game.Settings.SmallestText;
 
     /// <summary>The other end.</summary>
@@ -170,13 +126,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The sizes the display page offers, plus whatever the monitor's own is.
     /// </summary>
-    /// <remarks>
-    /// A short list of the ones people actually use rather than everything the driver will
-    /// enumerate. A monitor reports dozens of modes, most of them refresh variants of four
-    /// or five sizes, and a settings page that lists all of them is a page nobody can find
-    /// their resolution on. Anything not here is reachable by leaving it on the monitor's
-    /// own and resizing the window.
-    /// </remarks>
     private static readonly (int Width, int Height)[] Sizes =
     [
         (0, 0),
@@ -191,11 +140,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The port's own words, in the language the game is being played in.
     /// </summary>
-    /// <remarks>
-    /// Set by the host from the language pack. Left as English by every test and by a run
-    /// with no pack, which is the fallback each call site carries anyway — see
-    /// <see cref="UiText"/>.
-    /// </remarks>
     public UiText Text { get; set; } = UiText.English;
 
     /// <summary>Creates a front end over some settings.</summary>
@@ -224,22 +168,11 @@ public sealed class FrontEnd
     /// <summary>
     /// Whether the game's own title art is on screen behind the menu.
     /// </summary>
-    /// <remarks>
-    /// It carries the game's name, so the first page draws no heading of its own over it.
-    /// Set by whoever found the picture, because whether it is there is a fact about the
-    /// installation rather than about the menu.
-    /// </remarks>
     public bool Illustrated { get; set; }
 
     /// <summary>
     /// The languages this installation can actually be played in.
     /// </summary>
-    /// <remarks>
-    /// Handed over rather than worked out here, because which languages there are is a fact
-    /// about which packs are beside the executable and the menu has no business opening
-    /// files. English is always among them: it is what every installation can already read.
-    /// See <see cref="Content.LocalizedContent.Available"/>.
-    /// </remarks>
     public IReadOnlyList<Content.GameLanguage> Languages { get; set; } =
         [Content.GameLanguage.Default];
 
@@ -249,14 +182,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The settings screen's sections, in the order they are listed down its side.
     /// </summary>
-    /// <remarks>
-    /// General first: it is the language, the subtitles, the captions and what the game
-    /// will do for a player who is stuck, which is the section somebody opens the settings
-    /// for before they have decided anything about the picture. Picture next because it is
-    /// what most people came for, Controls last because it is the one people set once.
-    /// Sound in the middle rather than at the end, where the original put it, on the
-    /// grounds that a volume is the setting people come back to.
-    /// </remarks>
     public static IReadOnlyList<MenuSection> Sections { get; } =
     [
         new("gameplay", "General"),
@@ -269,10 +194,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The same sections, named in the player's own language.
     /// </summary>
-    /// <remarks>
-    /// <see cref="Sections"/> stays as it is because its identifiers are what a click
-    /// answers to and what the tests address a section by; only the words move.
-    /// </remarks>
     public IReadOnlyList<MenuSection> Tabs =>
     [
         .. Sections.Select(section => section with
@@ -300,11 +221,6 @@ public sealed class FrontEnd
     /// <summary>Shows the section before or after this one, wrapping round.</summary>
     /// <param name="by">-1 for the one above, 1 for the one below.</param>
     /// <returns>True when the section changed.</returns>
-    /// <remarks>
-    /// Round rather than stopping at the ends, the same way every list in this interface
-    /// does. Nothing at all when a settings section is not what is showing: the shoulder
-    /// buttons on the save screen belong to the save screen.
-    /// </remarks>
     public bool StepSection(int by)
     {
         int at = Section;
@@ -328,11 +244,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>The heading for the page showing.</summary>
-    /// <remarks>
-    /// One word for the whole settings screen, because the section's own name is already
-    /// down the side of it in the list the player just chose it from. A panel headed
-    /// "Picture" with "Picture" highlighted beside it says the same thing twice.
-    /// </remarks>
     public string Title => Page switch
     {
         // The game's own name is not translated, because it is a name.
@@ -450,11 +361,6 @@ public sealed class FrontEnd
 
     /// <summary>Opens a page outright.</summary>
     /// <param name="page">Which one.</param>
-    /// <remarks>
-    /// For photographing one: a settings page three keystrokes into the menu cannot be
-    /// reached by a run with no keyboard, and a page nobody can render is a page whose
-    /// layout nobody can check.
-    /// </remarks>
     public void Show(FrontEndPage page) => Page = page;
 
     /// <summary>Goes up one level, or out of the menu from the top.</summary>
@@ -513,10 +419,6 @@ public sealed class FrontEnd
     /// <summary>Writes the settings if anything has changed.</summary>
     /// <param name="path">Where to write, or null for this user's own.</param>
     /// <returns>True when something was written.</returns>
-    /// <remarks>
-    /// On leaving a page rather than on every keystroke: dragging a volume slider is
-    /// hundreds of changes and none of them is worth a write to disk.
-    /// </remarks>
     public bool Commit(string? path = null)
     {
         if (!Dirty)
@@ -531,41 +433,18 @@ public sealed class FrontEnd
     /// <summary>
     /// Where these settings came from, and where they go back to.
     /// </summary>
-    /// <remarks>
-    /// Null for the player's own profile, which is the ordinary case. Set when the host was
-    /// pointed at another file, so that a run taking a photograph of a display setting
-    /// writes its changes to that file rather than to the one somebody is playing with.
-    /// </remarks>
     public string? StoredAt { get; set; }
 
     /// <summary>Which slot the player last pointed at.</summary>
-    /// <remarks>
-    /// Read by the host after a <see cref="FrontEndOutcome.Save"/> or
-    /// <see cref="FrontEndOutcome.Load"/>. The front end deliberately owns no store: it turns
-    /// rows into a choice, and reading or writing a game is the host's business.
-    /// </remarks>
     public string? Slot { get; private set; }
 
     /// <summary>What each slot holds, for the host to fill in before the page is shown.</summary>
-    /// <remarks>
-    /// A list rather than a store, for the same reason. Empty until something sets it, which
-    /// draws every slot as free — the honest answer for a menu that has not been told.
-    /// </remarks>
     public IReadOnlyList<SaveSlot> Saves { get; set; } = [];
 
     /// <summary>The interface's number for a slot's picture, by slot.</summary>
-    /// <remarks>
-    /// Set by the host, which is the only thing that can hand a picture to the renderer. Nought
-    /// or absent draws the row as words alone, which is what a slot with no picture is — every
-    /// save written before the pictures existed, among others.
-    /// </remarks>
     public Func<string, int>? Illustrations { get; set; }
 
     /// <summary>What the player is calling the game they are about to save.</summary>
-    /// <remarks>
-    /// Typed on the save page and offered as the title. Empty means the slot keeps whatever
-    /// it was called, or is named for where the player is if it was free.
-    /// </remarks>
     public string Naming { get; set; } = string.Empty;
 
     /// <summary>
@@ -575,13 +454,6 @@ public sealed class FrontEnd
     /// <param name="text">What it is called.</param>
     /// <param name="on">Whether it is on.</param>
     /// <returns>The row.</returns>
-    /// <remarks>
-    /// <see cref="MenuItem.Toggle"/> writes "On" and "Off" itself, and a record of four
-    /// fields has no business knowing what language the game is in. So every toggle on
-    /// every page comes through here instead — which is also the only place those two
-    /// words are written, where the plain factory had them in one place and the front end
-    /// had no way to reach it.
-    /// </remarks>
     private MenuItem Toggle(string id, string text, bool on) =>
         MenuItem.Toggle(id, text, on) with
         {
@@ -629,19 +501,6 @@ public sealed class FrontEnd
     /// </summary>
     /// <param name="writing">Whether this is the page that saves or the page that restores.</param>
     /// <returns>One row per slot, and a way back.</returns>
-    /// <remarks>
-    /// <para>
-    /// Twelve numbered slots, plus the two the game keeps for itself. A free slot is drawn as
-    /// free rather than hidden, because a save menu that shows only what has been saved gives
-    /// a new player nothing to aim at.
-    /// </para>
-    /// <para>
-    /// Each row carries what the player called it and when it was written. The quick and
-    /// automatic slots can be restored from and not written to by hand: they belong to the
-    /// game, and a player who overwrites their own autosave has been given a way to lose
-    /// something they did not know they had.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Slots(bool writing)
     {
         List<MenuItem> rows = [];
@@ -716,10 +575,6 @@ public sealed class FrontEnd
         Saves.FirstOrDefault(s => string.Equals(s.Slot, slot, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>How a slot reads on the page.</summary>
-    /// <remarks>
-    /// What the player called it and when they wrote it. The date is the local one, short,
-    /// because a save menu is read at a glance and nobody is looking for a timezone.
-    /// </remarks>
     private string Described(string slot)
     {
         string name = slot switch
@@ -760,11 +615,6 @@ public sealed class FrontEnd
     /// <summary>
     /// Which of the vendors' runtimes are installed, for the rows that need to say.
     /// </summary>
-    /// <remarks>
-    /// Set by the host. Null draws every upscaler as unavailable, which is the honest
-    /// answer for a front end nobody has told: it has no way to look for a file itself and
-    /// no business doing so.
-    /// </remarks>
     public UpscalerRuntimes? Runtimes { get; set; }
 
     /// <summary>How big the window is, so the upscaling page can say what it will draw.</summary>
@@ -773,37 +623,15 @@ public sealed class FrontEnd
     /// <summary>
     /// Which upscalers this machine may be offered.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set by the host from the card the renderer chose. DLSS is not on the list on a card
-    /// that is not NVIDIA's, and the row does not step onto it: a permanently unavailable
-    /// option is worse than an absent one, because it reads as something the game has
-    /// failed to do rather than as something this hardware cannot.
-    /// </para>
-    /// <para>
-    /// FSR stays on every list. FidelityFX is compute and runs on anything, which is
-    /// exactly why an NVIDIA player who has not installed NVIDIA's runtime still has a good
-    /// temporal upscaler available to them.
-    /// </para>
-    /// </remarks>
     public IReadOnlyList<UpscalerKind> Offered { get; set; } = EveryUpscaler;
 
     /// <summary>Whether the display actually gave back a high dynamic range colour space.</summary>
-    /// <remarks>
-    /// Distinct from the setting. Asking for HDR on a monitor in SDR mode changes nothing,
-    /// and a page that shows the switch on and says nothing else has told the player their
-    /// display is the problem in the least useful way available.
-    /// </remarks>
     public bool HighDynamicRangeActive { get; set; }
 
     /// <summary>What is actually upscaling, in the renderer's own words.</summary>
     public string UpscalerRunning { get; set; } = string.Empty;
 
     /// <summary>Whether DLSS started and this card can run it.</summary>
-    /// <remarks>
-    /// Not the same question as whether the files are installed, and the page says so
-    /// differently: a missing file is a download, and a card that cannot run it is not.
-    /// </remarks>
     public bool DlssAvailable { get; set; }
 
     /// <summary>Whether DLSS can denoise the traced light as well as upscale it.</summary>
@@ -818,52 +646,21 @@ public sealed class FrontEnd
     /// <summary>
     /// How many frames the runtime will generate for each drawn one, or nought for none.
     /// </summary>
-    /// <remarks>
-    /// What the frame-generation row is trimmed to. Offering a factor the card will not do
-    /// is worse than not offering it: the runtime refuses the whole call rather than
-    /// clamping, so stepping to it turns generation off altogether and says nothing.
-    /// </remarks>
     public int FrameGenerationMaximum { get; set; }
 
     /// <summary>Whether Reflex loaded and can be driven.</summary>
     public bool LatencyControl { get; set; }
 
     /// <summary>Whether a gamepad is plugged in.</summary>
-    /// <remarks>
-    /// Set by the host every frame, the same way the upscaler's runtime facts are, and for
-    /// the same reason: it can change while the settings screen is open, because that is
-    /// what a USB socket is. The Controls page says so rather than hiding its pad rows —
-    /// a player setting up a pad they are about to plug in should be able to.
-    /// </remarks>
     public bool HasGamepad { get; set; }
 
     /// <summary>Which graphics API is drawing, as against the one that is chosen.</summary>
-    /// <remarks>
-    /// The two differ from the moment somebody steps the row until the next time the game
-    /// starts, and the row says so. Nought — <see cref="RenderBackend.Automatic"/> — is a
-    /// front end nothing has told, which is what a test looks like; there the row says what
-    /// was chosen and claims nothing about what is running.
-    /// </remarks>
     public RenderBackend RunningBackend { get; set; }
 
     /// <summary>
     /// Everything about what is drawn: how it is lit, what it is built from, and how it is
     /// scaled up to the window.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Upscaling used to be a page of its own, one level further in. It is here because it
-    /// is a picture setting and because a page of its own cost two keystrokes each way to
-    /// reach six rows — and because comparing an upscaler against the lighting quality it
-    /// is being asked to reconstruct is a comparison somebody makes constantly and could
-    /// not make on one screen.
-    /// </para>
-    /// <para>
-    /// The headings are doing real work here rather than decorating. A page laid out in two
-    /// columns has no single line for the eye to follow, so a reader has no way to tell
-    /// where the lighting rows stop and the geometry rows begin without being told.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Video()
     {
         List<MenuItem> rows =
@@ -967,24 +764,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The window, the monitor, and how bright the display is allowed to go.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Separate from Picture because it is about the <em>display</em> rather than about the
-    /// room: nothing on this page changes what is drawn, only how large it is shown and how
-    /// bright the brightest part of it is allowed to be.
-    /// </para>
-    /// <para>
-    /// The four luminances only appear once HDR is on. They are meaningless without it —
-    /// there is nowhere above white to put anything on an 8-bit sRGB display — and four
-    /// dead rows on a page is how a settings screen teaches somebody that rows can be dead.
-    /// </para>
-    /// <para>
-    /// <b>No row explains itself.</b> A settings page is read by somebody looking for one
-    /// thing, and a paragraph under every row is what they have to scroll past to find it.
-    /// What is left is what the player cannot see for themselves: whether the display took
-    /// the colour space it was asked for.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Display()
     {
         List<MenuItem> rows = [];
@@ -1081,24 +860,6 @@ public sealed class FrontEnd
     /// <summary>
     /// Drawing the room smaller than the window and enlarging it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Every row here changes while the game is running, including the upscaler itself: the
-    /// renderer rebuilds its targets at the top of the next frame, the same way it does for
-    /// a resize. Somebody comparing two upscalers should be able to do it by pressing left
-    /// and right, not by restarting the game twice.
-    /// </para>
-    /// <para>
-    /// The two vendors' rows are drawn whether or not their runtimes are installed, and say
-    /// which file is missing. Hiding a row the player has read about elsewhere teaches them
-    /// that the game does not support it.
-    /// </para>
-    /// <para>
-    /// Nothing here says what a row <em>does</em>. What is left is what the player cannot
-    /// find out by trying it: which file to go and fetch, why a row is dead, the two
-    /// resolutions the picture is drawn between, and what is actually running.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Upscaling()
     {
         RuntimeFiles files =
@@ -1237,18 +998,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>The rows for the neural rendering network.</summary>
-    /// <remarks>
-    /// <para>
-    /// Under DLSS because it stands in the same place — it scales the frame — but it needs
-    /// only <c>nvngx_dlssnr.dll</c>, not Streamline and not the plugin that would ordinarily
-    /// drive it. So the row is offered as soon as that one file is there, whatever the rest
-    /// of the DLSS rows say about themselves.
-    /// </para>
-    /// <para>
-    /// The strengths only appear once it is on. A page of sliders that do nothing is worse
-    /// than a page that grows when there is something to set.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Neural()
     {
         bool installed = Runtimes?.NeuralRendering.Present ?? false;
@@ -1382,21 +1131,6 @@ public sealed class FrontEnd
     /// <summary>
     /// How the game plays, and the things it will do for the player rather than ask of them.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Made Easier used to be a page of its own, on the grounds that these two are not
-    /// preferences about presentation — each one changes what the story asks of the player,
-    /// and a switch that quietly does that should not sit in the same undifferentiated list
-    /// as the captions. That reasoning was right and the page was the wrong answer to it: a
-    /// heading says the same thing, in the same place, without a second screen to find.
-    /// </para>
-    /// <para>
-    /// Both are off by default, and both name the puzzle they take away <em>in the row
-    /// itself</em> rather than in a sentence under it. "Skip a puzzle" is no help to
-    /// somebody who has not met it yet and no reassurance to somebody who has; "skip the
-    /// cat-hair moustache" is both, and costs no second line.
-    /// </para>
-    /// </remarks>
     private IReadOnlyList<MenuItem> Gameplay() =>
     [
         // First, and on this page rather than on Sound, because it is not a preference
@@ -1483,20 +1217,6 @@ public sealed class FrontEnd
     /// <summary>
     /// Which key and which pad button do which job.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Three groups, not one list of every control twice.</b> A row that offered a key
-    /// and a pad button at once would need two targets on one row, and a page laid out in
-    /// two columns has no room for that. Keys together and pad buttons together is also how
-    /// people actually use the page: somebody is rebinding a keyboard or setting up a pad,
-    /// almost never both in the same sitting.
-    /// </para>
-    /// <para>
-    /// The pointer is first because it is what a gamepad most has to be able to do in this
-    /// game. GK3 is played by pointing at things; a pad that cannot click is a pad that
-    /// cannot play.
-    /// </para>
-    /// </remarks>
     private List<MenuItem> Controls()
     {
         InputBindings bound = Bindings;
@@ -1589,13 +1309,6 @@ public sealed class FrontEnd
     /// <summary>
     /// The bindings as they now stand, read back out of the settings.
     /// </summary>
-    /// <remarks>
-    /// Rebuilt from what is stored rather than kept beside it, so that there is one answer
-    /// to what a key does and it is the one that was saved. Cached against the stored form
-    /// it came from, because the Controls page asks for it once per row per frame and
-    /// rebuilding a set of dictionaries fifty times a frame to draw a menu is not a trade
-    /// worth making.
-    /// </remarks>
     public InputBindings Bindings
     {
         get
@@ -1617,11 +1330,6 @@ public sealed class FrontEnd
     private string _listening = string.Empty;
 
     /// <summary>Whether the screen is waiting for a key or a button to be pressed.</summary>
-    /// <remarks>
-    /// Read by the host, which stops feeding the page arrow keys while it is true and feeds
-    /// it whatever was pressed instead. A rebind that could be interrupted by the Up arrow
-    /// moving the selection would be a rebind nobody could give the Up arrow to.
-    /// </remarks>
     public bool Listening => _listening.Length > 0;
 
     /// <summary>Whether one particular row is the one waiting.</summary>
@@ -1641,19 +1349,6 @@ public sealed class FrontEnd
     /// <param name="button">The pad button pressed, or none.</param>
     /// <param name="clear">Whether Backspace was pressed, which unbinds it.</param>
     /// <returns>True when something was bound and the page should be redrawn.</returns>
-    /// <remarks>
-    /// <para>
-    /// Takes both at once because the player may answer either question with either device
-    /// and there is no reason to refuse them. A key row answered with a pad button binds the
-    /// pad button; the row is a suggestion about which is likelier, not a rule.
-    /// </para>
-    /// <para>
-    /// <b>Escape is not a bindable key here and neither is Backspace.</b> They are the way
-    /// out and the way to clear, which are the two things somebody has to be able to do when
-    /// the screen has stopped and is waiting for them. Escape is already bound to the menu
-    /// and Backspace to nothing, so neither is a loss.
-    /// </para>
-    /// </remarks>
     public bool Captured(InputKey key, GamepadButton button, bool clear = false)
     {
         if (!Listening)
@@ -1932,11 +1627,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>The next resolution in the list, keeping the two dimensions together.</summary>
-    /// <remarks>
-    /// A width and a height are one decision and are stepped as one. The list holds the
-    /// monitor's own size as a pair of noughts, which is the first entry, so a player who
-    /// has never touched this row is already on it.
-    /// </remarks>
     private Settings Size(int by)
     {
         int at = Array.FindIndex(
@@ -1953,11 +1643,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>Where the text-size slider ends up.</summary>
-    /// <remarks>
-    /// Rounded to a twentieth, so the row reads in fives and a player can get back to a
-    /// hundred per cent by dragging. A slider that stopped at 97% would leave somebody
-    /// unable to undo what they had just done to their menu.
-    /// </remarks>
     private static float TextSize(float current, MenuAction action)
     {
         float part = Level(Fraction(current, SmallestText, LargestText), action);
@@ -1971,11 +1656,6 @@ public sealed class FrontEnd
         CultureInfo.InvariantCulture, $"{Settings.TextScale * 100f:F0}%");
 
     /// <summary>How this page reads the resolution row.</summary>
-    /// <remarks>
-    /// A borderless window is the size of the monitor by definition, whatever size the file
-    /// remembers, so the row reads that way and is not selectable. The stored pair is kept
-    /// rather than cleared: it is what the player goes back to on choosing windowed again.
-    /// </remarks>
     private string DescribeSize() =>
         Settings.Display == WindowMode.BorderlessFullscreen ||
         Settings.DisplayWidth <= 0 || Settings.DisplayHeight <= 0
@@ -1989,11 +1669,6 @@ public sealed class FrontEnd
         Math.Clamp((value - low) / MathF.Max(high - low, 1f), 0f, 1f);
 
     /// <summary>Where a luminance slider ends up.</summary>
-    /// <remarks>
-    /// Rounded to ten candelas. A slider that reads 843 nits is a slider pretending to a
-    /// precision nobody's eye or monitor has, and it makes two settings that look different
-    /// and are not.
-    /// </remarks>
     private static float Nits(float current, float low, float high, MenuAction action)
     {
         float part = Level(Fraction(current, low, high), action);
@@ -2002,11 +1677,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>Where a slider between two plain numbers ends up.</summary>
-    /// <remarks>
-    /// The luminances have <see cref="Nits(float, float, float, MenuAction)"/> of their own
-    /// because they are rounded to ten candelas. Everything else that is a number rather
-    /// than a fraction wants this.
-    /// </remarks>
     private static float Between(float current, float low, float high, MenuAction action) =>
         low + ((high - low) * Level(Fraction(current, low, high), action));
 
@@ -2020,11 +1690,6 @@ public sealed class FrontEnd
     private static int Wrapped(int at, int length) => ((at % length) + length) % length;
 
     /// <summary>Several file names, as a sentence rather than as a list.</summary>
-    /// <remarks>
-    /// Commas and a final "and". "a and b and c" is what joining on one separator gives and
-    /// it reads like a machine wrote it, which on a page asking somebody to go and download
-    /// three files is exactly the wrong impression.
-    /// </remarks>
     private string List(IReadOnlyList<string> names) => names.Count switch
     {
         0 => Text.Say("picture.upscaler.nothing", "nothing"),
@@ -2052,11 +1717,6 @@ public sealed class FrontEnd
     }
 
     /// <summary>The same step, for a list of things that are not enumerations.</summary>
-    /// <remarks>
-    /// The languages are records rather than an enumeration — which of them exist is a fact
-    /// about the packs on disk, not about this build — and a list of one steps to itself
-    /// rather than dividing by zero.
-    /// </remarks>
     private static T Next<T>(IReadOnlyList<T> all, T current, int by)
         where T : class
     {
@@ -2086,10 +1746,6 @@ public sealed class FrontEnd
     /// </summary>
     /// <param name="plan">What is upscaling, and by how much.</param>
     /// <returns>The reading, as "1280x720 to 1920x1080".</returns>
-    /// <remarks>
-    /// The numbers are numbers; the word between them is not, and the plan itself belongs
-    /// to the renderer, which has no idea what language the game is in.
-    /// </remarks>
     private string Between(UpscalePlan plan)
     {
         string both = plan.Describe(Window.Width, Window.Height);
@@ -2104,10 +1760,6 @@ public sealed class FrontEnd
     /// </summary>
     /// <param name="preset">Nought for the runtime's own choice, else 1 for A and up.</param>
     /// <returns>The label.</returns>
-    /// <remarks>
-    /// The letter is a letter. What is around it is a word — "Preset" — and a note out of
-    /// the runtime's own release notes, and both read as English on a French page.
-    /// </remarks>
     private string DescribePreset(int preset)
     {
         if (preset is <= 0 or > DlssPresets.Highest)
@@ -2151,11 +1803,6 @@ public sealed class FrontEnd
     /// <summary>What one of the game's actions is called on the Controls page.</summary>
     /// <param name="action">The action.</param>
     /// <returns>Its name.</returns>
-    /// <remarks>
-    /// Keyed on the action rather than written out here, so a new one falls back to the
-    /// English <see cref="InputBindings.Name(CameraAction)"/> already gives it rather than
-    /// to its enum spelling. The same shape the verbs use.
-    /// </remarks>
     private string Named(CameraAction action) =>
         Text.Say("action." + action, InputBindings.Name(action));
 
@@ -2173,12 +1820,6 @@ public sealed class FrontEnd
     /// <param name="bound">The bindings.</param>
     /// <param name="action">The action.</param>
     /// <returns>The keys, joined, or a dash where there are none.</returns>
-    /// <remarks>
-    /// <b>Each key separately, not the joined string.</b> <c>InputBindings.Describe</c>
-    /// joins them itself, and a key whose name is a word rather than a legend — Left
-    /// Shift, Page Up, Keypad Enter — has to be translated before the joining rather than
-    /// after. A key whose name is what is printed on it is left alone by having no entry.
-    /// </remarks>
     private string Bound(InputBindings bound, CameraAction action)
     {
         IReadOnlyList<InputKey> keys = bound.Keys(action);
@@ -2191,22 +1832,12 @@ public sealed class FrontEnd
     }
 
     /// <summary>What a language is called in the menu.</summary>
-    /// <remarks>
-    /// In itself, and in English beside it where the two differ. Somebody looking for
-    /// French is looking for "Français"; somebody who has landed on a language they cannot
-    /// read needs "French" to find their way back out of it.
-    /// </remarks>
     private static string Describe(Content.GameLanguage language) =>
         string.Equals(language.Native, language.Name, StringComparison.Ordinal)
             ? language.Name
             : $"{language.Native} ({language.Name})";
 
     /// <summary>What each cut-content tier is called in the menu.</summary>
-    /// <remarks>
-    /// The names say what the player gets, not what the tier is. "Observation" is a word
-    /// out of the implementation; "things to look at" is the row telling somebody who has
-    /// never read the documentation what turning it on will do to their game.
-    /// </remarks>
     private string Describe(CutContentTier tier) => tier switch
     {
         CutContentTier.Observation => Text.Say("general.restored.look", "Things to look at"),
@@ -2253,19 +1884,6 @@ public sealed class FrontEnd
     };
 
     /// <summary>The chosen graphics API, and whether it is the one drawing.</summary>
-    /// <remarks>
-    /// <para>
-    /// The automatic answer says what it resolved to, because "Automatic" alone tells a
-    /// player nothing about the machine in front of them — and what it resolves to is the
-    /// whole reason somebody would look at this row.
-    /// </para>
-    /// <para>
-    /// <b>The restart is said in the value rather than under the row.</b> A setting that
-    /// waits is worth saying and this page allows itself no prose, so it is said where it is
-    /// true: the moment the two agree again the words go away by themselves, which a line of
-    /// explanation underneath would not.
-    /// </para>
-    /// </remarks>
     private string DescribeBackend()
     {
         RenderBackend chosen = RenderBackends.Resolve(Settings.Backend);

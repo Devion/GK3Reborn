@@ -8,13 +8,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the block-compressed textures the content pipeline builds.
 /// </summary>
-/// <remarks>
-/// The trap in DDS is the mip chain. Nothing in the file says where a level starts — the
-/// offsets are arithmetic over the block count, and a level narrower than four pixels still
-/// occupies a whole block. Get that wrong and every level but the first is uploaded from
-/// the wrong place, which shows up as garbage only once a surface is far enough away to be
-/// minified.
-/// </remarks>
 public sealed class DdsFileTests
 {
     private const uint DxgiBc7UnormSrgb = 99;

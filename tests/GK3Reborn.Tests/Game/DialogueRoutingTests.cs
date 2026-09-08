@@ -10,12 +10,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for where a spoken line comes from.
 /// </summary>
-/// <remarks>
-/// Gabriel is centred because the player is him, and everybody else is where they are
-/// standing. The policy is older than anything that read it: <c>DialogueRoutingOptions</c>
-/// has been in the audio layer since it was written, and every line in the game came out of
-/// the middle regardless — the person beside you and the person across the courtyard alike.
-/// </remarks>
 public sealed class DialogueRoutingTests
 {
     /// <summary>A device that remembers which bus each line went to, and where.</summary>

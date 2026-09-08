@@ -13,12 +13,6 @@ using GK3Reborn.Foundation.Diagnostics;
 namespace GK3Reborn.Tools.Stages;
 
 /// <summary>Extracts the untouched audio corpus and a restoration-ready PCM view.</summary>
-/// <remarks>
-/// A YAK supplies animation audio references, but those include door ambience, page turns
-/// and telephone hooks as well as speech. GK3's voice-over assets follow the A-prefixed,
-/// sequence-suffixed naming convention; referenced conventional WAVs remain in the general
-/// audio lane. This avoids feeding animation sound effects to a speech model.
-/// </remarks>
 public sealed class AudioExtractStage
 {
     /// <summary>Bump when path or decode semantics change.</summary>

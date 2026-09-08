@@ -18,29 +18,11 @@ public readonly record struct SheepInstruction(
 /// <summary>
 /// Decodes compiled Sheep back into a readable listing.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Reading 224 scripts as hex is not practical, and the bytecode is the only description
-/// of the game's logic that is guaranteed to match what shipped. A disassembler is
-/// therefore the first thing P4 needs: it makes the scripts inspectable, and it is the
-/// natural place to prove the instruction set is understood, since an unknown opcode or a
-/// miscounted operand desynchronises the stream immediately and visibly.
-/// </para>
-/// <para>
-/// Operands are resolved against the script's own tables, so a call shows the function it
-/// invokes and a push shows the string it pushes rather than an index.
-/// </para>
-/// </remarks>
 public static class SheepDisassembler
 {
     /// <summary>Decodes a script's bytecode.</summary>
     /// <param name="script">The script.</param>
     /// <returns>Instructions in address order.</returns>
-    /// <remarks>
-    /// Decoding stops at the first byte that is not a known opcode, rather than guessing:
-    /// past that point the stream is no longer aligned and everything after would be
-    /// fiction. The caller can tell from the last address whether the whole script decoded.
-    /// </remarks>
     public static IReadOnlyList<SheepInstruction> Decode(SheepScriptFile script)
     {
         ArgumentNullException.ThrowIfNull(script);

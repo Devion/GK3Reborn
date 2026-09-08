@@ -7,12 +7,6 @@ namespace GK3Reborn.Tests;
 /// <summary>
 /// What the executable accepts after its name, and the usage text that says so.
 /// </summary>
-/// <remarks>
-/// The switches are read where they are used, scattered through <see cref="Application"/>,
-/// and the usage text is written in one place by hand. The two drift apart unless
-/// something holds them together, so the last test here reads the source and checks
-/// that every switch it reads is one <c>--help</c> mentions, and the other way round.
-/// </remarks>
 public sealed partial class CommandLineTests
 {
     [Theory]

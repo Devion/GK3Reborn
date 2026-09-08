@@ -8,21 +8,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Copies a texture off the device and into a picture.
 /// </summary>
-/// <remarks>
-/// <para>
-/// What every screenshot, every reference render and every offscreen test goes through.
-/// The awkward part is not the copy but the shape of what arrives: a texture is copied into
-/// a buffer with rows padded to a multiple of two hundred and fifty-six bytes, which for a
-/// width that is not a multiple of sixty-four is not the width of the picture. Reading it
-/// as though it were tightly packed gives a picture that shears a little further with each
-/// row, which looks like a rendering bug and is not one.
-/// </para>
-/// <para>
-/// The device is asked for the padding rather than told: <c>GetCopyableFootprints</c> knows
-/// the alignment rules for every format, including the block-compressed ones where a row is
-/// a row of blocks.
-/// </para>
-/// </remarks>
 public static unsafe class D3D12Readback
 {
     /// <summary>Reads a texture back as an eight-bit picture.</summary>

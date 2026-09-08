@@ -6,11 +6,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the INI dialect GK3's text assets use.
 /// </summary>
-/// <remarks>
-/// The cases here are the ones that distinguish this dialect from ordinary INI. Each was
-/// taken from a real asset, because every one of them is a way a naive parser silently
-/// produces plausible-looking wrong data rather than failing.
-/// </remarks>
 public sealed class IniDocumentTests
 {
     [Fact]

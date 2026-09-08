@@ -8,28 +8,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// DLSS on Direct3D 12.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The same runtime the Vulkan path uses, told about a different device. Streamline itself is
-/// backend-neutral — it takes handles, sizes, formats and states and never interprets the last
-/// two — so what is here is the Direct3D half of four sentences: attach the device, say what
-/// the feature should do, describe this frame's four textures, and evaluate on the command
-/// list.
-/// </para>
-/// <para>
-/// <b>This is the easier of the two backends to say that on, which is much of why Windows
-/// defaults to it.</b> Vulkan's manual-hooking mode needs <c>sl.interposer.dll</c> loaded in
-/// place of <c>vulkan-1.dll</c>, the surface created through it, and <c>slSetVulkanInfo</c>
-/// then not called at all — three things that must be right together, where getting one wrong
-/// costs frame generation silently. Direct3D wants the device pointer.
-/// </para>
-/// <para>
-/// The states matter and are not decorative. Streamline is handed the resource state each
-/// texture is actually in when the evaluate is recorded, and a wrong one is not a validation
-/// error — the runtime believes it, reads through a barrier that was never issued, and
-/// produces a frame built partly from whatever was there before.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12DlssUpscaler : IDisposable
 {
     private readonly Streamline _streamline;
@@ -154,11 +132,6 @@ public sealed unsafe class D3D12DlssUpscaler : IDisposable
     /// <param name="output">Where to put the result, at display resolution.</param>
     /// <param name="frame">The rest of what the runtime is told about this frame.</param>
     /// <returns>True when the runtime did the work.</returns>
-    /// <remarks>
-    /// The four textures must already be in the states named here, and the caller is what puts
-    /// them there. Streamline records into the list it is given and issues no barriers of its
-    /// own.
-    /// </remarks>
     public bool Record(
         ID3D12GraphicsCommandList4* list,
         D3D12Texture colour,
@@ -198,11 +171,6 @@ public sealed unsafe class D3D12DlssUpscaler : IDisposable
     }
 
     /// <summary>Says what a texture is in the terms Streamline asks for.</summary>
-    /// <remarks>
-    /// No view. Direct3D has no object corresponding to a Vulkan image view that the runtime
-    /// could be handed — it makes its own descriptors from the resource — so the field stays
-    /// zero, which is what the header says to do.
-    /// </remarks>
     private static UpscaleSurface Surface(D3D12Texture texture) => new(
         (nint)texture.Handle,
         0,

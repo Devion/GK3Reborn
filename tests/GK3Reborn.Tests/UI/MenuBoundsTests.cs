@@ -10,30 +10,11 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests that a settings page stays on the screen.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The picture pages carry a dozen rows and half of them carry an explanation, which is
-/// several times what the menu was built for. Two things used to go wrong and both are
-/// checked here: a page too tall for the window ran off the bottom with its last rows
-/// unreachable, and a sentence wider than the panel was drawn straight through the side of
-/// it.
-/// </para>
-/// <para>
-/// Checked against the quads the page actually emitted rather than against its arithmetic.
-/// A layout test that reimplements the layout only proves the two agree.
-/// </para>
-/// </remarks>
 public sealed class MenuBoundsTests
 {
     /// <summary>
     /// A page with nothing drawn behind it.
     /// </summary>
-    /// <remarks>
-    /// Over a room or over its own gradient the page fills the window with a wash first,
-    /// and every measurement of "what was drawn" then comes back as the whole window
-    /// whatever the panel did. Over the title art there is no wash, so what is left is the
-    /// panel and its contents — which is the thing being measured.
-    /// </remarks>
     private static MenuPage Page() =>
         new(new Overlay(MenuPageTests.Font())) { Behind = MenuBehind.Picture };
 
@@ -142,11 +123,6 @@ public sealed class MenuBoundsTests
     }
 
     /// <summary>Where the chosen row was drawn, found by clicking down the page.</summary>
-    /// <remarks>
-    /// Walks the window looking for the point at which the page reports the chosen row.
-    /// Deliberately does not ask the page where it put it: what is being checked is that
-    /// the row can be reached with a pointer, which is the thing that broke.
-    /// </remarks>
     private static Vector2 Middle(MenuPage page, List<MenuItem> items)
     {
         string wanted = items[page.Index].Id;

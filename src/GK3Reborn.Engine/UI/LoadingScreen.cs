@@ -9,78 +9,22 @@ namespace GK3Reborn.UI;
 /// <summary>
 /// What the window shows while something slow is being read.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The window is drawn into from the moment it exists.</b> A window that has never been
-/// presented to shows whatever the compositor last put there — on Windows, a sheet of
-/// white — and everything between opening it and the first room being ready is a straight
-/// line of blocking reads: the archives, the saves, the sound device, the films, the
-/// typeface, and then a scene whose textures are a couple of hundred megabytes. Cold, off a
-/// mechanical disc, with the enhanced packs in the way, that is a white rectangle for the
-/// better part of a minute and no sign that anything is happening.
-/// </para>
-/// <para>
-/// <b>The bar is only shown once the load has proved slow.</b> A warm walk through a door
-/// is a couple of hundred milliseconds, and a progress bar that appears and disappears
-/// inside a quarter of a second reads as a flicker rather than as information — so nothing
-/// is drawn but black for <see cref="SlowSeconds"/>, and the machine that never needs this
-/// never sees it. Once it is up it stays up for the rest of that load, because a bar that
-/// came and went twice would be worse than either.
-/// </para>
-/// <para>
-/// <b>It is the same screen for both halves of the problem.</b> Starting up, there is
-/// nothing behind it and nothing to fade; going through a door, <see cref="ScreenFade"/>
-/// has already taken a photograph of the room being left and darkened it. So this hands
-/// the first third of a second to the fade and only takes over when the fade has run out of
-/// picture to remove — and it gives the fade back the length it owes, so the next room
-/// still arrives out of black rather than being cut to.
-/// </para>
-/// <para>
-/// <b>What is behind it is the caller's business.</b> This dims whatever the renderer is
-/// already showing and draws over it: black at startup, and the title screen once the menu
-/// has put one up, which is what makes the wait after New Game look like part of the menu
-/// rather than like a crash.
-/// </para>
-/// </remarks>
 public sealed class LoadingScreen
 {
     /// <summary>
     /// How long a load may take before it is worth saying anything about, in seconds.
     /// </summary>
-    /// <remarks>
-    /// Half a second. Under it, a room is already up by the time the eye would have found
-    /// the bar; over it, the alternative is a still picture the player has no way to tell
-    /// from a hung game. It is measured from the start of the load rather than from the last
-    /// frame presented, so a transition whose fade covered the first third of a second still
-    /// counts that third of a second against this.
-    /// </remarks>
     public const double SlowSeconds = 0.5;
 
     /// <summary>How long the music takes to come up, in seconds.</summary>
-    /// <remarks>
-    /// Slow enough that it reads as music arriving rather than as a sound effect. It starts
-    /// when the bar does, so a load that never needed a bar never plays a note — and the
-    /// track is not even read off the disc until then.
-    /// </remarks>
     private const double MusicInSeconds = 0.9;
 
     /// <summary>
     /// How long the whole screen takes to go, in seconds.
     /// </summary>
-    /// <remarks>
-    /// The bar, the word, the dimming and the music all leave together and at the same rate,
-    /// because they arrived as one thing and a bar that snapped off over music still playing
-    /// would read as two. Short: what is waiting behind it is the room, and this is time the
-    /// player spends looking at a bar that has already reached the end.
-    /// </remarks>
     private const double OutSeconds = 0.35;
 
     /// <summary>How often a frame is presented while the loader works.</summary>
-    /// <remarks>
-    /// Thirty a second, for the reason <see cref="ScreenFade"/> says: the loader offers a
-    /// tick per texture, and presenting on every one of them would put a FIFO swapchain in
-    /// front of a read that has hundreds of them to do.
-    /// </remarks>
     private const double FrameSeconds = 1.0 / 30.0;
 
     /// <summary>The menu's own palette, so this looks like the same interface.</summary>
@@ -132,12 +76,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// The interface's own sheet of letters, once there is one.
     /// </summary>
-    /// <remarks>
-    /// Null until the archives have been read, which is most of what the first load is:
-    /// the typeface comes out of the game's own content, so the screen that covers reading
-    /// it cannot be drawn with it. Until then <see cref="OverlayAtlas.Blank"/> stands in and
-    /// the word is silently left out — the bar is the part that carries the meaning.
-    /// </remarks>
     public OverlayAtlas? Atlas { get; set; }
 
     /// <summary>What the word is written in.</summary>
@@ -149,11 +87,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Where to get the music from, asked once and only if the bar is ever shown.
     /// </summary>
-    /// <remarks>
-    /// A function rather than the sound itself, so that a machine fast enough never to see
-    /// this screen never reads the track either. Null, or a function that returns null, is
-    /// a silent loading screen and nothing else changes.
-    /// </remarks>
     public Func<WavFile?>? Music { get; set; }
 
     /// <summary>Whether the bar is on screen.</summary>
@@ -165,21 +98,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Says that something slow is starting, and puts a frame up straight away.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The frame is what stops the window being white: it costs one present and it is the
-    /// difference between a game that is starting and a game that has not drawn anything.
-    /// Nothing is drawn <em>on</em> it — the bar waits for <see cref="SlowSeconds"/> — so a
-    /// load that turns out to be quick shows a black window for a moment and nothing else.
-    /// Not presented while the fade is running, which is already presenting frames of its
-    /// own and would be cut across by one from here.
-    /// </para>
-    /// <para>
-    /// A screen that is already up stays up. Startup runs straight into the first room on a
-    /// run with no menu in between, and hiding the bar for another half second there would
-    /// be a blink at the one moment the player is most sure the game has stopped.
-    /// </para>
-    /// </remarks>
     public void Begin(TimeSpan waited = default)
     {
         // Only if something went wrong: the fade is owed its length back by whoever took it
@@ -210,12 +128,6 @@ public sealed class LoadingScreen
 
     /// <summary>Records how far through the work is, and shows it if it is time.</summary>
     /// <param name="through">Nought at the start, one at the end.</param>
-    /// <remarks>
-    /// Monotonic within one load: the bar is never allowed to go backwards. The pieces of a
-    /// load are not all the same size and where one ends is a measured typical rather than a
-    /// promise, so a later piece finishing sooner than expected is ordinary — and a bar that
-    /// shrinks is the one thing a player will not read as progress.
-    /// </remarks>
     public void At(double through)
     {
         _through = Math.Clamp(Math.Max(_through, through), 0, 1);
@@ -225,11 +137,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Offers a frame, at whatever the last <see cref="At"/> said.
     /// </summary>
-    /// <remarks>
-    /// This is what a loader's progress hook is given. Cheap and rate-limited, so a hook
-    /// called once per texture costs one frame every thirtieth of a second and nothing at
-    /// all in between.
-    /// </remarks>
     public void Tick()
     {
         if (!_armed)
@@ -282,21 +189,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Takes the screen down, and gives the fade back whatever this took over from it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Called once the thing being waited for is ready and about to be drawn. The room's own
-    /// loop then lets the picture in over a live room, exactly as it would have if the fade
-    /// had never been interrupted.
-    /// </para>
-    /// <para>
-    /// <b>It leaves over its own third of a second rather than at once.</b> That is the only
-    /// place a fade out can be run from: nothing else presents a frame between here and the
-    /// room's first, so a screen that simply stopped would take the music with it in one
-    /// step. What it costs is a third of a second at the end of a load that was long enough
-    /// to be worth covering, and what it buys is the difference between arriving somewhere
-    /// and being cut to it.
-    /// </para>
-    /// </remarks>
     public void Done()
     {
         if (!_armed)
@@ -343,20 +235,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Takes the screen over from the fade, and puts the bar and the music up.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// The fade is finished here rather than abandoned. <see cref="ScreenFade.Black"/> is
-    /// what takes the photograph of the old room down and says how long the way back should
-    /// take; skipping it would leave a still of the room hanging behind everything for the
-    /// rest of the load, and would arrive into the next room with a cut.
-    /// </para>
-    /// <para>
-    /// And then the fade is set to nothing, because it is drawn <em>over</em> the interface
-    /// — see the renderer's own note on it — so a bar under a fade at full black is a bar
-    /// nobody can see. What replaces it is a rectangle this screen draws itself, which is
-    /// the same black and is behind the bar rather than in front of it.
-    /// </para>
-    /// </remarks>
     private void Appear()
     {
         Showing = true;
@@ -372,19 +250,6 @@ public sealed class LoadingScreen
     /// <summary>
     /// Starts the music, once there is a device to start it on and a track to play.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Offered on every frame rather than once when the screen appears, because at startup
-    /// the screen is up before the sound device is: opening it is one of the things the wait
-    /// is spent on, and a screen that had asked once, early, would be a silent one on
-    /// exactly the slow machine this whole thing is for.
-    /// </para>
-    /// <para>
-    /// The track is asked for once and remembered, so a run with no such sound in the
-    /// archives costs one lookup rather than one a frame. A run with no device costs
-    /// nothing: nothing is read until there is somewhere to play it.
-    /// </para>
-    /// </remarks>
     private void Cue()
     {
         if (_voice.Exists || Sound is not { } device)

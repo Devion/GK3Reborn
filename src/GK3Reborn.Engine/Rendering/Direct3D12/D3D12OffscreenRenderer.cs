@@ -10,32 +10,11 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws into a texture with no window anywhere, and reads the result back.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Direct3D twin of <c>OffscreenRenderer</c>, and it exists for the same reason: a
-/// renderer that has never had its output looked at has only been proved not to crash. A
-/// picture that comes back with the right number of lit pixels in the right places is the
-/// difference between "the pipeline was created" and "the pipeline draws".
-/// </para>
-/// <para>
-/// The triangle is the same triangle as the Vulkan side's, in the same source, and it is
-/// deliberately taken through the whole chain — HLSL to SPIR-V to HLSL to DXIL — rather
-/// than handed straight to DXC. Compiling HLSL by way of SPIR-V is silly for this one
-/// shader and is exactly the point: it is the path every real shader takes, so a break
-/// anywhere in it breaks here first, in the smallest thing there is to debug.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12OffscreenRenderer : IDisposable
 {
     /// <summary>
     /// The bring-up triangle. Three vertices from the vertex index and nothing else.
     /// </summary>
-    /// <remarks>
-    /// No vertex buffer, no descriptor, no push constant. If this does not appear the fault
-    /// is in the device, the pipeline or the target, and it cannot be in a buffer or a
-    /// binding — which is what makes a first bring-up debuggable at all. The same source as
-    /// the Vulkan backend's, character for character.
-    /// </remarks>
     private const string Source = """
         struct VertexOutput
         {

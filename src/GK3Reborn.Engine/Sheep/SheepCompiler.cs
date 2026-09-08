@@ -8,33 +8,6 @@ namespace GK3Reborn.Sheep;
 /// <summary>
 /// Turns a Sheep syntax tree into bytecode the virtual machine runs.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The last piece of P4's front end. The output is a <see cref="SheepScriptFile"/> — the
-/// same thing the reader produces from a shipped <c>.SHP</c> — so anything that can run the
-/// game's own scripts runs these, and <see cref="SheepScriptWriter"/> can put one back on
-/// disk in the original's container.
-/// </para>
-/// <para>
-/// The instruction set is typed rather than polymorphic: there is an <c>AddI</c> and an
-/// <c>AddF</c> and nothing that adds whichever it is given. So the compiler has to know the
-/// type of every expression, which is the whole of the work here. Three types — int, float,
-/// string — and one conversion, <c>IToF</c>, whose operand is <b>how far down the stack to
-/// reach</b> rather than a value. Emitting it as though it converted the top is a mistake
-/// that only shows up in expressions mixing the two.
-/// </para>
-/// <para>
-/// Calls follow the original's convention exactly, because the machine reads it: arguments
-/// left to right, then the count as an int, then the call. A void call still leaves a value
-/// behind and the compiler emits the matching <c>Pop</c>; a string is pushed as its offset
-/// in the constant pool and then fetched with <c>GetString</c>.
-/// </para>
-/// <para>
-/// Every function ends with <c>ReturnV</c> and <b>four</b> <c>SitnSpin</c> bytes. That is
-/// not a guess: the corpus contains 5,924 of the one and 1,481 of the other, which is four
-/// to one exactly, and the next function always starts after them.
-/// </para>
-/// </remarks>
 public sealed class SheepCompiler
 {
     /// <summary>How many halt instructions pad the gap between two functions.</summary>
@@ -253,12 +226,6 @@ public sealed class SheepCompiler
     }
 
     /// <summary>Evaluates something for its effect and throws the value away.</summary>
-    /// <remarks>
-    /// Every call leaves something behind, <b>including a void one</b> — the machine pushes
-    /// a result either way. The matching Pop is the compiler's job, not the machine's,
-    /// which is why the corpus has exactly as many of them as it has void calls: 18,447 of
-    /// each.
-    /// </remarks>
     private void Discard(SheepExpressionNode expression, int line)
     {
         Value(expression, line);
@@ -368,11 +335,6 @@ public sealed class SheepCompiler
     }
 
     /// <summary>Emits an expression that has to leave a value behind.</summary>
-    /// <remarks>
-    /// Which is everywhere but a statement. A void call used as a value is a mistake the
-    /// machine cannot notice — it pushes something either way — so it is caught here, where
-    /// the line number is still to hand.
-    /// </remarks>
     private SheepValueKind Typed(SheepExpressionNode expression, int line) =>
         Value(expression, line) ??
         throw Malformed(
@@ -561,11 +523,6 @@ public sealed class SheepCompiler
     }
 
     /// <summary>Finds or adds a string constant, and gives its offset in the pool.</summary>
-    /// <remarks>
-    /// The offset is what the bytecode carries, not an index, because that is what
-    /// <c>GetString</c> looks up. Entries are NUL-terminated, so each one costs its own
-    /// length and one more byte.
-    /// </remarks>
     private int Intern(string text)
     {
         if (_stringOffset.TryGetValue(text, out int known))

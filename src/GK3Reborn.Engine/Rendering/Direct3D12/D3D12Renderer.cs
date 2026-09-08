@@ -18,27 +18,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws and presents frames to a window, on Direct3D.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The twin of <c>VulkanRenderer</c>. The room, the tracing and the upscale are
-/// <see cref="D3D12FramePipeline"/>, shared with the headless renderer; what is here is
-/// everything that only matters when there is a window — the swapchain, the encode onto it,
-/// and the four things drawn over the room in the order a player sees them: the sky behind,
-/// the film over, the interface over that, and the fade over everything.
-/// </para>
-/// <para>
-/// <b>Every pass that writes the swapchain is built for the swapchain's format.</b> A
-/// Direct3D pipeline names its render target formats when it is created, and the swapchain's
-/// format changes when the window moves onto an HDR display or off one. So the four are
-/// rebuilt together when it does, and nothing outlives a format change.
-/// </para>
-/// <para>
-/// <b>And every one of them applies the same encode.</b> On an HDR surface there is no
-/// hardware encode to fall back on, so a pass that writes linear light onto a PQ swapchain
-/// is not subtly wrong — it is a correct room with a washed-out menu over it, which is what
-/// it looked like on the other backend before <see cref="DisplayEncoding"/> existed.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Renderer : IRenderer
 {
     private readonly D3D12Context _context;
@@ -58,13 +37,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     private Overlay? _list;
     private OverlayAtlas? _atlas;
     /// <summary>The screens' own pictures, by the name they were given.</summary>
-    /// <remarks>
-    /// Without regard to case, like every other name this engine looks a file up by, and
-    /// like the Vulkan backend's own list. An ordinal one here made the driving map's
-    /// markers invisible and unclickable on Direct3D: they are stored under
-    /// <c>DM_LHE</c> — the archive entry's name — and asked for as <c>dm_lhe</c>, the name
-    /// the retail engine's driving layer calls the sprite.
-    /// </remarks>
     private readonly Dictionary<string, int> _pictures = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _needsRecreate;
@@ -80,13 +52,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <summary>
     /// What the wind runs on: wall-clock seconds since the renderer was made.
     /// </summary>
-    /// <remarks>
-    /// The renderer's own clock rather than the game's, because it drives presentation and
-    /// not state. A paused game, a menu over the room and a conversation waiting on a line
-    /// of dialogue all leave the trees moving, which is what they should do; nothing that
-    /// reads this can affect anything the story can see. <c>VulkanRenderer</c> keeps the
-    /// same clock for the same reason.
-    /// </remarks>
     private readonly System.Diagnostics.Stopwatch _wind = System.Diagnostics.Stopwatch.StartNew();
 
     /// <summary>How long the last frame took, which is what a temporal upscaler is paced by.</summary>
@@ -115,11 +80,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <summary>
     /// The window, kept for the one question only it can answer: how big it is now.
     /// </summary>
-    /// <remarks>
-    /// The Vulkan renderer has always held one for this. This one took a window, used it to
-    /// make a swapchain and let go of it, which left <see cref="Recreate"/> with nowhere to
-    /// read a new size from — see what that cost, there.
-    /// </remarks>
     private readonly IGameWindow _window;
 
     /// <summary>Which API is behind this renderer.</summary>
@@ -158,11 +118,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     public SceneLightGrid? LightGrid => _pipeline.Frames.Grid;
 
     /// <summary>Which upscalers this adapter can be asked for.</summary>
-    /// <remarks>
-    /// FSR on every adapter, DLSS only on NVIDIA's. That asymmetry is AMD's doing rather
-    /// than this renderer's: FidelityFX runs on anything with a compute shader, and NGX
-    /// refuses anything that is not a GeForce RTX and says so.
-    /// </remarks>
     public IReadOnlyList<UpscalerKind> OfferedUpscalers => Vendor is GpuVendor.Nvidia
         ? [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr, UpscalerKind.Dlss]
         : [UpscalerKind.Off, UpscalerKind.Spatial, UpscalerKind.Fsr];
@@ -195,30 +150,12 @@ public sealed unsafe class D3D12Renderer : IRenderer
     public bool HighDynamicRangeActive => _swapchain.HighDynamicRange;
 
     /// <summary>Whether an interface is being drawn.</summary>
-    /// <remarks>
-    /// Whether this renderer can draw an interface, which it always can — the pass is built
-    /// with the renderer. It used to ask whether a mesh had been <em>set</em>, which is a
-    /// different question and one whose answer at startup, where this is reported, is always
-    /// no: every run said "NOT drawing" over an interface that was drawing perfectly well,
-    /// and said it on the one line somebody reads when the interface looks wrong.
-    /// </remarks>
     public bool HasOverlay => true;
 
     /// <summary>Everything the debug layer has said since it was last asked.</summary>
-    /// <remarks>
-    /// Direct3D writes its diagnostics into a queue on the device and something has to come
-    /// and read it. A renderer that never does gets an HRESULT and no more, which for a
-    /// whole class of mistake — a resource in the wrong state, a descriptor pointing at the
-    /// wrong thing — is a number with no way back to the frame that caused it. Reading the
-    /// queue clears it.
-    /// </remarks>
     public IReadOnlyList<string> Messages => _context.DrainMessages();
 
     /// <summary>Where to look for the upscaler runtimes.</summary>
-    /// <remarks>
-    /// Read once, when the pipeline is built. Setting it afterwards does nothing, and it is
-    /// here so the two backends present the same surface to whoever configures them.
-    /// </remarks>
     public UpscalerRuntimes? Runtimes { get; set; }
 
     /// <summary>How far the picture is faded out, from nought to one.</summary>
@@ -354,10 +291,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <summary>Sets what to draw, and from where.</summary>
     /// <param name="scene">The geometry, or null to draw nothing.</param>
     /// <param name="camera">Where to look from, or null to leave the view alone.</param>
-    /// <remarks>
-    /// The renderer does not take ownership: the caller keeps the geometry alive for as long
-    /// as it is set, and disposes it afterwards.
-    /// </remarks>
     public void SetScene(SceneGeometry? scene, Camera? camera)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -445,12 +378,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
     /// <summary>Forgets a screen's picture.</summary>
     /// <param name="name">What it was called.</param>
-    /// <remarks>
-    /// Only the name is forgotten; the texture stays until every picture is dropped at once.
-    /// Removing one from the middle would renumber the rest, and a display list built before
-    /// the renumbering would then draw the wrong pictures — which is a worse failure than
-    /// holding a few megabytes of a map nobody is looking at.
-    /// </remarks>
     public void DropOverlayPicture(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -507,10 +434,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
     /// <summary>Shows a still picture behind everything.</summary>
     /// <param name="picture">The picture, or null to show none.</param>
-    /// <remarks>
-    /// The same pass as the film, covering the window rather than fitted into it. A backdrop
-    /// is the whole of what is on screen when there is one.
-    /// </remarks>
     public void SetBackdrop(DecodedImage? picture) => SetMovieFrame(picture, cover: true);
 
     /// <inheritdoc/>
@@ -688,11 +611,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
     /// <summary>Measures how long the last frame took.</summary>
     /// <returns>Seconds, clamped to something a temporal upscaler can be paced by.</returns>
-    /// <remarks>
-    /// A frame that took longer than a second is a load, a breakpoint or a machine that went
-    /// to sleep, and pacing anything against it produces nonsense — so it is reported as a
-    /// sixtieth instead. The same rule as <c>VulkanRenderer.Jitter</c>.
-    /// </remarks>
     private float Pace()
     {
         float seconds = (float)_sinceLastFrame.Elapsed.TotalSeconds;
@@ -733,22 +651,10 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
     /// <summary>Reads back the motion vectors of the last frame.</summary>
     /// <returns>Nothing yet.</returns>
-    /// <remarks>
-    /// The motion target lives inside the frame pipeline and is not kept past the frame that
-    /// wrote it, so there is nothing here to read. It exists on the other backend for one
-    /// diagnostic image and has no caller in the game.
-    /// </remarks>
     public float[]? CaptureMotion() => null;
 
     /// <summary>The device, the chain and the colour space, in one line.</summary>
     /// <returns>What the Vulkan renderer says about itself, about this one.</returns>
-    /// <remarks>
-    /// It used to say only the type's name, which is the one thing a reader already knows.
-    /// The swapchain's format and colour space are what somebody actually needs when a
-    /// picture is wrong — and they are not otherwise discoverable without photographing the
-    /// screen and guessing, which is how an encoding changing underneath the interface came
-    /// to be diagnosed the slow way.
-    /// </remarks>
     public override string ToString() =>
         string.Create(
             System.Globalization.CultureInfo.InvariantCulture,
@@ -785,36 +691,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
     }
 
     /// <summary>What every pass writing the swapchain has to do to its colours.</summary>
-    /// <remarks>
-    /// One answer, derived from the colour space the surface actually gave back rather than
-    /// from what was asked for. A frame where the room encoded for HDR10 and the interface
-    /// did not is not a subtle mismatch: it is a correct picture with a washed-out menu over
-    /// it.
-    /// </remarks>
     /// <summary>Which wide encoding this frame wants the swapchain in.</summary>
-    /// <remarks>
-    /// <para>
-    /// The player's choice and nothing else. This used to make
-    /// <see cref="HdrTransfer.Automatic"/> mean scRGB while frames were being generated,
-    /// because a generated frame is an interpolation between two presented ones and PQ is
-    /// not linear in light — averaging two PQ frames averages the wrong quantity.
-    /// </para>
-    /// <para>
-    /// <b>That was wrong, and the interface is what showed it.</b> The interface, the film
-    /// and the fade are drawn straight onto the swapchain and blend in whatever space it
-    /// carries — see <see cref="DisplayEncoding"/>, which explains why this project blends
-    /// in encoded space rather than compositing. On a PQ surface that space is perceptual;
-    /// on scRGB it is linear light. A glyph is almost entirely partial coverage, so the
-    /// blend space is the whole of how its edges look: the room went on looking right and
-    /// every letter in the game came out wrong.
-    /// </para>
-    /// <para>
-    /// So an encoding is not changed underneath a player because an unrelated setting is on.
-    /// scRGB is theirs to choose and it is honoured; what it costs is that interpolation
-    /// question left as it was, which is NVIDIA's to answer and not visible in the way a
-    /// wrecked interface is.
-    /// </para>
-    /// </remarks>
     private HdrTransfer Transfer() => _output_.Transfer;
 
     private DisplayEncode Encoding() => _swapchain.HighDynamicRange
@@ -914,34 +791,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <param name="height">Its height.</param>
     /// <param name="camera">Where the frame was seen from.</param>
     /// <param name="streamline">The runtime, or null.</param>
-    /// <remarks>
-    /// <para>
-    /// <b>Here rather than with the upscalers, and that is the whole point.</b> The network
-    /// reworks a finished picture: its controls are intensity, local and global tone, and
-    /// structure, which are things you can only do to a signal that has been mapped for a
-    /// display. It is given no exposure and no high-range flag — <c>nvngx_dlssnr.dll</c> has
-    /// neither, so it cannot be told — and it was run for a while from the upscaler slot,
-    /// where what it got was linear light with a lamp in it three hundred times over one.
-    /// Above its range its channels part company, and channels parting company is colour: the
-    /// bright things in a frame fringed and flickered.
-    /// </para>
-    /// <para>
-    /// So it runs on the back buffer, after the tone map and the display encode and before
-    /// the film and the interface. That is the same picture a ReShade add-in would hand it,
-    /// which is the one configuration this network is known to be happy in.
-    /// </para>
-    /// <para>
-    /// <b>Two copies rather than a render target.</b> The picture is copied off the back
-    /// buffer, reworked into a second texture, and copied back. A copy either side is worth
-    /// more than the descriptor plumbing a render target would need here, and it borrows a
-    /// path this file already trusts — the hud-less copy below does the same thing.
-    /// </para>
-    /// <para>
-    /// The two guides come from the room and are the size the room was drawn at, so this only
-    /// runs where that is also the size it is shown at. <see cref="UpscalePlan.Sane"/> pins
-    /// the rung to native whenever the uplift is on, which is what makes that true.
-    /// </para>
-    /// </remarks>
     private void RecordUplift(
         ID3D12GraphicsCommandList4* list,
         uint buffer,
@@ -1056,19 +905,6 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <param name="width">Its width.</param>
     /// <param name="height">Its height.</param>
     /// <param name="streamline">The runtime, or null.</param>
-    /// <remarks>
-    /// <para>
-    /// A copy of the whole back buffer, every frame, and it is not free — but the cheaper
-    /// arrangements are all worse. Drawing the room into a target of its own and copying
-    /// that onto the back buffer costs the same copy; drawing the interface into a target of
-    /// its own changes how every existing frame blends, which
-    /// <see cref="DisplayEncoding"/> explains this project has already decided against.
-    /// </para>
-    /// <para>
-    /// Skipped entirely when nothing is generating frames, which is the ordinary case: the
-    /// copy exists for one feature and should cost nothing when that feature is off.
-    /// </para>
-    /// </remarks>
     private void RecordHudLess(
         ID3D12GraphicsCommandList4* list, uint buffer, int width, int height,
         Streamline? streamline)

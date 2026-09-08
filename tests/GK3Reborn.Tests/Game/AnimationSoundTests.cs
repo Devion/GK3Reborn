@@ -13,12 +13,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the noises an animation makes.
 /// </summary>
-/// <remarks>
-/// An <c>.ANM</c>'s <c>[SOUNDS]</c> section is how most of the game makes any sound at all:
-/// a door, a match, a yawn. Only dialogue was ever played, so everything else was silent —
-/// and silence is indistinguishable from a sound file that is merely missing, which is why
-/// this is checked rather than listened for.
-/// </remarks>
 public sealed class AnimationSoundTests
 {
     /// <summary>A room with one animation in it, and a note of what it played.</summary>

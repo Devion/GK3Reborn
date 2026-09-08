@@ -23,12 +23,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Renders a scene the way the game assembles it, to a PNG.
 /// </summary>
-/// <remarks>
-/// The loading is the engine's own, so what this produces is what the game would show
-/// from the same viewpoint rather than a second implementation that can drift from it.
-/// Rendering offscreen keeps it usable on a build agent and makes the output comparable
-/// between runs.
-/// </remarks>
 public sealed class SceneRenderStage
 {
     private readonly Action<string> _log;
@@ -44,32 +38,16 @@ public sealed class SceneRenderStage
     /// <summary>
     /// How much of the cut-content restoration table to apply to this render.
     /// </summary>
-    /// <remarks>
-    /// A property rather than another argument to <see cref="Run"/>, which already takes
-    /// more than anything should. None by default, so a render is of the game as it
-    /// shipped unless somebody asked otherwise. See <c>docs/cut-content.md</c>.
-    /// </remarks>
     public CutContentTier Restore { get; set; }
 
     /// <summary>
     /// Whether the room's own surfaces are drawn only on the side they face.
     /// </summary>
-    /// <remarks>
-    /// A property rather than another argument to <see cref="Run"/> for the reason the one
-    /// above is, and here at all for the reason the thick cards have a switch: the only way
-    /// to say what culling is worth is two renders of one room that differ in nothing else.
-    /// Off is what every build before it drew. See <c>docs/known-issues.md</c>.
-    /// </remarks>
     public bool Cull { get; set; } = true;
 
     /// <summary>
     /// Whether the room's fog is drawn, for the rooms that have any.
     /// </summary>
-    /// <remarks>
-    /// A property rather than another argument to <see cref="Run"/>, and here for the same
-    /// reason the thick cards have a switch: the only way to say what an effect is worth is
-    /// two renders of one room that differ in nothing else. See <c>docs/fog.md</c>.
-    /// </remarks>
     public bool Fog { get; set; } = true;
 
     /// <summary>Renders a scene.</summary>
@@ -571,10 +549,6 @@ public sealed class SceneRenderStage
     /// them.
     /// </param>
     /// <returns>The camera, or null when the text is not one.</returns>
-    /// <remarks>
-    /// A scene names only the shots the artists framed, and a defect is often somewhere
-    /// none of them points: the sun over a roof, the ground a building should be shading.
-    /// </remarks>
     private static SceneCamera? Spelt(string text)
     {
         if (!text.StartsWith("at=", StringComparison.OrdinalIgnoreCase))
@@ -610,12 +584,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Lays the walk boundary over the floor it describes.</summary>
-    /// <remarks>
-    /// Every part of a boundary — its row order, the sign of its offset, the size it is
-    /// stretched to — produces a plausible-looking mask when it is wrong. Seeing it on the
-    /// floor is the check, which is why `Plan/04` makes overlay validation an exit
-    /// criterion for this phase rather than a nicety.
-    /// </remarks>
     /// <summary>A sibling of the enhanced textures directory.</summary>
     /// <param name="enhanced">Where the enhanced colour textures are.</param>
     /// <param name="what">The sibling's name.</param>
@@ -630,11 +598,6 @@ public sealed class SceneRenderStage
     /// <param name="dlss">What was typed.</param>
     /// <param name="diagnostics">Where a refusal is reported.</param>
     /// <returns>False when what was typed names no quality.</returns>
-    /// <remarks>
-    /// A machine with no DLSS is told so and renders without it, because a reference render
-    /// that refuses to run is worth less than one that says what it did instead. A quality
-    /// nobody can spell is an error, because it is a typo rather than a machine.
-    /// </remarks>
     private static bool SetUpscaling(IOffscreenRenderer renderer, string dlss, DiagnosticBag diagnostics)
     {
         if (!Enum.TryParse(dlss, ignoreCase: true, out UpscalerQuality quality))
@@ -678,11 +641,6 @@ public sealed class SceneRenderStage
     /// <param name="runtimes">Where the upscaler runtimes are, or null to look beside the tool.</param>
     /// <param name="diagnostics">Where a fallback is reported.</param>
     /// <returns>The renderer.</returns>
-    /// <remarks>
-    /// Direct3D where it was asked for and can be had, Vulkan otherwise. A machine that
-    /// cannot open a Direct3D device gets told so and gets a picture anyway, because a
-    /// reference render that refuses to run is worth less than one from the other backend.
-    /// </remarks>
     private static IOffscreenRenderer OpenRenderer(
         RenderBackend backend, string? rayTracing, string? runtimes, DiagnosticBag diagnostics)
     {
@@ -716,11 +674,6 @@ public sealed class SceneRenderStage
     /// </summary>
     /// <param name="enhanced">Where the enhanced colour textures are.</param>
     /// <returns>The finishes, empty when there is no library.</returns>
-    /// <remarks>
-    /// <c>SurfaceFinishes.Load</c> reads the hand-written edit layer beside the library as
-    /// well, which is the point: a correction is only worth making if the thing that draws
-    /// the picture can be made to show it.
-    /// </remarks>
     private static SurfaceFinishes Finishes(string enhanced)
     {
         // enhanced/textures -> enhanced -> the workspace, which is where manifests live.
@@ -754,12 +707,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Finds a way across the scene and draws it.</summary>
-    /// <remarks>
-    /// The same check the region overlay is for, one step further on. A boundary can be
-    /// laid down correctly and still be unusable — a doorway one texel wide that no route
-    /// ever goes through, a gradient that pushes actors into a wall — and the only way to
-    /// see that is to ask for a walk across the room and look at what comes back.
-    /// </remarks>
     private void DrawWalkPath(
         SceneGeometry geometry, LoadedScene scene, string request, DiagnosticBag diagnostics)
     {
@@ -898,13 +845,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Says what the player may do to a noun, here and now.</summary>
-    /// <remarks>
-    /// The other half of a click. Picking says <em>what</em> was clicked and the action
-    /// files say what that means, and the two only agree if the noun the geometry carries
-    /// is one the action files have heard of — a noun with no verbs is either a scene file
-    /// naming something the action files do not, or an action set that should have been
-    /// loaded and was not.
-    /// </remarks>
     private void ReportActions(LoadedScene scene, string noun)
     {
         if (scene.Actions is not { } actions)
@@ -926,14 +866,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Draws what the player could click, one colour per noun.</summary>
-    /// <remarks>
-    /// The overlay validation the phase asks for, and the only kind that works here. Much
-    /// of what a click can land on is never drawn — a hit test is a slab across a doorway
-    /// with its visibility switched off — so comparing the render against the original
-    /// says nothing about whether the doorway can be clicked. This casts the same ray the
-    /// game would through every pixel and colours it by what answered, which puts the
-    /// invisible geometry on screen beside the visible.
-    /// </remarks>
     private void WriteNounMap(
         LoadedScene scene, Camera camera, int width, int height, string path)
     {
@@ -1024,11 +956,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>A stable colour for a noun.</summary>
-    /// <remarks>
-    /// Black is nothing, dark grey is scenery with no noun, and everything else gets a
-    /// saturated colour derived from its own letters — so the same door is the same colour
-    /// in every render, and two objects side by side are seldom the same colour by chance.
-    /// </remarks>
     private static (byte R, byte G, byte B) ColourFor(string? noun)
     {
         if (noun is null)
@@ -1071,13 +998,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Checks the scene's nouns against the ones the action files know.</summary>
-    /// <remarks>
-    /// The two halves of an interaction are written in different files by different people:
-    /// the scene file hangs a noun on a piece of geometry, and the action files say what
-    /// that noun can have done to it. A noun in one and not the other is a click that
-    /// resolves to something and then offers nothing, and neither file is wrong on its own,
-    /// so the only way to see it is to put them side by side.
-    /// </remarks>
     private void ReportNounCoverage(LoadedScene scene)
     {
         if (scene.Actions is not { } actions)
@@ -1112,12 +1032,6 @@ public sealed class SceneRenderStage
     /// <summary>
     /// Puts everything the scene gives an opening pose into it.
     /// </summary>
-    /// <remarks>
-    /// The same call the launcher makes, with the same two libraries behind it. A
-    /// <see cref="SceneUpdate"/> is built and thrown away: nothing here advances it, so
-    /// none of what it can do that takes time happens, and the one thing that takes no
-    /// time does.
-    /// </remarks>
     private void PoseOpening(
         GameArchives archives, LoadedScene scene, SceneGeometry geometry, DiagnosticBag diagnostics)
     {
@@ -1150,11 +1064,6 @@ public sealed class SceneRenderStage
     /// <param name="request">What was asked for, which carries the story's host.</param>
     /// <param name="wanted">The animation, as <c>NAME</c> or <c>NAME:SECONDS</c>.</param>
     /// <param name="diagnostics">Receives anything the animation could not find.</param>
-    /// <remarks>
-    /// Half a second by default, which is past frame zero and short of most clips' ends —
-    /// far enough in for a prop to have been shown and carried into somebody's hands, and
-    /// not so far that a cleanup has put it away again.
-    /// </remarks>
     private void Playing(
         GameArchives archives,
         LoadedScene scene,
@@ -1267,13 +1176,6 @@ public sealed class SceneRenderStage
                 .Distinct(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Carries out an action, and says what it did.</summary>
-    /// <remarks>
-    /// The end of the sentence the rest of this command spells out: a click resolves to a
-    /// noun, the action files say which verbs that noun answers to, and this performs one.
-    /// The scripts are loaded into a <see cref="ScriptHost"/> first, because a fifth of
-    /// every statement in the corpus is <c>CallSheep</c> and without them it would go
-    /// nowhere and look as though the action had done less than it did.
-    /// </remarks>
     private void Perform(
         GameArchives archives,
         LoadedScene scene,
@@ -1386,11 +1288,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Loads every compiled script the archives hold.</summary>
-    /// <remarks>
-    /// All of them, rather than the ones this location might want, because the names an
-    /// action calls are not knowable without reading its script and the whole set is a few
-    /// hundred small files.
-    /// </remarks>
     private int LoadScripts(GameArchives archives, ScriptHost host)
     {
         int loaded = 0;
@@ -1417,12 +1314,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Lets time pass, and performs whatever the story had asked for by then.</summary>
-    /// <remarks>
-    /// The other way an action starts. A script can set a timer — a phone that rings a
-    /// minute after the player walks in — and what fires is a noun and a verb resolved
-    /// then, not a piece of work saved earlier, so the rule that applies is the one that
-    /// applies when it goes off.
-    /// </remarks>
     private void Advance(
         GameArchives archives,
         LoadedScene scene,
@@ -1485,14 +1376,6 @@ public sealed class SceneRenderStage
     }
 
     /// <summary>Points an actor at something before the scene is built.</summary>
-    /// <remarks>
-    /// Two loads, because of an ordering that cannot be got round here: turning a head
-    /// means placing one of an actor's meshes differently, so the glance has to be decided
-    /// before the actor is placed — and where the thing being looked at <em>is</em> is only
-    /// known once everything has been placed. The first load is thrown away and exists to
-    /// answer that. A script does not have this problem: by the time one runs the room is
-    /// already standing, which is what an update loop will let this do too.
-    /// </remarks>
     private void PointSomebody(
         SceneLoader loader,
         GameArchives archives,

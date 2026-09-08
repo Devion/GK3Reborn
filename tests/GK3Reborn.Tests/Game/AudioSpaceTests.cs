@@ -8,19 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests that a sound on your left is heard on your left.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3's world is left-handed and OpenAL's is right-handed, so world coordinates handed
-/// straight to the device put every sound in the game on the wrong side of the player. It
-/// is a defect nobody can see, only hear, and one that sounds like a stereo cable in
-/// backwards rather than like a bug — the fountain is still a fountain, and still gets
-/// louder as you walk towards it.
-/// </para>
-/// <para>
-/// So these check the whole chain against OpenAL's own rule for where a listener's right
-/// ear points, rather than against the conversion agreeing with itself.
-/// </para>
-/// </remarks>
 public sealed class AudioSpaceTests
 {
     /// <summary>Where the camera looks in GK3's world, and which way is up there.</summary>

@@ -12,13 +12,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for a room's bed starting and stopping with the room.
 /// </summary>
-/// <remarks>
-/// These once pinned a crossfade: leaving a room handed its bed on, and the next room's came
-/// up underneath it over the <c>FadeOutMS</c> the soundtrack asked for. Two beds on one bus
-/// is two beds you can hear, and with R25's three seconds the overlap was long enough to be
-/// audibly the wrong room. So what is pinned now is the opposite, and it is worth pinning
-/// because it is exactly what regressed: <em>one bed at a time</em>.
-/// </remarks>
 public sealed class AmbienceFadeTests
 {
     /// <summary>An audio device that plays nothing and remembers everything.</summary>
@@ -125,13 +118,6 @@ public sealed class AmbienceFadeTests
     }
 
     /// <summary>A soundtrack naming one looping sound, with the fade its room asks for.</summary>
-    /// <remarks>
-    /// <c>Loop=1</c> is what makes a sound the room's <em>bed</em> — the thing that plays
-    /// for as long as the player is in the room and stops when they leave it. 83 of the
-    /// corpus's 269 soundtracks have one; the rest are programs of occasional sounds and
-    /// have no bed at all, which is what these tests are not about. See
-    /// <c>SoundtrackProgramTests</c> for those.
-    /// </remarks>
     private static SoundtrackFile Track(string sound, int fadeMs = 3000) => SoundtrackFile.Parse(
         $"""
         [SOUND]

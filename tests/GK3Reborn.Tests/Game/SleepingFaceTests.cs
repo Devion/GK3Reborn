@@ -18,22 +18,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for a face that is wearing an expression rather than playing one.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The lobby at two in the morning is what these are about. <c>LBY202A.NVC</c> opens with
-/// <c>setmood("simone","sleep")</c>, and the mood is a pair of animations: <c>SIMSLEEPON</c>
-/// is one <c>FACETEX</c> holding Simone's eyelids at <c>SIM_BLINK_02</c> — the shut one —
-/// and <c>SIMSLEEPOFF</c> is the <c>UNFACETEX</c> that takes it off again. Only the first
-/// of them runs when she goes to sleep, and it is two frames long.
-/// </para>
-/// <para>
-/// So an expression that put itself back when its animation ended opened her eyes an eighth
-/// of a second after the room put her to sleep, and the blink timer then ran her through
-/// three eyelid pictures every few seconds for the rest of the block: a woman asleep face
-/// down on the reception desk, blinking. Both halves of that are one fault — the blink is
-/// what opens the eyes — and both are here.
-/// </para>
-/// </remarks>
 public sealed class SleepingFaceTests : IDisposable
 {
     private readonly string _root =
@@ -322,12 +306,6 @@ public sealed class SleepingFaceTests : IDisposable
     private static readonly (byte R, byte G, byte B) ShutColour = (0, 255, 0);
 
     /// <summary>The same character, with the alpha channel her eyelids actually have.</summary>
-    /// <remarks>
-    /// Three colours, so that what ends up over the eye can be told apart: the face is
-    /// blue, every eyelid picture is green, and the mask is black — none of the patch shows
-    /// through it at all. The forehead and the mouth are pushed off the eight-pixel face so
-    /// that the only thing painted over the eye is the eyelids.
-    /// </remarks>
     private (Faces Faces, PlacedModel Simone, Sink Sink) Masked()
     {
         const string configuration =
@@ -393,12 +371,6 @@ public sealed class SleepingFaceTests : IDisposable
     }
 
     /// <summary>Keeps the composed faces, so what was painted on one can be read back.</summary>
-    /// <remarks>
-    /// Composition is the half of this that the state cannot speak for. Simone wore
-    /// <c>SIM_BLINK_02</c> on her eyelids all night while the picture the composition made
-    /// of it had her eyes open, so a test that only reads what a region is wearing passes
-    /// straight over the fault.
-    /// </remarks>
     private sealed class Sink : ISceneSink
     {
         private readonly HeadlessSceneSink _inner = new();
@@ -411,10 +383,6 @@ public sealed class SleepingFaceTests : IDisposable
         public Action? Progress { get; set; }
 
         /// <summary>The top left pixel of the face the model is painted with.</summary>
-        /// <remarks>
-        /// Which is the eye: the eyelids are pasted at the origin here, and everything else
-        /// is off the edge of the picture.
-        /// </remarks>
         public (byte R, byte G, byte B) Eye
         {
             get

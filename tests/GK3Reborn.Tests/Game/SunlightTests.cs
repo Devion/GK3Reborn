@@ -8,12 +8,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for the synthesized sun.
 /// </summary>
-/// <remarks>
-/// The sun is the one light no artist authored, so these pin what was decided rather than
-/// what was measured: daylight hours get one, dusk and the dig do not, the arc runs east
-/// to west and peaks near noon, and the recogniser that swaps out an authored scenekey
-/// keeps its hands off the street lamps that share the scenekey's switched-off attenuation.
-/// </remarks>
 public sealed class SunlightTests
 {
     private static readonly Vector3 Centre = new(2400f, 200f, -2400f);
@@ -98,14 +92,6 @@ public sealed class SunlightTests
     /// <summary>
     /// The replacement takes the artists' aim, and only their aim.
     /// </summary>
-    /// <remarks>
-    /// The hour picked the scene asset, and the asset carries the key its room was baked
-    /// under. Aiming by the hour instead put the light a median 42 degrees from that key
-    /// across the corpus and 107 at worst, which is a room lit from somewhere the bake and
-    /// the painted sky both disagree with. What the hour still decides is everything else:
-    /// whether there is a sun at all, and — through the elevation the key turns out to
-    /// stand at — how warm it is.
-    /// </remarks>
     [Fact]
     public void An_authored_scenekey_aims_the_sun_that_replaces_it()
     {
@@ -158,11 +144,6 @@ public sealed class SunlightTests
     /// <summary>
     /// A key underground is not an answer about where the sun is.
     /// </summary>
-    /// <remarks>
-    /// No scenekey in the corpus stands below the horizon — all 749 are between 24 and 62
-    /// degrees up. A rig is a text file anybody may edit, though, and a scene lit from
-    /// underneath is worse than one lit by the clock.
-    /// </remarks>
     [Fact]
     public void A_key_below_the_horizon_falls_back_to_the_hour()
     {

@@ -6,12 +6,6 @@ namespace GK3Reborn.Tests.Foundation;
 /// <summary>
 /// The log file, which is the half of logging that can get things wrong.
 /// </summary>
-/// <remarks>
-/// The point of the file is to be readable by somebody who was not there when the game
-/// ran, which puts three things under test: that a restart does not destroy the log of the
-/// crash it is being restarted after, that two processes do not scribble over each other,
-/// and that a message spanning lines arrives as lines rather than as one run-on entry.
-/// </remarks>
 public sealed class LogFileTests : IDisposable
 {
     private readonly string _directory = Path.Combine(

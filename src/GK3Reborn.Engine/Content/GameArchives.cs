@@ -7,13 +7,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// Every barn archive of an installation, searched as one.
 /// </summary>
-/// <remarks>
-/// The game does not record which archive holds a given asset, and several archives can
-/// hold the same name, so the only reliable way to open one by name is to search them all
-/// in a fixed order. Doing that in one place keeps the order identical between the
-/// toolchain and the game, which matters because a name resolving differently in the two
-/// would make a tool's output describe something the game never loads.
-/// </remarks>
 public sealed class GameArchives : IDisposable
 {
     private readonly List<BarnArchive> _archives = [];
@@ -28,50 +21,16 @@ public sealed class GameArchives : IDisposable
     /// <summary>
     /// Files a player has dropped into <c>overrides/</c>, which outrank every archive.
     /// </summary>
-    /// <remarks>
-    /// Set here rather than consulted by each caller because this is the one door every
-    /// 1999 asset comes through — scripts, room definitions, sounds, models, bitmaps, the
-    /// text files that configure the game. A caller that had to remember to ask the
-    /// override layer first is a caller that will one day forget, and the asset it forgot
-    /// about would be the one nobody could work out why they could not replace.
-    /// </remarks>
     public ContentOverrides? Overrides { get; set; }
 
     /// <summary>
     /// The language the game is being read in, when it is not the installation's own.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// Set here for the same reason <see cref="Overrides"/> is: this is the one door every
-    /// 1999 asset comes through, and localisation touches nearly every family of them —
-    /// the string table, the fonts, Sidney's documents, the bitmaps with words painted into
-    /// them, every line of recorded dialogue and every <c>.YAK</c> that lip-syncs one. A
-    /// layer each of those callers had to remember to consult is a layer that would be
-    /// French everywhere except the one place somebody forgot.
-    /// </para>
-    /// <para>
-    /// <b>Under the overrides and over the archives.</b> A file a player put in
-    /// <c>overrides/</c> is theirs and stays theirs whatever language the game is in;
-    /// everything the language pack does not hold falls through to the installation, which
-    /// is what makes an incomplete pack harmless. Null when the player is reading the game
-    /// in whatever language they installed, and null all the way down — see
-    /// <see cref="LocalizedContent"/>.
-    /// </para>
-    /// </remarks>
     public LocalizedContent? Localization { get; set; }
 
     /// <summary>
     /// Content the game shipped with and cannot reach, put back on the way past.
     /// </summary>
-    /// <remarks>
-    /// Null unless the player asked for it, and null all the way down, so that a game
-    /// nobody has asked to restore anything in does one null test per read.
-    /// <para>
-    /// It edits what an archive holds; it never edits an override. A file the player put
-    /// in <c>overrides/</c> is theirs, and a table quietly rewriting it would be the one
-    /// thing an override exists to prevent.
-    /// </para>
-    /// </remarks>
     public CutContent? Restoration { get; set; }
 
     /// <summary>Where restorations that did not apply are reported.</summary>
@@ -80,10 +39,6 @@ public sealed class GameArchives : IDisposable
     /// <summary>
     /// Assets the remake adds, which no barn has and none can.
     /// </summary>
-    /// <remarks>
-    /// Consulted last, after every archive, so it can only ever answer for a name the game
-    /// does not know. See <see cref="AddedAssets"/>.
-    /// </remarks>
     public AddedAssets? Added { get; set; }
 
     /// <summary>Opens every archive in a directory.</summary>
@@ -123,11 +78,6 @@ public sealed class GameArchives : IDisposable
     /// Only names ending in this, with or without the dot, or null for all of them.
     /// </param>
     /// <returns>The names, in the order the archives are searched.</returns>
-    /// <remarks>
-    /// Pointer entries are left out: an archive naming an asset it does not contain is a
-    /// cross-reference to another archive, and counting it would report the same asset
-    /// twice under a name nothing can read.
-    /// </remarks>
     public IReadOnlyList<string> Names(string? extension = null)
     {
         string? suffix = extension is null
@@ -250,10 +200,6 @@ public sealed class GameArchives : IDisposable
     /// <summary>Whether any archive holds an asset.</summary>
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>True when one does.</returns>
-    /// <remarks>
-    /// A directory lookup and nothing more — no extraction, no decompression. It is what
-    /// lets a caller choose between candidates before committing to reading one.
-    /// </remarks>
     public bool Exists(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -277,19 +223,6 @@ public sealed class GameArchives : IDisposable
     /// <summary>Reads a text asset by name.</summary>
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>Its text, or null if no archive holds it.</returns>
-    /// <remarks>
-    /// <para>
-    /// The text assets are one byte a character rather than UTF-8: they were authored in
-    /// 1999 and contain accented characters in French names. Decoding them as UTF-8
-    /// corrupts those and can throw on otherwise valid files.
-    /// </para>
-    /// <para>
-    /// <b>Which code page depends on the language being read.</b> Nothing in the file says
-    /// — no mark, no header, only bytes — so the only thing that can know is whoever chose
-    /// the language, which is why this asks <see cref="Localization"/> and falls back to
-    /// Windows-1252 when no language pack is open. See <see cref="Gk3Encoding"/>.
-    /// </para>
-    /// </remarks>
     public string? ReadText(string name)
     {
         byte[]? bytes = Read(name);

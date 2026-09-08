@@ -11,20 +11,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for Sidney drawn as a laptop with a desktop on it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Two things here are worth a test rather than an eye. The first is that every button the
-/// puzzle needs is registered where it is drawn: the search button and the print match were
-/// both drawn, both clickable and both wired to a dispatcher that dropped them, so the
-/// screens looked finished and did nothing.
-/// </para>
-/// <para>
-/// The second is that <b>nothing the machine holds can be out of reach</b>. The suspects
-/// list stopped at the bottom of the panel and silently dropped its tenth name at ordinary
-/// window sizes — and that name is the one whose print is worth linking. A list that is too
-/// long now scrolls, and the test scrolls it.
-/// </para>
-/// </remarks>
 public sealed class SidneyDesktopTests
 {
     private const string Text = """
@@ -78,10 +64,6 @@ public sealed class SidneyDesktopTests
         new(new Screen(ScreenKind.Sidney), [], null, machine);
 
     /// <summary>Where on the screen something answers to an identifier, found by sweeping.</summary>
-    /// <remarks>
-    /// By sweeping rather than by asking, because the painter exposes where it put things
-    /// only through the hit test — which is the thing being checked.
-    /// </remarks>
     private static Vector2? Middle(ScreenPainter painter, string id, int width = 1280, int height = 720)
     {
         for (int y = 0; y < height; y += 3)

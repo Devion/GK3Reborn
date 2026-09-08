@@ -8,18 +8,9 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for asking how high the ground is.
 /// </summary>
-/// <remarks>
-/// The floors here are built out of quads by hand rather than read from a room, because
-/// the interesting cases — a ramp, two storeys over the same ground, a hole — are three or
-/// four polygons each and a real room is thousands.
-/// </remarks>
 public sealed class WalkFloorTests
 {
     /// <summary>Builds a room out of named horizontal-ish quads.</summary>
-    /// <remarks>
-    /// Each quad is four corners in order. They all go under one object name, because what
-    /// the query needs is a floor made of several polygons rather than several floors.
-    /// </remarks>
     private static BspFile Room(string objectName, params Vector3[][] quads)
     {
         List<Vector3> vertices = [];

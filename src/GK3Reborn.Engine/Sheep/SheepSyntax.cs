@@ -1,11 +1,6 @@
 namespace GK3Reborn.Sheep;
 
 /// <summary>Anything that can appear as an expression.</summary>
-/// <remarks>
-/// A closed hierarchy: the grammar in the language reference has exactly these forms, and
-/// sealing it is what lets the compiler switch over them without a default case that means
-/// "something was added and this was not updated".
-/// </remarks>
 public abstract record SheepExpressionNode
 {
     private protected SheepExpressionNode()
@@ -129,11 +124,6 @@ public sealed record SheepSymbolNode(
 /// <param name="Name">The name it was parsed under.</param>
 /// <param name="Symbols">What it declares, in declaration order.</param>
 /// <param name="Functions">What it defines, in definition order.</param>
-/// <remarks>
-/// Both halves are optional in the grammar. A script with a <c>symbols</c> block and no
-/// <c>code</c> block declares state and does nothing with it, which is legal and useless;
-/// the other way round is ordinary and common.
-/// </remarks>
 public sealed record SheepScriptNode(
     string Name,
     IReadOnlyList<SheepSymbolNode> Symbols,

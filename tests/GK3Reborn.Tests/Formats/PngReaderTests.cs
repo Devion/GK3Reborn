@@ -7,11 +7,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading PNG.
 /// </summary>
-/// <remarks>
-/// The reader is deliberately narrow — eight bits a channel, RGB or RGBA, not interlaced,
-/// which is every PNG in the corpus and every enhanced candidate — so half of what matters
-/// is that it refuses everything else by name instead of half-decoding it.
-/// </remarks>
 public sealed class PngReaderTests
 {
     private static DecodedImage Image(int width, int height, bool alpha)

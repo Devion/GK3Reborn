@@ -78,25 +78,6 @@ public sealed record Edit<TItem, TPatch>
 /// <summary>
 /// Composes a derived baseline with hand-authored corrections.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Converters guess. Lightmap-derived light positions and inferred material
-/// roughness are starting points, not answers, and the person looking at the scene
-/// in-engine will always know better. The problem is that regenerating the baseline
-/// would throw their corrections away.
-/// </para>
-/// <para>
-/// So corrections live in their own file and are replayed over whatever the
-/// generator most recently produced. Deleting a derived light, nudging one that
-/// sits in the wrong place, dropping in a light the lightmap never implied, or
-/// making a material less glossy are all the same mechanism, and none of them is
-/// lost when the converter improves and reruns.
-/// </para>
-/// <para>
-/// An edit that no longer applies - because the item it names is gone - is reported
-/// and skipped, never silently dropped and never fatal.
-/// </para>
-/// </remarks>
 public static class EditLayer
 {
     /// <summary>

@@ -8,28 +8,6 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// A root signature, built from the same layout the Vulkan descriptor sets are built from.
 /// </summary>
-/// <remarks>
-/// <para>
-/// One descriptor table per descriptor set, plus root constants for the push constants, in
-/// that order. The ordering is what a caller binds against — root parameter <c>n</c> is the
-/// <c>n</c>th set in <see cref="ShaderLayout.Sets"/> — so it is stated rather than left to
-/// be inferred, and <see cref="ParameterFor"/> is the only thing that needs to know it.
-/// </para>
-/// <para>
-/// A table rather than root descriptors, deliberately, even though root descriptors are
-/// cheaper to bind. Root descriptors take a raw GPU address and can only be buffers: a
-/// texture cannot be one, and the renderer's sets are mostly textures. Mixing the two
-/// would mean two ways to bind depending on what a set happens to hold, which is a rule
-/// nobody remembers under pressure. Push constants stay root constants because there is no
-/// alternative and no cost.
-/// </para>
-/// <para>
-/// Samplers get a table of their own within each set. Direct3D will not put a sampler in
-/// the same descriptor heap as anything else — they are different heap types and only one
-/// of each can be bound — so a set that holds a combined image sampler is two tables, one
-/// in the view heap and one in the sampler heap.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12RootSignature : IDisposable
 {
     private readonly Dictionary<uint, int> _viewParameters = [];
@@ -53,10 +31,6 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     public int PushConstantParameter { get; private set; } = -1;
 
     /// <summary>How many descriptors in the view heap a whole frame of this pipeline needs.</summary>
-    /// <remarks>
-    /// The sum of every non-sampler binding's count. What a caller reserves from the heap
-    /// before it starts writing descriptors, so that a table is contiguous.
-    /// </remarks>
     public uint ViewDescriptorCount { get; private set; }
 
     /// <summary>How many sampler descriptors it needs.</summary>
@@ -179,14 +153,6 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     /// <param name="binding">The binding within it.</param>
     /// <returns>How many descriptors into the table it is.</returns>
     /// <exception cref="ArgumentOutOfRangeException">The set has no such binding.</exception>
-    /// <remarks>
-    /// Not the binding number. Bindings are packed into the table in binding order with the
-    /// samplers taken out, so a layout with a sampler in the middle of it — which the
-    /// denoising passes have, at binding seven of sixteen — has every binding after the
-    /// sampler sitting one slot earlier than its number. Counting that out at each call site
-    /// is how a descriptor ends up written one slot along from where the shader reads it,
-    /// which is not an error anywhere: it is a picture made of the wrong texture.
-    /// </remarks>
     public uint ViewOffset(uint set, uint binding) => Offset(set, binding, samplers: false);
 
     /// <summary>Where in a set's sampler table one binding's descriptor sits.</summary>
@@ -248,11 +214,6 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     /// Unmanaged storage for the ranges, how many there are, and how many descriptors they
     /// cover in total. The storage is the caller's to free.
     /// </returns>
-    /// <remarks>
-    /// Unmanaged rather than a fixed array because the ranges have to outlive this call:
-    /// the root parameter points at them and the pointer is read when the signature is
-    /// serialised, which happens after every set has been walked.
-    /// </remarks>
     private static (nint Block, int Count, uint Descriptors) RangesFor(
         ShaderBinding[] inSet, bool samplerHeap)
     {
@@ -301,12 +262,6 @@ public sealed unsafe class D3D12RootSignature : IDisposable
     }
 
     /// <summary>Which register classes one binding occupies.</summary>
-    /// <remarks>
-    /// One apiece except a combined image sampler, which is two: HLSL has no such object,
-    /// so SPIRV-Cross emits a texture and a sampler at the same register index in different
-    /// classes. Getting this wrong is a shader that samples a texture with whatever sampler
-    /// happens to be at that slot.
-    /// </remarks>
     private static DescriptorRangeType[] TypesOf(ShaderBindingKind kind) => kind switch
     {
         ShaderBindingKind.UniformBuffer => [DescriptorRangeType.Cbv],

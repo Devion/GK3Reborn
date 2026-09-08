@@ -8,14 +8,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Getting a picture onto a Direct3D device, and getting the same picture back.
 /// </summary>
-/// <remarks>
-/// The texture path has one mistake that hides and one that creeps. A texture is copied
-/// through a buffer whose rows are padded to two hundred and fifty-six bytes, and a copy
-/// that treats them as packed shears the picture a little further with every row — which is
-/// invisible at any width that is a multiple of sixty-four, so these use a hundred. And a
-/// mip level of odd width has an edge column with nothing to average against, which if
-/// reached past rather than clamped makes a texture drift sideways as it coarsens.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class D3D12TextureTests
 {
@@ -38,10 +30,6 @@ public sealed class D3D12TextureTests
     }
 
     /// <summary>A picture whose every pixel says where it is.</summary>
-    /// <remarks>
-    /// Red counts along the row and green down the column, so a picture that sheared, or
-    /// that was read with the wrong pitch, is wrong in a way that names the axis.
-    /// </remarks>
     private static DecodedImage Gradient(int width, int height)
     {
         byte[] pixels = new byte[width * height * 4];
@@ -126,11 +114,6 @@ public sealed class D3D12TextureTests
     }
 
     /// <summary>A picture of alternating black and white pixels.</summary>
-    /// <remarks>
-    /// The one picture that tells the two filters apart. Every level below the top is half
-    /// black and half white, and the answer is a different number depending on the space the
-    /// halves are averaged in — 128 in the encoding, 188 in light.
-    /// </remarks>
     private static DecodedImage Checkerboard(int size)
     {
         byte[] pixels = new byte[size * size * 4];

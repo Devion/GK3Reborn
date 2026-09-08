@@ -5,17 +5,6 @@ namespace GK3Reborn.Formats.Video.H264;
 /// <summary>
 /// Intra prediction, 8.3: builds a block from the reconstructed samples around it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The 4x4 and 8x8 predictors share one implementation over an edge array laid out so
-/// that the standard's <c>p[x, -1]</c> and <c>p[-1, y]</c> are plain offsets from the
-/// corner: the left column bottom-up, the corner, then the top row. The formulas can then
-/// be written as they appear in 8.3.1.2 and 8.3.2.2, negative indices included.
-/// </para>
-/// <para>
-/// Prediction writes straight into the picture; the residual is added on top afterwards.
-/// </para>
-/// </remarks>
 internal static class IntraPrediction
 {
     public const int Vertical = 0;

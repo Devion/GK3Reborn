@@ -8,18 +8,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for reading an outline font and drawing it.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The font the interface uses is carried inside the assembly, so these read the real one
-/// rather than a fixture: a hand-made TrueType file would test the parser against my own
-/// idea of the format, which is the one thing that cannot be wrong twice in the same way.
-/// </para>
-/// <para>
-/// What they check is what silently breaks: metrics that are nonsense, a character map
-/// that misses the accents this game is set among, and a rasteriser that draws either
-/// nothing at all or a solid block — both of which look like a layout bug from the far end.
-/// </para>
-/// </remarks>
 public sealed class TrueTypeTests
 {
     private static TrueTypeFile Font()

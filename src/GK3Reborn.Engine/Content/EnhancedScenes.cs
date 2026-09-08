@@ -17,23 +17,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// The improved room geometry that has been built, if any has.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Every layer of this is optional and every layer falls back on its own.</b> No
-/// manifest, no entry for a room, no file for one, a file that will not parse, or a file
-/// built against a different build of the room's geometry: each of those draws the room
-/// from the original geometry exactly as the game shipped it. Nothing here is ever
-/// required, and nothing here is load-bearing — collision, navigation, camera bounds,
-/// lightmaps and every surface flag stay with the original room however much of the
-/// picture is replaced. See <c>docs/scene-geometry.md</c>.
-/// </para>
-/// <para>
-/// The hash check is not defensive tidiness. A surface index is a position in a file: an
-/// overlay built against a different build of the same room puts every lightmap on the
-/// wrong surface, and the result draws perfectly and is lit by somebody else's lighting.
-/// That is a failure nobody would report as a geometry bug, so it is refused at the door.
-/// </para>
-/// </remarks>
 public sealed class EnhancedScenes
 {
     private readonly Dictionary<string, SceneGeometryRoom> _rooms;
@@ -69,11 +52,6 @@ public sealed class EnhancedScenes
     /// <param name="packs">Packs beside the executable, or null for none.</param>
     /// <param name="diagnostics">Receives a warning when the manifest will not read.</param>
     /// <returns>The library, empty when neither has anything.</returns>
-    /// <remarks>
-    /// The loose directory wins where it has an answer, which is how everything else here
-    /// works and for the same reason: a room recomposed during a session is what should be
-    /// drawn, without the pack having to be rebuilt to see it.
-    /// </remarks>
     public static EnhancedScenes Open(
         string directory, RebarnContent? packs = null, DiagnosticBag? diagnostics = null)
     {
@@ -221,14 +199,6 @@ public sealed class EnhancedScenes
     /// <param name="hash">Its content hash, as the manifest names it.</param>
     /// <param name="diagnostics">Receives a warning when it will not read.</param>
     /// <returns>The geometry, or null when there is none.</returns>
-    /// <remarks>
-    /// The cache is the second reason for addressing a shape by its content rather than
-    /// giving each room its own copy. A location's timeblock variants are the same
-    /// furniture at the same coordinates, and the player crosses between them all game:
-    /// the second visit costs a dictionary lookup. Failures are cached too — a shape that
-    /// will not parse will not parse on the ninetieth object either, and the warning
-    /// belongs in the log once.
-    /// </remarks>
     private ModFile? Shape(string hash, DiagnosticBag? diagnostics)
     {
         if (_shapes.TryGetValue(hash, out ModFile? already))

@@ -60,26 +60,6 @@ public sealed record SidneyFile(string Id, string Item, string Label, SidneyKind
 /// <summary>
 /// What may be scanned into Sidney, and what it becomes.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Scanning is already an ordinary action.</b> The noun is the inventory item, the verb
-/// is <c>SCANNER</c>, and the case is <c>IN_SIDNEY_ADD_DATA</c>; the game's own
-/// <c>INV_ALL.NVC</c> carries the script, which marks the item used and sets a
-/// <c>SidScanner</c> variable to a number. Twenty-nine items can be scanned and the numbers
-/// run from 1 to 35.
-/// </para>
-/// <para>
-/// What the original did with that number lives in its executable. What it has to mean here
-/// is the file the scan produces, and that is what this table is: the item's own name, which
-/// is where the meaning actually is — <c>PARCHMENT_1</c> becomes <c>fileParchment1</c>, and
-/// the eight names the story asks about are all accounted for.
-/// </para>
-/// <para>
-/// The prints, tapes and licences do not get story-visible file names because nothing asks
-/// <c>DoesSidneyFileExist</c> about one. They are still files: they appear in the store, the
-/// analysis recognises them, and the suspects screen is where they are meant to be used.
-/// </para>
-/// </remarks>
 public static class SidneyFiles
 {
     /// <summary>What the story may ask about by name, and what produces each.</summary>

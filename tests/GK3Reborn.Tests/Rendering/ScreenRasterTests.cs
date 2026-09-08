@@ -13,21 +13,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for drawing a computer screen as a raster rather than as five bitmaps.
 /// </summary>
-/// <remarks>
-/// <para>
-/// GK3 has one working computer in it — Larry Chester's, seen through his window — and it
-/// is switched on by an animation that repaints the monitor with five pictures of itself,
-/// <c>LHICOMPANIM1</c> to <c>5</c>, a row more amber text on each. The remake draws the
-/// phosphor instead: scanlines, a refresh bar and a slow breath, every frame.
-/// </para>
-/// <para>
-/// Two things have to hold for that, and neither is visible in a still. The rectangle that
-/// says where the glass is has to follow the picture that is <em>drawn</em> rather than the
-/// texture the surface is filed under, or the screen never lights at all; and the frames
-/// after the first have to stop arriving, or a 2048-texel screen flickers back to a
-/// 128-texel one three times a second.
-/// </para>
-/// </remarks>
 public sealed class ScreenRasterTests
 {
     /// <summary>The glass of Larry's monitor, measured off the 1999 bitmap.</summary>
@@ -36,12 +21,6 @@ public sealed class ScreenRasterTests
     /// <summary>
     /// A deliberately different rectangle for the second frame of the animation.
     /// </summary>
-    /// <remarks>
-    /// Nothing in the corpus looks like this — the five frames are the same monitor and
-    /// carry the same glass. It is here so that the constant the shader receives says
-    /// <em>which</em> frame is on the surface, which is the thing the refusal is about and
-    /// the one thing two identical rectangles could not tell apart.
-    /// </remarks>
     private static readonly Vector4 Other = new(0.2f, 0.2f, 0.8f, 0.8f);
 
     private static bool HasDevice()

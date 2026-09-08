@@ -6,11 +6,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for the <c>.SEQ</c> reader.
 /// </summary>
-/// <remarks>
-/// Two things distinguish this file from ordinary INI and both are ways to be quietly
-/// wrong: the sprite list is one value that happens to be full of commas, and half the
-/// files under the extension are not key-and-value files at all.
-/// </remarks>
 public sealed class SequenceFileTests
 {
     [Fact]

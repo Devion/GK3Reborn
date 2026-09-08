@@ -17,24 +17,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Stage C4b: proposes a light rig per scene and time of day.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Implements ADR 0002 as amended. For each scene and timeblock, surfaces are reduced to
-/// a centroid, an area-weighted normal and their measured baked brightness, and light
-/// sources are fitted to that.
-/// </para>
-/// <para>
-/// Where a scene has a night bake alongside a daylight one, the two are differenced
-/// first. Night shows only artificial light, so subtracting it isolates the sun and the
-/// remainder identifies the practicals — which is a far better-posed problem than trying
-/// to explain a single bake containing both at once.
-/// </para>
-/// <para>
-/// Output goes to <c>content/lighting/</c> in the rig format the renderer reads, marked
-/// <c>derived</c> with a confidence per light. Corrections belong in the paired
-/// <c>.edits.json</c> file, which this stage never writes (ADR 0006).
-/// </para>
-/// </remarks>
 public sealed class LightRigStage
 {
     private readonly Action<string> _log;

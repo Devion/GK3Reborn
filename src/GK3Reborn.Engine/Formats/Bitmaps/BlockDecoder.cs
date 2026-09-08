@@ -5,29 +5,6 @@ namespace GK3Reborn.Formats.Bitmaps;
 /// <summary>
 /// Turns block-compressed levels back into eight-bit pixels.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The content pipeline compresses to BC7, BC5 and BC4 because that is what a desktop
-/// GPU reads without decoding anything. Apple's GPUs read none of them: Metal on Apple
-/// silicon offers ASTC and ETC2 and no BC at all, so <c>textureCompressionBC</c> comes
-/// back false through MoltenVK and creating a BC image there is illegal rather than
-/// slow. This is what makes the same packs work on that hardware — the blocks are
-/// expanded on the host and uploaded as ordinary pixels.
-/// </para>
-/// <para>
-/// It reproduces the sampler exactly rather than approximately, which is what lets a
-/// screenshot from a machine that decoded be compared with one from a machine that did
-/// not. In particular BC4 returns <c>(r, 0, 0, 1)</c> and BC5 <c>(r, g, 0, 1)</c>,
-/// because that is what the hardware returns for the channels those formats do not
-/// carry, and a shader rebuilding a normal's z from two of them must see the same thing
-/// either way.
-/// </para>
-/// <para>
-/// Nothing here runs on a machine that supports BC. Where it does run it costs about a
-/// second per hundred megabytes of blocks and four times the memory of the compressed
-/// form, which is the price of the format not existing on that device.
-/// </para>
-/// </remarks>
 public static partial class BlockDecoder
 {
     /// <summary>Bytes one decoded pixel takes: RGBA, eight bits a channel.</summary>
@@ -86,11 +63,6 @@ public static partial class BlockDecoder
     /// <param name="image">The image the level belongs to.</param>
     /// <param name="level">Which level, zero being the largest.</param>
     /// <param name="pixels">Where to write, RGBA, top row first.</param>
-    /// <remarks>
-    /// Levels below four pixels still occupy a whole block, and the texels outside the
-    /// level are decoded and dropped rather than skipped: the block cannot be read in
-    /// part, and a 1×1 level's single pixel is the block's first texel.
-    /// </remarks>
     public static void DecodeLevel(CompressedImage image, int level, Span<byte> pixels)
     {
         (int offset, int length, int width, int height) = image.Level(level);
@@ -184,11 +156,6 @@ public static partial class BlockDecoder
     /// <summary>Expands a compressed image's largest level.</summary>
     /// <param name="image">The image.</param>
     /// <returns>The decoded pixels, named after the format they came out of.</returns>
-    /// <remarks>
-    /// For tools and tests. The renderer decodes level by level into memory it has
-    /// already staged, rather than allocating a chain of arrays it would immediately
-    /// throw away.
-    /// </remarks>
     public static DecodedImage Decode(CompressedImage image)
     {
         (_, _, int width, int height) = image.Level(0);
@@ -241,20 +208,6 @@ public static partial class BlockDecoder
     /// <summary>Expands one eight-byte channel block, as BC4 and both halves of BC5 are.</summary>
     /// <param name="block">The eight bytes.</param>
     /// <param name="values">Sixteen values, in raster order within the tile.</param>
-    /// <remarks>
-    /// <para>
-    /// Two endpoints and a three-bit index apiece. Which ramp the indices name depends on
-    /// the endpoints' order: the six-value ramp reserves two codes for exactly zero and
-    /// exactly one, which is how a compressor spends a block on a mask.
-    /// </para>
-    /// <para>
-    /// The ramp is mixed in sixteen-bit fixed point and rounded, not divided by seven and
-    /// truncated. The specification writes the values as fractions and hardware rounds
-    /// them; truncating instead is one less over about a fifth of the ramp, which is
-    /// invisible in a texture and not invisible in a normal map — it was worth 0.6% of a
-    /// lit frame differing from the same frame drawn from the blocks themselves.
-    /// </para>
-    /// </remarks>
     private static void DecodeChannel(ReadOnlySpan<byte> block, Span<byte> values)
     {
         int first = block[0];
@@ -311,20 +264,6 @@ public static partial class BlockDecoder
     /// <summary>Expands one BC7 block.</summary>
     /// <param name="block">The sixteen bytes.</param>
     /// <param name="texels">Sixteen RGBA texels.</param>
-    /// <remarks>
-    /// <para>
-    /// The mode is the position of the lowest set bit, and everything else about the
-    /// block follows from it — how many subsets the sixteen texels are divided into, how
-    /// wide an endpoint is, whether alpha is stored at all, and whether the texel indices
-    /// come in one set or two.
-    /// </para>
-    /// <para>
-    /// A block of all zeroes names no mode. The specification leaves the result undefined
-    /// and hardware decoders return transparent black, so this does too rather than
-    /// throwing: it is reached by reading a hole in a file, and a hole should look like
-    /// one instead of stopping a scene from loading.
-    /// </para>
-    /// </remarks>
     private static void DecodeBc7(ReadOnlySpan<byte> block, Span<byte> texels)
     {
         int mode = -1;
@@ -497,11 +436,6 @@ public static partial class BlockDecoder
     /// <param name="subsets">How many subsets the texels are divided into.</param>
     /// <param name="width">How many bits an index takes.</param>
     /// <param name="indices">Where to write the sixteen indices.</param>
-    /// <remarks>
-    /// One texel per subset — its anchor — is stored a bit short, its top bit implied
-    /// zero. That is what fixes the direction of the subset's ramp, and it is why an
-    /// index set cannot be read as sixteen equal fields.
-    /// </remarks>
     private static void ReadIndices(
         ref BlockBits bits, scoped ReadOnlySpan<byte> table, int subsets, int width, scoped Span<int> indices)
     {
@@ -526,10 +460,6 @@ public static partial class BlockDecoder
     /// <param name="width">How many bits it has once the parity bit is appended.</param>
     /// <param name="hasParity">Whether the mode carries parity bits at all.</param>
     /// <returns>The endpoint in eight bits.</returns>
-    /// <remarks>
-    /// The low bits are filled from the high ones rather than with zeroes, so that the
-    /// largest storable value is white rather than nearly white.
-    /// </remarks>
     private static int Widen(int value, int parity, int width, bool hasParity)
     {
         int v = hasParity ? (value << 1) | parity : value;
@@ -548,10 +478,6 @@ public static partial class BlockDecoder
     };
 
     /// <summary>Reads fields of a block from the low bit up.</summary>
-    /// <remarks>
-    /// A BC7 block is one 128-bit little-endian number and its fields are packed from the
-    /// bottom, so the two halves are held as integers rather than indexed as bytes.
-    /// </remarks>
     private ref struct BlockBits(ReadOnlySpan<byte> block, int start)
     {
         private readonly ulong _low = BinaryPrimitives.ReadUInt64LittleEndian(block);

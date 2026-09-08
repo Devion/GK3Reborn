@@ -8,20 +8,9 @@ namespace GK3Reborn.Tests.Formats;
 /// Which space a model's normals are in, and what happens to a character when it is read
 /// wrongly.
 /// </summary>
-/// <remarks>
-/// The shipped corpus writes a prop's normals in the mesh's own space and a character's in
-/// the model's, and the mesh transform between the two is about a ninety-degree turn. Read
-/// the wrong way a character's normals lie over on their side, which is most of a
-/// ninety-degree error in every one of them; measured in the renderer, Gabriel's chest
-/// pointed at the sky and nothing about how he was turned changed how the sun lit him.
-/// </remarks>
 public sealed class ModNormalsTests
 {
     /// <summary>The turn a character mesh group carries: 3ds Max's Z-up into GK3's Y-up.</summary>
-    /// <remarks>
-    /// With the mirror on it, because every mesh transform in the corpus has a determinant
-    /// of -1 and the reading has to hold in the presence of one.
-    /// </remarks>
     private static Matrix4x4 ZUpToYUp()
     {
         Matrix4x4 turn = Matrix4x4.CreateRotationX(-MathF.PI / 2f);
@@ -111,12 +100,6 @@ public sealed class ModNormalsTests
     /// <summary>
     /// The correction undoes exactly the transform the renderer will apply, and no more.
     /// </summary>
-    /// <remarks>
-    /// This is the whole of the fix: the vertex shader multiplies by the transform the mesh
-    /// is posed by now, so cancelling the authored one leaves the normal in the model's
-    /// space at rest and turns it with the limb under a clip. A correction that did
-    /// anything else would fix a standing character and break a walking one.
-    /// </remarks>
     [Fact]
     public void The_correction_cancels_the_transform_the_renderer_applies()
     {
@@ -142,12 +125,6 @@ public sealed class ModNormalsTests
     /// <summary>
     /// A group that knows its own answer keeps it, whatever the rest of the model said.
     /// </summary>
-    /// <remarks>
-    /// Not a nicety. <c>HeadRefinement</c> rebuilds a subdivided head's normals from its
-    /// mesh-space positions, so exactly one group of a character needs the transform its
-    /// other twelve do not — and a model-wide flag would turn that head on its side while
-    /// fixing the body.
-    /// </remarks>
     [Fact]
     public void A_group_that_disagrees_with_its_model_is_read_its_own_way()
     {
@@ -160,11 +137,6 @@ public sealed class ModNormalsTests
     /// <summary>
     /// A mesh with nothing to say about its normals is left exactly as it was drawn before.
     /// </summary>
-    /// <remarks>
-    /// The corpus is full of twelve-triangle hit-test boxes whose normals describe nothing,
-    /// and they read under 0.65 whichever way they are taken. Guessing at those would change
-    /// the shading of props for no reason, so no opinion means no change.
-    /// </remarks>
     [Fact]
     public void A_mesh_with_no_usable_normals_is_left_alone()
     {

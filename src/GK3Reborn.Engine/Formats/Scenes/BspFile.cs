@@ -19,12 +19,6 @@ public sealed record BspSurface
     public required Vector2 LightmapUvScale { get; init; }
 
     /// <summary>Surface flags. Meanings are only partly known.</summary>
-    /// <remarks>
-    /// Read from the file as-is. Bit 1 appears on walls, ceilings and floors, bit 2 on
-    /// surfaces that are hard to make out, bit 4 on a mixture of light sources and hit
-    /// tests, and bit 32 nowhere in the corpus; the three that carry meaning here are
-    /// named below. Documented from G-Engine's <c>BSPSurface</c>.
-    /// </remarks>
     public required uint Flags { get; init; }
 
     /// <summary>Bit 8: the surface is not lit by the bake at all.</summary>
@@ -37,26 +31,12 @@ public sealed record BspSurface
     public const uint ShadowTextureFlag = 64;
 
     /// <summary>Whether the bake lit this surface, or it carries its own brightness.</summary>
-    /// <remarks>
-    /// The original binds a white lightmap and a multiplier of one for these, which comes
-    /// out as the texture at full brightness: a lit bulb, a glowing shade, the painted
-    /// view through a window. Multiplying them by a bake instead leaves them as dim as
-    /// the room they are supposed to be lighting.
-    /// </remarks>
     public bool IsSelfLit =>
         (Flags & IgnoreLightmapFlag) != 0 || (Flags & ShadowTextureFlag) != 0;
 
     /// <summary>
     /// Whether this surface should block a ray-traced shadow.
     /// </summary>
-    /// <remarks>
-    /// Light fittings must not. The rig puts its emitters where the bulb is — inside the
-    /// shade, behind the pane, under the sconce — because the 1999 bake did not trace the
-    /// fitting against its own light. Tracing it now seals every one of those lights
-    /// inside its fixture and the room goes dark, which is what R25's lamps and its window
-    /// showed. The data says which surfaces those are, so they are left out of the
-    /// acceleration structure exactly as alpha-keyed geometry is.
-    /// </remarks>
     public bool CastsShadows =>
         (Flags & (IgnoreLightmapFlag | LightFixtureFlag | ShadowTextureFlag)) == 0;
 }
@@ -77,25 +57,6 @@ public sealed record BspPolygon
 /// <summary>
 /// Reader for GK3's scene geometry: the rooms themselves.
 /// </summary>
-/// <remarks>
-/// <para>
-/// 110 files, 56 MB, holding every location in the game. Documented from G-Engine's
-/// <c>BSP::ParseFromData</c>. The tag reads <c>NECS</c> on disk, being <c>SCEN</c>
-/// stored little-endian.
-/// </para>
-/// <para>
-/// Only what is needed to reconstruct the visible geometry is kept: names, surfaces,
-/// polygons, vertices, texture coordinates and the index array. The BSP tree itself —
-/// nodes, planes and bounding spheres — is read past rather than retained, because a
-/// modern renderer does not traverse it and an exporter has no use for it. The
-/// original navigation data lives elsewhere, so nothing here is load-bearing for
-/// collision.
-/// </para>
-/// <para>
-/// Surfaces carry a lightmap offset and scale per surface, which stage C4b needs when
-/// it back-projects lightmap luminance to propose scene lights (ADR 0002).
-/// </para>
-/// </remarks>
 public sealed class BspFile
 {
     private BspFile(
@@ -143,12 +104,6 @@ public sealed class BspFile
     public int TriangleCount => Polygons.Sum(p => Math.Max(0, p.VertexIndexCount - 2));
 
     /// <summary>Builds a scene from parts already in memory.</summary>
-    /// <remarks>
-    /// For tests and for tools that synthesise geometry. Everything a room needs to answer
-    /// questions about itself — which object a surface belongs to, which polygons make it
-    /// up — is in these seven pieces, and a test that wants a doorway with a hit test in
-    /// front of it should not have to write a BSP file to get one.
-    /// </remarks>
     /// <param name="name">Name for the produced scene.</param>
     /// <param name="objectNames">Object names surfaces group under.</param>
     /// <param name="surfaces">The surfaces.</param>
@@ -305,12 +260,6 @@ public sealed class BspFile
     /// <summary>
     /// Checks that the arrays actually refer to one another consistently.
     /// </summary>
-    /// <remarks>
-    /// This format has no trailing tag to prove the parse stayed aligned, so the
-    /// cross-references do that job instead: every polygon's index run must fit inside
-    /// the index array, every index must address a real vertex, and every surface index
-    /// and object index must exist. A misread count fails at least one of these.
-    /// </remarks>
     private static void Validate(
         string name,
         BspSurface[] surfaces,

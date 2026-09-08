@@ -16,11 +16,6 @@ using GK3Reborn.Rendering.Shaders;
 namespace GK3Reborn.Rendering.Vulkan;
 
 /// <summary>Reflects the frame in whatever in it is smooth enough to reflect.</summary>
-/// <remarks>
-/// A min-depth pyramid, then one ray a pixel marched over it — AMD's SSSR intersection,
-/// ported in <see cref="ReflectionShaders"/> — then an average over frames so that a rough
-/// surface, which takes a different sample every frame, settles rather than boils.
-/// </remarks>
 internal sealed unsafe class Reflections : IDisposable
 {
     private const int Levels = ReflectLayout.Levels;

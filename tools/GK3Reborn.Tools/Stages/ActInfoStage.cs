@@ -8,18 +8,6 @@ namespace GK3Reborn.Tools.Stages;
 /// <summary>
 /// Reads every vertex animation in the game and says what is in them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// D2 in <c>Plan/06-c6-rig-solve.md</c>. The reader's five invariants are checked as each
-/// file is read, so a sweep that comes back clean is the evidence that the format has been
-/// understood — and the numbers it reports are what a later change gets compared against.
-/// </para>
-/// <para>
-/// Vertex data is read but not kept unless asked for. The corpus is 399 MB of it and the
-/// deltas have to be decoded either way, because a compressed frame is a delta against the
-/// previous one; what <c>--verbose</c> costs is holding the results.
-/// </para>
-/// </remarks>
 public sealed class ActInfoStage
 {
     private readonly Action<string> _log;

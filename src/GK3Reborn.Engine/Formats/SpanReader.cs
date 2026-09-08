@@ -38,12 +38,6 @@ public sealed class FormatParseException : Exception
 /// <summary>
 /// A bounds-checked little-endian reader over a byte span.
 /// </summary>
-/// <remarks>
-/// Every original-format parser reads through this type. Plan/01 requires checked
-/// arithmetic and bounds checks in parsers, and Plan/02 requires that a corrupt or
-/// truncated file fails safely with the file, offset and expectation named - not
-/// with an <see cref="IndexOutOfRangeException"/> from somewhere deep in a loop.
-/// </remarks>
 public ref struct SpanReader
 {
     private readonly ReadOnlySpan<byte> _data;

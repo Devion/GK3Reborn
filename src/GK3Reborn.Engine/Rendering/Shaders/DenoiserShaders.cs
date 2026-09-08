@@ -7,46 +7,6 @@
 namespace GK3Reborn.Rendering.Shaders;
 
 /// <summary>The compute stages that trace occlusion and then denoise it.</summary>
-/// <remarks>
-/// <para>
-/// The three filtering stages are a port of AMD's FidelityFX denoiser, from the SDK's
-/// 1.1.4 release, which is MIT licensed. The algorithm is theirs and is followed closely
-/// enough that their source reads as a commentary on this one; what has changed is
-/// mechanical:
-/// </para>
-/// <list type="bullet">
-/// <item>
-/// The wave intrinsics are gone. Their reductions are done through shared memory instead,
-/// which their own code already carries a path for, so the shaders need no subgroup
-/// extensions and behave the same whatever width the device runs them at.
-/// </item>
-/// <item>
-/// Clip space is Vulkan's, so the vertical flip their normalised coordinates carry —
-/// they are written against Direct3D — is not applied.
-/// </item>
-/// <item>
-/// The pass that packs a ray tracer's output into a bitmask is not here. Ours writes the
-/// bitmask itself, so there is nothing to convert.
-/// </item>
-/// <item>
-/// Normals arrive already signed and normalised, so the unpacking multiply and add are
-/// dropped rather than passed as one and zero.
-/// </item>
-/// </list>
-/// <para>
-/// What is denoised is a *fraction*, not one light's shadow. A GK3 room is lit by a rig of
-/// point and spot lights and any of them may be behind a wall, so there is no single sun
-/// whose visibility could be tracked. Each pixel instead picks one light with a
-/// probability proportional to what that light contributes to it, and traces one ray at
-/// it. The answer is one bit, which is what the denoiser wants, and its expected value
-/// over many frames is exactly the fraction of the direct light that reaches the pixel —
-/// so the denoised result can simply multiply the unshadowed direct term.
-/// </para>
-/// <para>
-/// Ambient occlusion rides the same machinery: one cosine-weighted ray a pixel, one bit,
-/// and a second copy of the filter chain.
-/// </para>
-/// </remarks>
 public static class DenoiserShaders
 {
     /// <summary>Bindings and helpers every stage shares.</summary>
@@ -82,12 +42,6 @@ public static class DenoiserShaders
     /// One ray a pixel, at one light chosen by how much it contributes, plus one for
     /// occlusion.
     /// </summary>
-    /// <remarks>
-    /// Both answers are single bits packed into a tile's worth of them, which is the shape
-    /// the filter chain reads. The seed varies with the frame — the whole reason the
-    /// grain was previously pinned to the pixel was that nothing averaged it, and now
-    /// something does.
-    /// </remarks>
     private const string Trace = """
         layout(local_size_x = TILE_WIDTH, local_size_y = TILE_HEIGHT, local_size_z = 1) in;
 

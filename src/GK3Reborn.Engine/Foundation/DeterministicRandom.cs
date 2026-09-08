@@ -3,21 +3,6 @@ namespace GK3Reborn.Foundation;
 /// <summary>
 /// The engine's only source of randomness: explicitly seeded and reproducible.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Plan/04-execution-and-quality.md P4: GK3Reborn deliberately does NOT reproduce
-/// GEngine's random streams. GEngine seeds <c>std::default_random_engine</c> from
-/// the wall clock, declares it <c>static</c> in a header (so every translation unit
-/// gets its own generator), and uses <c>std::uniform_*_distribution</c>, whose
-/// output is implementation-defined. That stream is unreproducible even against
-/// itself, and it is not the 1999 executable's stream either.
-/// </para>
-/// <para>
-/// Instead: one documented algorithm (xoshiro256++), one explicit seed, saved and
-/// restored with the game state. Differential tests compare RNG-dependent outcomes
-/// as equivalence classes, not exact streams.
-/// </para>
-/// </remarks>
 public sealed class DeterministicRandom
 {
     private ulong _s0, _s1, _s2, _s3;

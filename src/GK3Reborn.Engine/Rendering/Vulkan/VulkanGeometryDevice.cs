@@ -115,13 +115,6 @@ internal sealed class VulkanGeometryStructure : IGeometryAccelerationStructure
 }
 
 /// <summary>Reaching the Vulkan objects behind the seam, from inside the Vulkan backend.</summary>
-/// <remarks>
-/// The seam exists so that a scene need not know which API it is on. A Vulkan render pass
-/// very much does, and it is holding objects the seam deliberately made opaque — so it casts
-/// them back. That is legitimate here and nowhere else: these are the backend's own types
-/// arriving through its own interface, and the cast fails loudly if a scene built on one
-/// device is ever handed to the other.
-/// </remarks>
 internal static class VulkanGeometry
 {
     /// <summary>The structure behind a scene's acceleration structure.</summary>
@@ -187,32 +180,9 @@ internal sealed class VulkanGeometryUploads : IGeometryUploads
 /// <summary>
 /// Puts a scene's geometry and textures on a Vulkan device.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The Vulkan half of <see cref="IGeometryDevice"/>: an adapter rather than an
-/// implementation. Everything below already existed — <c>VulkanBuffer</c>,
-/// <c>TextureCache</c>, the material descriptor sets that used to live in
-/// <c>SceneGeometry</c> — and this is what gives it a shape the Direct3D backend can offer
-/// too.
-/// </para>
-/// <para>
-/// The descriptor pools moved here with the material sets, because they are the same
-/// subject. Two pools, and the reason for the second is worth keeping: the first is sized
-/// for exactly the batches a room loaded, which is right for everything the loader knows
-/// about and wrong the moment a face starts moving. Repainting a texture is a new
-/// combination of images and therefore a new set, so more pools are opened as they are
-/// needed and the common case — a room where nothing repaints — costs nothing.
-/// </para>
-/// </remarks>
 public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
 {
     /// <summary>How many images one material set binds.</summary>
-    /// <remarks>
-    /// Colour, lightmap, normal, occlusion-roughness-metalness, height. It has to match the
-    /// layout: a pool sized for fewer runs out partway through a room, and every set after
-    /// that falls through to an overflow pool that should not have been needed. The room
-    /// pool used to ask for three.
-    /// </remarks>
     private const int ImagesPerMaterial = 5;
 
     /// <summary>How many sets each pool opened after loading holds.</summary>
@@ -319,10 +289,6 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
     /// <summary>Opens a pool sized for a room that is about to be built.</summary>
     /// <param name="materials">How many materials it will need.</param>
     /// <exception cref="VulkanException">The pool could not be created.</exception>
-    /// <remarks>
-    /// Not part of the interface, because only Vulkan has pools. Direct3D allocates a
-    /// descriptor table out of a heap that was already there.
-    /// </remarks>
     public void Reserve(int materials)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -330,13 +296,6 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
     }
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// Every pool, because every set in one is a material: the pools are opened by
-    /// <see cref="Reserve"/> for a room that is about to be built and by <c>Allocate</c> for
-    /// the repaints that room goes on to need, and nothing else allocates from them. Freeing
-    /// the pool frees the sets in it, which is why the sets themselves are not returned one
-    /// by one. The caller has already waited for the device to go idle.
-    /// </remarks>
     public void ReleaseMaterials()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

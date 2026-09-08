@@ -7,13 +7,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for Sidney's translate screen and its mail.
 /// </summary>
-/// <remarks>
-/// The translate screen answered "Not implemented yet" for every file, and every one of the
-/// strings it needed was already in <c>ESIDNEY.TXT</c>. The tests here are written against
-/// the same shape of data the real file has, so that a screen which claims to translate the
-/// Abbé's telephone call is checked against the game's own French and the game's own English
-/// rather than against something plausible.
-/// </remarks>
 public sealed class SidneyTranslateTests
 {
     private const string Text = """

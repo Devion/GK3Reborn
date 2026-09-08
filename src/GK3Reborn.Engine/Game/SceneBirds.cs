@@ -68,70 +68,11 @@ public readonly record struct BirdAim(Vector3 At, float Eye);
 /// <summary>
 /// Which rooms have birds in the sky over them, and what kind.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>A table, for the reason <see cref="SceneFog"/> is one.</b> Nothing in GK3's data says
-/// where a bird would be. The scene files name a sky, a floor and a light rig and no living
-/// thing that is not a character; no texture implies one; and no measurement of the geometry
-/// tells a courtyard somebody would sit out in from a courtyard nobody would. What decides
-/// that a place has birds over it is what the place <em>is</em>, which is a reading of the
-/// game rather than a property of its files.
-/// </para>
-/// <para>
-/// <b>The game does say when, though, and it says it out loud.</b> Five of RC1's, RC2's and
-/// the cemetery's ambient soundtracks are birdsong — <c>RC1BIRDAM.STK</c> plays
-/// <c>RCBirdAM</c> every ten to sixty seconds through the morning blocks and
-/// <c>RC1BIRDAFTNOON.STK</c> three more through the afternoon — and the evening and the
-/// small hours get <c>RC1OWL.STK</c> and <c>RC1CRICKETS.STK</c> instead. The artists put
-/// birds over these rooms in 1999 and could only afford to do it in sound. So the hours are
-/// not a judgement: this puts something in the sky at the hours the room is already singing,
-/// and nothing at the hours it hoots.
-/// </para>
-/// <para>
-/// <b>Deliberately short.</b> Fifty-one of the game's scene assets name a daylight sky, the
-/// hotel bedrooms and the museum among them, and a bird over a room whose sky is a painting
-/// seen through one window is a bird nobody will ever see being simulated all afternoon.
-/// The list below is the rooms whose sky is most of the picture, each one looked at. Adding
-/// another is one line, and the line should be written by somebody who has just rendered the
-/// room.
-/// </para>
-/// <para>
-/// <b>Two kinds, and the difference is the place rather than the species.</b> Over the
-/// village the birds are small, fast, close in and tightly bunched — swifts round the
-/// rooftops, which is what a French hill village sounds and looks like in summer, and what
-/// <c>RCBird1Aftnoon</c> is a recording of. Over open country they are large, slow, far off
-/// and few — the soaring birds that hang over a hillside for an hour at a time. The same
-/// numbers in both places give a village full of buzzards or a valley full of gnats.
-/// </para>
-/// </remarks>
 public static class SceneBirds
 {
     /// <summary>
     /// Swifts round the rooftops: the village, its cemetery and the tower above it.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Small, and bigger than a swift.</b> Thirty units is three quarters of a metre at
-    /// the scale this game stands its characters at, which is a swift and a half. It is a
-    /// legibility figure rather than an ornithological one: a real swift's span over RC1,
-    /// at the distance the flock has to fly to clear the Tour Magdala, is five pixels of a
-    /// 720-line frame, and five pixels of anything is a speck of dirt.
-    /// </para>
-    /// <para>
-    /// <b>Height is the thing this gets wrong first, in both directions.</b> The first
-    /// attempt sat the whole flock 45 degrees above a camera whose frame stops at 27, and
-    /// RC1 was a village with nothing over it. The second put it under the roofs, and was
-    /// reported as birds going through the buildings in RC3. What is wanted is between
-    /// about ten and twenty-five degrees up, over whatever is under it — which is why the
-    /// clearance below is a floor and not the height, and why the wheel moves out when the
-    /// floor lifts it. See <see cref="Over"/>.
-    /// </para>
-    /// <para>
-    /// <b>Fast and tight.</b> Swifts do not drift about; they go round the same three
-    /// rooftops at speed, all together, screaming. The turning figure is what carries that,
-    /// and it is most of the difference between this and the other entry below.
-    /// </para>
-    /// </remarks>
     private static readonly Flock Rooftops = new(
         Birds: 14,
         Clearance: 120f,
@@ -144,20 +85,6 @@ public static class SceneBirds
     /// <summary>
     /// Soaring birds over open country: the tomb, the dig, and the two hilltops.
     /// </summary>
-    /// <remarks>
-    /// <para>
-    /// <b>Few, large and unhurried.</b> Six birds at a metre and a half across, going round
-    /// slowly on a thermal. A dozen at this size is a kill rather than a landscape, and
-    /// they have to be this large to read at all: they fly further off than the village's
-    /// do, because there is nothing out there to make them come close.
-    /// </para>
-    /// <para>
-    /// <b>The wheel is wide because the country is.</b> Over half the room's own
-    /// half-diagonal, which puts the far side of it out past whatever the room is standing
-    /// on — where a bird over a hillside is. The tomb looks out over most of a kilometre
-    /// and its birds should not all be directly overhead.
-    /// </para>
-    /// </remarks>
     private static readonly Flock OpenCountry = new(
         Birds: 6,
         Clearance: 100f,
@@ -193,20 +120,6 @@ public static class SceneBirds
     /// <summary>Whether birds are up at an hour of the story.</summary>
     /// <param name="when">The point in the story.</param>
     /// <returns>True through the day, false in the evening and the small hours.</returns>
-    /// <remarks>
-    /// <para>
-    /// The same window <see cref="Sunlight"/> places a sun in, and it has to be: a bird in
-    /// the sky of a room lit for dusk is lit by a sun that is not there. Seven in the
-    /// morning to six in the evening covers sixteen of the game's seventeen blocks; the
-    /// seventeenth is <c>309P</c> and reaches two hotel bedrooms.
-    /// </para>
-    /// <para>
-    /// It is also what the art says. Every daylight asset in the corpus is painted against
-    /// a sky named <c>_M</c> or <c>_A</c> and every other against <c>_E</c> or <c>_N</c>,
-    /// and those skies are measurably different things: <c>RLC_M</c> and <c>RLC_A</c>
-    /// average 204 and 214 over their upper face, <c>RLC_E</c> 55 and <c>RLC_N</c> 21.
-    /// </para>
-    /// </remarks>
     public static bool IsDaylight(Timeblock when)
     {
         int hour = (when.IsAfternoon && when.Hour != 12 ? when.Hour + 12 : when.Hour) % 24;
@@ -215,35 +128,10 @@ public static class SceneBirds
     }
 
     /// <summary>The village rooms, where the birds are swifts.</summary>
-    /// <remarks>
-    /// RC1 to RC4 are the four streets of Rennes-le-Château, MAG the square below the Tour
-    /// Magdala, MA3 the tower's own lookout, and CEM the walled cemetery beside the church.
-    /// Every one of them is roofed on some sides and open above, which is the shape this
-    /// flock is for.
-    /// </remarks>
     public static IReadOnlyList<string> Village { get; } =
         ["RC1", "RC2", "RC3", "RC4", "MAG", "MA3", "CEM"];
 
     /// <summary>The open ones, where they are soaring birds.</summary>
-    /// <remarks>
-    /// <para>
-    /// POU is Poussin's tomb on its hillside, WOD Lady Howard and Estelle's dig, CD1 the
-    /// ruin on top of Blanchefort and MCF the site on Mount Cardou. All four look out over
-    /// a valley with nothing in the way, and three of them are on a summit.
-    /// </para>
-    /// <para>
-    /// <b>Coume Sourde and L'Ermitage are two places apiece.</b> The driving map's own
-    /// names for PL2 and PL4 are "Coume Sourde" and "L'Ermitage", and CSD and LER are the
-    /// ground the player walks on to after parking at them — the ruins under the cliff and
-    /// the hermit's cave. Adding the destination without the roadside, or the other way
-    /// round, would put birds over one half of a place and take them away fifty metres
-    /// later, which is a thing the player would notice crossing between the two.
-    /// </para>
-    /// <para>
-    /// All four are hillside with the sky standing over a low horizon, which is what the
-    /// soaring flock is for; none of them is roofed, so none wants the village's swifts.
-    /// </para>
-    /// </remarks>
     public static IReadOnlyList<string> Country { get; } =
         ["POU", "WOD", "CD1", "MCF", "CSD", "PL2", "LER", "PL4"];
 
@@ -273,27 +161,6 @@ public static class SceneBirds
     /// The wheel, or <see cref="BirdWheel.Nowhere"/> when there are no birds or nothing to
     /// measure them against.
     /// </returns>
-    /// <remarks>
-    /// <para>
-    /// Derived rather than tabled, which is the opposite of the decision above and for a
-    /// reason: <em>whether</em> a place has birds over it is a reading of the game, and
-    /// <em>where</em> the sky is over that place is a measurement of it. A height written
-    /// down in the table would be a number nobody could check without loading the room, and
-    /// it would be wrong the first time the room's geometry was improved under it.
-    /// </para>
-    /// <para>
-    /// <b>The room's own corners, not the scene's.</b> The scene's box has every placed
-    /// model in it — a van, a suitcase, a hotel sign hung out over the street — and the
-    /// question here is how high the <em>buildings</em> go. The same distinction
-    /// <see cref="Sunlight"/> makes, for the same reason.
-    /// </para>
-    /// <para>
-    /// <b>And the middle of the open ground, not of the box.</b> RC1's box is centred inside
-    /// a building: the street is an L, and the middle of a bounding box round an L is the
-    /// corner that is not in it. Where the player can walk is where the room is open, which
-    /// is where the sky is.
-    /// </para>
-    /// </remarks>
     public static BirdWheel Over(
         Flock flock,
         BspFile? room,
@@ -373,49 +240,15 @@ public static class SceneBirds
     }
 
     /// <summary>Half the vertical angle a GK3 camera sees, in radians.</summary>
-    /// <remarks>
-    /// The original renders at sixty degrees vertically on a 4:3 screen, and this port keeps
-    /// that; see <c>SceneLoader.CameraAt</c>, which is where the number is set.
-    /// </remarks>
     private const float HalfView = MathF.PI / 6f;
 
     /// <summary>How far up the frame the flock is aimed, as a fraction of that.</summary>
-    /// <remarks>
-    /// A third of the way from the middle of the shot to its top edge, which is high enough
-    /// to be over whatever the shot is of and low enough to stay in it. At two thirds the
-    /// birds sit against the top border and are cut in half by it every time one climbs.
-    /// </remarks>
     private const float Lift = 0.35f;
 
     /// <summary>The part of the sky a room's own cameras are pointed at.</summary>
     /// <param name="cameras">The room's cameras, from the scene file.</param>
     /// <param name="reach">How far in front of them to measure, in world units.</param>
     /// <returns>Where to put the flock, or null where the room names no cameras.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>This is the difference between birds and no birds, and it is not obvious.</b> The
-    /// player never moves the camera in this game: a room is five or six fixed shots and
-    /// they point where the artists pointed them. A wheel centred on the middle of the
-    /// walkable ground surrounds the shot instead of standing in it, and a ring around the
-    /// eye is a ring of which about a fifth is in front — so at Poussin's tomb five of six
-    /// birds were <em>behind</em> the camera and the sixth was off the side of the frame,
-    /// measured, for every frame of a five-hundred-frame run.
-    /// </para>
-    /// <para>
-    /// So the wheel is put one of its own radii along the way the room looks, which stands
-    /// the camera on the near edge of it and leaves the whole far half in the shot. Where
-    /// the cameras disagree — a square with shots all round it — the average comes back to
-    /// the middle of the square, which is the answer that case wanted anyway.
-    /// </para>
-    /// <para>
-    /// <b>Flattened, and then lifted by a fixed part of the frame rather than by the
-    /// camera's own pitch.</b> Following the pitch would put the flock in the middle of
-    /// every shot, ground included. Aiming a third of the way from the middle of the frame
-    /// to its top puts the birds in the band of sky each shot actually contains, which is
-    /// the difference between the tomb's arrival camera — pitched twelve degrees down at a
-    /// road — showing three birds and showing none.
-    /// </para>
-    /// </remarks>
     public static BirdAim? Framed(IReadOnlyList<SceneCamera>? cameras, float reach)
     {
         if (cameras is not { Count: > 0 })
@@ -464,23 +297,6 @@ public static class SceneBirds
     /// <param name="over">The middle of the wheel, in world space; only X and Z are read.</param>
     /// <param name="reach">How far out from it the flock flies, in world units.</param>
     /// <returns>The height a bird has to be above to be clear of the buildings there.</returns>
-    /// <remarks>
-    /// <para>
-    /// <b>Under the flock rather than over the room, and that is the whole point.</b>
-    /// Reported: <em>"birds are flying too low, going through building geometry in RC3
-    /// museum"</em>. A single roofline for a whole village is a number that is right in the
-    /// square and wrong in the lane: RC1's flock flies over an open square whose roofs are
-    /// about 250 and RC3's over a walled street whose sides run past 500, and the room's
-    /// own average is what put the second flock among the walls.
-    /// </para>
-    /// <para>
-    /// <b>The tallest thing there, near enough.</b> A percentile a half-percent off the top
-    /// of what is inside the wheel: high enough that a bird clears the roofs it is flying
-    /// over, and not the outright maximum, because one aerial or one lightning conductor
-    /// should not lift a whole flock by ten metres. Where the flock is aimed out over open
-    /// country and there is nothing under it at all, the room's own corners answer instead.
-    /// </para>
-    /// </remarks>
     public static float Roofline(BspFile? room, Vector3 over, float reach)
     {
         if (room is not { Vertices.Length: > 0 })

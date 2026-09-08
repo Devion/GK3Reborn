@@ -9,13 +9,6 @@ namespace GK3Reborn.Tests.Formats;
 /// <summary>
 /// Tests for building a room out of a model.
 /// </summary>
-/// <remarks>
-/// This is how a room the game never had can exist at all: there is no writer for the 1999
-/// <c>.BSP</c>, and there does not need to be, because what the rest of the engine asks a
-/// room for is what <c>BspFile.FromParts</c> takes. What has to hold is that the result is
-/// a room in every sense the rest of the engine means — its objects are named, its surfaces
-/// belong to them, and it does not expect a bake that does not exist.
-/// </remarks>
 public sealed class SceneFromModelTests
 {
     [Fact]

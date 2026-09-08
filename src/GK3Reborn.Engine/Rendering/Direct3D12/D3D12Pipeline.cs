@@ -27,21 +27,6 @@ public readonly record struct VertexBufferLayout(uint Stride, bool PerInstance =
 /// <summary>
 /// A graphics or compute pipeline, and the root signature it binds through.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Direct3D's pipeline state object holds rather more than Vulkan's: the root signature,
-/// both shaders, the input layout, and every piece of fixed-function state including the
-/// render target formats. That last one is the trap. There is no render pass object to
-/// declare formats against, so the formats live here, and a pipeline created for one set of
-/// targets and used with another is undefined — with a validation message if the debug
-/// layer is on and silence if it is not.
-/// </para>
-/// <para>
-/// The shaders come through <see cref="ShaderCompiler"/> like everything else: written once
-/// in the language ADR 0008 chose, compiled to SPIR-V, translated to HLSL and compiled to
-/// DXIL. Nothing here is authored in HLSL for Direct3D's benefit.
-/// </para>
-/// </remarks>
 public sealed unsafe class D3D12Pipeline : IDisposable
 {
     private ComPtr<ID3D12PipelineState> _state;
@@ -241,10 +226,6 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// <param name="entryPoint">Entry point of the shader in its own source.</param>
     /// <returns>The pipeline.</returns>
     /// <exception cref="D3D12Exception">It could not be created.</exception>
-    /// <remarks>
-    /// Takes the context rather than the device pointer, so that a caller who has no reason
-    /// to be unsafe need not become so to build a pipeline.
-    /// </remarks>
     public static D3D12Pipeline CreateCompute(
         D3D12Context context,
         ShaderCompiler compiler,

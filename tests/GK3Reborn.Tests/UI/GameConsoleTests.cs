@@ -8,10 +8,6 @@ namespace GK3Reborn.Tests.UI;
 /// <summary>
 /// Tests for the developer console.
 /// </summary>
-/// <remarks>
-/// The console has no idea what a keyboard is: everything a key does is a method on it, so
-/// these drive it the way the frame loop does and never mention a key.
-/// </remarks>
 public sealed class GameConsoleTests
 {
     /// <summary>A console that knows a handful of functions and records what it was asked.</summary>

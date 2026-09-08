@@ -10,12 +10,6 @@ internal enum PartitionShape
 }
 
 /// <summary>The residual of one colour component of a macroblock.</summary>
-/// <remarks>
-/// Coefficients are kept in raster order within each block — already un-zigzagged — so
-/// the transform reads them straight. <see cref="Coeff4x4"/> holds sixteen 4x4 blocks in
-/// raster block order (or the chroma blocks of a 4:2:0 macroblock), <see cref="Coeff8x8"/>
-/// four 8x8 blocks, and <see cref="Dc"/> the separately coded DC terms.
-/// </remarks>
 internal sealed class Residual
 {
     public readonly int[] Coeff4x4 = new int[256];
@@ -49,11 +43,6 @@ internal sealed class Residual
 /// <summary>
 /// Everything parsed for one macroblock, before it is reconstructed.
 /// </summary>
-/// <remarks>
-/// A scratch object the slice decoder owns and reuses: parsing fills it, reconstruction
-/// reads it, the next macroblock overwrites it. Keeping the two halves apart is what lets
-/// CABAC and CAVLC share every line of code after the entropy decoder.
-/// </remarks>
 internal sealed class Macroblock
 {
     public int Addr;

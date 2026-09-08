@@ -27,34 +27,6 @@ internal unsafe struct FfxCreateBackendVk
 /// <summary>
 /// AMD FidelityFX Super Resolution, driven through the runtime's own C interface.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>Which version.</b> Whatever <c>amd_fidelityfx_vk.dll</c> the player installed
-/// provides. Nothing here names a version: the interface this talks to is the FidelityFX
-/// API, which was introduced so that an application would not have to be rebuilt for a new
-/// upscaler, and the newest Vulkan build AMD ships through it is FSR 3.1. Dropping in a
-/// newer one is the whole point of the arrangement.
-/// </para>
-/// <para>
-/// <b>What it is given.</b> The room in linear light, its depth, and motion vectors in
-/// render-resolution pixels with this frame's jitter already removed — which is why
-/// <c>MOTION_VECTORS_JITTER_CANCELLATION</c> is not set: the cancellation has already
-/// happened, in the fragment shader, where the offset was known exactly.
-/// </para>
-/// <para>
-/// <b>What it is not given.</b> No exposure texture, so automatic exposure is asked for;
-/// no reactive mask and no transparency mask. Those two are how a game tells the upscaler
-/// which pixels have no usable history — particles, alpha-blended smoke, an animated
-/// texture. GK3 has very little of any of that, and an absent mask is a correct input
-/// meaning "nothing here is reactive" rather than a missing one.
-/// </para>
-/// <para>
-/// This project is GPL-3.0. Loading a separately-installed proprietary upscaler at runtime
-/// is a deliberate exception, taken because the alternative is a worse picture for every
-/// player who has the hardware for a better one; see <c>NOTICE</c>. Nothing of AMD's is
-/// redistributed here and the game runs without it.
-/// </para>
-/// </remarks>
 internal sealed unsafe class FsrUpscaler : IUpscaler
 {
     /// <summary>Structure identifiers, from <c>ffx_upscale.h</c> and <c>ffx_api_vk.h</c>.</summary>
@@ -265,11 +237,6 @@ internal sealed unsafe class FsrUpscaler : IUpscaler
     /// <summary>Describes one of the frame's images to the runtime.</summary>
     /// <param name="image">The image.</param>
     /// <param name="state">The layout it is in, in the runtime's own vocabulary.</param>
-    /// <remarks>
-    /// Follows <c>ffxApiGetImageResourceDescriptionVK</c>: the usage flags are derived from
-    /// how the image was created rather than from what it is being used for here, because
-    /// that is what the runtime uses to decide whether it may write into it.
-    /// </remarks>
     private static FfxResource Describe(UpscaleImage image, uint state)
     {
         if (!image.Exists)
@@ -308,11 +275,6 @@ internal sealed unsafe class FsrUpscaler : IUpscaler
     }
 
     /// <summary>Vulkan's format, as FidelityFX numbers it.</summary>
-    /// <remarks>
-    /// Only the four this renderer actually hands over. Anything else comes back as
-    /// unknown, which the runtime treats as an error rather than guessing — the right
-    /// outcome, since a format guessed wrong is a picture of noise.
-    /// </remarks>
     private static uint SurfaceFormat(Format format) => format switch
     {
         Format.R16G16B16A16Sfloat => 4,
@@ -327,12 +289,6 @@ internal sealed unsafe class FsrUpscaler : IUpscaler
     /// <summary>Finds an entry point in whichever Vulkan loader this process has.</summary>
     /// <param name="name">The function's name.</param>
     /// <returns>Its address, or nought.</returns>
-    /// <remarks>
-    /// Loading by name returns the module already in the process rather than a second copy,
-    /// so this is the same loader the renderer's own calls go through. Asked for by name
-    /// rather than taken from the binding library, because a pointer is what the runtime
-    /// wants and the binding hands back a managed wrapper around one.
-    /// </remarks>
     private static nint VulkanExport(string name)
     {
         foreach (string library in (string[])["vulkan-1", "libvulkan.so.1", "libvulkan.1.dylib"])

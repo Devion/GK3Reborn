@@ -11,14 +11,6 @@ namespace GK3Reborn.Tests.Game;
 /// <summary>
 /// Tests for clicking the ground to go there.
 /// </summary>
-/// <remarks>
-/// The room is a floor slab at y=0 with a second, nameless slab lying on part of it — a
-/// rug, in effect — and a camera overhead looking straight down. Everything these tests
-/// ask is which of the two the ray reached and whether the boundary was consulted before
-/// an answer came back, because those are the two ways this goes wrong: a click that
-/// walks the player through the furniture, and a click on the furniture that walks them
-/// at all.
-/// </remarks>
 public sealed class FloorClickTests
 {
     /// <summary>How wide the fixture's floor is, in world units, on both axes.</summary>
@@ -38,11 +30,6 @@ public sealed class FloorClickTests
 
     /// <summary>Flat slabs, each its own named object, in the order given.</summary>
     /// <param name="slabs">Object name, the height it lies at, and the ground it covers.</param>
-    /// <remarks>
-    /// Wound so the upward normal faces the camera. The picker refuses back faces on room
-    /// geometry, so a floor wound the other way is invisible to a click — which is a
-    /// mistake worth not writing into the fixture by accident.
-    /// </remarks>
     private static BspFile Ground(
         params (string Name, float Y, float MinX, float MinZ, float MaxX, float MaxZ)[] slabs)
     {
@@ -95,11 +82,6 @@ public sealed class FloorClickTests
     /// <summary>
     /// A boundary over the whole floor, open on the near half and walled on the far half.
     /// </summary>
-    /// <remarks>
-    /// The image's top row is the far end of the room, so the walls go at the top. Four
-    /// texels square over four hundred units means each is a hundred across, and the
-    /// middle of the open row nearest the wall is at z=150.
-    /// </remarks>
     private static WalkBoundary HalfOpen()
     {
         byte[] indices =

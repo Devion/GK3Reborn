@@ -9,12 +9,6 @@ namespace GK3Reborn.Tests.UI;
 /// Tests that a key can be rebound, that the binding survives being written down, and that
 /// a gamepad's buttons can be given jobs.
 /// </summary>
-/// <remarks>
-/// The bindings used to be a static table inside the windowing backend, which is the right
-/// place for a decision nobody can change and the wrong place for one everybody wants to.
-/// What is checked here is the two things that make a rebinding feature worth having: that
-/// the new key actually takes effect, and that the old one stops working.
-/// </remarks>
 public sealed class ControlsTests
 {
     private static FrontEnd Controls()
