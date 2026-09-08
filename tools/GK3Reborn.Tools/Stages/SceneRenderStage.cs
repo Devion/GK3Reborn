@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using GK3Reborn.Rendering.Upscaling;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
@@ -134,15 +134,6 @@ public sealed class SceneRenderStage
         ArgumentNullException.ThrowIfNull(diagnostics);
 
         using GameArchives archives = GameArchives.Open(sourceDirectory);
-
-        CutContent restored = CutContent.Open(Restore);
-
-        if (!restored.IsEmpty)
-        {
-            archives.Restoration = restored;
-            archives.RestorationDiagnostics = diagnostics;
-            _log($"cut content: {restored.EditCount} restoration(s) in {restored.Count} file(s)");
-        }
 
         if (!RenderBackends.TryParse(backend, out RenderBackend wanted))
         {
@@ -304,6 +295,26 @@ public sealed class SceneRenderStage
         _log(props.Describe() is { } available
             ? $"prop models: {available}"
             : "prop models: none available; a scene naming one places nothing");
+
+        // The restorations, and the scenery added to rooms that shipped without enough of
+        // it. Here rather than at the top because the second of those is gated on whether
+        // its geometry is installed, which is a question about the packs and the model
+        // directory above — and without it this tool, which is what every render defect is
+        // judged with, could not see Couiza, Rennes-les-Bains or RC3's cemetery gateway at
+        // all. The game asks the same question and then asks the player as well; a render
+        // is not a player, so the second gate is open here.
+        CutContent restored = CutContent.Open(
+            Restore,
+            SceneDressing.Installed(
+                enhanced is { Length: > 0 } ? Beside(enhanced, "models") : string.Empty,
+                volumes));
+
+        if (!restored.IsEmpty)
+        {
+            archives.Restoration = restored;
+            archives.RestorationDiagnostics = diagnostics;
+            _log($"cut content: {restored.EditCount} edit(s) in {restored.Count} file(s)");
+        }
 
         // The files no barn has, for the rooms that were cut before there was anything to
         // cut them from. Last of every layer, as in the game.

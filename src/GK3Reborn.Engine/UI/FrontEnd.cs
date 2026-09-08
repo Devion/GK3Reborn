@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Audio;
 using GK3Reborn.Game;
@@ -169,6 +169,18 @@ public sealed class FrontEnd
     /// Whether the game's own title art is on screen behind the menu.
     /// </summary>
     public bool Illustrated { get; set; }
+
+    /// <summary>
+    /// Whether the port's own title screen could be drawn at all on this installation.
+    /// </summary>
+    /// <remarks>
+    /// Its six layers travel in <c>Reborn.rebarn</c>. False says the game has not got them,
+    /// which is what a 1999 disc plus the executable is; the row is still listed, dead, with
+    /// a line under it saying why. A row that appears when a pack is dropped in and is
+    /// absent until then is a row nobody knows to look for -- the same argument the language
+    /// row is made with.
+    /// </remarks>
+    public bool ModernMenuAvailable { get; set; }
 
     /// <summary>
     /// The languages this installation can actually be played in.
@@ -798,6 +810,21 @@ public sealed class FrontEnd
                 DescribeTextScale()),
 
             Toggle(
+                "modernmenu",
+                Text.Say("display.modernmenu", "Title screen"),
+                Settings.ModernMenu) with
+            {
+                Enabled = ModernMenuAvailable,
+
+                // Named for what it shows rather than for which of the two it is. "On" and
+                // "Off" would be a row about a switch; this is a row about which of two
+                // pictures the game opens with, and the reading is the answer.
+                Value = Settings.ModernMenu && ModernMenuAvailable
+                    ? Text.Say("display.modernmenu.new", "The port's own")
+                    : Text.Say("display.modernmenu.old", "The original"),
+            },
+
+            Toggle(
                 "vsync", Text.Say("display.vsync", "Wait for the display"), Settings.VerticalSync),
 
             Toggle(
@@ -805,6 +832,13 @@ public sealed class FrontEnd
                 Text.Say("display.hdr", "High dynamic range"),
                 Settings.HighDynamicRange),
         ]);
+
+        if (!ModernMenuAvailable)
+        {
+            rows.Add(MenuItem.Label(Text.Say(
+                "display.modernmenu.missing",
+                "The port's own title screen needs Reborn.rebarn beside the game.")));
+        }
 
         if (Settings.HighDynamicRange)
         {
@@ -1561,6 +1595,11 @@ public sealed class FrontEnd
             "peak" => Settings with { PeakNits = Nits(Settings.PeakNits, 400f, 4000f, action) },
             "sun" => Settings with { SunNits = Nits(Settings.SunNits, 200f, 4000f, action) },
             "lights" => Settings with { LightNits = Nits(Settings.LightNits, 200f, 4000f, action) },
+
+            // Takes effect the next time the menu is opened, which for the row itself is
+            // the next start: the screen it changes is the one the player is standing on,
+            // and its six pictures went on the device before this page existed.
+            "modernmenu" => Settings with { ModernMenu = !Settings.ModernMenu },
 
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },

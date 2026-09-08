@@ -178,7 +178,7 @@ public static class CommandLine
           --extract             Write content out as files and exit.
           --name TEXT           Only entries whose names match.
           --kinds LIST          Only these kinds: textures, normals, orm, height, emissive,
-                                models, scene-geometry, video, manifests, raw. With
+                                models, scene-geometry, video, menu, manifests, raw. With
                                 --from game, file extensions instead.
           --from SOURCE         packs, game or all. Default packs.
           --as FORM             png or dds.

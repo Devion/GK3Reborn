@@ -20,6 +20,11 @@ public enum DressedTowns
 
     /// <summary>RL1, which has eight buildings on one street and grass beyond them.</summary>
     RennesLesBains = 1 << 1,
+
+    /// <summary>
+    /// RC3, whose cemetery gateway is a gap in a wall with nothing over it.
+    /// </summary>
+    RennesLeChateau = 1 << 2,
 }
 
 public static class SceneDressing
@@ -31,6 +36,7 @@ public static class SceneDressing
     [
         (DressedTowns.Couiza, "RBN_CZ_ROW_A"),
         (DressedTowns.RennesLesBains, "RBN_RB_ROW_A"),
+        (DressedTowns.RennesLeChateau, "RBN_RC_CEMGATE"),
     ];
 
     /// <summary>Couiza's sentinel, for the message that says why a room is empty.</summary>

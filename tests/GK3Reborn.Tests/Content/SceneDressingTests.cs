@@ -8,7 +8,8 @@ using Xunit;
 namespace GK3Reborn.Tests.Content;
 
 /// <summary>
-/// Tests for the scene dressing: the town of Couiza, and Rennes-les-Bains extended.
+/// Tests for the scene dressing: the town of Couiza, Rennes-les-Bains extended, and the
+/// gateway over Rennes-le-Chateau's cemetery entrance.
 /// </summary>
 public sealed class SceneDressingTests
 {
@@ -353,5 +354,138 @@ public sealed class SceneDressingTests
             table.Apply("RL1.SIF", Encoding.Latin1.GetBytes(once)));
 
         Assert.Equal(once, twice);
+    }
+
+    // ---------------------------------------------------------------------------------
+    // Rennes-le-Chateau's cemetery gateway
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>RC3's own file, cut down to the sections the dressing touches.</summary>
+    private const string Rc3 =
+        "[GENERAL]\r\nfloor=rc3_floor\r\ncameraBounds=rc3_cambnds\r\n\r\n"
+        + "[ACTORS]\r\nmodel=gab,noun=GABRIEL,idle=gabIdle.gas,talk=gabTalk.gas,ego\r\n\r\n"
+        + "[MODELS]\r\n"
+        + "model=rc3_cemwalls, type=scene\r\n"
+        + "model=rc3_church, noun=CHURCH, type=scene\r\n"
+        + "model=rc3_exittocem, noun=EXIT2, type=hittest, verb=EXIT_LEFT\r\n"
+        + "\r\n[POSITIONS]\r\n"
+        + "TO_CEM, pos={1100.46, -36.25, -1932.93}, heading=32.26, camera=FR_CHU\r\n";
+
+    private static CutContent Gateway() =>
+        CutContent.Open(CutContentTier.None, DressedTowns.RennesLeChateau);
+
+    private static string ApplyRc3(CutContent table) =>
+        Encoding.Latin1.GetString(
+            table.Apply("RC3.SIF", Encoding.Latin1.GetBytes(Rc3)));
+
+    /// <summary>The one model line the gateway adds.</summary>
+    private static string GatewayLine() =>
+        ApplyRc3(Gateway())
+            .Split('\n')
+            .Select(line => line.Trim())
+            .Single(line => line.StartsWith("model=RBN_RC_", StringComparison.OrdinalIgnoreCase));
+
+    [Fact]
+    public void TheGatewayIsInstalledOnItsOwn()
+    {
+        // Its own sentinel and its own table file, because it is packed and rebuilt apart
+        // from either town: a workspace that has the gateway and not Couiza should get the
+        // gateway. The file is its own for a duller reason -- both town builders rewrite
+        // Dressing.txt, and a section added to it by hand survives one of them and not the
+        // other.
+        Assert.Equal(["RC3.SIF"], Gateway().Names);
+    }
+
+    [Fact]
+    public void NoGatewayWithoutItsGeometry()
+    {
+        // The same gate as the towns'. A player with no content packs gets RC3 exactly as
+        // it shipped -- a gap in a wall -- and no diagnostic about a model that is not
+        // there.
+        CutContent table = CutContent.Open(CutContentTier.None, DressedTowns.None);
+
+        Assert.Equal(Rc3, ApplyRc3(table));
+    }
+
+    [Fact]
+    public void TheGatewayIsAPropThatAnswersToTheCemeteryExit()
+    {
+        // type=prop, because type=scene means "already inside the BSP" and loads no file.
+        //
+        // EXIT2 with EXIT_LEFT is rc3_exittocem's own binding, which RC3_ALL.NVC already
+        // has a rule for. That matters twice: a click on the gateway walks Gabriel through
+        // it, and the pediment does not swallow the clicks that would otherwise have met
+        // the doorway behind it -- ScenePicker takes the nearest target whether it answers
+        // to anything or not.
+        string line = GatewayLine();
+
+        Assert.Contains("type=prop", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("noun=EXIT2", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("verb=EXIT_LEFT", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("pos={", line, StringComparison.Ordinal);
+        Assert.Contains("heading=", line, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void TheGatewayStandsInTheOpeningItWasMeasuredFrom()
+    {
+        // The model is built at the origin and put here by pos, so this coordinate is the
+        // whole of what says the gateway is over the doorway rather than in a field. The
+        // box is generous on purpose: it asks whether the placement is the room's, and
+        // does not restate the number build_rc3_gate.py measured.
+        string line = GatewayLine();
+        int at = line.IndexOf("pos={", StringComparison.Ordinal) + "pos={".Length;
+        string[] parts = line[at..line.IndexOf('}', at)].Split(',');
+
+        float x = float.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture);
+        float y = float.Parse(parts[1], System.Globalization.CultureInfo.InvariantCulture);
+        float z = float.Parse(parts[2], System.Globalization.CultureInfo.InvariantCulture);
+
+        // TO_CEM -- the spot the player walks to before the room changes -- is at
+        // (1100.5, -36.3, -1932.9), and the gateway stands over it.
+        Assert.InRange(x, 1060f, 1120f);
+        Assert.InRange(z, -1970f, -1910f);
+
+        // Above head height, because pos.y is the underside of the lintel, which is the
+        // model's floor. The room's ground there is about -40.
+        Assert.InRange(y, 30f, 60f);
+    }
+
+    [Fact]
+    public void NothingOfRc3IsMovedOrRenamed()
+    {
+        // The whole claim, as for the two towns: every line RC3 already had survives the
+        // edit unchanged, and the dressing may only add.
+        string[] before = Rc3.Split('\n');
+        string[] after = ApplyRc3(Gateway()).Split('\n');
+
+        foreach (string line in before)
+        {
+            Assert.Contains(line, after);
+        }
+
+        Assert.True(after.Length > before.Length);
+    }
+
+    [Fact]
+    public void ApplyingTheGatewayTwiceChangesNothingTheSecondTime()
+    {
+        // The table is applied to the bytes on their way out of the archive, and the
+        // archive is read again every time the player walks into the room.
+        CutContent table = Gateway();
+
+        string once = ApplyRc3(table);
+        string twice = Encoding.Latin1.GetString(
+            table.Apply("RC3.SIF", Encoding.Latin1.GetBytes(once)));
+
+        Assert.Equal(once, twice);
+    }
+
+    [Fact]
+    public void EveryLineOfTheGatewaysTableCanBeRead()
+    {
+        // One line, and a line the parser cannot read is a gateway that never appears and
+        // says nothing about it.
+        Assert.Equal(0, Gateway().Unreadable);
     }
 }

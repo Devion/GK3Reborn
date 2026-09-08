@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -17,7 +17,12 @@ namespace GK3Reborn.Rendering.Shaders;
 public readonly record struct OverlayVertex(Vector2 Position, Vector2 TexCoord, Vector4 Color);
 
 /// <summary>What the interface's fragment stage is told, per run of quads.</summary>
-/// <param name="Picture">Nought for a glyph, one for one of the screens' own pictures.</param>
+/// <param name="Picture">
+/// Nought for a glyph, and otherwise which of <see cref="OverlayShaders.PictureOver"/>,
+/// <see cref="OverlayShaders.PictureScreen"/> and <see cref="OverlayShaders.PictureMultiply"/>
+/// this run is. The blend state does the combining; this decides what the shader has to
+/// hand the blender to make that state come out right at less than full opacity.
+/// </param>
 /// <param name="Pad0">Padding to the vector's alignment.</param>
 /// <param name="Pad1">Padding.</param>
 /// <param name="Pad2">Padding.</param>
@@ -41,6 +46,28 @@ public static class OverlayShaders
 {
     /// <summary>How many bytes of push constants the fragment stage takes.</summary>
     public const uint ConstantBytes = 32;
+
+    /// <summary>A run of the sheet of letters: a shape cut out of a colour.</summary>
+    public const int Glyphs = 0;
+
+    /// <summary>One of the screens' own pictures, over what is behind it.</summary>
+    public const int PictureOver = 1;
+
+    /// <summary>The same, screened onto what is behind it.</summary>
+    public const int PictureScreen = 2;
+
+    /// <summary>The same, multiplied into what is behind it.</summary>
+    public const int PictureMultiply = 3;
+
+    /// <summary>Which run kind a blend wants written.</summary>
+    /// <param name="blend">How the run is combined with the screen.</param>
+    /// <returns>The constant the fragment stage is pushed.</returns>
+    public static int PictureMode(OverlayBlend blend) => blend switch
+    {
+        OverlayBlend.Screen => PictureScreen,
+        OverlayBlend.Multiply => PictureMultiply,
+        _ => PictureOver,
+    };
 
     /// <summary>The vertex stage.</summary>
     public const string Vertex = """
@@ -109,9 +136,37 @@ public static class OverlayShaders
                 // The game's own art: its colour, tinted, and nothing inferred from its
                 // brightness. Running a photograph of the Rennes-le-Château countryside
                 // through the glyph rule below turns it into a silhouette.
-                outColor = vec4(
-                    EncodeForDisplay(texel.rgb * fragColor.rgb, draw.display.xyz),
-                    fragColor.a * texel.a);
+                vec3 art = texel.rgb * fragColor.rgb;
+                float cover = fragColor.a * texel.a;
+
+                // Screen, at whatever opacity the quad asked for. The blend state is
+                // (one, one minus source colour), which gives S + D(1 - S); writing the
+                // colour already faded by its own coverage makes that D + aS(1 - D),
+                // which is the screen of the two mixed towards the destination by a.
+                // Exactly Photoshop's Screen at that opacity, not an approximation.
+                if (draw.picture == 2)
+                {
+                    outColor = vec4(
+                        EncodeForDisplay(art * cover, draw.display.xyz), cover);
+
+                    return;
+                }
+
+                // Multiply, likewise: the state is (destination colour, zero), so what is
+                // written is the factor the destination is scaled by. One leaves it alone,
+                // which is why fading the layer out is fading this towards white and not
+                // towards black.
+                if (draw.picture == 3)
+                {
+                    vec3 factor = vec3(1.0) - (cover * (vec3(1.0) - art));
+
+                    outColor = vec4(
+                        EncodeForDisplay(factor, draw.display.xyz), cover);
+
+                    return;
+                }
+
+                outColor = vec4(EncodeForDisplay(art, draw.display.xyz), cover);
 
                 return;
             }

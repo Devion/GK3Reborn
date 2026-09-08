@@ -53,6 +53,11 @@ public enum RebarnKind : byte
     /// </summary>
     MovieAudio = 12,
 
+    /// <summary>
+    /// A layer of the title screen's own art, sRGB, kept as the PNG it was painted as.
+    /// </summary>
+    Menu = 13,
+
     /// <summary>Anything else, addressed by name alone.</summary>
     Raw = 255,
 }
@@ -240,6 +245,7 @@ public static class RebarnFormat
         RebarnKind.Localized => "localized",
         RebarnKind.Manifest => "manifests",
         RebarnKind.Audio => "audio",
+        RebarnKind.Menu => "menu",
         _ => "raw",
     };
 
@@ -264,6 +270,7 @@ public static class RebarnFormat
             "LOCALIZED" or "LOCALISED" => RebarnKind.Localized,
             "MANIFESTS" or "MANIFEST" => RebarnKind.Manifest,
             "AUDIO" => RebarnKind.Audio,
+            "MENU" => RebarnKind.Menu,
             "RAW" => RebarnKind.Raw,
             _ => null,
         };

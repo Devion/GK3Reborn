@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -9,11 +9,16 @@ using System.Numerics;
 
 namespace GK3Reborn.Rendering;
 
-/// <summary>A stretch of quads drawn from the same picture.</summary>
+/// <summary>A stretch of quads drawn from the same picture, the same way.</summary>
 /// <param name="Picture">Which picture, where nought is the sheet of letters.</param>
 /// <param name="First">The first vertex of the run.</param>
 /// <param name="Count">How many vertices it has.</param>
-public readonly record struct OverlayRun(int Picture, int First, int Count);
+/// <param name="Blend">
+/// How the run is combined with what is already on the screen. A pipeline each, so a change
+/// of blend breaks the run exactly as a change of picture does.
+/// </param>
+public readonly record struct OverlayRun(
+    int Picture, int First, int Count, OverlayBlend Blend = OverlayBlend.Alpha);
 
 /// <summary>Turns the interface's display list into triangles.</summary>
 public static class OverlayMesh
@@ -73,10 +78,27 @@ public static class OverlayMesh
 
             Vector4 color = Linear(quad.Color);
 
-            var topLeft = new OverlayVertex(new Vector2(x0, y0), new Vector2(u0, v0), color);
-            var topRight = new OverlayVertex(new Vector2(x1, y0), new Vector2(u1, v0), color);
-            var bottomLeft = new OverlayVertex(new Vector2(x0, y1), new Vector2(u0, v1), color);
-            var bottomRight = new OverlayVertex(new Vector2(x1, y1), new Vector2(u1, v1), color);
+            // The far edge's colour, where there is one. Two corners take it and two take
+            // the near edge's, so what the hardware interpolates across the face is the
+            // fade -- which is what lets a wall drawn in slices have no lines in it.
+            Vector4 far = quad.Gradient is { } end ? Linear(end) : color;
+
+            // Turned about the rectangle's own middle, in clip space, where a pixel of
+            // height is not a pixel of width -- so the turn is applied in pixels and
+            // converted afterwards, or a sigil on a 21:9 monitor comes out an ellipse.
+            (Vector2 a, Vector2 b, Vector2 c, Vector2 d) = quad.Turn == 0f
+                ? (new Vector2(x0, y0), new Vector2(x1, y0),
+                   new Vector2(x0, y1), new Vector2(x1, y1))
+                : Turned(quad, sx, sy);
+
+            Vector4 rightTop = quad.GradientDown ? color : far;
+            Vector4 leftBottom = quad.GradientDown ? far : color;
+            Vector4 rightBottom = far;
+
+            var topLeft = new OverlayVertex(a, new Vector2(u0, v0), color);
+            var topRight = new OverlayVertex(b, new Vector2(u1, v0), rightTop);
+            var bottomLeft = new OverlayVertex(c, new Vector2(u0, v1), leftBottom);
+            var bottomRight = new OverlayVertex(d, new Vector2(u1, v1), rightBottom);
 
             int at = i * 6;
             vertices[at] = topLeft;
@@ -90,17 +112,50 @@ public static class OverlayMesh
             // runs rather than one and everything else still costs exactly one.
             int picture = quad.Picture >= 0 && quad.Picture <= pictures ? quad.Picture : 0;
 
-            if (runs.Count > 0 && runs[^1].Picture == picture)
+            // A glyph has no blend of its own to ask for: the sheet is a stencil and it is
+            // always drawn over what is behind it. Saying so here rather than at the call
+            // sites is what keeps one stray Screen on a text quad from cutting the whole
+            // interface into runs.
+            OverlayBlend blend = picture > 0 ? quad.Blend : OverlayBlend.Alpha;
+
+            if (runs.Count > 0 && runs[^1].Picture == picture && runs[^1].Blend == blend)
             {
-                runs[^1] = new OverlayRun(picture, runs[^1].First, runs[^1].Count + 6);
+                runs[^1] = runs[^1] with { Count = runs[^1].Count + 6 };
             }
             else
             {
-                runs.Add(new OverlayRun(picture, at, 6));
+                runs.Add(new OverlayRun(picture, at, 6, blend));
             }
         }
 
         return vertices;
+    }
+
+    /// <summary>The four corners of a turned rectangle, in clip space.</summary>
+    /// <param name="quad">The rectangle, in pixels, with the turn it asked for.</param>
+    /// <param name="sx">Clip-space units per pixel across.</param>
+    /// <param name="sy">Clip-space units per pixel down.</param>
+    /// <returns>Top left, top right, bottom left and bottom right, in that order.</returns>
+    private static (Vector2 TopLeft, Vector2 TopRight, Vector2 BottomLeft, Vector2 BottomRight)
+        Turned(OverlayQuad quad, float sx, float sy)
+    {
+        float halfWide = quad.Destination.Z / 2f;
+        float halfTall = quad.Destination.W / 2f;
+        float middleX = quad.Destination.X + halfWide;
+        float middleY = quad.Destination.Y + halfTall;
+
+        float cos = MathF.Cos(quad.Turn);
+        float sin = MathF.Sin(quad.Turn);
+
+        Vector2 At(float dx, float dy) => new(
+            (((middleX + (dx * cos) - (dy * sin)) * sx) - 1f),
+            (((middleY + (dx * sin) + (dy * cos)) * sy) - 1f));
+
+        return (
+            At(-halfWide, -halfTall),
+            At(halfWide, -halfTall),
+            At(-halfWide, halfTall),
+            At(halfWide, halfTall));
     }
 
     /// <summary>Converts an authored colour into the space the target is written in.</summary>

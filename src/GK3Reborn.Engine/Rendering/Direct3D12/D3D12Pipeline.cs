@@ -76,6 +76,11 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// one rather than the alpha. What lets one blend both cover and add: see
     /// <see cref="Shaders.ParticleShaders"/>. Meaningless unless <paramref name="blend"/>.
     /// </param>
+    /// <param name="mode">
+    /// Which way the colour is combined with the target. Meaningless unless
+    /// <paramref name="blend"/>, and <paramref name="premultiplied"/> only says anything
+    /// about <see cref="OverlayBlend.Alpha"/>.
+    /// </param>
     /// <param name="vertexEntryPoint">Entry point of the vertex shader in its own source.</param>
     /// <param name="fragmentEntryPoint">Entry point of the fragment shader in its own source.</param>
     /// <param name="reuse">
@@ -105,6 +110,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         bool frontCounterClockwise = false,
         bool blend = false,
         bool premultiplied = false,
+        OverlayBlend mode = OverlayBlend.Alpha,
         string vertexEntryPoint = "main",
         string fragmentEntryPoint = "main",
         D3D12RootSignature? reuse = null)
@@ -184,7 +190,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                         NumElements = (uint)attributes.Count,
                     },
                     RasterizerState = Rasterizer(cull, frontCounterClockwise),
-                    BlendState = Blender(blend, premultiplied, colorFormats.Count),
+                    BlendState = Blender(blend, premultiplied, mode, colorFormats.Count),
                     DepthStencilState = DepthStencil(
                         depthFormat != Format.FormatUnknown, depthWrite, depthTest, depthEqual),
                 };
@@ -337,7 +343,8 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         ConservativeRaster = ConservativeRasterizationMode.Off,
     };
 
-    private static BlendDesc Blender(bool blend, bool premultiplied, int targets)
+    private static BlendDesc Blender(
+        bool blend, bool premultiplied, OverlayBlend mode, int targets)
     {
         var description = new BlendDesc
         {
@@ -348,25 +355,61 @@ public sealed unsafe class D3D12Pipeline : IDisposable
             IndependentBlendEnable = false,
         };
 
-        var target = new RenderTargetBlendDesc
+        // Screen is S + D(1 - S) and multiply is D * S, both exactly; what makes either
+        // right at less than full opacity is the colour the shader hands them, which is
+        // where the arithmetic is written down. See Shaders.OverlayShaders. Neither
+        // touches the destination's alpha: neither is covering anything.
+        var target = mode switch
         {
-            BlendEnable = blend,
-            LogicOpEnable = false,
-            // One where the colour already carries its own alpha, which is what lets a
-            // fragment choose between covering what is behind it and adding to it by what
-            // it writes in the alpha channel alone.
-            SrcBlend = premultiplied ? Blend.One : Blend.SrcAlpha,
-            DestBlend = Blend.InvSrcAlpha,
-            BlendOp = BlendOp.Add,
+            OverlayBlend.Screen => new RenderTargetBlendDesc
+            {
+                BlendEnable = blend,
+                LogicOpEnable = false,
+                SrcBlend = Blend.One,
+                DestBlend = Blend.InvSrcColor,
+                BlendOp = BlendOp.Add,
+                SrcBlendAlpha = Blend.Zero,
+                DestBlendAlpha = Blend.One,
+                BlendOpAlpha = BlendOp.Add,
+                LogicOp = LogicOp.Noop,
+                RenderTargetWriteMask = (byte)ColorWriteEnable.All,
+            },
 
-            // The destination alpha is kept as the source's rather than blended, because
-            // the only thing that reads it is the composite, which wants coverage and not
-            // a weighted average of two coverages.
-            SrcBlendAlpha = Blend.One,
-            DestBlendAlpha = Blend.InvSrcAlpha,
-            BlendOpAlpha = BlendOp.Add,
-            LogicOp = LogicOp.Noop,
-            RenderTargetWriteMask = (byte)ColorWriteEnable.All,
+            OverlayBlend.Multiply => new RenderTargetBlendDesc
+            {
+                BlendEnable = blend,
+                LogicOpEnable = false,
+                SrcBlend = Blend.DestColor,
+                DestBlend = Blend.Zero,
+                BlendOp = BlendOp.Add,
+                SrcBlendAlpha = Blend.Zero,
+                DestBlendAlpha = Blend.One,
+                BlendOpAlpha = BlendOp.Add,
+                LogicOp = LogicOp.Noop,
+                RenderTargetWriteMask = (byte)ColorWriteEnable.All,
+            },
+
+            _ => new RenderTargetBlendDesc
+            {
+                BlendEnable = blend,
+                LogicOpEnable = false,
+
+                // One where the colour already carries its own alpha, which is what lets a
+                // fragment choose between covering what is behind it and adding to it by
+                // what it writes in the alpha channel alone.
+                SrcBlend = premultiplied ? Blend.One : Blend.SrcAlpha,
+                DestBlend = Blend.InvSrcAlpha,
+                BlendOp = BlendOp.Add,
+
+                // The destination alpha is kept as the source's rather than blended,
+                // because the only thing that reads it is the composite, which wants
+                // coverage and not a weighted average of two coverages.
+                SrcBlendAlpha = Blend.One,
+                DestBlendAlpha = Blend.InvSrcAlpha,
+                BlendOpAlpha = BlendOp.Add,
+                LogicOp = LogicOp.Noop,
+                RenderTargetWriteMask = (byte)ColorWriteEnable.All,
+            },
         };
 
         for (int i = 0; i < Math.Max(1, targets) && i < 8; i++)

@@ -10,6 +10,17 @@ public enum MenuBehind
     /// <summary>A picture of its own, which must not be washed over.</summary>
     Picture,
 
+    /// <summary>
+    /// The title screen the port draws for itself: a picture, and one this page also lays
+    /// its first page out against. See <see cref="TitleScene"/>.
+    /// </summary>
+    /// <remarks>
+    /// A value of its own rather than <see cref="Picture"/> plus a flag, because the two
+    /// differ in exactly one thing — where the rows on the first page go — and every other
+    /// place that asks what is behind the page wants the same answer for both.
+    /// </remarks>
+    Modern,
+
     /// <summary>Nothing, so the page draws its own screen.</summary>
     Nothing,
 
@@ -263,6 +274,26 @@ public sealed class MenuPage
     /// </summary>
     public float Across { get; set; } = 0.5f;
 
+    /// <summary>
+    /// Whether this page is one line of buttons across the window rather than a panel.
+    /// </summary>
+    /// <remarks>
+    /// The title screen's first page, and nothing else. The picture behind it is a statue
+    /// with a wall behind it and black under both, and the black is where the rows belong;
+    /// a panel drawn over the middle of it would cover the thing it was drawn against.
+    /// </remarks>
+    public bool Horizontal { get; set; }
+
+    /// <summary>
+    /// What to draw underneath the page, before anything of the page itself.
+    /// </summary>
+    /// <remarks>
+    /// The title screen's own layers. It goes into this display list rather than behind it
+    /// so that the screen the player sees is one frame — the rows are drawn against the
+    /// statue, not over a picture that reached the window by another road.
+    /// </remarks>
+    public Action<Overlay>? Backdrop { get; set; }
+
     /// <summary>One row's height, which is what everything else is measured in.</summary>
     private float Row => Overlay.LineHeight * (Overlay.Atlas.Scalable ? 1.5f : 1.9f);
 
@@ -341,6 +372,14 @@ public sealed class MenuPage
         Index = Math.Clamp(Index, 0, Math.Max(0, items.Count - 1));
 
         Screen(width, height);
+        Backdrop?.Invoke(Overlay);
+
+        if (Horizontal && Sections.Count == 0)
+        {
+            Strip(items, width, height, at);
+
+            return;
+        }
 
         float unit = Overlay.LineHeight;
         float pad = unit;
@@ -646,6 +685,115 @@ public sealed class MenuPage
         if (_scrollMax > 0f)
         {
             Scrollbar(x + panelWidth, top, viewport, total);
+        }
+    }
+
+    /// <summary>How much of a row's height is left around the lettering inside a button.</summary>
+    private const float StripPadding = 1.1f;
+
+    /// <summary>How much air there is between one button and the next, in ems.</summary>
+    private const float StripGap = 1.7f;
+
+    /// <summary>
+    /// Lays the first page out as one line of buttons across the bottom of the window.
+    /// </summary>
+    /// <param name="items">The rows.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <param name="at">Where the pointer is, for the hover.</param>
+    /// <remarks>
+    /// No panel and no scrolling. This page is five buttons and it is always five buttons,
+    /// so the one thing it has to do that the upright pages do not is fit them across a
+    /// window that may be narrower than they would like: the air between them closes up
+    /// first, and only after that is gone does the line run to the edges.
+    /// </remarks>
+    private void Strip(IReadOnlyList<MenuItem> items, int width, int height, Vector2 at)
+    {
+        float unit = Overlay.LineHeight;
+        float row = Row;
+        float pad = unit * StripPadding;
+
+        Span<float> widths = items.Count <= 16 ? stackalloc float[items.Count] : new float[items.Count];
+
+        float wanted = 0f;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            widths[i] = Overlay.Measure(items[i].Text) + (2f * pad);
+            wanted += widths[i];
+        }
+
+        // The gap closes before the buttons do. A line of five that has been squeezed until
+        // its words are touching still reads as five buttons; one whose words have been cut
+        // does not, and there is nothing else on this page to give the room back.
+        float room = MathF.Max(unit, width - (2f * unit));
+        float gaps = MathF.Max(0, items.Count - 1);
+
+        float gap = gaps <= 0
+            ? 0f
+            : MathF.Max(unit * 0.4f, MathF.Min(unit * StripGap, (room - wanted) / gaps));
+
+        float total = wanted + (gap * gaps);
+        float left = MathF.Round((width - total) / 2f);
+        float top = MathF.Round((height * Math.Clamp(Down, 0f, 1f)) - (row / 2f));
+
+        _panel = new Vector4(0f, top - (unit / 2f), width, row + unit);
+        _content = _panel;
+
+        // Nothing here scrolls, and what is left over from the settings page the player
+        // came back from would otherwise make the wheel do something on a page with one
+        // line on it.
+        _bands.Clear();
+        _scroll = 0f;
+        _scrollTarget = 0f;
+        _scrollMax = 0f;
+
+        // The pointer picks the row before anything is drawn, so that hovering and the
+        // keyboard land on the same button and the drawn highlight is the one a click will
+        // take. The same rule the upright pages follow.
+        float x = left;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i].Selectable &&
+                Inside(at, new Vector4(x, top, widths[i], row)))
+            {
+                Index = i;
+            }
+
+            x += widths[i] + gap;
+        }
+
+        x = left;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            MenuItem item = items[i];
+            bool chosen = i == Index && item.Selectable;
+            Vector4 ink = item.Enabled ? (chosen ? Accent : Ink) : Dim;
+
+            if (chosen)
+            {
+                // A rule under the word rather than a block behind it. The line stands on
+                // black and the black is the picture; a filled highlight would be a panel
+                // on a screen whose whole point is that it has none.
+                Overlay.Rect(
+                    MathF.Round(x + (pad / 2f)),
+                    MathF.Round(top + row - MathF.Max(2f, unit / 8f)),
+                    MathF.Round(widths[i] - pad),
+                    MathF.Max(2f, unit / 8f),
+                    Accent);
+            }
+
+            Overlay.Text(
+                item.Text,
+                MathF.Round(x + pad),
+                MathF.Round(top + ((row - unit) / 2f)),
+                ink);
+
+            _rows.Add((i, item.Id, new Vector4(x, top, widths[i], row), item.Kind));
+
+            x += widths[i] + gap;
         }
     }
 
@@ -1432,7 +1580,9 @@ public sealed class MenuPage
     /// <param name="height">Window height.</param>
     private void Screen(int width, int height)
     {
-        if (Behind == MenuBehind.Picture)
+        // The modern screen paints its own black before its own layers, so it wants no
+        // wash either. Both of these are "there is already a picture there".
+        if (Behind is MenuBehind.Picture or MenuBehind.Modern)
         {
             return;
         }

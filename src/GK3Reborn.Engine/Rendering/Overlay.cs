@@ -20,6 +20,34 @@ namespace GK3Reborn.Rendering;
 public readonly record struct AtlasGlyph(
     Vector4 Uv, float Width, float Height, float Left, float Top, float Advance);
 
+/// <summary>How a rectangle is combined with what is already on the screen.</summary>
+/// <remarks>
+/// Fixed-function blend state, not arithmetic in the shader: nothing drawn here can read
+/// what is under it. Each of these is one pipeline in each backend, and the display list is
+/// cut into runs on this as well as on the picture — so a screen that uses none of them,
+/// which is every screen but the title, still costs exactly what it did.
+/// </remarks>
+public enum OverlayBlend
+{
+    /// <summary>Over what is behind it, by its own alpha. Everything the interface draws.</summary>
+    Alpha,
+
+    /// <summary>
+    /// Lightens: <c>1 - (1 - source)(1 - destination)</c>, which is Photoshop's Screen.
+    /// Exact, including at partial opacity — see the factors in the pipelines.
+    /// </summary>
+    Screen,
+
+    /// <summary>
+    /// Darkens: the destination multiplied by the source, faded towards leaving it alone.
+    /// <b>The stand-in for Photoshop's Colour Burn</b>, which is
+    /// <c>1 - (1 - destination) / source</c> and cannot be reached by any pair of blend
+    /// factors. At the opacities the sigils are drawn at the two are within a step of each
+    /// other; at full opacity they are not, which is why nothing here draws at full opacity.
+    /// </summary>
+    Multiply,
+}
+
 /// <summary>One rectangle of the interface.</summary>
 /// <param name="Destination">Where it goes, in pixels from the top left.</param>
 /// <param name="Source">Which part of its picture to take, in texture coordinates.</param>
@@ -30,8 +58,35 @@ public readonly record struct AtlasGlyph(
 /// this on the quad rather than splitting the display list means a screen that shows a map
 /// costs one extra draw call and nothing else.
 /// </param>
+/// <param name="Blend">How it is combined with what is already there.</param>
+/// <param name="Turn">
+/// How far it is turned about its own centre, in radians, clockwise on the screen. Nought
+/// for everything the interface draws but the title screen's sigils.
+/// </param>
+/// <param name="Gradient">
+/// The colour at the far edge, or null for one flat colour. <see cref="Color"/> is then the
+/// colour at the near edge, and every pixel between them is interpolated.
+/// </param>
+/// <param name="GradientDown">
+/// Whether <see cref="Gradient"/> runs from the top edge to the bottom rather than from the
+/// left edge to the right.
+/// </param>
+/// <remarks>
+/// The gradient exists because of what the title screen does: a wall drawn in slices whose
+/// opacity drifts across the window. One colour a slice makes each slice a flat band, and
+/// on a screen blend a two-percent step between neighbours is a visible upright line —
+/// which is what the first version of that screen looked like. Interpolated, two slices
+/// that meet agree exactly at the edge they share and there is nothing to see.
+/// </remarks>
 public readonly record struct OverlayQuad(
-    Vector4 Destination, Vector4 Source, Vector4 Color, int Picture = 0);
+    Vector4 Destination,
+    Vector4 Source,
+    Vector4 Color,
+    int Picture = 0,
+    OverlayBlend Blend = OverlayBlend.Alpha,
+    float Turn = 0f,
+    Vector4? Gradient = null,
+    bool GradientDown = false);
 
 /// <summary>
 /// Everything the interface draws, as one sheet and one list of rectangles.
@@ -470,6 +525,25 @@ public sealed class Overlay
         Vector4 clip = _clips[^1];
         Vector4 to = quad.Destination;
 
+        // A turned rectangle cannot be trimmed to an upright box by moving its corners, so
+        // it is kept whole or dropped whole. Binary rather than wrong: a caller that wants
+        // a turned sprite confined to something has to keep it inside itself, and one that
+        // does not is told by the sprite disappearing rather than by it being sheared.
+        if (quad.Turn != 0f)
+        {
+            float reach = MathF.Max(to.Z, to.W);
+            float middleX = to.X + (to.Z / 2f);
+            float middleY = to.Y + (to.W / 2f);
+
+            if (middleX - reach >= clip.X && middleX + reach <= clip.X + clip.Z &&
+                middleY - reach >= clip.Y && middleY + reach <= clip.Y + clip.W)
+            {
+                _quads.Add(quad);
+            }
+
+            return;
+        }
+
         float left = MathF.Max(to.X, clip.X);
         float top = MathF.Max(to.Y, clip.Y);
         float right = MathF.Min(to.X + to.Z, clip.X + clip.Z);
@@ -497,13 +571,28 @@ public sealed class Overlay
         float du = to.Z > 0 ? (right - left) / to.Z : 0;
         float dv = to.W > 0 ? (bottom - top) / to.W : 0;
 
+        // And the same fraction of the gradient, or the clipped-off part of a wall slice
+        // takes its neighbour's colour and the fade shows a step exactly where the clip is.
+        float near = quad.GradientDown ? v : u;
+        float far = quad.GradientDown ? v + dv : u + du;
+
+        (Vector4 color, Vector4? gradient) = quad.Gradient is { } end
+            ? (Mix(quad.Color, end, near), Mix(quad.Color, end, far))
+            : (quad.Color, quad.Gradient);
+
         _quads.Add(quad with
         {
             Destination = new Vector4(left, top, right - left, bottom - top),
             Source = new Vector4(
                 from.X + (from.Z * u), from.Y + (from.W * v), from.Z * du, from.W * dv),
+            Color = color,
+            Gradient = gradient,
         });
     }
+
+    /// <summary>One colour part of the way to another.</summary>
+    private static Vector4 Mix(Vector4 from, Vector4 to, float part) =>
+        from + ((to - from) * Math.Clamp(part, 0f, 1f));
 
     /// <summary>The overlap of two rectangles, which may be empty.</summary>
     private static Vector4 Intersect(Vector4 a, Vector4 b)
@@ -526,6 +615,32 @@ public sealed class Overlay
         Add(new OverlayQuad(
             new Vector4(x, y, width, height), Atlas.White, color));
 
+    /// <summary>Draws a rectangle that fades from one colour to another.</summary>
+    /// <param name="x">Pixels from the left.</param>
+    /// <param name="y">Pixels from the top.</param>
+    /// <param name="width">How wide.</param>
+    /// <param name="height">How tall.</param>
+    /// <param name="from">The colour at the near edge, straight alpha.</param>
+    /// <param name="to">The colour at the far edge.</param>
+    /// <param name="down">Whether it runs top to bottom rather than left to right.</param>
+    public void Fade(
+        float x,
+        float y,
+        float width,
+        float height,
+        Vector4 from,
+        Vector4 to,
+        bool down = true) =>
+        Add(new OverlayQuad(
+            new Vector4(x, y, width, height),
+            Atlas.White,
+            from,
+            0,
+            OverlayBlend.Alpha,
+            0f,
+            to,
+            down));
+
     /// <summary>
     /// Draws part of one of the screens' own pictures.
     /// </summary>
@@ -538,6 +653,13 @@ public sealed class Overlay
     /// <param name="source">
     /// Which part of the picture to take, in texture coordinates, or null for all of it.
     /// </param>
+    /// <param name="blend">How it is combined with what is already on the screen.</param>
+    /// <param name="gradient">
+    /// What to tint the far edge, or null to tint the whole rectangle the same.
+    /// </param>
+    /// <param name="down">
+    /// Whether the gradient runs to the bottom edge rather than to the right-hand one.
+    /// </param>
     public void Picture(
         int picture,
         float x,
@@ -545,7 +667,10 @@ public sealed class Overlay
         float width,
         float height,
         Vector4 tint,
-        Vector4? source = null)
+        Vector4? source = null,
+        OverlayBlend blend = OverlayBlend.Alpha,
+        Vector4? gradient = null,
+        bool down = false)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(picture);
 
@@ -553,7 +678,44 @@ public sealed class Overlay
             new Vector4(x, y, width, height),
             source ?? new Vector4(0, 0, 1, 1),
             tint,
-            picture));
+            picture,
+            blend,
+            0f,
+            gradient,
+            down));
+    }
+
+    /// <summary>
+    /// Draws one of the screens' own pictures about a point, turned.
+    /// </summary>
+    /// <param name="picture">Which picture, as <c>OverlayImages</c> numbers them.</param>
+    /// <param name="centre">Where its middle goes, in pixels from the top left.</param>
+    /// <param name="size">How wide and how tall to draw it.</param>
+    /// <param name="tint">What to multiply it by; white leaves it alone.</param>
+    /// <param name="turn">How far to turn it about that middle, in radians, clockwise.</param>
+    /// <param name="blend">How it is combined with what is already on the screen.</param>
+    /// <remarks>
+    /// The one thing the interface draws that is not square to the screen. A turned quad is
+    /// kept whole or dropped whole by a clip — see <c>Add</c> — so a caller that wants it
+    /// confined has to place it inside whatever is confining it.
+    /// </remarks>
+    public void Sprite(
+        int picture,
+        Vector2 centre,
+        Vector2 size,
+        Vector4 tint,
+        float turn = 0f,
+        OverlayBlend blend = OverlayBlend.Alpha)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(picture);
+
+        Add(new OverlayQuad(
+            new Vector4(centre.X - (size.X / 2f), centre.Y - (size.Y / 2f), size.X, size.Y),
+            new Vector4(0, 0, 1, 1),
+            tint,
+            picture,
+            blend,
+            turn));
     }
 
     /// <summary>Draws a line of text.</summary>

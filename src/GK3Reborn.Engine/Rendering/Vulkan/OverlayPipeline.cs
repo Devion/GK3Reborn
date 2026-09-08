@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using System.Runtime.InteropServices;
 using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Core.Native;
@@ -24,7 +24,14 @@ public sealed unsafe class OverlayPipeline : IDisposable
     private DescriptorPool _pool;
     private DescriptorSet _set;
     private PipelineLayout _layout;
-    private Pipeline _pipeline;
+
+    /// <summary>
+    /// One pipeline per <see cref="OverlayBlend"/>, indexed by it. They differ in nothing
+    /// but their colour blend state, so they share the layout and the shader modules; the
+    /// display list is cut into runs on the blend, and a run binds the one it wants.
+    /// </summary>
+    private readonly Pipeline[] _pipelines = new Pipeline[Blends];
+
     private VulkanTexture? _atlas;
     private VulkanBuffer? _vertices;
     private int _count;
@@ -44,6 +51,9 @@ public sealed unsafe class OverlayPipeline : IDisposable
 
     /// <summary>How many of the screens' own pictures may be held at once.</summary>
     public const int MostPictures = 256;
+
+    /// <summary>How many ways a run can be combined with the screen.</summary>
+    private static readonly int Blends = Enum.GetValues<OverlayBlend>().Length;
 
     /// <summary>What the swapchain wants written into it.</summary>
     public DisplayEncode Display { get; set; } = DisplayEncode.Standard;
@@ -238,14 +248,24 @@ public sealed unsafe class OverlayPipeline : IDisposable
 
         _vk.CmdSetViewport(command, 0, 1, in viewport);
         _vk.CmdSetScissor(command, 0, 1, in scissor);
-        _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _pipeline);
 
         Buffer handle = _vertices.Handle;
         ulong offset = 0;
         _vk.CmdBindVertexBuffers(command, 0, 1, in handle, in offset);
 
-        foreach ((int picture, int first, int count) in _runs)
+        // Which pipeline is bound, so that the ordinary interface -- one run, or three on a
+        // screen with a map -- binds one once and the title screen binds one per layer.
+        var bound = (OverlayBlend)(-1);
+
+        foreach ((int picture, int first, int count, OverlayBlend blend) in _runs)
         {
+            if (blend != bound)
+            {
+                bound = blend;
+                _vk.CmdBindPipeline(
+                    command, PipelineBindPoint.Graphics, _pipelines[(int)blend]);
+            }
+
             DescriptorSet set = picture > 0 && picture <= _pictures.Count
                 ? _pictures[picture - 1].Set
                 : _set;
@@ -257,7 +277,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
             // are one push constant range and Vulkan will not let a range be written in
             // pieces of different stages.
             OverlayConstants pushed = new(
-                picture > 0 ? 1 : 0,
+                picture > 0 ? OverlayShaders.PictureMode(blend) : OverlayShaders.Glyphs,
                 0,
                 0,
                 0,
@@ -281,11 +301,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
-        if (_pipeline.Handle != 0)
-        {
-            _vk.DestroyPipeline(_context.Device, _pipeline, null);
-            _pipeline = default;
-        }
+        DestroyPipelines();
 
         if (_layout.Handle != 0)
         {
@@ -428,11 +444,7 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// <param name="depthFormat">Depth target format, unchanged in practice.</param>
     public void Retarget(Format colorFormat, Format depthFormat)
     {
-        if (_pipeline.Handle != 0)
-        {
-            _vk.DestroyPipeline(_context.Device, _pipeline, null);
-            _pipeline = default;
-        }
+        DestroyPipelines();
 
         if (_layout.Handle != 0)
         {
@@ -579,19 +591,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
             PipelineColorBlendAttachmentState* blendAttachments =
                 stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
 
-            blendAttachments[GBuffer.Colour] = new PipelineColorBlendAttachmentState
-            {
-                BlendEnable = true,
-                SrcColorBlendFactor = BlendFactor.SrcAlpha,
-                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
-                ColorBlendOp = BlendOp.Add,
-                SrcAlphaBlendFactor = BlendFactor.One,
-                DstAlphaBlendFactor = BlendFactor.OneMinusSrcAlpha,
-                AlphaBlendOp = BlendOp.Add,
-                ColorWriteMask = ColorComponentFlags.RBit | ColorComponentFlags.GBit |
-                                 ColorComponentFlags.BBit | ColorComponentFlags.ABit,
-            };
-
             for (int i = 1; i < (int)GBuffer.Targets; i++)
             {
                 blendAttachments[i] = default;
@@ -636,17 +635,96 @@ public sealed unsafe class OverlayPipeline : IDisposable
                 Layout = _layout,
             };
 
-            Result created = _vk.CreateGraphicsPipelines(
-                _context.Device, default, 1, in createInfo, null, out _pipeline);
-
-            if (created != Result.Success)
+            // One pipeline a blend, built from the same everything else. Three objects
+            // rather than one, made once at startup; what a frame pays is a bind when the
+            // display list changes blend, which only the title screen ever does.
+            for (int i = 0; i < Blends; i++)
             {
-                throw new VulkanException($"Could not create the overlay pipeline: {created}.");
+                blendAttachments[GBuffer.Colour] = Blending((OverlayBlend)i);
+
+                Result created = _vk.CreateGraphicsPipelines(
+                    _context.Device, default, 1, in createInfo, null, out _pipelines[i]);
+
+                if (created != Result.Success)
+                {
+                    throw new VulkanException(
+                        $"Could not create the overlay pipeline for {(OverlayBlend)i}: {created}.");
+                }
             }
         }
         finally
         {
             SilkMarshal.Free(entryPoint);
+        }
+    }
+
+    /// <summary>The colour state one blend wants.</summary>
+    /// <param name="blend">How a run is combined with what is already on the screen.</param>
+    /// <returns>The attachment state.</returns>
+    /// <remarks>
+    /// The shader hands each of these the colour that makes it come out right at less than
+    /// full opacity; <see cref="OverlayShaders"/> carries that arithmetic. Both of the new
+    /// two leave the destination's alpha alone rather than compositing coverage into it:
+    /// neither is covering anything, and the swapchain's alpha is already one.
+    /// </remarks>
+    private static PipelineColorBlendAttachmentState Blending(OverlayBlend blend)
+    {
+        const ColorComponentFlags Everything =
+            ColorComponentFlags.RBit | ColorComponentFlags.GBit |
+            ColorComponentFlags.BBit | ColorComponentFlags.ABit;
+
+        return blend switch
+        {
+            // S + D(1 - S).
+            OverlayBlend.Screen => new PipelineColorBlendAttachmentState
+            {
+                BlendEnable = true,
+                SrcColorBlendFactor = BlendFactor.One,
+                DstColorBlendFactor = BlendFactor.OneMinusSrcColor,
+                ColorBlendOp = BlendOp.Add,
+                SrcAlphaBlendFactor = BlendFactor.Zero,
+                DstAlphaBlendFactor = BlendFactor.One,
+                AlphaBlendOp = BlendOp.Add,
+                ColorWriteMask = Everything,
+            },
+
+            // D * S.
+            OverlayBlend.Multiply => new PipelineColorBlendAttachmentState
+            {
+                BlendEnable = true,
+                SrcColorBlendFactor = BlendFactor.DstColor,
+                DstColorBlendFactor = BlendFactor.Zero,
+                ColorBlendOp = BlendOp.Add,
+                SrcAlphaBlendFactor = BlendFactor.Zero,
+                DstAlphaBlendFactor = BlendFactor.One,
+                AlphaBlendOp = BlendOp.Add,
+                ColorWriteMask = Everything,
+            },
+
+            _ => new PipelineColorBlendAttachmentState
+            {
+                BlendEnable = true,
+                SrcColorBlendFactor = BlendFactor.SrcAlpha,
+                DstColorBlendFactor = BlendFactor.OneMinusSrcAlpha,
+                ColorBlendOp = BlendOp.Add,
+                SrcAlphaBlendFactor = BlendFactor.One,
+                DstAlphaBlendFactor = BlendFactor.OneMinusSrcAlpha,
+                AlphaBlendOp = BlendOp.Add,
+                ColorWriteMask = Everything,
+            },
+        };
+    }
+
+    /// <summary>Lets go of every blend's pipeline.</summary>
+    private void DestroyPipelines()
+    {
+        for (int i = 0; i < _pipelines.Length; i++)
+        {
+            if (_pipelines[i].Handle != 0)
+            {
+                _vk.DestroyPipeline(_context.Device, _pipelines[i], null);
+                _pipelines[i] = default;
+            }
         }
     }
 }

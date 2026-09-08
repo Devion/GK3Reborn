@@ -178,10 +178,15 @@ public sealed class DisplaySettingsTests
         // voices would reasonably conclude the row is broken. On an installation with only
         // English the same line says why the row will not step, which is the other thing
         // the player cannot see for themselves.
+        //
+        // Display earns its one on exactly the same terms as Picture's two: the title
+        // screen row is dead on an installation with no Reborn.rebarn, and "this exists
+        // and is not available" is the one thing about it a player cannot work out by
+        // looking. On an installation that has the pack the line is not drawn at all.
         (FrontEndPage Page, int Most)[] pages =
         [
             (FrontEndPage.Video, 3),
-            (FrontEndPage.Display, 0),
+            (FrontEndPage.Display, 1),
             (FrontEndPage.Audio, 1),
             (FrontEndPage.Gameplay, 1),
             (FrontEndPage.Controls, 1),

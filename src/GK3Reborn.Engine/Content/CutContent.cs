@@ -147,6 +147,17 @@ public sealed class CutContent
                 "RL1_GROUND" or "RL1_ROADS" or "RL1_FACADES" or "RL1_TREES" => bains,
                 _ => false,
             });
+
+            // Rennes-le-Chateau's own table, and a file of its own rather than a section of
+            // the one above: the two town builders each rewrite Dressing.txt, and a section
+            // added to it by hand survives one of them and not the other.
+            if (dressing.HasFlag(DressedTowns.RennesLeChateau))
+            {
+                FillFromResource(
+                    table,
+                    "GK3Reborn.Assets.Story.RennesLeChateau.txt",
+                    section => section == "RC3_CEMETERY_GATE");
+            }
         }
 
         return table;

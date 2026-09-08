@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -27,9 +27,19 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     /// </summary>
     private const int Capacity = 16384;
 
+    /// <summary>How many ways a run can be combined with the screen.</summary>
+    private static readonly int Blends = Enum.GetValues<OverlayBlend>().Length;
+
     private readonly D3D12Context _context;
     private readonly ShaderCompiler _compiler;
-    private D3D12Pipeline _pipeline;
+
+    /// <summary>
+    /// One pipeline per <see cref="OverlayBlend"/>, indexed by it. They differ in nothing
+    /// but their blend state and share one root signature, because Direct3D checks that the
+    /// signature set on the command list is the one the pipeline was created with.
+    /// </summary>
+    private D3D12Pipeline[] _pipelines;
+
     private readonly D3D12DescriptorHeap _views;
     private readonly D3D12DescriptorHeap _samplers;
     private readonly D3D12Samplers _shared;
@@ -45,7 +55,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     private D3D12OverlayPass(
         D3D12Context context,
         ShaderCompiler compiler,
-        D3D12Pipeline pipeline,
+        D3D12Pipeline[] pipelines,
         D3D12DescriptorHeap views,
         D3D12DescriptorHeap samplers,
         D3D12Samplers shared,
@@ -53,7 +63,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
     {
         _context = context;
         _compiler = compiler;
-        _pipeline = pipeline;
+        _pipelines = pipelines;
         _views = views;
         _samplers = samplers;
         _shared = shared;
@@ -90,7 +100,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
 
         uint stride = (uint)Marshal.SizeOf<OverlayVertex>();
 
-        D3D12Pipeline? pipeline = null;
+        D3D12Pipeline[]? pipelines = null;
         D3D12DescriptorHeap? views = null;
         D3D12DescriptorHeap? samplers = null;
         D3D12Samplers? shared = null;
@@ -98,7 +108,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
 
         try
         {
-            pipeline = Build(context, compiler, format);
+            pipelines = Build(context, compiler, format);
 
             // The atlas and every picture, once per frame of the ring, so a descriptor is
             // never rewritten while a frame that reads it is still on the device.
@@ -120,7 +130,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
             }
 
             return new D3D12OverlayPass(
-                context, compiler, pipeline, views, samplers, shared, vertices);
+                context, compiler, pipelines, views, samplers, shared, vertices);
         }
         catch
         {
@@ -132,8 +142,27 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
             shared?.Dispose();
             samplers?.Dispose();
             views?.Dispose();
-            pipeline?.Dispose();
+            Release(pipelines);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Lets go of a set of pipelines, borrowers before the one that owns the signature.
+    /// </summary>
+    /// <param name="pipelines">The set, or null when it was never built.</param>
+    private static void Release(D3D12Pipeline[]? pipelines)
+    {
+        if (pipelines is null)
+        {
+            return;
+        }
+
+        // Backwards, so the one holding the root signature goes last: the others were
+        // created against it and Direct3D keeps a reference for as long as they live.
+        for (int i = pipelines.Length - 1; i >= 0; i--)
+        {
+            pipelines[i]?.Dispose();
         }
     }
 
@@ -146,9 +175,9 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
 
         _context.Wait();
 
-        D3D12Pipeline rebuilt = Build(_context, _compiler, format);
-        _pipeline.Dispose();
-        _pipeline = rebuilt;
+        D3D12Pipeline[] rebuilt = Build(_context, _compiler, format);
+        Release(_pipelines);
+        _pipelines = rebuilt;
     }
 
     /// <summary>Gives the interface its sheet of glyphs.</summary>
@@ -265,8 +294,9 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
         heaps[1] = _samplers.Handle;
         list->SetDescriptorHeaps(2, heaps);
 
-        list->SetGraphicsRootSignature(_pipeline.Signature.Handle);
-        list->SetPipelineState(_pipeline.Handle);
+        // Every blend's pipeline was created against this one signature, so it is set once
+        // and only the pipeline state changes from run to run.
+        list->SetGraphicsRootSignature(_pipelines[0].Signature.Handle);
         list->IASetPrimitiveTopology(
             Silk.NET.Core.Native.D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
 
@@ -275,7 +305,7 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
 
         list->IASetVertexBuffers(0, 1, &vertices);
 
-        int samplers = _pipeline.Signature.SamplerParameterFor(0);
+        int samplers = _pipelines[0].Signature.SamplerParameterFor(0);
         if (samplers >= 0)
         {
             list->SetGraphicsRootDescriptorTable((uint)samplers, _samplers.Gpu(0));
@@ -294,18 +324,30 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
         list->RSSetScissorRects(1, &scissor);
         list->OMSetRenderTargets(1, &target, false, (CpuDescriptorHandle*)null);
 
-        uint table = (uint)_pipeline.Signature.ParameterFor(0);
-        uint constants = (uint)_pipeline.Signature.PushConstantParameter;
+        uint table = (uint)_pipelines[0].Signature.ParameterFor(0);
+        uint constants = (uint)_pipelines[0].Signature.PushConstantParameter;
+
+        // Which pipeline is set, so the ordinary interface -- one run, or three on a screen
+        // with a map -- sets one once and only the title screen sets one per layer.
+        var bound = (OverlayBlend)(-1);
 
         foreach (OverlayRun run in _runs)
         {
+            if (run.Blend != bound)
+            {
+                bound = run.Blend;
+                list->SetPipelineState(_pipelines[(int)run.Blend].Handle);
+            }
+
             // Nought is the atlas and anything else is one of the pictures, which is what
             // the fragment stage's flag says too: a picture is drawn as it is and a glyph is
             // a shape cut out of a colour.
             list->SetGraphicsRootDescriptorTable(table, _views.Gpu(first + (uint)run.Picture));
 
             var block = new OverlayConstants(
-                run.Picture == 0 ? 0 : 1,
+                run.Picture == 0
+                    ? OverlayShaders.Glyphs
+                    : OverlayShaders.PictureMode(run.Blend),
                 0,
                 0,
                 0,
@@ -321,36 +363,58 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
         }
     }
 
-    private static D3D12Pipeline Build(
+    private static D3D12Pipeline[] Build(
         D3D12Context context, ShaderCompiler compiler, Format format)
     {
         var layout = new ShaderLayout(
             [new ShaderBinding(0, 0, ShaderBindingKind.CombinedImageSampler, ShaderStages.Fragment)],
             OverlayShaders.ConstantBytes);
 
-        return D3D12Pipeline.CreateGraphics(
-            context.Device,
-            compiler,
-            OverlayShaders.Vertex,
-            OverlayShaders.Fragment,
-            "overlay",
-            layout,
-            [format],
-            Format.FormatUnknown,
-            [
-                new VertexInput(0, Format.FormatR32G32Float, 0),
-                new VertexInput(1, Format.FormatR32G32Float, 8),
-                new VertexInput(2, Format.FormatR32G32B32A32Float, 16),
-            ],
-            [new VertexBufferLayout((uint)Marshal.SizeOf<OverlayVertex>())],
-            ShaderLanguage.Glsl,
-            depthWrite: false,
-            depthTest: false,
+        var pipelines = new D3D12Pipeline[Blends];
 
-            // The interface is quads laid out on the screen, and which way they happen to be
-            // wound is not something the layout has any opinion about.
-            cull: CullMode.None,
-            blend: true);
+        try
+        {
+            for (int i = 0; i < Blends; i++)
+            {
+                pipelines[i] = D3D12Pipeline.CreateGraphics(
+                    context.Device,
+                    compiler,
+                    OverlayShaders.Vertex,
+                    OverlayShaders.Fragment,
+                    $"overlay-{(OverlayBlend)i}".ToLowerInvariant(),
+                    layout,
+                    [format],
+                    Format.FormatUnknown,
+                    [
+                        new VertexInput(0, Format.FormatR32G32Float, 0),
+                        new VertexInput(1, Format.FormatR32G32Float, 8),
+                        new VertexInput(2, Format.FormatR32G32B32A32Float, 16),
+                    ],
+                    [new VertexBufferLayout((uint)Marshal.SizeOf<OverlayVertex>())],
+                    ShaderLanguage.Glsl,
+                    depthWrite: false,
+                    depthTest: false,
+
+                    // The interface is quads laid out on the screen, and which way they
+                    // happen to be wound is not something the layout has any opinion about.
+                    cull: CullMode.None,
+                    blend: true,
+                    premultiplied: false,
+                    mode: (OverlayBlend)i,
+
+                    // All three bind through the first one's signature. Direct3D checks
+                    // that the signature on the command list is the one the pipeline was
+                    // created with, so a pass that switches between them must share it.
+                    reuse: i == 0 ? null : pipelines[0].Signature);
+            }
+
+            return pipelines;
+        }
+        catch
+        {
+            Release(pipelines);
+            throw;
+        }
     }
 
     /// <inheritdoc/>
@@ -380,6 +444,6 @@ public sealed unsafe class D3D12OverlayPass : IDisposable
         _shared.Dispose();
         _samplers.Dispose();
         _views.Dispose();
-        _pipeline.Dispose();
+        Release(_pipelines);
     }
 }

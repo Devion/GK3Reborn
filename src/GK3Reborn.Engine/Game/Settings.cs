@@ -89,6 +89,17 @@ public sealed record Settings
     /// <summary>The largest.</summary>
     public const float LargestText = 1.6f;
 
+    /// <summary>
+    /// Whether the game opens on the port's own title screen rather than on the 1999 one.
+    /// </summary>
+    /// <remarks>
+    /// On by default, and worth nothing at all without the six pictures the screen is made
+    /// of: they travel in <c>Reborn.rebarn</c>, and a game that has not got them opens on
+    /// <c>TITLE.BMP</c> whatever this says. See <see cref="UI.TitleScene"/> and
+    /// <see cref="Content.MenuArt"/>.
+    /// </remarks>
+    public bool ModernMenu { get; init; } = true;
+
     /// <summary>Whether frames wait for the display.</summary>
     public bool VerticalSync { get; init; } = true;
 

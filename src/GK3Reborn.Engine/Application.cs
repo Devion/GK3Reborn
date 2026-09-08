@@ -479,13 +479,13 @@ public static class Application
         // that is not installed and a set that is switched off look identical in the room
         // and are fixed in completely different places.
         Log.Info(!settings.RebuiltTowns
-            ? "Scene dressing: switched off, so TR1 and RL1 are the towns the game shipped "
-              + "with" + (installedTowns == Content.DressedTowns.None
+            ? "Scene dressing: switched off, so TR1, RL1 and RC3 are as the game shipped "
+              + "them" + (installedTowns == Content.DressedTowns.None
                   ? string.Empty
                   : " — the geometry for them is installed and unused")
             : dressing == Content.DressedTowns.None
-            ? $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1 and RL1 "
-              + "are the towns the game shipped with"
+            ? $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1, RL1 "
+              + "and RC3 are as the game shipped them"
             : "Scene dressing: " + string.Join(
                 " and ",
                 new[]
@@ -493,6 +493,8 @@ public static class Application
                     dressing.HasFlag(Content.DressedTowns.Couiza) ? "Couiza" : null,
                     dressing.HasFlag(Content.DressedTowns.RennesLesBains)
                         ? "Rennes-les-Bains" : null,
+                    dressing.HasFlag(Content.DressedTowns.RennesLeChateau)
+                        ? "Rennes-le-Château's cemetery gateway" : null,
                 }.Where(name => name is not null))
               + ", from the installed geometry");
 
@@ -1558,10 +1560,47 @@ public static class Application
 
             front.Illustrated = title.Exists;
 
+            // The port's own title screen: six layers out of the pack, put on the device
+            // as the interface's own pictures and drawn into the menu's display list. It
+            // needs the whole set, so a game with no Reborn.rebarn gets null here and opens
+            // on the picture above -- which is why the row that switches between them is
+            // dead rather than absent when there is nothing to switch to.
+            Content.MenuArt menuArt = Content.MenuArt.Open(
+                packs,
+                packsOnly || enhancedDirectory is not { Length: > 0 }
+                    ? string.Empty
+                    : Beside(enhancedDirectory, "menu"),
+                overrides,
+                diagnostics);
+
+            UI.TitleScene? modern = settings.ModernMenu
+                ? UI.TitleScene.Build(menuArt, renderer.AddOverlayPicture)
+                : null;
+
+            front.ModernMenuAvailable = menuArt.Complete;
+
+            // The port's own screen carries the game's name in its own lettering, so the
+            // page must not write it out as well -- the same reason TITLE.BMP suppresses it.
+            front.Illustrated = title.Exists || modern is not null;
+
+            Log.Info(menuArt.Complete
+                ? modern is not null
+                    ? $"Title screen: the port's own, {menuArt.Count} layers from {menuArt.From}"
+                    : "Title screen: the port's own is available and switched off, so the "
+                        + $"original is drawn ({menuArt.From})"
+                : menuArt.Count > 0
+                    ? $"Title screen: the original; {string.Join(", ", menuArt.Missing)} "
+                        + $"missing from {menuArt.From}"
+                    : "Title screen: the original; the port's own layers are not installed");
+
             // Behind the loading screen from here on, and behind the menu after it. The
             // wait between pressing New Game and the first room is the longest one in the
             // game, and a bar over the title art reads as the game starting where a bar
             // over black reads as the game having gone away.
+            //
+            // Still the 1999 picture even when the modern screen is up: the modern one is
+            // drawn by the menu, and the menu is not running yet. What the bar is over is
+            // whichever of them the game has.
             title.Show(renderer);
             loading.At(0.97);
 
@@ -1643,10 +1682,13 @@ public static class Application
                     pages,
                     front,
                     Apply,
-                    title.Exists ? MenuBehind.Picture : MenuBehind.Nothing,
+                    modern is not null
+                        ? MenuBehind.Modern
+                        : title.Exists ? MenuBehind.Picture : MenuBehind.Nothing,
                     () => Cut(menu: true),
                     frameLimit,
-                    screenshotPath);
+                    screenshotPath,
+                    modern);
 
                 if (asked == FrontEndOutcome.Intro)
                 {
@@ -1663,6 +1705,17 @@ public static class Application
             // over, and the alternative is the longest wait in the game spent looking at
             // black. See UI.LoadingScreen.
             audio?.Silence(theme);
+
+            // The title screen's layers, on the other hand, are done with: eleven megabytes
+            // of the interface's picture list, and the interface is about to become the
+            // verb bar. They are not read again -- the pause menu is drawn over the room.
+            if (modern is not null)
+            {
+                foreach (string layer in Content.MenuArt.Layers)
+                {
+                    renderer.DropOverlayPicture(UI.TitleScene.Named(layer));
+                }
+            }
 
             // Restoring from the title screen. The save says where the player was, and that
             // is the first room rather than the one the command line asked for. This used to
@@ -6305,6 +6358,10 @@ public static class Application
     /// <param name="cut">Cuts a fresh sheet of letters when the window changes size.</param>
     /// <param name="frames">Leave after this many frames, or zero to wait for the player.</param>
     /// <param name="photograph">Where to write the last frame, if anywhere.</param>
+    /// <param name="scene">
+    /// The port's own title screen, drawn under the page, or null when the menu is over the
+    /// 1999 picture or over the room.
+    /// </param>
     /// <returns>What the player asked for.</returns>
     private static FrontEndOutcome ShowMenu(
         Platform.SilkGameWindow window,
@@ -6315,7 +6372,8 @@ public static class Application
         MenuBehind behind,
         Func<OverlayAtlas?> cut,
         int frames = 0,
-        string? photograph = null)
+        string? photograph = null,
+        UI.TitleScene? scene = null)
     {
         FrontEndPage showing = front.Page;
         int laidOutFor = window.FramebufferHeight;
@@ -6328,6 +6386,10 @@ public static class Application
         renderer.Fade = 0f;
 
         pages.Behind = behind;
+
+        // Into the page's own display list rather than behind it, so that the statue and
+        // the rows over it are one frame. Null on every other menu there is.
+        pages.Backdrop = scene is null ? null : scene.Draw;
 
         Place(pages, front, behind);
         pages.Reset(front.Items);
@@ -6353,6 +6415,11 @@ public static class Application
             double now = elapsed.Elapsed.TotalSeconds;
             float seconds = (float)Math.Clamp(now - previous, 0, 0.1);
             previous = now;
+
+            // The one thing on this screen that is not waiting for the player. Advanced
+            // here rather than inside Draw, because Draw is called once a frame by the page
+            // and would be called twice by anything that laid the page out to measure it.
+            scene?.Advance(seconds);
 
             // What the picture pages need to be able to say, refreshed every frame because
             // every one of them can change while they are on screen: the window is
@@ -6447,14 +6514,33 @@ public static class Application
                 pages.Move(items, 1);
             }
 
+            // On a line of buttons across the window, left and right are what moves along
+            // it. Everywhere else they step the value of the row the player is on, and a
+            // key that walked the list on one page and changed the volume on another is a
+            // key nobody can use -- which is why this asks the page how it is laid out
+            // rather than which page it is.
             if (window.WasPressed(Platform.EditKey.Left))
             {
-                action = pages.Chose(items, -1);
+                if (pages.Horizontal)
+                {
+                    pages.Move(items, -1);
+                }
+                else
+                {
+                    action = pages.Chose(items, -1);
+                }
             }
 
             if (window.WasPressed(Platform.EditKey.Right))
             {
-                action = pages.Chose(items, 1);
+                if (pages.Horizontal)
+                {
+                    pages.Move(items, 1);
+                }
+                else
+                {
+                    action = pages.Chose(items, 1);
+                }
             }
 
             if (window.WasPressed(Platform.EditKey.Enter))
@@ -6619,7 +6705,22 @@ public static class Application
     /// <param name="behind">What is behind it.</param>
     private static void Place(MenuPage pages, FrontEnd front, MenuBehind behind)
     {
-        bool overArt = behind == MenuBehind.Picture && front.Page == FrontEndPage.Main;
+        // The port's own screen, on its first page: one line of buttons in the black under
+        // the wall, and the statue standing behind them. Every other page of it is an
+        // ordinary panel drawn over the same picture.
+        pages.Horizontal =
+            behind == MenuBehind.Modern && front.Page == FrontEndPage.Main;
+
+        if (pages.Horizontal)
+        {
+            pages.Down = 0.905f;
+            pages.Across = 0.5f;
+
+            return;
+        }
+
+        bool overArt = behind is MenuBehind.Picture or MenuBehind.Modern &&
+            front.Page == FrontEndPage.Main;
 
         pages.Down = overArt ? 0.72f : 0.5f;
         pages.Across = overArt ? 0.17f : 0.5f;
@@ -7598,7 +7699,7 @@ public static class Application
                     Log.Error($"--kinds: {one} names no kind of content.");
                     Log.Error(
                         "The kinds are textures, normals, orm, height, emissive, models, "
-                        + "scene-geometry, video, manifests and raw.");
+                        + "scene-geometry, video, menu, manifests and raw.");
 
                     return 2;
                 }

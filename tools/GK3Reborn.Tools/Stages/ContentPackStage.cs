@@ -96,6 +96,17 @@ public sealed class ContentPackStage
         // grown into. The foliage cards go through the encoder like any other colour
         // texture, which is what lets the scene loader find them by name without knowing
         // they belong to a tree; the geometry and the manifest are packed as they stand.
+        // The title screen's own layers, as the PNGs they were painted as. Not through the
+        // encoder: they are drawn one texel to one pixel over a black screen, three of them
+        // are large flat gradients, and BC7 puts its blocks exactly where a gradient shows
+        // them. A kind of its own rather than a texture, because these names -- ANGEL, SA,
+        // PENTA -- are short enough to collide with the game's own, and a pack key is the
+        // kind and the name. See docs/main-menu.md.
+        //
+        // Their presence is what decides which menu the game opens with: all six, or the
+        // 1999 TITLE.BMP and the rows over it. See UI.TitleScene.
+        new(RebarnKind.Menu, "enhanced/menu", null, false, 0, "Reborn", "*.png"),
+
         new(RebarnKind.Model, "enhanced/trees", null, false, 0, "Reborn", "*.glb"),
         new(RebarnKind.Manifest, "enhanced/trees", null, false, 0, "Reborn", "*.json"),
         new(RebarnKind.Texture, "enhanced/trees", "BC7_UNORM_SRGB", true, 0, "Reborn"),
