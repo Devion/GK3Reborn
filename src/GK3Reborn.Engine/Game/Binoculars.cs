@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -46,6 +46,34 @@ public sealed record Sight(
     public bool Holds(float heading, float pitch) =>
         heading >= From.X && heading <= To.X && pitch >= From.Y && pitch <= To.Y;
 }
+
+/// <summary>
+/// A look through the binoculars at somewhere else, while it lasts.
+/// </summary>
+/// <param name="From">The room the player is standing in, which they never leave.</param>
+/// <param name="Sight">What they are looking at, and the camera it is looked at through.</param>
+/// <param name="Standing">Where in that room they are standing, so that they still are.</param>
+/// <param name="Facing">Which way they are facing there.</param>
+/// <param name="Eye">Where the view was before they leaned in.</param>
+/// <param name="Look">Which way it was pointed.</param>
+/// <remarks>
+/// <para>
+/// <b>Leaning in is not going there.</b> <c>BINOCS.TXT</c> says so in its own header —
+/// "zooming the binocs into another scene doesn't process that new scene's sif file" — and
+/// the game's data is written against it: <c>CD1102P.SIF</c>, which is Blanchefort's tower,
+/// carries Madeleine Buthane and a camera position at Coume Sourde, five kilometres away,
+/// because the tower is where the player still is while they look at her.
+/// </para>
+/// <para>
+/// This is what the port had wrong, and it was reported: leaning in <em>moved</em> the
+/// player. Looking at L'Homme Mort from the tower put Gabriel at L'Homme Mort, where his
+/// moped was not, and there was no way to leave — the room's own exit asks whether the
+/// moped is parked there and it was parked at Blanchefort. What the player wanted, and what
+/// the original gives, is a closer look and then the tower back.
+/// </para>
+/// </remarks>
+public sealed record BinocularView(
+    string From, Sight Sight, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look);
 
 /// <summary>Somewhere a voice-over plays when the binoculars settle on it.</summary>
 /// <param name="From">Lower corner, in degrees.</param>

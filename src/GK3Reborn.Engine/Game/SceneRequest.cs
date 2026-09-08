@@ -55,6 +55,18 @@ public sealed class SceneRequest
     public SceneConditions? Conditions { get; }
 
     /// <summary>
+    /// Whether building this room is the player arriving in it.
+    /// </summary>
+    /// <remarks>
+    /// True for every ordinary room. False for the two rooms the binoculars build: the one
+    /// being looked at, which the player is only looking at, and the one they were standing
+    /// in all along, which they never left. Both are rooms the engine puts up and neither is
+    /// somewhere anybody went, so neither counts as a visit, runs an entry script or is
+    /// worth an autosave. See <see cref="BinocularView"/>.
+    /// </remarks>
+    public bool Counts { get; private init; } = true;
+
+    /// <summary>
     /// The script host the conditions are decided through, when there is a state.
     /// </summary>
     /// <remarks>
@@ -116,6 +128,46 @@ public sealed class SceneRequest
         state.CameraBoundaries = true;
 
         return new SceneRequest(name, null, state, api);
+    }
+
+    /// <summary>
+    /// A request for somewhere the player is looking at through the binoculars.
+    /// </summary>
+    /// <param name="api">The host the story has been running against.</param>
+    /// <param name="scene">The room being looked at.</param>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// <see cref="Continuing"/> without the two lines that move anybody. The story's idea of
+    /// where the player is has to go on being the room they are standing in, because every
+    /// question the room being looked at might ask about them — and every question the room
+    /// they are standing in asks while they look — is about somebody at the vantage point.
+    /// </remarks>
+    public static SceneRequest Peeking(Gk3SheepApi api, string scene)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        ArgumentNullException.ThrowIfNull(scene);
+
+        return new SceneRequest(scene.ToUpperInvariant(), null, api.State, api) { Counts = false };
+    }
+
+    /// <summary>
+    /// A request for the room a look through the binoculars is going back to.
+    /// </summary>
+    /// <param name="api">The host the story has been running against.</param>
+    /// <param name="scene">The room, which is the one the player never left.</param>
+    /// <returns>The request.</returns>
+    /// <remarks>
+    /// <see cref="Continuing"/>, minus the arrival. Its two moves are idempotent here —
+    /// the story already says the player is in this room — so what is left to say is that
+    /// putting the room back is not walking into it: the tower's entry script does not run
+    /// a second time because somebody lowered a pair of binoculars.
+    /// </remarks>
+    public static SceneRequest Resuming(Gk3SheepApi api, string scene)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        ArgumentNullException.ThrowIfNull(scene);
+
+        return new SceneRequest(scene.ToUpperInvariant(), null, api.State, api) { Counts = false };
     }
 
     /// <summary>Reads a timeblock argument.</summary>

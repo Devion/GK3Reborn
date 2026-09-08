@@ -1,4 +1,4 @@
-namespace GK3Reborn.Game.Story;
+﻿namespace GK3Reborn.Game.Story;
 
 /// <summary>What a timeblock's rules decided: the point in the story to move to.</summary>
 /// <param name="Next">The timeblock that starts.</param>
@@ -90,6 +90,38 @@ public static class TimeblockRules
         "207A", "210A", "212P", "202P", "205P", "202A",
         "307A", "310A", "312P", "303P", "306P",
     ];
+
+    /// <summary>
+    /// Where a point in the story comes in it.
+    /// </summary>
+    /// <param name="timeblock">The point in the story.</param>
+    /// <returns>Its place in <see cref="Known"/>, and the end of the story past that.</returns>
+    /// <remarks>
+    /// <para>
+    /// Story order and not clock order, which are not the same thing: Day 2 begins at seven
+    /// in the morning and ends at two the next, so <c>202A</c> comes after <c>205P</c> and
+    /// a comparison of hours would put it first. Anything asking "has the story got as far
+    /// as ..." has to ask this rather than compare timeblocks.
+    /// </para>
+    /// <para>
+    /// <c>309P</c> is the seventeenth and is not in the list — nothing follows it, so it has
+    /// no rule — and answers with the end of the story, which is after everything.
+    /// </para>
+    /// </remarks>
+    public static int Order(Timeblock timeblock)
+    {
+        string code = timeblock.ToString();
+
+        for (int i = 0; i < Known.Count; i++)
+        {
+            if (string.Equals(Known[i], code, StringComparison.OrdinalIgnoreCase))
+            {
+                return i;
+            }
+        }
+
+        return Known.Count;
+    }
 
     // ---------------------------------------------------------------------------------
     // Day 1.

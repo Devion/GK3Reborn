@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -8,26 +8,73 @@ using GK3Reborn.Formats.Rebarn;
 
 namespace GK3Reborn.Content;
 
+/// <summary>Which towns the dressing has geometry for.</summary>
+/// <remarks>
+/// One flag per town rather than one switch for all of them, because the two are packed,
+/// installed and rebuilt separately: a workspace half way through a rebuild of Couiza
+/// still has Rennes-les-Bains, and taking neither because one is missing would empty a
+/// room that has everything it needs.
+/// </remarks>
+[Flags]
+public enum DressedTowns
+{
+    /// <summary>Nothing installed: every room is the room the game shipped.</summary>
+    None = 0,
+
+    /// <summary>TR1, which GK3 called Couiza and modelled eleven boxes of.</summary>
+    Couiza = 1 << 0,
+
+    /// <summary>RL1, which has eight buildings on one street and grass beyond them.</summary>
+    RennesLesBains = 1 << 1,
+}
+
 public static class SceneDressing
 {
     /// <summary>
-    /// A model the set cannot be installed without.
+    /// A model each town cannot be installed without.
     /// </summary>
     /// <remarks>
-    /// The first terrace, and it stands for the rest. A finer check — every name in the
-    /// table — would be answering a question nobody asked: the set is built, packed and
-    /// installed as one thing, so a workspace holding half of it is a workspace somebody
+    /// One piece of each set, standing for the rest. A finer check — every name in the
+    /// table — would be answering a question nobody asked: a set is built, packed and
+    /// installed as one thing, so a workspace holding half of one is a workspace somebody
     /// is in the middle of rebuilding, and the per-model diagnostic already covers that
     /// case exactly.
     /// </remarks>
+    private static readonly (DressedTowns Town, string Model)[] Sentinels =
+    [
+        (DressedTowns.Couiza, "RBN_CZ_ROW_A"),
+        (DressedTowns.RennesLesBains, "RBN_RB_ROW_A"),
+    ];
+
+    /// <summary>Couiza's sentinel, for the message that says why a room is empty.</summary>
     public const string Sentinel = "RBN_CZ_ROW_A";
 
-    /// <summary>Whether the geometry the dressing places is installed.</summary>
+    /// <summary>Which towns' geometry is installed.</summary>
     /// <param name="modelsDirectory">
     /// The loose <c>enhanced/models</c> directory, or empty when there is none.
     /// </param>
     /// <param name="packs">The ReBarn packs beside the executable, or null for none.</param>
-    /// <returns>True when the set is there and the table should be applied.</returns>
+    /// <returns>The towns whose sets are there and whose sections should be applied.</returns>
+    public static DressedTowns Installed(string modelsDirectory, RebarnContent? packs)
+    {
+        ModelLibrary library = ModelLibrary.Open(modelsDirectory ?? string.Empty, packs);
+        DressedTowns found = DressedTowns.None;
+
+        foreach ((DressedTowns town, string model) in Sentinels)
+        {
+            if (library.Has(model))
+            {
+                found |= town;
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Whether any town's geometry is installed.</summary>
+    /// <param name="modelsDirectory">Where the loose models are, or empty.</param>
+    /// <param name="packs">The packs, or null.</param>
+    /// <returns>True when there is anything to place.</returns>
     public static bool Available(string modelsDirectory, RebarnContent? packs) =>
-        ModelLibrary.Open(modelsDirectory ?? string.Empty, packs).Has(Sentinel);
+        Installed(modelsDirectory, packs) != DressedTowns.None;
 }

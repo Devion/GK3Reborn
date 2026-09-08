@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using Xunit;
@@ -118,6 +118,63 @@ public sealed class BinocularsTests
         Assert.Equal(0, Binoculars.Empty.Count);
         Assert.False(Binoculars.Empty.For("CD1", "102P").Any);
     }
+
+    /// <summary>
+    /// Leaning in on somewhere leaves the player where they were standing.
+    /// </summary>
+    /// <remarks>
+    /// The reported fault, at its root. Looking at L'Homme Mort from the tower at
+    /// Blanchefort moved Gabriel to L'Homme Mort, where the moped he arrived on was not,
+    /// and the room's own exit asks whether it is parked there — so there was no way out
+    /// of the game from the moment the binoculars came down.
+    /// </remarks>
+    [Fact]
+    public void Looking_at_somewhere_else_is_not_going_there()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "CD1" };
+
+        story.SetActorLocation(story.Ego, "CD1");
+
+        var api = new Gk3SheepApi(story);
+
+        SceneRequest looking = SceneRequest.Peeking(api, "LHM");
+
+        Assert.Equal("LHM", looking.Scene);
+        Assert.False(looking.Counts);
+        Assert.Equal("CD1", story.Location);
+        Assert.Equal("CD1", story.GetActorLocation(story.Ego));
+    }
+
+    /// <summary>And putting them down is not arriving anywhere either.</summary>
+    [Fact]
+    public void Lowering_them_again_is_not_an_arrival()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "CD1" };
+        var api = new Gk3SheepApi(story);
+
+        SceneRequest back = SceneRequest.Resuming(api, "CD1");
+
+        Assert.False(back.Counts);
+        Assert.Equal("CD1", story.Location);
+    }
+
+    /// <summary>Walking through a door still is.</summary>
+    [Fact]
+    public void Walking_into_a_room_is_still_an_arrival()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "CD1" };
+        var api = new Gk3SheepApi(story);
+
+        SceneRequest walked = SceneRequest.Continuing(api, "CDB");
+
+        Assert.True(walked.Counts);
+        Assert.Equal("CDB", story.Location);
+        Assert.Equal("CD1", story.LastLocation);
+    }
+
+    /// <summary>A point in the story, by its code.</summary>
+    private static Timeblock Block(string code) =>
+        Timeblock.TryParse(code, out Timeblock parsed) ? parsed : default;
 }
 
 /// <summary>

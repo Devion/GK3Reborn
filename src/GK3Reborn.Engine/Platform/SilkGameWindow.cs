@@ -397,6 +397,20 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <inheritdoc/>
     public bool WasClicked(PointerButton button) => _clicked.Contains(button);
 
+    /// <summary>
+    /// Presses a pointer button for the frame that has just begun, as if a mouse had.
+    /// </summary>
+    /// <param name="button">Which button.</param>
+    /// <remarks>
+    /// For a run with no mouse. Half the game's interface is reached by clicking something
+    /// the interface itself drew — a place on the driving map, a sight through the
+    /// binoculars, a verb on a close-up — and none of it could be photographed or checked
+    /// without a person at the machine. Cleared by the next <see cref="PumpEvents"/> along
+    /// with every real press, so nothing downstream can tell the difference, which is the
+    /// point.
+    /// </remarks>
+    public void Press(PointerButton button) => _clicked.Add(button);
+
     /// <inheritdoc />
     public bool WasDoubleClicked(PointerButton button) => _doubleClicked.Contains(button);
 

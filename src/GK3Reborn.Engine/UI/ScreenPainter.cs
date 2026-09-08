@@ -66,6 +66,10 @@ namespace GK3Reborn.UI;
 /// name plates on its desktop. Null where none have been loaded, and any one of them may
 /// answer with nothing, so a screen that wants one has to be able to do without it.
 /// </param>
+/// <param name="Traffic">
+/// Who else is out on the roads, and whether one of them is being chased. Live state like
+/// the hose: everyone on it moves every frame.
+/// </param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -85,7 +89,8 @@ public readonly record struct ScreenView(
     Func<string, ItemIcon>? CloseUps = null,
     Func<string, bool, ItemIcon>? VerbIcons = null,
     Func<string, ItemIcon>? Artwork = null,
-    Game.WaterAiming? Water = null);
+    Game.WaterAiming? Water = null,
+    Game.DrivingTraffic? Traffic = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -365,7 +370,11 @@ public sealed class ScreenPainter
         ScreenKind.InventoryInspect => Owned(view.Screen.Subject ?? view.Held ?? "ITEM"),
         ScreenKind.Binoculars => Text.Say("screen.binoculars", "BINOCULARS"),
         ScreenKind.Water => Text.Say("screen.hose", "THE HOSE"),
-        ScreenKind.Driving => Text.Say("screen.driving", "WHERE TO?"),
+        // "Where to?" is the wrong question while somebody is being followed: the ride is
+        // not the player's to steer, and the answer is whichever road the quarry takes.
+        ScreenKind.Driving => view.Traffic is { Chase: { } chased }
+            ? Text.Say("driving.chase", "Following") + " " + Owned(chased.Noun)
+            : Text.Say("screen.driving", "WHERE TO?"),
         ScreenKind.Fingerprint => Text.Say("screen.fingerprints", "FINGERPRINT KIT"),
 
         // Sidney is the machine's own name and every release keeps it.
@@ -1219,6 +1228,28 @@ public sealed class ScreenPainter
         Overlay.Rect(centreX, centreY - arm, 1, arm * 2, Reticle);
 
         Panorama? panorama = view.Panorama;
+
+        // Leaning in on something. The view belongs to the game's own data rather than to
+        // the player — they cannot pan it and there is nothing else in it to find — so the
+        // panorama's crosshair, its readout and its list of sights are all beside the point,
+        // and the only thing on screen is what is being looked at and the way back.
+        if (view.Screen.Subject is { Length: > 0 } zoomed &&
+            zoomed.StartsWith(Screen.Zoomed, StringComparison.Ordinal))
+        {
+            string at = Landmark(view, zoomed.Split(':') is [_, string place] ? place : string.Empty);
+
+            if (at.Length > 0)
+            {
+                float wide = Overlay.Measure(at);
+
+                Overlay.Text(at, centreX - (wide / 2), centreY - (radius * 0.62f), Accent);
+            }
+
+            Corner(Text.Say("binoculars.back", "BACK"), "binocs:back", width, unit);
+
+            return;
+        }
+
         Sight? sighted = panorama?.At(view.Aim.X, view.Aim.Y);
 
         float readout = height - (46 * unit);
@@ -1231,13 +1262,19 @@ public sealed class ScreenPainter
             readout,
             Dim);
 
+        // Where the things worth looking at are, relative to where the player is pointing.
+        // The original left them to sweep the horizon until something happened, which was
+        // survivable in 1999 because the painted backdrop had a landmark at each of them;
+        // over reconstructed terrain there is nothing to aim at and the whole interface
+        // reads as random. Reported as exactly that.
+        //
+        // Under the eyepieces rather than inside them: the strip is instrumentation and the
+        // circles are the view, and a row of little words over a hillside is unreadable.
+        bool bearings = Bearings(
+            panorama, view, centreX, centreY + radius + (14 * unit), radius, unit);
+
         if (sighted is not null)
         {
-            string label = view.Map?.NameOf(
-                DrivingMap.All.FirstOrDefault(s => s.Scene == sighted.Scene) ??
-                new DrivingStop("dm_" + sighted.Scene.ToLowerInvariant(), sighted.Scene, 0, 0, false))
-                ?? sighted.Scene;
-
             string zoom = Text.Say("binoculars.closer", "LOOK CLOSER");
             float w = Overlay.Measure(zoom) + (24 * unit);
             var bounds = new Vector4(centreX - (w / 2), centreY + (radius * 0.55f), w, Overlay.LineHeight + (12 * unit));
@@ -1248,10 +1285,12 @@ public sealed class ScreenPainter
 
             _hits.Add(("zoom:" + sighted.Location, bounds));
 
+            string label = Landmark(view, sighted.Scene);
             float nameWidth = Overlay.Measure(label);
+
             Overlay.Text(label, centreX - (nameWidth / 2), centreY - (radius * 0.62f), Accent);
         }
-        else if (panorama is { Any: true })
+        else if (!bearings && panorama is { Any: true })
         {
             string hint = Text.Say(
                 "binoculars.hint", "Pan to find something worth a closer look.");
@@ -1261,14 +1300,153 @@ public sealed class ScreenPainter
         }
 
         // The way out, in the same corner it is on every other screen.
-        string close = Text.Say("binoculars.lower", "LOWER");
-        float closeWidth = Overlay.Measure(close) + (20 * unit);
-        var closeAt = new Vector4(
-            width - closeWidth - (20 * unit), (20 * unit), closeWidth, Overlay.LineHeight + (12 * unit));
+        Corner(Text.Say("binoculars.lower", "LOWER"), "close", width, unit);
+    }
 
-        Overlay.Rect(closeAt.X, closeAt.Y, closeAt.Z, closeAt.W, PanelLit);
-        Overlay.Text(close, closeAt.X + (10 * unit), closeAt.Y + (6 * unit), Ink);
-        _hits.Add(("close", closeAt));
+    /// <summary>A button in the corner every screen puts its way out in.</summary>
+    private void Corner(string word, string id, int width, float unit)
+    {
+        float wide = Overlay.Measure(word) + (20 * unit);
+        var at = new Vector4(
+            width - wide - (20 * unit), 20 * unit, wide, Overlay.LineHeight + (12 * unit));
+
+        Overlay.Rect(at.X, at.Y, at.Z, at.W, PanelLit);
+        Overlay.Text(word, at.X + (10 * unit), at.Y + (6 * unit), Ink);
+        _hits.Add((id, at));
+    }
+
+    /// <summary>
+    /// What a place the binoculars can see is called.
+    /// </summary>
+    /// <remarks>
+    /// The map's name for it first, because five of the six are places on the map and the
+    /// map's names are the ones the player will be looking for — "Orange Rock" rather than
+    /// <c>loc_pl3</c>'s "Parking Lot". The location table answers for the two that are not
+    /// on it: the Tour Magdala's lookout and Blanchefort's own ruins.
+    /// </remarks>
+    private string Landmark(ScreenView view, string scene)
+    {
+        if (scene.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        string code = scene.ToUpperInvariant();
+
+        if (DrivingMap.All.FirstOrDefault(s => s.Scene == code) is { } stop &&
+            view.Map?.NameOf(stop) is { Length: > 0 } named &&
+            !string.Equals(named, stop.Code, StringComparison.Ordinal))
+        {
+            return named;
+        }
+
+        return Names.Place(code) ?? code;
+    }
+
+    /// <summary>
+    /// A strip under the eyepieces showing which way the sights are.
+    /// </summary>
+    /// <param name="panorama">What can be seen from here.</param>
+    /// <param name="view">What is being drawn, for where the player is pointing.</param>
+    /// <param name="centre">The middle of the strip, in window pixels.</param>
+    /// <param name="baseline">Where it sits, in window pixels.</param>
+    /// <returns>Whether there was anything to point at.</returns>
+    /// <param name="radius">Half the height of an eyepiece, which the strip is sized from.</param>
+    /// <param name="unit">How much bigger than the letters everything else is.</param>
+    /// <remarks>
+    /// <para>
+    /// The sights are rectangles of sky in degrees and the camera's heading is in the same
+    /// degrees, so the strip is the difference between them: a tick where each sight is,
+    /// with its name, sliding as the player pans and turning gold as the crosshair reaches
+    /// it. A sight outside the strip's own span becomes an arrow at whichever end it lies
+    /// past, so that a player pointing at the wrong half of the valley is told which way to
+    /// turn rather than left to sweep.
+    /// </para>
+    /// <para>
+    /// It says where to look and never what is there: the name is the place's, which the
+    /// player would read anyway on centring it, and nothing about a sight is given away
+    /// before they have looked. See <c>Plan/03-gameplay-ui-audio.md</c> section 3.
+    /// </para>
+    /// </remarks>
+    private bool Bearings(
+        Panorama? panorama, ScreenView view, float centre, float baseline, float radius, float unit)
+    {
+        if (panorama is not { Sights.Count: > 0 })
+        {
+            return false;
+        }
+
+        // How much of the horizon the strip covers. Wide enough that most of a vantage
+        // point's sights are on it at once — the widest spread any of them has is 120
+        // degrees — and narrow enough that a tick means a turn of the head.
+        const float Span = 150f;
+
+        float half = radius * 0.92f;
+
+        Overlay.Rect(centre - half, baseline, half * 2, MathF.Max(1f, unit), Rule);
+
+        // Two rows of names, because the sights crowd: Coume Sourde and L'Homme Mort are
+        // eight degrees apart from Blanchefort and their names are not. How far along each
+        // row has been written to, so the second name goes on whichever row is free.
+        float[] filled = [float.MinValue, float.MinValue];
+
+        foreach (Sight sight in panorama.Sights.OrderBy(s => Wrapped(s.Middle.X - view.Aim.X)))
+        {
+            float away = Wrapped(sight.Middle.X - view.Aim.X);
+            bool lit = sight.Holds(view.Aim.X, view.Aim.Y);
+            float x = centre + (Math.Clamp(away, -Span / 2, Span / 2) / (Span / 2) * half);
+            bool beyond = MathF.Abs(away) > Span / 2;
+
+            Overlay.Rect(
+                x - MathF.Max(1f, unit),
+                baseline - (6 * unit),
+                MathF.Max(2f, 2 * unit),
+                12 * unit,
+                lit ? Accent : beyond ? Rule : Dim);
+
+            // Named only while it is on the strip. A tick at the end stands for however
+            // many sights are past it, and stacking their names there would be a list of
+            // places in no particular direction.
+            if (beyond)
+            {
+                continue;
+            }
+
+            string name = Landmark(view, sight.Scene);
+            float wide = Overlay.Measure(name);
+            float at = Math.Clamp(x - (wide / 2), centre - half, centre + half - wide);
+            int row = at >= filled[0] ? 0 : at >= filled[1] ? 1 : -1;
+
+            // Neither row free: the tick is still there and the crosshair still names what
+            // it finds, and two names written over each other say less than one.
+            if (row < 0)
+            {
+                continue;
+            }
+
+            filled[row] = at + wide + (10 * unit);
+
+            Overlay.Text(
+                name,
+                at,
+                baseline + (10 * unit) + (row * (Overlay.LineHeight + (2 * unit))),
+                lit ? Accent : Dim);
+        }
+
+        return true;
+    }
+
+    /// <summary>A difference between two headings, brought into plus or minus 180 degrees.</summary>
+    /// <remarks>
+    /// The file's headings run from 1 to 189 and the camera's from 0 to 360, so a sight at
+    /// 10 degrees and a camera at 350 are 20 degrees apart and not 340. Getting this wrong
+    /// puts every tick on the wrong side of the strip once the player turns past north.
+    /// </remarks>
+    private static float Wrapped(float degrees)
+    {
+        float turned = degrees % 360f;
+
+        return turned > 180f ? turned - 360f : turned < -180f ? turned + 360f : turned;
     }
 
     /// <summary>Half the width of a circle at a distance from its middle.</summary>
@@ -1345,7 +1523,9 @@ public sealed class ScreenPainter
         // Nested rather than clamped: a panel narrower than the smallest useful column
         // makes the floor larger than the ceiling, and the answer there is the ceiling and
         // then the test below, not an exception.
-        float listWidth = stops.Count == 0
+        bool chasing = view.Traffic is { Following: true };
+
+        float listWidth = chasing || stops.Count == 0
             ? 0
             : Math.Min(
                 Math.Max(
@@ -1366,6 +1546,16 @@ public sealed class ScreenPainter
         float left = body.X + ((body.Z - listWidth - mapWidth) / 2);
 
         Overlay.Picture(background, left, top, mapWidth, mapHeight, Vector4.One);
+
+        // A chase is watched, not steered. Nowhere on the map may be clicked while one is
+        // running — the player is on a road behind somebody, not choosing a destination —
+        // so the markers and the list are left off altogether rather than drawn dead.
+        if (chasing && view.Traffic is { } chase)
+        {
+            Chasing(view, chase, body, new Vector2(left, top), top + mapHeight, scale, unit);
+
+            return;
+        }
 
         // Which place the pointer is on, whether it found it on the map or in the list.
         // Decided before anything is named so that the marker and its row agree, and so
@@ -1425,11 +1615,188 @@ public sealed class ScreenPainter
             MarkerName(Named(view, chosen), pointed.Bounds, body, unit);
         }
 
+        // And whoever else is out on the roads, over the markers so that a van crossing
+        // one is still the thing the eye follows.
+        bool traffic = Traffic(view, body, new Vector2(left, top), scale, unit);
+
         Overlay.Text(
-            Text.Say("driving.hint", "Click a place to ride there."),
+            traffic
+                ? Text.Say("driving.following", "Click somebody on the road to follow them.")
+                : Text.Say("driving.hint", "Click a place to ride there."),
             body.X + (20 * unit),
             top + mapHeight + (10 * unit),
             Dim);
+    }
+
+    /// <summary>How wide a traveller's marker is, in the map's own pixels.</summary>
+    /// <remarks>
+    /// A face wants to be a face, so this is a good deal larger than the dot the retail
+    /// engine drew — but still small against a 640-pixel painting of a valley, and what
+    /// makes it readable is the ring round it rather than its size. See <see cref="Face"/>.
+    /// </remarks>
+    private const float DotWidth = 26f;
+
+    /// <summary>
+    /// Whoever else is on the roads, drawn where they have got to.
+    /// </summary>
+    /// <param name="view">What is being drawn.</param>
+    /// <param name="body">The panel, so that a name stays inside it.</param>
+    /// <param name="corner">Where the map picture's top-left corner is, in window pixels.</param>
+    /// <param name="scale">How many window pixels one of the map's own is.</param>
+    /// <param name="unit">How much bigger than the letters everything else is.</param>
+    /// <returns>Whether anybody was drawn.</returns>
+    /// <remarks>
+    /// A dot in their own colour, which is the retail engine's own way of drawing them and
+    /// the only way that works: the map is a painting of a valley and a moped at this size
+    /// is four pixels. Clicking one gives chase, which is what the port adds — see
+    /// <see cref="Game.DrivingTraffic"/>.
+    /// </remarks>
+    private bool Traffic(ScreenView view, Vector4 body, Vector2 corner, float scale, float unit)
+    {
+        if (view.Traffic is not { } traffic || traffic.Riders.Count == 0)
+        {
+            return false;
+        }
+
+        float wide = MathF.Max(16f, DotWidth * scale);
+        Game.DrivingTraffic.Rider? under = null;
+        Vector4 hovered = default;
+
+        foreach (Game.DrivingTraffic.Rider rider in traffic.Riders)
+        {
+            var dot = new Vector4(
+                corner.X + (rider.At.X * scale) - (wide / 2),
+                corner.Y + (rider.At.Y * scale) - (wide / 2),
+                wide,
+                wide);
+
+            Face(view, rider.Who, dot);
+
+            if (rider.Who.Follow <= 0)
+            {
+                continue;
+            }
+
+            // A little larger than the marker, because it is moving while it is being
+            // aimed at.
+            var reach = new Vector4(
+                dot.X - (4 * unit), dot.Y - (4 * unit), dot.Z + (8 * unit), dot.W + (8 * unit));
+
+            _hits.Add((
+                string.Create(CultureInfo.InvariantCulture, $"follow:{rider.Who.Follow}"), reach));
+
+            if (Inside(_pointer, reach))
+            {
+                under = rider;
+                hovered = reach;
+            }
+        }
+
+        if (under is not null)
+        {
+            Ring(hovered, unit);
+            MarkerName(Owned(under.Who.Noun), hovered, body, unit);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// A traveller on the map: their own face, ringed in their own colour.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The portrait is Sidney's, which is the picture the player has been reading their
+    /// name under, so the marker says who rather than merely that somebody is there. The
+    /// ring is the retail engine's colour for them and does the work at a glance — two
+    /// faces at map size are two faces, and two colours are two people.
+    /// </para>
+    /// <para>
+    /// The portraits are enhanced content. An installation without them draws the ring
+    /// filled, which is exactly the coloured square the original drew.
+    /// </para>
+    /// </remarks>
+    /// <summary>
+    /// The part of a suspect's portrait that is their head.
+    /// </summary>
+    /// <remarks>
+    /// The portraits are head-and-shoulders on a flat grey, framed for a panel on Sidney's
+    /// screen where there is room for the whole of somebody. A marker on the map is twenty-
+    /// odd pixels across, and at that size a shoulder is half the picture and the face is a
+    /// smudge — so the map takes the square the head is in. The tool frames all ten of them
+    /// the same way, which is what makes one rectangle enough.
+    /// </remarks>
+    private static readonly Vector4 Head = new(0.25f, 0.05f, 0.54f, 0.54f);
+
+    private void Face(ScreenView view, Traveller who, Vector4 marker)
+    {
+        float edge = MathF.Max(1.5f, marker.Z / 9f);
+        int portrait = who.Portrait.Length > 0 ? view.Pictures?.Invoke(who.Portrait) ?? 0 : 0;
+
+        Overlay.Rect(
+            marker.X - edge, marker.Y - edge, marker.Z + (edge * 2), marker.W + (edge * 2), who.Colour);
+
+        if (portrait > 0)
+        {
+            Overlay.Picture(portrait, marker.X, marker.Y, marker.Z, marker.W, Vector4.One, Head);
+
+            return;
+        }
+
+        Overlay.Rect(marker.X, marker.Y, marker.Z, marker.W, who.Colour);
+    }
+
+    /// <summary>
+    /// The map while somebody is being chased.
+    /// </summary>
+    /// <remarks>
+    /// The two of them on the road, and a way to stop watching. Nothing else: the places
+    /// are not offered because the ride is not the player's to steer, and a marker that
+    /// cannot be clicked is worse than no marker.
+    /// </remarks>
+    private void Chasing(
+        ScreenView view,
+        Game.DrivingTraffic traffic,
+        Vector4 body,
+        Vector2 corner,
+        float under,
+        float scale,
+        float unit)
+    {
+        float wide = MathF.Max(16f, DotWidth * scale);
+
+        foreach (Game.DrivingTraffic.Rider rider in traffic.Riders)
+        {
+            Face(
+                view,
+                rider.Who,
+                new Vector4(
+                    corner.X + (rider.At.X * scale) - (wide / 2),
+                    corner.Y + (rider.At.Y * scale) - (wide / 2),
+                    wide,
+                    wide));
+        }
+
+        // Where the map's own hint is when there is no chase. What is being watched is
+        // said by the screen's title, which every screen has; this is the way to stop
+        // watching it, and the panel's own way out gives up on the chase instead.
+        Overlay.Text(
+            Text.Say("driving.watching", "Watching them go. Skip to arrive."),
+            body.X + (20 * unit),
+            under + (10 * unit),
+            Dim);
+
+        string skip = Text.Say("driving.skip", "SKIP");
+        float skipWidth = Overlay.Measure(skip) + (20 * unit);
+        var skipAt = new Vector4(
+            body.X + body.Z - skipWidth - (20 * unit),
+            body.Y + body.W - Overlay.LineHeight - (24 * unit),
+            skipWidth,
+            Overlay.LineHeight + (12 * unit));
+
+        Overlay.Rect(skipAt.X, skipAt.Y, skipAt.Z, skipAt.W, PanelLit);
+        Overlay.Text(skip, skipAt.X + (10 * unit), skipAt.Y + (6 * unit), Ink);
+        _hits.Add(("follow:skip", skipAt));
     }
 
     /// <summary>What a place is called, falling back to its code.</summary>

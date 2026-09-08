@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -25,11 +25,22 @@ public sealed record DrivingStop(string Sprite, string Scene, int X, int Y, bool
     public string Code => Sprite.Length > 3 ? Sprite[3..].ToUpperInvariant() : Sprite.ToUpperInvariant();
 }
 
+/// <summary>One road out of a junction.</summary>
+/// <param name="To">The junction at the other end.</param>
+/// <param name="Segment">The stretch of road between them, which the file draws as points.</param>
+/// <param name="Forward">
+/// Whether the segment's points run from this junction to the other one. The file names
+/// each stretch once and both ends refer to it, so one of them reads it backwards:
+/// <c>Mop</c> lists <c>Mop_In2 TRUE</c> and <c>In2</c> lists the same stretch
+/// <c>FALSE</c>.
+/// </param>
+public sealed record DrivingLink(string To, string Segment, bool Forward);
+
 /// <summary>A junction of the road network, where the moped can turn.</summary>
 /// <param name="Name">What the road data calls it.</param>
 /// <param name="At">Where it is on the map.</param>
-/// <param name="Links">The junctions it joins to.</param>
-public sealed record DrivingNode(string Name, Vector2 At, IReadOnlyList<string> Links);
+/// <param name="Links">The roads out of it.</param>
+public sealed record DrivingNode(string Name, Vector2 At, IReadOnlyList<DrivingLink> Links);
 
 /// <summary>
 /// The map the moped is ridden around.
@@ -132,11 +143,23 @@ public sealed class DrivingMap
     ];
 
     private readonly Dictionary<string, string> _names;
+    private readonly Dictionary<string, DrivingNode> _junctions;
 
-    private DrivingMap(Dictionary<string, string> names, IReadOnlyList<DrivingNode> roads)
+    private DrivingMap(
+        Dictionary<string, string> names,
+        IReadOnlyList<DrivingNode> roads,
+        IReadOnlyDictionary<string, IReadOnlyList<Vector2>> segments)
     {
         _names = names;
         Roads = roads;
+        Segments = segments;
+
+        _junctions = new Dictionary<string, DrivingNode>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (DrivingNode node in roads)
+        {
+            _junctions[node.Name] = node;
+        }
     }
 
     /// <summary>Every place, in the order the map draws them.</summary>
@@ -145,6 +168,22 @@ public sealed class DrivingMap
     /// <summary>The junctions of the road network.</summary>
     public IReadOnlyList<DrivingNode> Roads { get; }
 
+    /// <summary>
+    /// The stretches of road between junctions, as the points they bend at.
+    /// </summary>
+    /// <remarks>
+    /// In the map's own 640-by-480 pixels, and in the direction the segment's name reads:
+    /// <c>Mop_In2</c> runs from the village to the junction below it. A link says which way
+    /// round to take them.
+    /// </remarks>
+    public IReadOnlyDictionary<string, IReadOnlyList<Vector2>> Segments { get; }
+
+    /// <summary>One junction, by the name the road data gives it.</summary>
+    /// <param name="name">The junction's name, such as <c>Plo</c>.</param>
+    /// <returns>The junction, or null when the road data has none by that name.</returns>
+    public DrivingNode? Junction(string? name) =>
+        name is { Length: > 0 } && _junctions.TryGetValue(name, out DrivingNode? node) ? node : null;
+
     /// <summary>Reads what the archives say about the map.</summary>
     /// <param name="archives">The game's data.</param>
     /// <returns>The map.</returns>
@@ -152,11 +191,19 @@ public sealed class DrivingMap
     {
         ArgumentNullException.ThrowIfNull(archives);
 
-        return new DrivingMap(Names(archives), ReadRoads(archives.ReadText("PATHDATA.TXT")));
+        string? roads = archives.ReadText("PATHDATA.TXT");
+
+        return new DrivingMap(Names(archives), ReadRoads(roads), ReadSegments(roads));
     }
 
+    /// <summary>Reads the road network on its own, for tests.</summary>
+    /// <param name="pathData">The contents of <c>PATHDATA.TXT</c>.</param>
+    /// <returns>A map with roads and no names.</returns>
+    public static DrivingMap Roading(string? pathData) =>
+        new([], ReadRoads(pathData), ReadSegments(pathData));
+
     /// <summary>An empty map, for a run with no game data.</summary>
-    public static DrivingMap Empty { get; } = new([], []);
+    public static DrivingMap Empty { get; } = new([], [], new Dictionary<string, IReadOnlyList<Vector2>>());
 
     /// <summary>What a place is called, in the player's language.</summary>
     /// <param name="stop">The place.</param>
@@ -195,7 +242,8 @@ public sealed class DrivingMap
 
             if (stop.Known ||
                 story.GetFlag(FlagFor(stop)) ||
-                story.WasEverInLocation(story.Ego, stop.Scene))
+                story.WasEverInLocation(story.Ego, stop.Scene) ||
+                Found(story, stop))
             {
                 open.Add(stop);
             }
@@ -203,6 +251,62 @@ public sealed class DrivingMap
 
         return open;
     }
+
+    /// <summary>The verb the game writes on somebody worth following.</summary>
+    /// <remarks>
+    /// Its count is how the story remembers a chase: the room's own action sets it to one
+    /// when the player gives chase, and the map counts it again when the chase arrives.
+    /// Two, therefore, means "followed them all the way", which is what puts their
+    /// destination on the map for good.
+    /// </remarks>
+    public const string Follow = "FOLLOW";
+
+    /// <summary>
+    /// Whether the story itself has put a place on the map, without the player going there.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The retail driving layer decides this every time the map opens, from the point in
+    /// the story and from three chases the player may have finished. The table is recovered
+    /// from there. Without it, three of the sixteen places have no way onto the map at all:
+    /// L'Ermitage is behind following Wilkes, and Coume Sourde and L'Homme Mort are behind
+    /// following Madeleine, and the port had no chase to finish.
+    /// </para>
+    /// <para>
+    /// <b>It only ever adds.</b> The original also takes places back off the map — the two
+    /// arms of the hexagram are hidden again outside the block they matter in — and this
+    /// does not, because the port already shows anywhere the player has been and a place
+    /// that vanishes from a map the player has used is worse than one that lingers.
+    /// </para>
+    /// </remarks>
+    private static bool Found(GameState story, DrivingStop stop)
+    {
+        int now = Story.TimeblockRules.Order(story.Timeblock);
+
+        return stop.Sprite switch
+        {
+            // L'Ermitage, at the end of Wilkes's ride out of Blanchefort.
+            "dm_ler" => now >= Order("104P") ||
+                        story.GetNounVerbCount("WILKES", Follow) > 1,
+
+            // Coume Sourde and L'Homme Mort, at the end of Madeleine's.
+            "dm_csd" or "dm_lhm" => now >= Order("104P") ||
+                                    story.GetNounVerbCount("BUTHANE", Follow) > 1,
+
+            // Where Lady Howard and Estelle dig, at the end of theirs.
+            "dm_wod" => now >= Order("307A") ||
+                        story.GetNounVerbCount("LADY_HOWARD", Follow) > 1,
+
+            "dm_arm" or "dm_pou" or "dm_cse" => now >= Order("202P"),
+            "dm_bec" or "dm_mcb" or "dm_tre" => now >= Order("312P"),
+            "dm_bmb" => now >= Order("303P"),
+            _ => false,
+        };
+    }
+
+    /// <summary>Where a timeblock comes in the story, by its code.</summary>
+    private static int Order(string timeblock) =>
+        Timeblock.TryParse(timeblock, out Timeblock parsed) ? Story.TimeblockRules.Order(parsed) : int.MaxValue;
 
     /// <summary>
     /// The game variable that says where the moped is parked.
@@ -323,10 +427,10 @@ public sealed class DrivingMap
     /// The road network, from <c>PATHDATA.TXT</c>.
     /// </summary>
     /// <remarks>
-    /// Junctions with a map position and the junctions they join to. The segment names and
-    /// the direction flag on each link are read past: what they describe is the shape of
-    /// the road between two junctions, and a straight line between junctions is close
-    /// enough to it on a 640-pixel map that the difference is a pixel or two.
+    /// Junctions with a map position, and for each of them the roads out of it: which
+    /// junction the road reaches, which stretch of road it is, and whether that stretch's
+    /// points read forwards from here. The file names each stretch once, so exactly one of
+    /// its two ends reads it backwards.
     /// </remarks>
     private static List<DrivingNode> ReadRoads(string? text)
     {
@@ -338,7 +442,7 @@ public sealed class DrivingMap
         List<DrivingNode> nodes = [];
         string? name = null;
         Vector2 at = Vector2.Zero;
-        List<string> links = [];
+        List<DrivingLink> links = [];
 
         foreach (string raw in text.Split('\n'))
         {
@@ -364,13 +468,9 @@ public sealed class DrivingMap
             }
             else if (parts[0].Equals("Location", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
             {
-                string[] pair = parts[1].Split(',');
-
-                if (pair.Length == 2 &&
-                    int.TryParse(pair[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int x) &&
-                    int.TryParse(pair[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int y))
+                if (Point(parts[1]) is { } where)
                 {
-                    at = new Vector2(x, y);
+                    at = where;
                 }
             }
             else if (parts[0].Equals("NodeEnd", StringComparison.OrdinalIgnoreCase))
@@ -387,10 +487,228 @@ public sealed class DrivingMap
                      !parts[0].Equals("LinksBegin", StringComparison.OrdinalIgnoreCase) &&
                      !parts[0].Equals("LinksEnd", StringComparison.OrdinalIgnoreCase))
             {
-                links.Add(parts[0]);
+                links.Add(new DrivingLink(
+                    parts[0],
+                    parts[1],
+                    parts.Length > 2 && parts[2].Equals("TRUE", StringComparison.OrdinalIgnoreCase)));
             }
         }
 
         return nodes;
+    }
+
+    /// <summary>
+    /// The shape of each stretch of road, from the same file.
+    /// </summary>
+    /// <remarks>
+    /// Four of the stretches the links name have no point list of their own — the two short
+    /// roads down to L'Homme Mort and Coume Sourde, and the two along the top of the map —
+    /// and one has a single point. A stretch with no shape is drawn as a straight line
+    /// between its junctions, which on a 640-pixel painting of a valley is what those four
+    /// look like anyway.
+    /// </remarks>
+    private static Dictionary<string, IReadOnlyList<Vector2>> ReadSegments(string? text)
+    {
+        var segments = new Dictionary<string, IReadOnlyList<Vector2>>(StringComparer.OrdinalIgnoreCase);
+
+        if (text is not { Length: > 0 })
+        {
+            return segments;
+        }
+
+        string? name = null;
+        List<Vector2> points = [];
+
+        foreach (string raw in text.Split('\n'))
+        {
+            string[] parts = raw.Trim().Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length == 0 || parts[0].StartsWith("//", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (parts[0].Equals("SegmentBegin", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+            {
+                name = parts[1];
+                points = [];
+            }
+            else if (parts[0].Equals("SegmentEnd", StringComparison.OrdinalIgnoreCase))
+            {
+                if (name is { Length: > 0 })
+                {
+                    segments[name] = [.. points];
+                }
+
+                name = null;
+            }
+            else if (name is not null &&
+                     parts.Length > 1 &&
+                     parts[0].Equals("Point", StringComparison.OrdinalIgnoreCase) &&
+                     Point(parts[1]) is { } bend)
+            {
+                points.Add(bend);
+            }
+        }
+
+        return segments;
+    }
+
+    /// <summary>An <c>x,y</c> pair in the map's own pixels.</summary>
+    private static Vector2? Point(string text)
+    {
+        string[] pair = text.Split(',');
+
+        return pair.Length == 2 &&
+               int.TryParse(pair[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out int x) &&
+               int.TryParse(pair[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int y)
+            ? new Vector2(x, y)
+            : null;
+    }
+
+    /// <summary>
+    /// The road a vehicle takes past a list of junctions, in map pixels.
+    /// </summary>
+    /// <param name="junctions">The junctions to pass, in order.</param>
+    /// <returns>The polyline, empty when none of them are on the map.</returns>
+    /// <remarks>
+    /// <para>
+    /// The routes the game's own follow sequences are written as name junctions that are
+    /// not always neighbours — Madeleine's drive to Coume Sourde is written
+    /// <c>plo/pl3/rl1/in4/pl2</c>, and there is no road from <c>In4</c> to <c>Pl2</c>. So
+    /// each leg is resolved as the shortest way through the network rather than assumed to
+    /// be one road, which turns that leg into <c>In4, In3, Pl2</c> and puts the van on the
+    /// road it plainly takes.
+    /// </para>
+    /// <para>
+    /// A leg with no way through at all becomes a straight line to the next junction.
+    /// Nothing in the shipped routes needs that, but a route is a string and a mod may
+    /// write one this network cannot join up.
+    /// </para>
+    /// </remarks>
+    public IReadOnlyList<Vector2> Route(IReadOnlyList<string> junctions)
+    {
+        ArgumentNullException.ThrowIfNull(junctions);
+
+        List<Vector2> line = [];
+        DrivingNode? standing = null;
+
+        foreach (string name in junctions)
+        {
+            if (Junction(name) is not { } node)
+            {
+                continue;
+            }
+
+            if (standing is null)
+            {
+                line.Add(node.At);
+                standing = node;
+
+                continue;
+            }
+
+            standing = Extend(line, standing, node);
+        }
+
+        return line;
+    }
+
+    /// <summary>Extends a route to a junction, along the roads where there are any.</summary>
+    /// <returns>The junction the route now stands at.</returns>
+    private DrivingNode Extend(List<Vector2> line, DrivingNode from, DrivingNode to)
+    {
+        if (Between(from, to) is not { Count: > 0 } hops)
+        {
+            line.Add(to.At);
+
+            return to;
+        }
+
+        DrivingNode standing = from;
+
+        foreach (DrivingNode hop in hops)
+        {
+            foreach (DrivingLink link in standing.Links)
+            {
+                if (!string.Equals(link.To, hop.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (Segments.TryGetValue(link.Segment, out IReadOnlyList<Vector2>? bends))
+                {
+                    line.AddRange(link.Forward ? bends : bends.Reverse());
+                }
+
+                break;
+            }
+
+            line.Add(hop.At);
+            standing = hop;
+        }
+
+        return standing;
+    }
+
+    /// <summary>The junctions from one to another, not counting the first, by the shortest way.</summary>
+    /// <remarks>
+    /// Breadth-first over twenty junctions, which is small enough that the shape of the
+    /// search does not matter. Null when the two are not joined at all, and empty when they
+    /// are the same junction.
+    /// </remarks>
+    private List<DrivingNode>? Between(DrivingNode from, DrivingNode to)
+    {
+        if (string.Equals(from.Name, to.Name, StringComparison.OrdinalIgnoreCase))
+        {
+            return [];
+        }
+
+        var cameFrom = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            [from.Name] = string.Empty,
+        };
+
+        var queue = new Queue<DrivingNode>();
+
+        queue.Enqueue(from);
+
+        while (queue.Count > 0)
+        {
+            DrivingNode at = queue.Dequeue();
+
+            foreach (DrivingLink link in at.Links)
+            {
+                if (cameFrom.ContainsKey(link.To) || Junction(link.To) is not { } next)
+                {
+                    continue;
+                }
+
+                cameFrom[next.Name] = at.Name;
+
+                if (!string.Equals(next.Name, to.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    queue.Enqueue(next);
+
+                    continue;
+                }
+
+                List<DrivingNode> back = [];
+
+                for (DrivingNode? step = next;
+                     step is not null &&
+                     !string.Equals(step.Name, from.Name, StringComparison.OrdinalIgnoreCase);
+                     step = Junction(cameFrom[step.Name]))
+                {
+                    back.Add(step);
+                }
+
+                back.Reverse();
+
+                return back;
+            }
+        }
+
+        return null;
     }
 }

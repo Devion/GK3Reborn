@@ -166,6 +166,7 @@ public static class CommandLine
           --render              Present frames until the window is closed.
           --headless-frames     Stop --render after sixty frames.
           --pointer X,Y         Pin the pointer there.
+          --click F[@X,Y][;..]  Click on frame F, optionally moving the pointer first.
           --menu                Open the verb wheel under it.
           --eye X,Y,Z           Put the camera there.
           --aim H,P             Aim it. Heading and pitch, in degrees.

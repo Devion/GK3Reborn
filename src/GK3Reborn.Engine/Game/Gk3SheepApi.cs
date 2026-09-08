@@ -111,6 +111,26 @@ public sealed class Gk3SheepApi : ISheepApi
     /// </remarks>
     public string? Wanted { get; set; }
 
+    /// <summary>
+    /// The room the player is leaning into through the binoculars, or null.
+    /// </summary>
+    /// <remarks>
+    /// Set while the look is being arranged and cleared when it is over, and read by the
+    /// room loop to decide that the room it is building is a view rather than an arrival:
+    /// nothing about it is counted, no entry script runs, and the player's own location
+    /// never changes. See <see cref="BinocularView"/>.
+    /// </remarks>
+    public BinocularView? Leaning { get; set; }
+
+    /// <summary>The look through the binoculars that is being put down, or null.</summary>
+    /// <remarks>
+    /// Coming back is not an arrival either — the player never left — so the room is built
+    /// without being entered again, and everything the look moved is put back: the camera
+    /// they were looking through and the spot they were standing on. Cleared by the loop
+    /// that reads it, once the room it describes is standing.
+    /// </remarks>
+    public BinocularView? Resuming { get; set; }
+
     /// <summary>The state these functions operate on.</summary>
     public GameState State { get; }
 
@@ -140,6 +160,13 @@ public sealed class Gk3SheepApi : ISheepApi
 
         ActionSeconds = 0;
         ActingOn = string.Empty;
+
+        // A load is a journey, whatever was going on when the player asked for it. Leaving
+        // a half-finished look through the binoculars set would have the room the save
+        // names built as a view of somewhere else, with the story believing the player is
+        // standing wherever the abandoned game had them.
+        Leaning = null;
+        Resuming = null;
     }
 
     /// <summary>Presentation calls, in the order they were made.</summary>
@@ -1009,9 +1036,21 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
-        Register("FollowOnDrivingMap", _ =>
+        // Giving chase. The number picks one of the game's own seven follow sequences —
+        // which quarry, which road, and where it ends — and the map runs it rather than
+        // offering the places to ride to. The screen carries the number because the screen
+        // stack is state and the chase has to survive a save.
+        //
+        // It used to ignore the number and open the ordinary map, which is what a player
+        // reported: clicking Wilkes's moped as it rode past Blanchefort brought up the map
+        // again and there was no way to follow him, so L'Ermitage and Coume Sourde could
+        // not be found at all. See Game.DrivingTraffic.
+        Register("FollowOnDrivingMap", a =>
         {
-            State.Screens.Show(new Screen(ScreenKind.Driving, "follow"));
+            State.Screens.Show(new Screen(
+                ScreenKind.Driving,
+                string.Create(CultureInfo.InvariantCulture, $"follow:{Int(a, 0)}")));
+
             return SheepValue.FromInt(0);
         });
 

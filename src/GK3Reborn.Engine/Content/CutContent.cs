@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using GK3Reborn.Foundation.Diagnostics;
 
@@ -60,7 +60,7 @@ public sealed class CutContent
     private readonly Dictionary<string, List<Edit>> _edits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, byte[]> _done = new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly Dictionary<(CutContentTier Tier, bool Dressing), CutContent> Tables = [];
+    private static readonly Dictionary<(CutContentTier Tier, DressedTowns Dressing), CutContent> Tables = [];
     private int _applied;
     private int _failed;
     private int _unreadable;
@@ -107,9 +107,10 @@ public sealed class CutContent
     /// The edits, or an empty set when the tier is <see cref="CutContentTier.None"/> and
     /// there is no dressing either.
     /// </returns>
-    public static CutContent Open(CutContentTier tier, bool dressing = false)
+    public static CutContent Open(
+        CutContentTier tier, DressedTowns dressing = DressedTowns.None)
     {
-        if (tier == CutContentTier.None && !dressing)
+        if (tier == CutContentTier.None && dressing == DressedTowns.None)
         {
             return new CutContent();
         }
@@ -143,7 +144,7 @@ public sealed class CutContent
         return table;
     }
 
-    private static CutContent Read(CutContentTier tier, bool dressing)
+    private static CutContent Read(CutContentTier tier, DressedTowns dressing)
     {
         var table = new CutContent();
 
@@ -158,14 +159,25 @@ public sealed class CutContent
             });
         }
 
-        if (dressing)
+        if (dressing != DressedTowns.None)
         {
-            // Both of the dressing's sections or neither. They are two sections rather
-            // than one because the buildings and the trees fail differently — a facade is
-            // placed by pos, a tree card is authored where it stands — and reading the
-            // table is easier when the two are not interleaved.
-            FillFromResource(table, "GK3Reborn.Assets.Story.Dressing.txt",
-                section => section is "FACADES" or "TREES");
+            // A town's sections all together or none of them. They are several sections
+            // rather than one because the pieces fail differently — a facade is placed by
+            // pos, a tree card is authored where it stands, a road and a plate of ground
+            // are surfacing that nothing may click — and reading the table is easier when
+            // they are not interleaved.
+            //
+            // Sectioned by town as well, because the two are installed separately: a
+            // player who has one pack and not the other gets the town they have.
+            bool couiza = dressing.HasFlag(DressedTowns.Couiza);
+            bool bains = dressing.HasFlag(DressedTowns.RennesLesBains);
+
+            FillFromResource(table, "GK3Reborn.Assets.Story.Dressing.txt", section => section switch
+            {
+                "FACADES" or "TREES" => couiza,
+                "RL1_GROUND" or "RL1_ROADS" or "RL1_FACADES" or "RL1_TREES" => bains,
+                _ => false,
+            });
         }
 
         return table;

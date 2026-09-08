@@ -374,6 +374,163 @@ public sealed class ScreenPainterTests
         Assert.NotNull(Middle(painter, "close"));
     }
 
+    /// <summary>
+    /// Leaning in offers the way back and nothing else.
+    /// </summary>
+    /// <remarks>
+    /// The screen is the same screen showing somewhere else, and what is on it has to say
+    /// so: a "look closer" over a view that is already the closer look would lean in on
+    /// whatever the crosshair happened to be over in the room being looked at.
+    /// </remarks>
+    [Fact]
+    public void Leaning_in_offers_the_way_back_and_not_another_look()
+    {
+        Panorama view = Binoculars.From("""
+            [CD1102P]
+            LOC=MA3_a
+
+            [CD1102PMA3_a]
+            ZOOMRECT=174,0,189,10
+            CAMANGLE=-287.38,4.5
+            CAMPOS=2423.19,530.67,-4351.27
+            """).For("CD1", "102P");
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Binoculars, Screen.Zoomed + ":MA3"),
+                [],
+                null,
+                Panorama: view,
+                Aim: new Vector2(180, 5)),
+            Width,
+            Height);
+
+        Assert.NotNull(Middle(painter, "binocs:back"));
+        Assert.Null(Middle(painter, "zoom:MA3_a"));
+        Assert.Null(Middle(painter, "close"));
+    }
+
+    /// <summary>
+    /// Somebody out on the roads can be followed by clicking them.
+    /// </summary>
+    /// <remarks>
+    /// Which is what the port adds: in the original the only way to give chase was to catch
+    /// them going past in the room, and a player who was not standing at Blanchefort in the
+    /// ten seconds Wilkes rode by lost L'Ermitage for the rest of the game.
+    /// </remarks>
+    [Fact]
+    public void Somebody_on_the_road_can_be_clicked_to_follow_them()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "PLO" };
+        DrivingTraffic traffic = DrivingTraffic.For(story, Valley);
+
+        Assert.NotEmpty(traffic.Riders);
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Driving),
+                [],
+                null,
+                Stops: [.. DrivingMap.All.Take(2)],
+                Pictures: name => name == DrivingMap.Background ? 1 : 0,
+                Traffic: traffic),
+            Width,
+            Height);
+
+        Assert.NotNull(Middle(painter, "follow:2"));
+        Assert.NotNull(Middle(painter, "follow:1"));
+    }
+
+    /// <summary>A chase is watched, not steered.</summary>
+    /// <remarks>
+    /// No place on the map may be clicked while one is running: the ride is not the
+    /// player's, and a marker that cannot be ridden to is worse than no marker. What is
+    /// offered is the way to stop watching, and the panel's own way out.
+    /// </remarks>
+    [Fact]
+    public void A_chase_offers_no_place_to_ride_to()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "PLO" };
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(
+                new Screen(ScreenKind.Driving, "follow:2"),
+                [],
+                null,
+                Stops: [.. DrivingMap.All.Take(2)],
+                Pictures: name => name == DrivingMap.Background ? 1 : 0,
+                Traffic: DrivingTraffic.For(story, Valley, follow: 2)),
+            Width,
+            Height);
+
+        Assert.NotNull(Middle(painter, "follow:skip"));
+        Assert.NotNull(Middle(painter, "close"));
+
+        foreach (DrivingStop stop in DrivingMap.All.Take(2))
+        {
+            Assert.Null(Middle(painter, "drive:" + stop.Scene));
+        }
+    }
+
+    /// <summary>A point in the story, by its code.</summary>
+    private static Timeblock Block(string code) =>
+        Timeblock.TryParse(code, out Timeblock parsed) ? parsed : default;
+
+    /// <summary>
+    /// A road network that is not the game's, with the junction names its routes use.
+    /// </summary>
+    /// <remarks>
+    /// Enough of one to put somebody on a road. See
+    /// <c>Game/DrivingTrafficTests.cs</c>, which tests what the roads themselves do.
+    /// </remarks>
+    private static DrivingMap Valley => DrivingMap.Roading("""
+        NodeBegin Plo
+        	Location 500,100
+        	LinksBegin
+        		Pl3 Plo_Pl3 TRUE
+        		Lhe Lhe_Plo FALSE
+        	LinksEnd
+        NodeEnd
+
+        NodeBegin Pl3
+        	Location 500,150
+        	LinksBegin
+        		Plo Plo_Pl3 FALSE
+        		Vgr Pl3_Vgr TRUE
+        	LinksEnd
+        NodeEnd
+
+        NodeBegin Vgr
+        	Location 475,260
+        	LinksBegin
+        		Pl3 Pl3_Vgr FALSE
+        		Pl4 Pl4_Vgr FALSE
+        	LinksEnd
+        NodeEnd
+
+        NodeBegin Pl4
+        	Location 460,290
+        	LinksBegin
+        		Vgr Pl4_Vgr TRUE
+        		Lhe Pl4_Lhe TRUE
+        	LinksEnd
+        NodeEnd
+
+        NodeBegin Lhe
+        	Location 300,200
+        	LinksBegin
+        		Pl4 Pl4_Lhe FALSE
+        		Plo Lhe_Plo TRUE
+        	LinksEnd
+        NodeEnd
+        """);
+
     [Fact]
     public void Sidneys_front_screen_offers_its_own_menu_and_leaves_the_rule_out()
     {

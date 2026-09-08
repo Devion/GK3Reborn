@@ -441,7 +441,7 @@ public static class Application
         // so far. Gated on the geometry being installed rather than on a setting, because
         // a table naming forty models nothing has would place nothing and warn forty
         // times. See Content/SceneDressing.
-        bool dressing = SceneDressing.Available(
+        Content.DressedTowns dressing = SceneDressing.Installed(
             packsOnly || enhancedDirectory is not { Length: > 0 }
                 ? string.Empty
                 : Beside(enhancedDirectory, "models"),
@@ -474,10 +474,18 @@ public static class Application
         // Said either way, and said here rather than left to be inferred from a fuller
         // room. The whole gate is "is the geometry installed", so a player wondering why
         // Couiza is empty should be able to read the answer off the first screen of log.
-        Log.Info(dressing
-            ? "Scene dressing: the town of Couiza, from the installed geometry"
-            : $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1 is the "
-              + "town the game shipped with");
+        Log.Info(dressing == Content.DressedTowns.None
+            ? $"Scene dressing: none — nothing has {SceneDressing.Sentinel}, so TR1 and RL1 "
+              + "are the towns the game shipped with"
+            : "Scene dressing: " + string.Join(
+                " and ",
+                new[]
+                {
+                    dressing.HasFlag(Content.DressedTowns.Couiza) ? "Couiza" : null,
+                    dressing.HasFlag(Content.DressedTowns.RennesLesBains)
+                        ? "Rennes-les-Bains" : null,
+                }.Where(name => name is not null))
+              + ", from the installed geometry");
 
         // The other half of a restoration: files no barn has and none can, for content that
         // was cut before there was anything to cut it from. Only with the tier that admits
@@ -2614,9 +2622,53 @@ public static class Application
             // number of previous ones; the scripts that run next ask the same question and
             // expect this one to be counted. Both are right, and this is the line between
             // them.
-            if (request.State is not null)
+            if (request.State is not null && request.Counts)
             {
                 request.State.EnterLocation(request.State.Ego, scene.Name);
+            }
+
+            // Nobody is standing in a room that is only being looked at. The port builds
+            // the room being looked at from its own scene file, which the original never
+            // reads — it has no scene to build — and that file puts the player in it. So
+            // the player is taken back out of it: they are four miles away with a pair of
+            // binoculars, and a second Gabriel in the middle of the shot is the tell.
+            if (!request.Counts &&
+                api.Leaning is not null &&
+                api.Perform("HideModel", [Sheep.SheepValue.FromString(api.State.Ego)]) is not null)
+            {
+                Log.Info($"Binoculars: {api.State.Ego} is not in {scene.Name}");
+            }
+
+            // And the room a look is being put down in is put back as it was: the player
+            // standing where they raised the binoculars, facing the way they were facing.
+            // The camera goes back with them — see WantedCamera, which the same look set on
+            // the way in. Without it, lowering a pair of binoculars walks the player to the
+            // front of the room and points the view at the door.
+            if (api.Resuming is { } put)
+            {
+                api.Resuming = null;
+
+                if (!update.Place(api.State.Ego, put.Standing, put.Facing))
+                {
+                    Log.Info($"Binoculars: {api.State.Ego} could not be put back in {scene.Name}");
+                }
+            }
+
+            // What the binoculars ask of the room they are looking into, out of the game's
+            // own BINOCS.SHP: hide its exits so it cannot be walked out of, and show
+            // whoever is meant to be standing in it. Run here because it is written against
+            // the room being looked at and that room has only just been built — in the
+            // original there is nothing to build, and the call is made as the view opens.
+            if (!request.Counts &&
+                api.Leaning is { Sight.Entering.Length: > 0 } leaning &&
+                api.Perform(
+                    "CallSheep",
+                    [
+                        Sheep.SheepValue.FromString("binocs"),
+                        Sheep.SheepValue.FromString(leaning.Sight.Entering),
+                    ]) is not null)
+            {
+                Log.Info($"Binoculars: {leaning.Sight.Entering} staged {scene.Name}");
             }
 
             // Before the room is entered, not after. Everything the room being left was
@@ -2629,7 +2681,7 @@ public static class Application
             // the next one.
             room?.Leave();
 
-            if (scene.Actions?.Find("SCENE", "ENTER") is { } entering)
+            if (request.Counts && scene.Actions?.Find("SCENE", "ENTER") is { } entering)
             {
                 new ActionRunner(api).Run(entering);
                 Log.Info($"entered: SCENE:ENTER [{entering.Case}]");
@@ -2675,7 +2727,7 @@ public static class Application
             //
             // Never on the first room of a run, which is the one the menu just started and
             // is nothing worth keeping, and never over a save the player made.
-            if (!first)
+            if (!first && request.Counts)
             {
                 api.Saves?.Write(Game.SaveStore.AutoSlot, api.State.Capture($"Arrived at {scene.Name}"));
             }
@@ -2758,11 +2810,20 @@ public static class Application
             // player is — 110A's first line is "must be at RC1". If it moves the clock, it
             // also decides where the player ends up, so the room asked for is read back
             // rather than being the one the door named.
-            api.State.Location = next.ToUpperInvariant();
+            // Unless the room being built is one the binoculars are showing, or the one
+            // they are being lowered in. Neither is somewhere the player went, and moving
+            // the story to the room being looked at is exactly the fault that put Gabriel
+            // at L'Homme Mort with his moped four miles away.
+            bool looking = api.Leaning is not null || api.Resuming is not null;
+
+            if (!looking)
+            {
+                api.State.Location = next.ToUpperInvariant();
+            }
 
             Timeblock was = api.State.Timeblock;
 
-            if (Complete(api) is { Length: > 0 } instead)
+            if (!looking && Complete(api) is { Length: > 0 } instead)
             {
                 next = instead;
 
@@ -2881,7 +2942,15 @@ public static class Application
                 fade.Begin();
             }
 
-            request = SceneRequest.Continuing(api, next);
+            // Which of the three a room is: somewhere the player has gone, somewhere they
+            // are looking at, or somewhere they are looking up from again. The last of the
+            // three is not cleared here — the room it describes has not been built yet, and
+            // putting the player back into it is the first thing done when it has.
+            request = api.Resuming is not null
+                ? SceneRequest.Resuming(api, next)
+                : api.Leaning is null
+                    ? SceneRequest.Continuing(api, next)
+                    : SceneRequest.Peeking(api, next);
 
             // The next room has its own idea of where to stand; the camera the player named
             // belonged to the one they have left.
@@ -3837,6 +3906,16 @@ public static class Application
         // out here rather than in the frame because it has to survive one.
         Game.WaterAiming? aiming = null;
 
+        // Who is out on the roads while the map is open, and how far along their roads they
+        // have got. Beside the stack for the hose's reason: everyone on the map moves every
+        // frame and the stack is part of the state hash.
+        Game.DrivingTraffic? traffic = null;
+
+        // Which screen the traffic was built for, so that opening the map, closing it and
+        // opening it again starts everybody where they set out rather than where they were
+        // when the player last looked.
+        string? trafficFor = null;
+
         // Clicks the room has swallowed in a row for being busy, with nobody speaking.
         // Three is the player saying the game is stuck; see where it is counted.
         int refused = 0;
@@ -3860,6 +3939,35 @@ public static class Application
         ArgumentNullException.ThrowIfNull(rig);
 
         string here = scene.Name;
+
+        // Putting the binoculars down from a zoomed view. Everything about it happens while
+        // the room being looked at is still standing, because the game's own exit script is
+        // written about that room's models; then the vantage point is asked for, and the
+        // room loop puts it back without anybody having arrived anywhere.
+        RoomExit Lower(Game.BinocularView looking)
+        {
+            if (looking.Sight.Leaving is { Length: > 0 } after &&
+                api.Perform(
+                    "CallSheep",
+                    [
+                        Sheep.SheepValue.FromString("binocs"),
+                        Sheep.SheepValue.FromString(after),
+                    ]) is not null)
+            {
+                Log.Info($"Binoculars: {after} put {scene.Name} back");
+            }
+
+            api.Leaning = null;
+            api.Resuming = looking;
+            api.WantedCamera = (looking.Eye, looking.Look);
+
+            story.Screens.Back();
+            update.Cancel();
+
+            Log.Info($"Binoculars lowered, back at {looking.From}");
+
+            return new RoomExit(0, looking.From);
+        }
 
         // What rises off the room's fires. Found again here rather than handed in — the
         // parameter list above is long enough — and it is a walk over models the scene has
@@ -4056,6 +4164,33 @@ public static class Application
         // after something has had time to happen.
         var deferred = new List<(int Frame, string Command)>();
 
+        // --click 90;150@1232,35 presses the primary button on those frames. A click may
+        // carry a point of its own, which moves the pointer there for that frame and every
+        // frame after it; without one it lands wherever --pointer put the pointer.
+        //
+        // The interface a click lands on is drawn from the game's own state every frame, so
+        // this is the only way a run with no mouse can reach any of it — and a sequence is
+        // what most of the interface needs: the way into the binoculars, the sight to lean
+        // in on, and the way back out are three clicks in three different places.
+        var clicks = new List<(int Frame, Vector2? At)>();
+
+        foreach (string press in Option(options, "--click")?.Split(
+                     ';', StringSplitOptions.RemoveEmptyEntries) ?? [])
+        {
+            string[] parts = press.Trim().Split('@');
+
+            if (int.TryParse(parts[0].Trim(), CultureInfo.InvariantCulture, out int when))
+            {
+                clicks.Add((
+                    when,
+                    parts.Length > 1 && parts[1].Split(',') is [string cx, string cy] &&
+                    float.TryParse(cx, CultureInfo.InvariantCulture, out float px) &&
+                    float.TryParse(cy, CultureInfo.InvariantCulture, out float py)
+                        ? new Vector2(px, py)
+                        : null));
+            }
+        }
+
         if (Option(options, "--run") is { } command)
         {
             // Several calls, separated by semicolons, run in order in the same frame — a
@@ -4083,6 +4218,24 @@ public static class Application
 
         void Run(int frame)
         {
+            // Before the commands, because a command is typed into the console and a click
+            // is not: a frame that does both should read as the player having clicked while
+            // the console was shut.
+            if (clicks.FindIndex(c => c.Frame == frame) is int press and >= 0)
+            {
+                if (clicks[press].At is { } moved)
+                {
+                    pinned = moved;
+                }
+
+                clicks.RemoveAt(press);
+                window.Press(Platform.PointerButton.Primary);
+
+                Log.Info(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"click at frame {frame}, at {pinned?.X ?? -1:F0},{pinned?.Y ?? -1:F0}"));
+            }
+
             while (deferred.Count > 0 && deferred[0].Frame <= frame)
             {
                 console.Show(true);
@@ -4823,6 +4976,66 @@ public static class Application
                     aiming = null;
                 }
 
+                // The map's traffic, built once per opening and moved on every frame. A
+                // chase carries its number in the screen's own subject — follow:2 — which
+                // is what makes it survive a save and what tells this that the map showing
+                // now is not the map that was showing a moment ago.
+                if (panel.Kind == ScreenKind.Driving)
+                {
+                    string opened = panel.ToString();
+
+                    if (traffic is null || trafficFor != opened)
+                    {
+                        traffic = Game.DrivingTraffic.For(
+                            story,
+                            map,
+                            panel.Subject?.Split(':') is [_, string chased] &&
+                            int.TryParse(chased, NumberStyles.Integer, CultureInfo.InvariantCulture, out int which)
+                                ? which
+                                : 0);
+
+                        trafficFor = opened;
+
+                        if (traffic.Chase is { } quarry)
+                        {
+                            Log.Info(
+                                $"Following {quarry.Noun} out of {traffic.From} " +
+                                $"to {quarry.Arrives ?? "where they started"}");
+                        }
+                    }
+
+                    traffic.Advance(delta);
+
+                    // And the chase ends where the quarry stops. Everything it was for
+                    // happens here: what they led the player to goes on the map for good,
+                    // the count that says so is written, and the player rides after them.
+                    if (traffic is { Following: true, Arrived: true } chase)
+                    {
+                        traffic = null;
+                        trafficFor = null;
+
+                        story.Screens.CloseAll();
+                        Arrive(chase, story);
+                    }
+                }
+                else if (traffic is not null)
+                {
+                    // A chase the player walked out of, which they are allowed to do: the
+                    // map has the same way out every screen has. The count the room's own
+                    // action wrote is put back, so the quarry goes back to circling and can
+                    // be followed again — left at one they would neither be on the roads
+                    // nor have led anywhere, and the puzzle would be gone.
+                    if (traffic is { Following: true, Arrived: false, Chase: { } gaveUp })
+                    {
+                        story.SetNounVerbCount(gaveUp.Counted, DrivingMap.Follow, 0);
+
+                        Log.Info($"Gave up following {gaveUp.Noun}");
+                    }
+
+                    traffic = null;
+                    trafficFor = null;
+                }
+
                 if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) &&
                     screens.HitAt(pointer) is { Length: > 0 } chose)
                 {
@@ -4889,25 +5102,68 @@ public static class Application
                         // place whatever size the window is and however far it is zoomed.
                         console.Print(sidney.Mark(screens.MapAt(pointer)).Text);
                     }
+                    // Giving chase from the map itself, which the original could not do:
+                    // there, the only way to follow anybody was to catch them going past
+                    // in the room. Reported as the puzzle being lost — see
+                    // Game.DrivingTraffic.
+                    else if (chose.StartsWith("follow:", StringComparison.Ordinal) &&
+                             panel.Kind == ScreenKind.Driving)
+                    {
+                        if (chose == "follow:skip")
+                        {
+                            traffic?.Skip();
+                        }
+                        else
+                        {
+                            story.Screens.Replace(new Screen(ScreenKind.Driving, chose));
+                        }
+                    }
                     else if (chose.StartsWith("zoom:", StringComparison.Ordinal) &&
                         seen.Sights.FirstOrDefault(s => s.Location == chose[5..]) is { } sight)
                     {
-                        story.Screens.Back();
-
                         Log.Info($"Binoculars: {sight.Location}");
 
                         if (!string.Equals(sight.Scene, scene.Name, StringComparison.OrdinalIgnoreCase))
                         {
-                            // Another room. Where the camera stands there travels with the
-                            // request, because the room has not been built yet.
+                            // Another room, looked at rather than walked to. The binoculars
+                            // stay up over it — that is what the player is looking through —
+                            // and the story goes on saying they are standing here.
+                            api.Leaning = new Game.BinocularView(
+                                scene.Name,
+                                sight,
+                                update.Where(story.Ego) ?? Vector3.Zero,
+                                update.Facing(story.Ego) ?? 0,
+                                camera.Position,
+                                camera.Aim);
+
                             api.Wanted = sight.Scene;
                             api.WantedCamera = (sight.Position, sight.Angle);
+
+                            story.Screens.Replace(new Screen(
+                                ScreenKind.Binoculars, $"{Screen.Zoomed}:{sight.Scene}"));
                         }
                         else
                         {
+                            story.Screens.Back();
+
                             camera.Position = sight.Position;
                             camera.Aim = sight.Angle;
                         }
+                    }
+
+                    // And lowering them again, which is the room the player never left.
+                    // Where there is no look in progress the button is only a way out: a
+                    // save written while leaning in comes back with the screen on the stack
+                    // and nothing behind it, and a button that did nothing would strand
+                    // the player behind a pair of eyepieces.
+                    else if (chose == "binocs:back")
+                    {
+                        if (api.Leaning is { } lowering)
+                        {
+                            return Lower(lowering);
+                        }
+
+                        story.Screens.Back();
                     }
                     else if (chose.StartsWith("verb:", StringComparison.Ordinal) &&
                              panel.Subject is { Length: > 0 } about &&
@@ -5074,12 +5330,22 @@ public static class Application
 
                 if (!console.Open && window.WasPressed(Platform.CameraAction.Quit))
                 {
+                    if (api.Leaning is { } backing)
+                    {
+                        return Lower(backing);
+                    }
+
                     story.Screens.Back();
                 }
 
                 // The binoculars are the one screen the player still looks *through*, so
-                // the camera keeps taking their input while it is raised.
-                if (panel.Kind == ScreenKind.Binoculars && !console.Open && !typing)
+                // the camera keeps taking their input while it is raised. Not while they
+                // are leaning into somewhere else: that view is the one the game's own data
+                // framed, in a room whose floor and walls the player is not standing on.
+                if (panel.Kind == ScreenKind.Binoculars &&
+                    !(panel.Subject?.StartsWith(Screen.Zoomed, StringComparison.Ordinal) ?? false) &&
+                    !console.Open &&
+                    !typing)
                 {
                     camera.Update(window, (float)delta);
                 }
@@ -5108,7 +5374,8 @@ public static class Application
                         closeUps,
                         verbIcons,
                         artwork,
-                        aiming),
+                        aiming,
+                        traffic),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -5559,7 +5826,8 @@ public static class Application
             // A door is a script that says SetLocation and nothing more. Noticing it here
             // rather than inside the action means it works however the story asked —
             // clicked, on a timer, or from a script three calls deep.
-            if (!string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) &&
+            if (api.Leaning is null &&
+                !string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) &&
                 story.Location is { Length: > 0 } elsewhere)
             {
                 Log.Info($"Leaving {here} for {elsewhere}");
@@ -7313,6 +7581,55 @@ public static class Application
         places.Sort(StringComparer.Ordinal);
 
         return places;
+    }
+
+    /// <summary>
+    /// The end of a chase: what it put on the map, and where it leaves the player.
+    /// </summary>
+    /// <param name="traffic">The chase.</param>
+    /// <param name="story">The game.</param>
+    /// <remarks>
+    /// <para>
+    /// The count is the story's own record of it. The room's action sets it to one when the
+    /// player gives chase and this makes it two, which is exactly what the original's map
+    /// asks about to decide whether L'Ermitage is on it — see
+    /// <see cref="DrivingMap.Follow"/>. Writing the flag as well is belt and braces: the
+    /// count is the game's own answer and the flag is the port's, and a save written by
+    /// either version of this engine reads correctly under the other.
+    /// </para>
+    /// <para>
+    /// A chase that goes nowhere new — Lady Howard's, which comes back to where it started
+    /// — still counts and still ends the ride at the last junction, which for her is the
+    /// place the player set out from.
+    /// </para>
+    /// </remarks>
+    private static void Arrive(Game.DrivingTraffic traffic, GameState story)
+    {
+        if (traffic.Chase is not { } quarry)
+        {
+            return;
+        }
+
+        // Two only where the chase led somewhere new. The original's map reads the count
+        // as "followed them all the way" and puts their destination on it, so a chase that
+        // reveals nothing — Lady Howard's ride round the valley and back — must leave it at
+        // one, or Day 1 would hand over the dig that is not found until Day 2.
+        story.SetNounVerbCount(
+            quarry.Counted, DrivingMap.Follow, quarry.Reveals.Count > 0 ? 2 : 1);
+
+        foreach (string place in quarry.Reveals)
+        {
+            if (DrivingMap.Reveal(story, place))
+            {
+                Log.Info($"The map now knows {place}");
+            }
+        }
+
+        string arrived = quarry.Arrives ?? traffic.From ?? story.Location;
+
+        Log.Info($"Followed {quarry.Noun} to {arrived}");
+
+        story.RideTo(arrived);
     }
 
     /// <summary>Why a room was left.</summary>

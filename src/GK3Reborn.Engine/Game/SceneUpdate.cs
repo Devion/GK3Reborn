@@ -2877,6 +2877,25 @@ public sealed class SceneUpdate
             : Ahead(Navigation.Walker.HeadingOf(placed.Standing));
     }
 
+    /// <summary>
+    /// Which way somebody is facing, as the game's data measures a heading.
+    /// </summary>
+    /// <param name="actor">Who, by either of their names.</param>
+    /// <returns>The heading in degrees, or null when nobody of that name is in the room.</returns>
+    /// <remarks>
+    /// <see cref="Looking"/> answers the same question as a direction, which is what the
+    /// room wants; this is the number <see cref="Place"/> takes, which is what somebody
+    /// putting a person back where they were wants.
+    /// </remarks>
+    public float? Facing(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _standing.TryGetValue(actor, out PlacedModel? placed)
+            ? Navigation.Walker.HeadingOf(placed.Standing)
+            : null;
+    }
+
     /// <summary>The direction a heading looks along.</summary>
     private static Vector3 Ahead(float heading) =>
         new(MathF.Sin(heading), 0f, MathF.Cos(heading));

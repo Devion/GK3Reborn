@@ -59,6 +59,17 @@ public readonly record struct Screen(ScreenKind Kind, string? Subject = null)
     /// </remarks>
     public bool TakesOverInput => Kind == ScreenKind.Driving;
 
+    /// <summary>
+    /// What the binoculars' subject reads while they are showing somewhere else.
+    /// </summary>
+    /// <remarks>
+    /// The prefix of <c>zoomed:PL1</c>, whose tail is the sight being looked at. The screen
+    /// is the same screen and what it is doing differs: raised, it pans the room and offers
+    /// a closer look at what it finds; leaning in, it holds a view the game's own data
+    /// framed and offers only the way back. See <see cref="Game.BinocularView"/>.
+    /// </remarks>
+    public const string Zoomed = "zoomed";
+
     /// <inheritdoc/>
     public override string ToString() => Subject is { Length: > 0 } about ? $"{Kind}({about})" : $"{Kind}";
 }
