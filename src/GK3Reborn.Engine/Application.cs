@@ -749,26 +749,6 @@ public static class Application
         // override, then restored audio in ReBarn, then the legally installed original.
         var sounds = new SoundLibrary(archives, packs);
 
-        // What plays under a load that turns out to be slow. Asked for rather than handed
-        // over, so a machine quick enough never to show the screen never reads it: see
-        // UI.LoadingScreen.Music. NOCTURNEFAST is the game's own — an ambient piece nothing
-        // in the story is attached to, which is what makes it usable somewhere the story is
-        // not running.
-        loading.Sound = audio;
-        loading.Music = () =>
-        {
-            Formats.Audio.WavFile? track = sounds.Read(LoadingMusic);
-
-            // Said once, and only on a run that was slow enough to ask. A loading screen
-            // that is silent because the archives have no such sound is indistinguishable
-            // on screen from one that is silent because the device would not open.
-            Log.Info(track is null
-                ? $"Loading screen: no {LoadingMusic} in the archives, so it is silent"
-                : $"Loading screen: {LoadingMusic} under the bar");
-
-            return track;
-        };
-
         SceneAudio? room = audio is null
             ? null
             : new SceneAudio(sounds, api.Animations, audio);
@@ -1601,9 +1581,8 @@ public static class Application
                 : $"Theme: no {ThemeMusic} to play, so the menu is silent");
 
             // Everything the menu needs is now in hand, so the screen that covered getting
-            // it comes down — over its own third of a second, which is also how long its
-            // music takes to leave. What is under it is the title art the menu is about to
-            // draw its rows over.
+            // it comes down, over its own third of a second. What is under it is the title
+            // art the menu is about to draw its rows over.
             loading.Done();
 
             void Films(IReadOnlyList<string> which)
@@ -1730,7 +1709,12 @@ public static class Application
             // Beginning here rather than at the loader, for that reason: the clock this
             // starts is what decides whether the load was slow, and a load whose first half
             // second went on opening the packs was slow whatever the loader then took.
-            loading.Begin();
+            //
+            // A bar only on the way into the first room, which is the wait between pressing
+            // New Game and the game existing. Every pass after that is a door, and what a
+            // door should look like is the fade and nothing else — the screen still runs,
+            // because it is what presents the fade's frames while the room is read.
+            loading.Begin(bar: first);
 
             // On the way into every room rather than once, because the afternoon the
             // moustache belongs to is reached by walking through a door and can also be
@@ -6012,9 +5996,6 @@ public static class Application
 
     /// <summary>The music under the menu.</summary>
     private const string ThemeMusic = "THEME.WAV";
-
-    /// <summary>What plays under a load slow enough to be worth covering.</summary>
-    private const string LoadingMusic = "NOCTURNEFAST.WAV";
 
     /// <summary>How long the process has been running.</summary>
     private static readonly Stopwatch Since = Stopwatch.StartNew();

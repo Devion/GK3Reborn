@@ -1,7 +1,5 @@
 using System.Diagnostics;
 using System.Numerics;
-using GK3Reborn.Audio;
-using GK3Reborn.Formats.Audio;
 using GK3Reborn.Rendering;
 
 namespace GK3Reborn.UI;
@@ -15,9 +13,6 @@ public sealed class LoadingScreen
     /// How long a load may take before it is worth saying anything about, in seconds.
     /// </summary>
     public const double SlowSeconds = 0.5;
-
-    /// <summary>How long the music takes to come up, in seconds.</summary>
-    private const double MusicInSeconds = 0.9;
 
     /// <summary>
     /// How long the whole screen takes to go, in seconds.
@@ -38,21 +33,17 @@ public sealed class LoadingScreen
     private readonly ScreenFade _fade;
 
     private readonly Stopwatch _clock = new();
-    private readonly Stopwatch _music = new();
 
     private OverlayAtlas? _blank;
     private OverlayAtlas? _cut;
     private Overlay? _sheet;
 
     private bool _armed;
+    private bool _quiet;
     private double _waited;
     private double _through;
     private double _presented;
     private double? _owed;
-
-    private AudioVoice _voice = AudioVoice.None;
-    private WavFile? _track;
-    private bool _asked;
 
     /// <summary>Creates a loading screen over a window.</summary>
     /// <param name="window">The window, which still has to be pumped while it waits.</param>
@@ -81,14 +72,6 @@ public sealed class LoadingScreen
     /// <summary>What the word is written in.</summary>
     public UiText Text { get; set; } = UiText.English;
 
-    /// <summary>The device the music plays through, or null on a silent run.</summary>
-    public IAudioBackend? Sound { get; set; }
-
-    /// <summary>
-    /// Where to get the music from, asked once and only if the bar is ever shown.
-    /// </summary>
-    public Func<WavFile?>? Music { get; set; }
-
     /// <summary>Whether the bar is on screen.</summary>
     public bool Showing { get; private set; }
 
@@ -98,7 +81,16 @@ public sealed class LoadingScreen
     /// <summary>
     /// Says that something slow is starting, and puts a frame up straight away.
     /// </summary>
-    public void Begin(TimeSpan waited = default)
+    /// <param name="waited">How long the wait had already been going on for.</param>
+    /// <param name="bar">
+    /// Whether this load may show itself. False for a load that happens with the game
+    /// already running: a door leads out of one room and into another, and the fade between
+    /// them is the whole of what the player should see. A bar in the middle of that says the
+    /// game stopped to go and fetch something, which is exactly the impression the fade
+    /// exists to avoid. The screen still runs — it is what gives the fade its frames while
+    /// the room is being read — it just never appears.
+    /// </param>
+    public void Begin(TimeSpan waited = default, bool bar = true)
     {
         // Only if something went wrong: the fade is owed its length back by whoever took it
         // over, and Done is what pays it. Beginning again with one outstanding would lose
@@ -110,6 +102,7 @@ public sealed class LoadingScreen
         }
 
         _armed = true;
+        _quiet = !bar;
         _through = 0;
         _presented = double.NegativeInfinity;
         _waited = Math.Max(0, waited.TotalSeconds);
@@ -120,7 +113,7 @@ public sealed class LoadingScreen
         // only starting gets a black window and nothing else.
         Tick();
 
-        if (!Showing && !_fade.Leaving)
+        if (!_quiet && !Showing && !_fade.Leaving)
         {
             Present();
         }
@@ -158,10 +151,11 @@ public sealed class LoadingScreen
 
         if (!Showing)
         {
-            if (now < SlowSeconds)
+            if (_quiet || now < SlowSeconds)
             {
-                // Not slow enough to be worth saying anything about. The fade, if there is
-                // one, still wants its frames.
+                // Not slow enough to be worth saying anything about, or not a load that is
+                // allowed to say anything at all. The fade, if there is one, still wants its
+                // frames — pumping it is the whole of what this does on a quiet load.
                 if (_fade.Leaving)
                 {
                     _fade.Tick();
@@ -180,8 +174,6 @@ public sealed class LoadingScreen
 
         _presented = now;
 
-        Cue();
-        Level(_music.Elapsed.TotalSeconds / MusicInSeconds);
         Draw(1f);
         Present();
     }
@@ -208,22 +200,12 @@ public sealed class LoadingScreen
             for (double through = 0; through < 1 && !_window.IsClosing;
                  through = going.Elapsed.TotalSeconds / OutSeconds)
             {
-                Level(1 - through);
                 Draw((float)(1 - through));
                 Present();
             }
 
-            Level(0);
             _renderer.SetOverlay(null);
         }
-
-        if (_voice.Exists)
-        {
-            Sound?.Silence(_voice);
-            _voice = AudioVoice.None;
-        }
-
-        _music.Reset();
 
         if (_owed is { } seconds)
         {
@@ -233,7 +215,7 @@ public sealed class LoadingScreen
     }
 
     /// <summary>
-    /// Takes the screen over from the fade, and puts the bar and the music up.
+    /// Takes the screen over from the fade, and puts the bar up.
     /// </summary>
     private void Appear()
     {
@@ -245,44 +227,6 @@ public sealed class LoadingScreen
         }
 
         _renderer.Fade = 0f;
-    }
-
-    /// <summary>
-    /// Starts the music, once there is a device to start it on and a track to play.
-    /// </summary>
-    private void Cue()
-    {
-        if (_voice.Exists || Sound is not { } device)
-        {
-            return;
-        }
-
-        if (!_asked)
-        {
-            _asked = true;
-            _track = Music?.Invoke();
-        }
-
-        if (_track is not { } wav)
-        {
-            return;
-        }
-
-        // Looped, because a load long enough to be worth covering can outlast a piece of
-        // music, and a bar that goes quiet half way is a bar that says the game has stopped.
-        _voice = device.Play(wav, AudioBus.Music, repeat: true);
-        _music.Restart();
-        Level(0);
-    }
-
-    /// <summary>How loud the music is, as a share of the level the music bus is at.</summary>
-    /// <param name="level">Nought to one; anything outside is clamped.</param>
-    private void Level(double level)
-    {
-        if (_voice.Exists)
-        {
-            Sound?.SetVoiceGain(_voice, (float)Math.Clamp(level, 0, 1));
-        }
     }
 
     /// <summary>Lays the screen out and hands it to the renderer.</summary>
