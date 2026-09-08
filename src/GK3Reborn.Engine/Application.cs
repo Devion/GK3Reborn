@@ -1027,9 +1027,18 @@ public static class Application
             // The suspects' faces, rendered from their own heads by the offline tool. They
             // are enhanced content and nothing else: an installation with neither the packs
             // nor the loose set draws the names alone, which is what the original does.
+            //
+            // Gabriel goes with them although he is on nobody's list, because the driving
+            // map draws the player as a marker like everybody else's and the alternative is
+            // the green square the original left him as. Loaded here rather than beside the
+            // map's own art because it is a portrait, made the same way and framed the same
+            // way, and the map takes the same square out of it.
+            List<string> everybody =
+                [.. Game.Sidney.SidneySuspect.Portraits, Game.DrivingTraffic.EgoFace];
+
             int portraits = 0;
 
-            foreach (string portrait in Game.Sidney.SidneySuspect.Portraits)
+            foreach (string portrait in everybody)
             {
                 if (Enhanced(portrait) is { } likeness &&
                     renderer.AddOverlayPicture(portrait, likeness) > 0)
@@ -1039,8 +1048,8 @@ public static class Application
             }
 
             Log.Info(portraits > 0
-                ? $"Sidney: {portraits} of {Game.Sidney.SidneySuspect.Portraits.Count} suspect portraits"
-                : "Sidney: no suspect portraits; the list draws names alone.");
+                ? $"Sidney: {portraits} of {everybody.Count} portraits"
+                : "Sidney: no portraits; the suspect list draws names alone.");
 
             // The driving map's own art. After the atlas, because setting an atlas rebuilds
             // the pipeline the pictures hang off and would throw them away.
@@ -3992,7 +4001,7 @@ public static class Application
             Log.Info($"Fire: {smoke.Glints} thing(s) lying in a fire, glinting");
         }
 
-        // And what is in the sky over it. Eleven rooms in the game have any and the rest
+        // And what is in the sky over it. Fifteen rooms in the game have any and the rest
         // get an empty flock that costs nothing; which rooms, and why it is a list rather
         // than something derived, is in Game.SceneBirds.
         //

@@ -226,11 +226,26 @@ public static class SceneBirds
 
     /// <summary>The open ones, where they are soaring birds.</summary>
     /// <remarks>
+    /// <para>
     /// POU is Poussin's tomb on its hillside, WOD Lady Howard and Estelle's dig, CD1 the
     /// ruin on top of Blanchefort and MCF the site on Mount Cardou. All four look out over
     /// a valley with nothing in the way, and three of them are on a summit.
+    /// </para>
+    /// <para>
+    /// <b>Coume Sourde and L'Ermitage are two places apiece.</b> The driving map's own
+    /// names for PL2 and PL4 are "Coume Sourde" and "L'Ermitage", and CSD and LER are the
+    /// ground the player walks on to after parking at them — the ruins under the cliff and
+    /// the hermit's cave. Adding the destination without the roadside, or the other way
+    /// round, would put birds over one half of a place and take them away fifty metres
+    /// later, which is a thing the player would notice crossing between the two.
+    /// </para>
+    /// <para>
+    /// All four are hillside with the sky standing over a low horizon, which is what the
+    /// soaring flock is for; none of them is roofed, so none wants the village's swifts.
+    /// </para>
     /// </remarks>
-    public static IReadOnlyList<string> Country { get; } = ["POU", "WOD", "CD1", "MCF"];
+    public static IReadOnlyList<string> Country { get; } =
+        ["POU", "WOD", "CD1", "MCF", "CSD", "PL2", "LER", "PL4"];
 
     private static bool Named(string scene, IReadOnlyList<string> rooms)
     {

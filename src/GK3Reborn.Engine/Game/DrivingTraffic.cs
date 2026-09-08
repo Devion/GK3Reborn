@@ -16,8 +16,9 @@ namespace GK3Reborn.Game;
 /// <param name="Colour">Their colour, as the retail driving layer sets it.</param>
 /// <param name="Portrait">
 /// The picture the map draws them as — Sidney's own suspect portrait, rendered from the
-/// character's own head. Empty for the player, who is nobody's suspect, and for an
-/// installation with no enhanced content, where the colour is all there is.
+/// character's own head, or <see cref="DrivingTraffic.EgoFace"/> for the player, who is
+/// nobody's suspect and has one anyway. Empty only where there is no face to draw; and an
+/// installation with no enhanced content has none of them, where the colour is all there is.
 /// </param>
 /// <param name="Junctions">The road junctions they pass, in order.</param>
 /// <param name="Loops">Whether they go round again on arriving, rather than stopping.</param>
@@ -188,7 +189,7 @@ public sealed class DrivingTraffic
             // beside: two dots on one road at one speed read as one dot, and the whole
             // point of the picture is that somebody is being followed.
             traffic.Ride(
-                new Traveller(story.Ego, Ego, string.Empty, chase.Junctions, Loops: false, 0, []),
+                new Traveller(story.Ego, Ego, EgoFace, chase.Junctions, Loops: false, 0, []),
                 chase.Junctions,
                 player: true);
 
@@ -382,6 +383,24 @@ public sealed class DrivingTraffic
 
     /// <inheritdoc cref="WilkesFace"/>
     private const string TwoMenFace = "PORTRAIT_VIT";
+
+    /// <summary>
+    /// Gabriel, which is the marker the player is watching.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Rendered from <c>GAB</c>'s own head by the same tool that frames the ten suspects,
+    /// and framed the same way, so the map's square knows what to take out of it.
+    /// </para>
+    /// <para>
+    /// <b>He is the one marker that had no face at all.</b> The original draws the player
+    /// as a green square, which is the one thing on the map that says nothing: every other
+    /// dot is somebody, and the dot the player is steering was a colour. It falls back to
+    /// that square in an installation with no enhanced content, where there is nothing else
+    /// to draw — the game ships no picture of Gabriel that is not a model skin.
+    /// </para>
+    /// </remarks>
+    public const string EgoFace = "PORTRAIT_GAB";
 
     /// <summary>A colour the retail engine holds as one number.</summary>
     private static Vector4 Paint(uint rgb) => new(

@@ -1702,32 +1702,43 @@ public sealed class ScreenPainter
     }
 
     /// <summary>
+    /// The part of a portrait that is the head.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The portraits are head-and-shoulders on a flat grey, framed for a panel on Sidney's
+    /// screen where there is room for the whole of somebody. A marker on the map is twenty-
+    /// odd pixels across, and at that size a shoulder is half the picture and the face is a
+    /// smudge — so the map takes the square the head is in. The tool frames all eleven of
+    /// them the same way, which is what makes one rectangle enough.
+    /// </para>
+    /// <para>
+    /// <b>Measured off the pictures rather than guessed at.</b> The first numbers here took
+    /// a square from the middle of the frame and cut every chin off with it, which nobody
+    /// saw because the only markers that had a face were two dots crossing a valley. These
+    /// are the box the subject actually occupies in all eleven: they start almost at the top
+    /// of the frame and lean left of centre, because the tool turns the head three-eighths
+    /// of a turn and the face ends up on that side of it.
+    /// </para>
+    /// </remarks>
+    private static readonly Vector4 Head = new(0.10f, 0.03f, 0.72f, 0.72f);
+
+    /// <summary>
     /// A traveller on the map: their own face, ringed in their own colour.
     /// </summary>
     /// <remarks>
     /// <para>
     /// The portrait is Sidney's, which is the picture the player has been reading their
-    /// name under, so the marker says who rather than merely that somebody is there. The
-    /// ring is the retail engine's colour for them and does the work at a glance — two
-    /// faces at map size are two faces, and two colours are two people.
+    /// name under, so the marker says who rather than merely that somebody is there —
+    /// Gabriel's own included, although he is on nobody's suspect list. The ring is the
+    /// retail engine's colour for them and does the work at a glance: two faces at map size
+    /// are two faces, and two colours are two people.
     /// </para>
     /// <para>
     /// The portraits are enhanced content. An installation without them draws the ring
     /// filled, which is exactly the coloured square the original drew.
     /// </para>
     /// </remarks>
-    /// <summary>
-    /// The part of a suspect's portrait that is their head.
-    /// </summary>
-    /// <remarks>
-    /// The portraits are head-and-shoulders on a flat grey, framed for a panel on Sidney's
-    /// screen where there is room for the whole of somebody. A marker on the map is twenty-
-    /// odd pixels across, and at that size a shoulder is half the picture and the face is a
-    /// smudge — so the map takes the square the head is in. The tool frames all ten of them
-    /// the same way, which is what makes one rectangle enough.
-    /// </remarks>
-    private static readonly Vector4 Head = new(0.25f, 0.05f, 0.54f, 0.54f);
-
     private void Face(ScreenView view, Traveller who, Vector4 marker)
     {
         float edge = MathF.Max(1.5f, marker.Z / 9f);
