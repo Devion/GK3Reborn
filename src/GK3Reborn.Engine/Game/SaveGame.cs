@@ -77,6 +77,17 @@ public sealed record SaveGame
     /// <summary>Which build wrote it, for a diagnostic that can name a version.</summary>
     public string? Engine { get; init; }
 
+    /// <summary>
+    /// Which reader brought this across from an original save, or null for a game the
+    /// player saved here.
+    /// </summary>
+    /// <remarks>
+    /// An import is not the player's work, so it may be replaced: a build that reads more of
+    /// an original save than the one before it redoes the imports the older reader left. See
+    /// OriginalSaves.Import, which is the only thing that writes this.
+    /// </remarks>
+    public string? Imported { get; init; }
+
     /// <summary>When, in UTC.</summary>
     public required DateTimeOffset Written { get; init; }
 

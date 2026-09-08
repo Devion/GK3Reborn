@@ -291,6 +291,21 @@ public sealed class GameState
     public void SetLocationCount(string actor, string location, int value) =>
         _locationCounts[LocationKey(actor, location, Timeblock.ToString())] = value;
 
+    /// <summary>
+    /// Sets how many times an actor has been somewhere during a named point in the story.
+    /// </summary>
+    /// <param name="actor">The actor.</param>
+    /// <param name="location">Three-letter location code.</param>
+    /// <param name="when">Which point in the story the visits belong to.</param>
+    /// <param name="value">The count.</param>
+    /// <remarks>
+    /// The clock-free form of the setter above, for writing a whole history in at once
+    /// rather than one timeblock's worth: an imported original save carries the counts for
+    /// every room in every timeblock the player has been through. See OriginalSaves.
+    /// </remarks>
+    public void SetLocationCount(string actor, string location, Timeblock when, int value) =>
+        _locationCounts[LocationKey(actor, location, when.ToString())] = value;
+
     /// <summary>Everywhere an actor has ever been, in any timeblock.</summary>
     /// <param name="actor">The actor.</param>
     /// <returns>The location codes, without repeats.</returns>

@@ -1,17 +1,21 @@
-﻿// Copyright (C) 2026 the GK3Reborn authors.
+// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
 // version 3 of the License, or (at your option) any later version.
 
-using System.Buffers.Binary;
-using System.Text;
-
 namespace GK3Reborn.Game;
 
 /// <summary>
-/// Reads the saves the 1999 game wrote, as far as they can honestly be read.
+/// Reads the saves the 1999 game wrote, and turns them into saves this engine can open.
 /// </summary>
+/// <remarks>
+/// The format is <see cref="OriginalSaveFile"/>. What is done with it is here: the original
+/// keeps its story in a shape close enough to this engine's that almost all of it carries
+/// over one field at a time, and the two places it does not — a topic count that is per
+/// character over there and not over here, and a Sidney scan the original never records
+/// because it is a verb count — are each written up where they are handled.
+/// </remarks>
 public static class OriginalSaves
 {
     /// <summary>
@@ -19,7 +23,7 @@ public static class OriginalSaves
     /// </summary>
     /// <param name="directory">Where the original game kept them, usually its install root.</param>
     /// <param name="store">Where the imports go.</param>
-    /// <param name="scores">The score table, for what a past timeblock is worth.</param>
+    /// <param name="scores">The score table, for what each event is worth.</param>
     /// <param name="introductions">
     /// The introductions table, for who a past timeblock has already been met in.
     /// </param>
@@ -46,22 +50,24 @@ public static class OriginalSaves
         {
             string slot = "gk3-" + Path.GetFileNameWithoutExtension(path).ToLowerInvariant();
 
-            if (!SaveStore.IsSlotName(slot) || store.Read(slot, out _) is not null)
+            if (!SaveStore.IsSlotName(slot) || Brought(store, slot))
             {
                 continue;
             }
 
-            if (Summary(path) is not { } summary)
+            if (Read(path, scores) is not { } read)
             {
                 continue;
             }
 
-            store.Write(slot, Recovered(summary, scores, introductions));
+            (OriginalSaveHeader header, OriginalSaveState? state) = read;
+
+            store.Write(slot, Recovered(header, state, scores, introductions));
 
             // And the picture the original took when it saved, decoded and kept beside the
             // import like any other slot's. A picture that does not decode costs the slot
             // its thumbnail and nothing else.
-            if (summary.Picture is { Length: > 0 } picture)
+            if (header.Picture is { Length: > 0 } picture)
             {
                 try
                 {
@@ -79,11 +85,62 @@ public static class OriginalSaves
         return imported;
     }
 
+    /// <summary>
+    /// Which reader an import was made with.
+    /// </summary>
+    /// <remarks>
+    /// Bumped whenever this file learns to read more of an original save than it did before,
+    /// which is what makes an existing import out of date. One was the header alone — the
+    /// story position, what a past timeblock implies, and a new game's pockets. Two reads the
+    /// state: the real pockets, the flags, the counts and the score events.
+    /// </remarks>
+    private const string Reader = "original:2";
+
+    /// <summary>Whether a slot already holds this save, read by this reader.</summary>
+    /// <param name="store">Where the imports go.</param>
+    /// <param name="slot">The slot the file would be imported to.</param>
+    /// <returns>True when there is nothing to do.</returns>
+    /// <remarks>
+    /// An import an older reader made is replaced rather than kept. Nothing the player writes
+    /// can land in one of these slots — the interface writes <c>slot-NN</c>, the autosave and
+    /// the quick save, and nothing else — so redoing one costs nobody their game.
+    /// </remarks>
+    private static bool Brought(SaveStore store, string slot) =>
+        store.Read(slot, out SaveFault fault) is { } already &&
+        fault == SaveFault.None &&
+        string.Equals(already.Imported, Reader, StringComparison.Ordinal);
+
     /// <summary>What one original save says about itself.</summary>
     /// <param name="path">The <c>.gk3</c> file.</param>
     /// <returns>The summary, or null when the file is not an original save.</returns>
     public static (string Title, string Location, Timeblock When, int Score, byte[]? Picture)?
         Summary(string path)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (Read(path) is not { } read)
+        {
+            return null;
+        }
+
+        OriginalSaveHeader header = read.Header;
+
+        return (header.Title, header.Location, header.When, header.Score, header.Picture);
+    }
+
+    /// <summary>Reads a save, header and state both.</summary>
+    /// <param name="path">The <c>.gk3</c> file.</param>
+    /// <param name="events">
+    /// The score table, for finding the save's own. Without it only the header is read,
+    /// which is all a list of saves needs and all the summary above asks for.
+    /// </param>
+    /// <returns>
+    /// The header and, when the state could be read, everything it holds; null when the file
+    /// is not an original save at all. A header with no state is the honest answer for a file
+    /// this engine can summarise and not unpack.
+    /// </returns>
+    public static (OriginalSaveHeader Header, OriginalSaveState? State)? Read(
+        string path, ScoreEvents? events = null)
     {
         ArgumentNullException.ThrowIfNull(path);
 
@@ -98,101 +155,274 @@ public static class OriginalSaves
             return null;
         }
 
-        // The fixed front: "GK3!Save", a version, and then the size of the rest of the
-        // header — 232 in every save the retail game wrote — so the summary that follows
-        // can be reached without understanding a byte in between. The last four letters of
-        // the magic are compared without case: the reference writes SAVE and the retail
-        // game wrote Save, and three real saves are how the difference was found.
-        if (bytes.Length < 16 ||
-            !"GK3!"u8.SequenceEqual(bytes.AsSpan(0, 4)) ||
-            !Encoding.ASCII.GetString(bytes, 4, 4).Equals(
-                "Save", StringComparison.OrdinalIgnoreCase))
+        if (OriginalSaveFile.ReadHeader(bytes) is not { } header)
         {
             return null;
         }
 
-        int headerSize = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
-        int at = 16 + headerSize;
-
-        // The summary: the save's name, the location, the timeblock, then the score. Each
-        // string is a 32-bit length, its bytes, and a terminating nul the length does not
-        // count. Measured off real saves rather than off the reference, whose own writer
-        // puts a version number first that the retail files do not have.
-        if (!TryString(bytes, ref at, out string title) ||
-            !TryString(bytes, ref at, out string location) ||
-            !TryString(bytes, ref at, out string when) ||
-            !TryInt(bytes, ref at, out int score) ||
-            !Timeblock.TryParse(when, out Timeblock timeblock))
+        if (events is null || OriginalSaveFile.ReadBody(bytes, header) is not { } body)
         {
-            return null;
+            return (header, null);
         }
 
-        // Past the maximum score and the CD number sits the picture the original took when
-        // it saved, as a plain PNG. The one part of a retail save this engine can carry
-        // over pixel for pixel.
-        byte[]? picture = null;
-
-        if (TryInt(bytes, ref at, out _) &&
-            TryInt(bytes, ref at, out _) &&
-            TryInt(bytes, ref at, out int thumbnail) &&
-            thumbnail > 0 &&
-            at + thumbnail <= bytes.Length)
-        {
-            picture = bytes.AsSpan(at, thumbnail).ToArray();
-        }
-
-        return (title, location.ToUpperInvariant(), timeblock, score, picture);
+        return (header, OriginalSaveFile.ReadState(body, events.Names));
     }
 
-    /// <summary>A save this engine can load, built from what the summary states.</summary>
+    /// <summary>A save this engine can load, built from what the original one holds.</summary>
+    /// <param name="header">What the save says about itself.</param>
+    /// <param name="original">Its state, or null when that could not be read.</param>
+    /// <param name="scores">The score table.</param>
+    /// <param name="introductions">The introductions table.</param>
+    /// <returns>The save.</returns>
     private static SaveGame Recovered(
-        (string Title, string Location, Timeblock When, int Score, byte[]? Picture) summary,
+        OriginalSaveHeader header,
+        OriginalSaveState? original,
         ScoreEvents scores,
         Story.Introductions introductions)
     {
-        // Everything a point in the story implies. The same reasoning as the schema-1
-        // migration: a save standing in day two has been through the whole of day one, and
-        // marking those events earned is also what stops them scoring twice.
-        List<string> earned =
-        [
-            .. scores.Names.Where(name =>
-                ScoreEvents.TimeblockOf(name) is { } when && when < summary.When),
-        ];
-
-        return new SaveGame
+        var story = new GameState
         {
-            SchemaVersion = SaveGame.CurrentSchema,
-            Written = DateTimeOffset.UtcNow,
-            Title = summary.Title.Length > 0 ? summary.Title : "From the original game",
-            Day = summary.When.Day,
-            Hour = summary.When.Hour,
-            Afternoon = summary.When.IsAfternoon,
-            Location = summary.Location,
-            Ego = GraceLeads.Contains(summary.When) ? "GRACE" : "GABRIEL",
-            Score = summary.Score,
-            Scored = earned,
-
-            // And everybody the story has put in front of the player by this point in it.
-            // The same reasoning again, for the same reason: the labels this engine draws
-            // ask whether somebody has been introduced, the questions they ask are about
-            // topics an original save does not record, and an import two days in would have
-            // named Madeleine Buthane "Woman". See Story.Introductions.MetBy.
-            Introduced = [.. introductions.MetBy(summary.When)],
-
-            // At least what a new game starts with. The summary says nothing about the
-            // pockets, and restoring an import with them empty would lose Prince James's
-            // card — the one item the story cannot move without. What was picked up along
-            // the way is not recoverable and is not invented; a player may have to pick a
-            // thing or two up again.
-            Inventories =
-            [
-                .. StartingItems.Open()
-                    .GroupBy(given => given.Owner, StringComparer.OrdinalIgnoreCase)
-                    .Select(owner => new SavedInventory(
-                        owner.Key, [.. owner.Select(given => given.Item)], null)),
-            ],
+            Timeblock = header.When,
+            Ego = Whose(header.When),
         };
+
+        story.Location = header.Location;
+
+        if (original is null)
+        {
+            return Assumed(header, story, scores, introductions);
+        }
+
+        // The score, replayed rather than restated. Awarding each event its own worth adds
+        // up to the number the header carries — checked against three real saves, at 99, 140
+        // and 213 points — which is the strongest single check that the state has been read
+        // correctly, because the two numbers come from opposite ends of the file.
+        foreach (string earned in original.Scored)
+        {
+            story.AwardScore(earned, scores.Worth(earned));
+        }
+
+        foreach (string flag in original.Flags)
+        {
+            story.SetFlag(flag);
+        }
+
+        foreach ((string name, int value) in original.Variables)
+        {
+            story.SetVariable(name, value);
+        }
+
+        Counted(story, original);
+
+        foreach ((string noun, int count) in original.ChatCounts)
+        {
+            story.SetChatCount(noun, count);
+        }
+
+        foreach ((string actor, string where) in original.ActorLocations)
+        {
+            story.SetActorLocation(actor, where);
+        }
+
+        // Each room's visits belong to whoever was playing at that point in the story: the
+        // original counts them for the ego alone, and which of the two that was is not
+        // something the save has to record because the timeblock already says.
+        foreach ((string where, string when, int been) in original.Visits)
+        {
+            if (Timeblock.TryParse(when, out Timeblock block))
+            {
+                story.SetLocationCount(Whose(block), where, block, been);
+            }
+        }
+
+        Carried(story, original);
+        Scanned(story, original);
+        Met(story, original, introductions, header.When);
+
+        return Written(story, header);
     }
+
+    /// <summary>Puts the noun, verb and topic counts back.</summary>
+    /// <param name="story">The game being built.</param>
+    /// <param name="original">What the save holds.</param>
+    /// <remarks>
+    /// The original keeps one map for both, keyed by noun, verb and which of the two the
+    /// count belongs to, and answers <c>GetNounVerbCount</c> and <c>GetTopicCount</c> out of
+    /// it. This engine keeps them apart, so a topic is written to both: whichever a case
+    /// asks, it gets the answer the original would have given. A topic is a verb whose name
+    /// begins <c>T_</c>, which is the convention <c>VERBS.TXT</c> itself follows.
+    /// </remarks>
+    private static void Counted(GameState story, OriginalSaveState original)
+    {
+        foreach (OriginalCount count in original.Counts)
+        {
+            if (count.Count <= 0)
+            {
+                continue;
+            }
+
+            story.SetNounVerbCount(
+                count.Gabriel ? "GABRIEL" : "GRACE", count.Noun, count.Verb, count.Count);
+
+            if (!count.Verb.StartsWith("T_", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // Whichever of the two raised it. A topic count in this engine is not per
+            // character, and taking the larger keeps a topic both of them have asked about
+            // from reading as though only the second had.
+            story.SetTopicCount(
+                count.Noun,
+                count.Verb,
+                Math.Max(story.GetTopicCount(count.Noun, count.Verb), count.Count));
+        }
+    }
+
+    /// <summary>Fills the two of them back up.</summary>
+    /// <param name="story">The game being built.</param>
+    /// <param name="original">What the save holds.</param>
+    private static void Carried(GameState story, OriginalSaveState original)
+    {
+        foreach ((string item, string status) in original.Items)
+        {
+            if (status.Equals("GabeHas", StringComparison.Ordinal) ||
+                status.Equals("BothHave", StringComparison.Ordinal))
+            {
+                story.Inventory.Add("GABRIEL", item);
+            }
+
+            if (status.Equals("GraceHas", StringComparison.Ordinal) ||
+                status.Equals("BothHave", StringComparison.Ordinal))
+            {
+                story.Inventory.Add("GRACE", item);
+            }
+        }
+
+        if (original.GabrielItem.Length > 0)
+        {
+            story.Inventory.SetActive("GABRIEL", original.GabrielItem);
+        }
+
+        if (original.GraceItem.Length > 0)
+        {
+            story.Inventory.SetActive("GRACE", original.GraceItem);
+        }
+    }
+
+    /// <summary>Puts back what has been through Sidney's scanner.</summary>
+    /// <param name="story">The game being built.</param>
+    /// <param name="original">What the save holds.</param>
+    /// <remarks>
+    /// The original keeps no list of its own: scanning something is the <c>SCANNER</c> verb
+    /// on it, and every case in the corpus that asks whether a thing has been scanned asks
+    /// <c>GetNounVerbCount(noun, "SCANNER")</c>. So this is derived from the counts rather
+    /// than read, which is also how the original itself answers the question.
+    /// </remarks>
+    private static void Scanned(GameState story, OriginalSaveState original)
+    {
+        foreach (OriginalCount count in original.Counts)
+        {
+            if (count.Count <= 0 ||
+                !count.Verb.Equals("SCANNER", StringComparison.OrdinalIgnoreCase) ||
+                Sidney.SidneyFiles.For(count.Noun) is not { } file)
+            {
+                continue;
+            }
+
+            story.AddSidneyFile(file.Id);
+            story.RecordSidneyScan(file.Item);
+        }
+    }
+
+    /// <summary>Says who the player is to be treated as having met.</summary>
+    /// <param name="story">The game being built.</param>
+    /// <param name="original">What the save holds.</param>
+    /// <param name="introductions">The introductions table.</param>
+    /// <param name="when">Where the story has got to.</param>
+    /// <remarks>
+    /// Two answers, and the union of them. The table says who a point in the story implies,
+    /// which is what an import had to rely on before the state could be read; the save's own
+    /// <c>T_INTRODUCE</c> counts say who was actually introduced. The labels this engine
+    /// draws ask this question, and an import that got it wrong called Madeleine Buthane
+    /// "Woman" two days in.
+    /// </remarks>
+    private static void Met(
+        GameState story,
+        OriginalSaveState original,
+        Story.Introductions introductions,
+        Timeblock when)
+    {
+        foreach (string noun in introductions.MetBy(when))
+        {
+            story.Introduce(noun);
+        }
+
+        foreach (OriginalCount count in original.Counts)
+        {
+            if (count.Count > 0 &&
+                count.Verb.Equals("T_INTRODUCE", StringComparison.OrdinalIgnoreCase))
+            {
+                story.Introduce(count.Noun);
+            }
+        }
+    }
+
+    /// <summary>
+    /// A save built from the header alone, for a file whose state could not be read.
+    /// </summary>
+    /// <param name="header">What the save says about itself.</param>
+    /// <param name="story">The game being built.</param>
+    /// <param name="scores">The score table.</param>
+    /// <param name="introductions">The introductions table.</param>
+    /// <returns>The save.</returns>
+    /// <remarks>
+    /// Everything a point in the story implies, and nothing else. This is what every import
+    /// used to be; it is kept because a save this engine cannot unpack is better opened at
+    /// the right hour with the right pockets than not opened at all.
+    /// </remarks>
+    private static SaveGame Assumed(
+        OriginalSaveHeader header,
+        GameState story,
+        ScoreEvents scores,
+        Story.Introductions introductions)
+    {
+        foreach (string name in scores.Names)
+        {
+            if (ScoreEvents.TimeblockOf(name) is { } when && when < header.When)
+            {
+                story.AwardScore(name, scores.Worth(name));
+            }
+        }
+
+        foreach (string noun in introductions.MetBy(header.When))
+        {
+            story.Introduce(noun);
+        }
+
+        // At least what a new game starts with. Restoring with the pockets empty would lose
+        // Prince James's card, which is the one item the story cannot move without.
+        foreach ((string owner, string item) in StartingItems.Open())
+        {
+            story.Inventory.Add(owner, item);
+        }
+
+        return Written(story, header) with { Score = header.Score };
+    }
+
+    /// <summary>Writes a built game down as the save the import stores.</summary>
+    /// <param name="story">The game.</param>
+    /// <param name="header">What the original said about itself.</param>
+    /// <returns>The save, dated as the original was rather than as of now.</returns>
+    private static SaveGame Written(GameState story, OriginalSaveHeader header) =>
+        story.Capture(header.Title.Length > 0 ? header.Title : "From the original game")
+            with { Written = header.Written, Imported = Reader };
+
+    /// <summary>Which of the two is playing at a point in the story.</summary>
+    /// <param name="when">The point.</param>
+    /// <returns>The ego's noun.</returns>
+    private static string Whose(Timeblock when) =>
+        GraceLeads.Contains(when) ? "GRACE" : "GABRIEL";
 
     /// <summary>The points in the story Grace plays, out of the walkthrough's own headings.</summary>
     private static readonly Timeblock[] GraceLeads =
@@ -200,41 +430,4 @@ public static class OriginalSaves
         new(2, 7, false), new(2, 12, true), new(2, 5, true),
         new(3, 7, false), new(3, 12, true), new(3, 6, true),
     ];
-
-    private static bool TryInt(byte[] bytes, ref int at, out int value)
-    {
-        value = 0;
-
-        if (at + 4 > bytes.Length)
-        {
-            return false;
-        }
-
-        value = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(at));
-        at += 4;
-        return true;
-    }
-
-    private static bool TryString(byte[] bytes, ref int at, out string value)
-    {
-        value = string.Empty;
-
-        if (!TryInt(bytes, ref at, out int length) ||
-            length is < 0 or > 4096 ||
-            at + length > bytes.Length)
-        {
-            return false;
-        }
-
-        value = Encoding.UTF8.GetString(bytes, at, length);
-        at += length;
-
-        // The terminating nul the length does not count.
-        if (at < bytes.Length && bytes[at] == 0)
-        {
-            at++;
-        }
-
-        return true;
-    }
 }
