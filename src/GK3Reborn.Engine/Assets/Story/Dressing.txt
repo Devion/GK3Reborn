@@ -48,29 +48,29 @@ append TR1.SIF MODELS model=RBN_CZ_OLD2_01, noun=OTR_BUILDINGS, type=prop, pos={
 append TR1.SIF MODELS model=RBN_CZ_HOUSE1_01, noun=OTR_BUILDINGS, type=prop, pos={569,-19.3,1085}, heading=82
 append TR1.SIF MODELS model=RBN_CZ_OLD3_04, noun=OTR_BUILDINGS, type=prop, pos={584,-24.5,1465}, heading=81
 append TR1.SIF MODELS model=RBN_CZ_COTTAGE_01, noun=OTR_BUILDINGS, type=prop, pos={483,-31.5,1833}, heading=81
-append TR1.SIF MODELS model=RBN_CZ_CROSSING, noun=OTR_BUILDINGS, type=prop, pos={-271,-7.9,-1080}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_CROSSING, noun=OTR_BUILDINGS, type=prop, pos={-271,-15.5,-1080}, heading=0
 append TR1.SIF MODELS model=RBN_CZ_CROSSKEEP, noun=OTR_BUILDINGS, type=prop, pos={150,-8.1,-1230}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_BENCH2, noun=OTR_BUILDINGS, type=prop, pos={1075,20.6,-552}, heading=180
-append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={1125,22.1,-552}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_SEDAN, noun=OTR_BUILDINGS, type=prop, pos={1532,32.0,-1400}, heading=88
-append TR1.SIF MODELS model=RBN_CZ_VAN, noun=OTR_BUILDINGS, type=prop, pos={1553,34.2,-1650}, heading=92
-append TR1.SIF MODELS model=RBN_CZ_SEDAN2, noun=OTR_BUILDINGS, type=prop, pos={1437,-13.1,1200}, heading=82
-append TR1.SIF MODELS model=RBN_CZ_SEDAN_01, noun=OTR_BUILDINGS, type=prop, pos={1380,-6.0,1620}, heading=98
-append TR1.SIF MODELS model=RBN_CZ_BENCH2_01, noun=OTR_BUILDINGS, type=prop, pos={1132,12.2,-110}, heading=180
-append TR1.SIF MODELS model=RBN_CZ_BENCH2_02, noun=OTR_BUILDINGS, type=prop, pos={1132,11.5,40}, heading=180
-append TR1.SIF MODELS model=RBN_CZ_CAR, noun=OTR_BUILDINGS, type=prop, pos={1184,11.1,-190}, heading=270
-append TR1.SIF MODELS model=RBN_CZ_LAMP, noun=OTR_BUILDINGS, type=prop, pos={1560,35.4,-1780}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_LAMP_01, noun=OTR_BUILDINGS, type=prop, pos={1540,22.0,-1300}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_LAMP_02, noun=OTR_BUILDINGS, type=prop, pos={1516,15.2,-900}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_LAMP_03, noun=OTR_BUILDINGS, type=prop, pos={1478,-23.7,1080}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_LAMP_04, noun=OTR_BUILDINGS, type=prop, pos={1418,-19.2,1480}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_LAMP_05, noun=OTR_BUILDINGS, type=prop, pos={1358,-13.4,1880}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_VESPA, noun=OTR_BUILDINGS, type=prop, pos={1640,17.8,-548}, heading=8
-append TR1.SIF MODELS model=RBN_CZ_VESPA2, noun=OTR_BUILDINGS, type=prop, pos={1600,-15.6,1178}, heading=172
-append TR1.SIF MODELS model=RBN_CZ_STREETBENCH, noun=OTR_BUILDINGS, type=prop, pos={1520,10.5,-710}, heading=270
-append TR1.SIF MODELS model=RBN_CZ_BIN_01, noun=OTR_BUILDINGS, type=prop, pos={1548,11.0,-700}, heading=0
-append TR1.SIF MODELS model=RBN_CZ_STREETBENCH_01, noun=OTR_BUILDINGS, type=prop, pos={1460,-23.2,1330}, heading=90
-append TR1.SIF MODELS model=RBN_CZ_BENCH3, noun=OTR_BUILDINGS, type=prop, pos={1230,-11.2,1780}, heading=90
+append TR1.SIF MODELS model=RBN_CZ_BENCH2, noun=OTR_BUILDINGS, type=prop, pos={648,7.6,-505}, heading=270
+append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={648,8.1,-440}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_SEDAN2, noun=OTR_BUILDINGS, type=prop, pos={755,2.8,305}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_CAR, noun=OTR_BUILDINGS, type=prop, pos={915,0.8,350}, heading=180
+append TR1.SIF MODELS model=RBN_CZ_BENCH2_01, noun=OTR_BUILDINGS, type=prop, pos={1085,-0.3,395}, heading=180
+append TR1.SIF MODELS model=RBN_CZ_SEDAN, noun=OTR_BUILDINGS, type=prop, pos={1532,29.1,-1400}, heading=88
+append TR1.SIF MODELS model=RBN_CZ_VAN, noun=OTR_BUILDINGS, type=prop, pos={1553,31.2,-1650}, heading=92
+append TR1.SIF MODELS model=RBN_CZ_SEDAN2_01, noun=OTR_BUILDINGS, type=prop, pos={1437,-17.0,1200}, heading=82
+append TR1.SIF MODELS model=RBN_CZ_SEDAN_01, noun=OTR_BUILDINGS, type=prop, pos={1380,-14.3,1620}, heading=98
+append TR1.SIF MODELS model=RBN_CZ_LAMP, noun=OTR_BUILDINGS, type=prop, pos={1560,33.0,-1780}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_01, noun=OTR_BUILDINGS, type=prop, pos={1540,28.4,-1300}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_02, noun=OTR_BUILDINGS, type=prop, pos={1516,21.8,-900}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_03, noun=OTR_BUILDINGS, type=prop, pos={1478,-15.2,1080}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_04, noun=OTR_BUILDINGS, type=prop, pos={1418,-10.2,1480}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_05, noun=OTR_BUILDINGS, type=prop, pos={1358,-3.8,1880}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_VESPA, noun=OTR_BUILDINGS, type=prop, pos={1640,15.9,-548}, heading=8
+append TR1.SIF MODELS model=RBN_CZ_VESPA2, noun=OTR_BUILDINGS, type=prop, pos={1600,0.7,1178}, heading=172
+append TR1.SIF MODELS model=RBN_CZ_STREETBENCH, noun=OTR_BUILDINGS, type=prop, pos={1520,17.8,-710}, heading=270
+append TR1.SIF MODELS model=RBN_CZ_BIN_01, noun=OTR_BUILDINGS, type=prop, pos={1548,18.0,-700}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_STREETBENCH_01, noun=OTR_BUILDINGS, type=prop, pos={1460,-15.7,1330}, heading=90
+append TR1.SIF MODELS model=RBN_CZ_BENCH3, noun=OTR_BUILDINGS, type=prop, pos={1230,-12.7,1780}, heading=90
 
 [TREES]
 # Foliage cards, and they carry no pos on purpose: each one is authored at
@@ -124,7 +124,6 @@ append TR1.SIF MODELS model=RBN_CZ_TREE31, type=prop
 append TR1.SIF MODELS model=RBN_CZ_TREE32, type=prop
 append TR1.SIF MODELS model=RBN_CZ_TREE33, type=prop
 append TR1.SIF MODELS model=RBN_CZ_TREE34, type=prop
-append TR1.SIF MODELS model=RBN_CZ_TREE35, type=prop
 
 [RL1_GROUND]
 # Rennes-les-Bains, extended.

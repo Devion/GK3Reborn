@@ -154,6 +154,10 @@ FURNITURE = {
     "RBN_CZ_LAMP":        ("TR1", "tr1_lamppost"),
 }
 
+# The pieces with four wheels, which are levelled on them when built. A lamppost's four
+# quarters have no such plane, and the rule turned one on its side.
+VEHICLES = {"RBN_CZ_CAR", "RBN_CZ_SEDAN", "RBN_CZ_SEDAN2", "RBN_CZ_VAN"}
+
 # Where each stands: (piece, x, z, heading). Hand-placed, because there are six of them and
 # each one wants to be somewhere a person would actually sit or drop a ticket.
 #
@@ -170,8 +174,20 @@ FURNITURE = {
 # Heading 180 turns the seats to the station. They faced the road, which is the wrong way
 # round for a station bench: you sit watching for your train, not for traffic.
 FURNITURE_SPOTS = [
-    ("RBN_CZ_BENCH2", 1075, -552, 180),
-    ("RBN_CZ_BIN", 1125, -552, 0),
+    # The forecourt. Two places only: the corner under the station's front, a bench and a
+    # bin, and the strip along the far side of the apron by the grass, which takes the
+    # parked cars and a bench. Both are on the walk bitmap and listed in FORECOURT below,
+    # which is what lets them through the walkable check: they are at the yard's edges,
+    # where nothing is clicked and nobody is sent. The middle of the yard and the mouth of
+    # the road junction were tried and are exactly where a person walks.
+    # Seats face the station: a bench's seat is its local +x (StandOn turns local +x to
+    # (cos h, -sin h)), so 270 looks along +z from the platform's end and 180 looks along
+    # -x from the far edge.
+    ("RBN_CZ_BENCH2", 648, -505, 270),
+    ("RBN_CZ_BIN", 648, -440, 0),
+    ("RBN_CZ_SEDAN2", 755, 305, 0),
+    ("RBN_CZ_CAR", 915, 350, 180),
+    ("RBN_CZ_BENCH2", 1085, 395, 180),
 
     # Down the main street, outside the yard: cars along the kerb with their length along
     # the road (the taxi is long on x, so heading 90 lies it along a street that runs on
@@ -182,12 +198,6 @@ FURNITURE_SPOTS = [
     ("RBN_CZ_SEDAN2", 1437, 1200, 82),
     ("RBN_CZ_SEDAN", 1380, 1620, 98),
 
-    # The forecourt's east band, south of the approach, where the walk bitmap stops short
-    # of the apron: two benches turned to the station and a second taxi nosed toward the
-    # first, which waits in the car park to the north.
-    ("RBN_CZ_BENCH2", 1132, -110, 180),
-    ("RBN_CZ_BENCH2", 1132, 40, 180),
-    ("RBN_CZ_CAR", 1184, -190, 270),
     ("RBN_CZ_LAMP", 1560, -1780, 0),
     ("RBN_CZ_LAMP", 1540, -1300, 0),
     ("RBN_CZ_LAMP", 1516, -900, 0),
@@ -202,6 +212,9 @@ FURNITURE_SPOTS = [
     ("RBN_CZ_BENCH3", 1230, 1780, 90),
 ]
 
+# Forecourt spots allowed on the walk bitmap, as (x, z) of a FURNITURE_SPOTS entry.
+FORECOURT = {(648, -505), (648, -440), (755, 305), (915, 350), (1085, 395)}
+
 # A tree beside the bench. Listed apart from TREES because a street tree stands *on* the
 # surfacing -- a plane tree in a paved forecourt is what a French station yard looks like --
 # and the ordinary check refuses a tree on a road. It is still checked against the
@@ -209,7 +222,6 @@ FURNITURE_SPOTS = [
 #
 # (x, z, height, sprite)
 STREET_TREES = [
-    (1062, -625, 300, "TREE00"),
 ]
 
 # Which materials are glass, a door or a shutter. Used both to find the trimmings that
@@ -883,9 +895,84 @@ def build_furniture(workspace, name, room, body_name):
     clean_materials(imported)
     drop_shadows(imported)
     piece = join(imported, name)
+    tilt = level(piece) if name in VEHICLES else 0.0
     stand_on_origin(piece)
 
-    return piece, f"{room}/{body_name}"
+    return piece, f"{room}/{body_name}" + (f", levelled {tilt:.1f} deg" if tilt > 0.2 else "")
+
+
+def level(obj):
+    """Turns a vehicle so that it lies along its own length, on its wheels, and says how far.
+
+    A car cut out of a room stands the way its room made it stand: Prince James's sedan
+    is parked at forty-five degrees on a slope, and stood on the forecourt at heading 0 it
+    was a car parked diagonally and pointing uphill. The long axis is found from the
+    spread of the whole body and turned onto x; the pitch and roll from the wheels, which
+    are the faces painted with a wheel texture, front against back and side against side.
+    """
+    verts = [obj.matrix_world @ v.co for v in obj.data.vertices]
+
+    if len(verts) < 8:
+        return 0.0
+
+    # The body's long axis, from the spread of its vertices in the ground plane.
+    mx = sum(v.x for v in verts) / len(verts)
+    my = sum(v.y for v in verts) / len(verts)
+    sxx = sum((v.x - mx) ** 2 for v in verts)
+    syy = sum((v.y - my) ** 2 for v in verts)
+    sxy = sum((v.x - mx) * (v.y - my) for v in verts)
+    yaw = 0.5 * math.atan2(2.0 * sxy, sxx - syy)
+
+    obj.location = (obj.location.x - mx, obj.location.y - my, obj.location.z)
+    bpy.context.view_layer.update()
+    select_only([obj])
+    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+
+    # The importer leaves objects in quaternion mode, where an Euler angle is ignored.
+    obj.rotation_mode = "XYZ"
+    obj.rotation_euler = (0.0, 0.0, -yaw)
+    bpy.context.view_layer.update()
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+    # The wheels, now that front and back are along x.
+    wheels = {i for i, slot in enumerate(obj.material_slots)
+              if slot.material and "wheel" in slot.material.name.lower()}
+    mesh = obj.data
+    points = []
+
+    for poly in mesh.polygons:
+        if poly.material_index in wheels:
+            points.extend(obj.matrix_world @ mesh.vertices[i].co for i in poly.vertices)
+
+    if not points:
+        points = [obj.matrix_world @ v.co for v in mesh.vertices]
+
+    def lowest(chosen):
+        return min((p.z for p in chosen), default=0.0)
+
+    xs = sorted(p.x for p in points)
+    ys = sorted(p.y for p in points)
+    cx = (xs[0] + xs[-1]) / 2.0
+    cy = (ys[0] + ys[-1]) / 2.0
+    front = [p for p in points if p.x > cx]
+    back = [p for p in points if p.x <= cx]
+    left = [p for p in points if p.y > cy]
+    right = [p for p in points if p.y <= cy]
+
+    if not (front and back and left and right):
+        return math.degrees(abs(yaw))
+
+    pitch = math.atan2(lowest(front) - lowest(back),
+                       max(sum(p.x for p in front) / len(front) - sum(p.x for p in back) / len(back), 1.0))
+    roll = math.atan2(lowest(left) - lowest(right),
+                      max(sum(p.y for p in left) / len(left) - sum(p.y for p in right) / len(right), 1.0))
+
+    # Blender's y turn lifts +x for a positive angle and its x turn drops +y.
+    obj.rotation_euler = (-roll, pitch, 0.0)
+    bpy.context.view_layer.update()
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=False)
+
+    return math.degrees(math.sqrt(yaw * yaw + pitch * pitch + roll * roll))
 
 
 def drop_shadows(objects):
@@ -2567,13 +2654,20 @@ def main():
         else:
             y = ground.at(x, z) - SINK
 
-        # A bench on the forecourt stands on the forecourt. The surfacing is lifted clear
-        # of the floor, so anything put on it at floor height is buried to the ankles.
-        on = next((label for label, cell in lane_boxes(named=True)
-                   if cell[0] <= x <= cell[2] and cell[1] <= z <= cell[3]), None)
+        # Furniture stands on whatever is under each of its corners: the surfacing where
+        # there is any, which is lifted clear of the floor, and the ground where there is
+        # not. The lowest of the four is where it stands, so no wheel and no bench leg
+        # floats -- a car half on a kerb was standing on the height under its middle and
+        # hanging in the air over the verge.
+        if any(model.startswith(piece) for piece in FURNITURE) and model in sizes:
+            feet = []
 
-        if on is not None:
-            y = ground.at(x, z) + lifts[on]
+            for fx, fz in corners_of(x, z, sizes[model][0] * 0.7, sizes[model][1] * 0.7, heading):
+                on = next((label for label, cell in lane_boxes(named=True)
+                           if cell[0] <= fx <= cell[2] and cell[1] <= fz <= cell[3]), None)
+                feet.append(ground.at(fx, fz) + (lifts[on] if on is not None else 0.0))
+
+            y = min(feet)
 
         facade_lines.append(
             f"append TR1.SIF MODELS model={model}, noun=OTR_BUILDINGS, type=prop, "
@@ -2703,7 +2797,7 @@ def main():
                     f"{other} at {ox},{oz}")
 
     for (model, x, z), mine in boxes.items():
-        if not any(model.startswith(piece) for piece in FURNITURE):
+        if not any(model.startswith(piece) for piece in FURNITURE) or (x, z) in FORECOURT:
             continue
 
         corners = [(mine[0], mine[1]), (mine[2], mine[1]),
