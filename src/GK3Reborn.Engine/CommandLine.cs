@@ -91,6 +91,8 @@ public static class CommandLine
           --skip-intro          Play no opening films.
           --no-movies           Play no films at all.
           --front-page PAGE     Open the menu on a page: Options, Video, Display.
+          --dance               Spell the word on the title screen before the first frame.
+          --dance-guests A,B    Invite only these guests to the party, by model name.
           --settings FILE       Use another settings file.
           --movie NAME          Play one film and nothing else.
           --language CODE       en, fr, de, it, es, pt, ru, pl. Needs Reborn_<CODE>.rebarn.

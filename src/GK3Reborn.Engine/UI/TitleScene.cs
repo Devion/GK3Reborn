@@ -51,7 +51,7 @@ public readonly record struct TitleLayer(int Picture, int Width, int Height, Vec
 /// something happening on it. See <c>docs/main-menu.md</c>.
 /// </para>
 /// </remarks>
-public sealed class TitleScene
+public sealed class TitleScene : IDisposable
 {
     /// <summary>How far down the window the wall starts.</summary>
     private const float BandTop = 0.07f;
@@ -179,6 +179,21 @@ public sealed class TitleScene
     private readonly TitleLayer _name;
     private readonly TitleLayer[] _sigils;
 
+    /// <summary>The wall as painted, kept for the party to hang behind its floor.</summary>
+    private readonly DecodedImage? _wallPicture;
+
+    /// <summary>The word being spelled on the title.</summary>
+    private readonly DanceCode _code = new();
+
+    /// <summary>When each lit letter was lit, by its index in the sheet's letters.</summary>
+    private readonly Dictionary<int, float> _litAt = [];
+
+    /// <summary>The party, once the word is spelled.</summary>
+    private DiscoParty? _party;
+
+    /// <summary>Whether the word was spelled and the party could not be built.</summary>
+    private bool _partyFailed;
+
     /// <summary>How long the screen has been up, in seconds.</summary>
     private float _elapsed;
 
@@ -199,15 +214,40 @@ public sealed class TitleScene
         TitleLayer wall,
         TitleLayer name,
         TitleLayer[] sigils,
-        int seed)
+        int seed,
+        DecodedImage? wallPicture)
     {
         _statue = statue;
         _wall = wall;
         _name = name;
         _sigils = sigils;
+        _wallPicture = wallPicture;
         _random = new DeterministicRandom((ulong)seed);
         _sigilWait = Wait();
     }
+
+    /// <summary>
+    /// Builds the party when the word is spelled, or null when nothing can. Set by whoever
+    /// has the archives and the device; left null, spelling the word lights the letters
+    /// and nothing more.
+    /// </summary>
+    /// <remarks>
+    /// Handed the wall as painted, so the party can hang it behind its floor. Called once:
+    /// a party that could not be built is not asked for again.
+    /// </remarks>
+    public Func<DecodedImage?, DiscoParty?>? PartyMaker { get; set; }
+
+    /// <summary>The party, or null while the word is unspelled.</summary>
+    public DiscoParty? Party => _party;
+
+    /// <summary>Called once, the moment the word is spelled and the party is built.</summary>
+    public Action? PartyStarted { get; set; }
+
+    /// <summary>Which letters of the title are lit, as indices into <see cref="TitleLetters.All"/>.</summary>
+    public IReadOnlyList<int> Lit => _code.Lit;
+
+    /// <summary>Whether the word has been spelled.</summary>
+    public bool Spelled => _code.Complete;
 
     /// <summary>The layers, in the order the set lists them.</summary>
     public IReadOnlyList<TitleLayer> Layers => [_statue, _wall, _name, .. _sigils];
@@ -268,7 +308,116 @@ public sealed class TitleScene
             placed[MenuArt.Wall],
             placed[MenuArt.Name],
             [.. MenuArt.Sigils.Select(sigil => placed[sigil])],
-            seed);
+            seed,
+            art[MenuArt.Wall]);
+    }
+
+    /// <summary>Takes a click that landed on no row of the menu.</summary>
+    /// <param name="point">Where, in pixels.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <returns>Whether the click landed on a letter of the title.</returns>
+    /// <remarks>
+    /// The letters spell <see cref="TitleLetters.Word"/>, one click each, and the last of
+    /// them starts the party. A click anywhere else on the screen is nothing: the title is
+    /// a small part of a large screen, and somebody clicking about it is not spelling.
+    /// </remarks>
+    public bool Click(Vector2 point, float width, float height)
+    {
+        if (width <= 0f || height <= 0f)
+        {
+            return false;
+        }
+
+        int letter = TitleLetters.At(point, Sheet(Name(width, height)));
+
+        if (letter < 0)
+        {
+            return false;
+        }
+
+        if (_party is not null)
+        {
+            return true;
+        }
+
+        _code.Click(letter);
+
+        // The letters lit are exactly the code's: a wrong letter took the others out.
+        foreach (int lit in _litAt.Keys.Where(k => !_code.Lit.Contains(k)).ToList())
+        {
+            _litAt.Remove(lit);
+        }
+
+        foreach (int lit in _code.Lit)
+        {
+            _litAt.TryAdd(lit, _elapsed);
+        }
+
+        Throw();
+
+        return true;
+    }
+
+    /// <summary>Spells the word outright, for a run that photographs the party.</summary>
+    public void Spell()
+    {
+        if (_party is not null)
+        {
+            return;
+        }
+
+        foreach (char wanted in TitleLetters.Word)
+        {
+            for (int i = 0; i < TitleLetters.All.Count; i++)
+            {
+                if (TitleLetters.All[i].Character == wanted && _code.Click(i))
+                {
+                    _litAt.TryAdd(i, _elapsed);
+                    break;
+                }
+            }
+        }
+
+        Throw();
+    }
+
+    /// <summary>Starts the party if the word has just been spelled.</summary>
+    private void Throw()
+    {
+        if (!_code.Complete || _party is not null || _partyFailed)
+        {
+            return;
+        }
+
+        _party = PartyMaker?.Invoke(_wallPicture);
+        _partyFailed = _party is null;
+
+        if (_party is not null)
+        {
+            PartyStarted?.Invoke();
+        }
+    }
+
+    /// <summary>Where one letter of the title is on the screen.</summary>
+    /// <param name="letter">Its index in <see cref="TitleLetters.All"/>.</param>
+    /// <param name="width">Window width.</param>
+    /// <param name="height">Window height.</param>
+    /// <returns>Left, top, width and height, in pixels.</returns>
+    public Vector4 LetterBox(int letter, float width, float height) =>
+        TitleLetters.All[letter].On(Sheet(Name(width, height)));
+
+    /// <summary>Where the whole lettering sheet is, given where its painted part is.</summary>
+    private Vector4 Sheet(Vector4 painted)
+    {
+        float wide = painted.Z / MathF.Max(0.001f, _name.Content.Z);
+        float tall = painted.W / MathF.Max(0.001f, _name.Content.W);
+
+        return new Vector4(
+            painted.X - (_name.Content.X * wide),
+            painted.Y - (_name.Content.Y * tall),
+            wide,
+            tall);
     }
 
     /// <summary>What a layer is called on the device.</summary>
@@ -286,6 +435,8 @@ public sealed class TitleScene
 
         _elapsed += step;
         _sigilAge += step;
+
+        _party?.Advance(step);
 
         if (_sigil >= 0)
         {
@@ -341,13 +492,32 @@ public sealed class TitleScene
             return;
         }
 
+        Vector4 statue = Statue(width, height);
+        Vector4 name = Name(width, height);
+
+        if (_party is { } party)
+        {
+            // The party is drawn by the renderer under this list, so there is no black and
+            // no wall: what is here is the statue standing in front of it, the black the
+            // rows sit on, and the name.
+            overlay.Picture(_statue.Picture, statue.X, statue.Y, statue.Z, statue.W, Vector4.One);
+            Strobe(overlay, statue, party);
+            Feet(overlay, width, height, bandBottom);
+
+            overlay.Picture(
+                _name.Picture, name.X, name.Y, name.Z, name.W, Vector4.One, _name.Content);
+
+            Glow(overlay, name, party);
+            Say(overlay, width, height, party);
+
+            return;
+        }
+
         // Black, and the whole window, because everything after it is either screened onto
         // it or standing in front of it. The renderer clears to black as well; saying so
         // here is what makes the screen the display list's own rather than something that
         // depends on what the pass before it left behind.
         overlay.Rect(0f, 0f, width, height, new Vector4(0f, 0f, 0f, 1f));
-
-        Vector4 statue = Statue(width, height);
 
         overlay.Picture(_statue.Picture, statue.X, statue.Y, statue.Z, statue.W, Vector4.One);
 
@@ -357,10 +527,148 @@ public sealed class TitleScene
         Sigil(overlay, width, height, bandTop, band);
         Feet(overlay, width, height, bandBottom);
 
-        Vector4 name = Name(width, height);
-
         overlay.Picture(
             _name.Picture, name.X, name.Y, name.Z, name.W, Vector4.One, _name.Content);
+
+        Glow(overlay, name, null);
+    }
+
+    /// <summary>Lights the letters that have been clicked.</summary>
+    /// <remarks>
+    /// Each is the same piece of the sheet drawn again, screened over itself in a colour,
+    /// three times at growing sizes and falling opacities, which is a glow without a blur.
+    /// The colours go round the wheel, each letter a fifth of a turn behind the last;
+    /// once the party is on they pulse on its beat.
+    /// </remarks>
+    private void Glow(Overlay overlay, Vector4 name, DiscoParty? party)
+    {
+        if (_code.Lit.Count == 0)
+        {
+            return;
+        }
+
+        Vector4 sheet = Sheet(name);
+
+        for (int i = 0; i < _code.Lit.Count; i++)
+        {
+            int index = _code.Lit[i];
+            TitleLetter letter = TitleLetters.All[index];
+            Vector4 box = letter.On(sheet);
+
+            // In over a third of a second, so a click is answered by a letter lighting
+            // rather than by one that is suddenly lit.
+            float age = _elapsed - (_litAt.TryGetValue(index, out float lit) ? lit : _elapsed);
+            float on = Math.Clamp(age / 0.35f, 0f, 1f);
+
+            float pulse = party is { Started: true }
+                ? 0.75f + (0.25f * MathF.Max(0f, MathF.Cos(party.Beat * 2f * MathF.PI)))
+                : 0.85f + (0.15f * MathF.Sin((_elapsed * 3f) + i));
+
+            Vector3 colour = Rainbow((_elapsed * 0.25f) + (i * 0.2f));
+            var centre = new Vector2(box.X + (box.Z / 2f), box.Y + (box.W / 2f));
+
+            // The letter itself first, laid over in its colour: screened, a colour onto
+            // white stays white, so the paint has to be covered rather than lit. The halo
+            // round it is screened, which is what a light does to the black beside it.
+            overlay.Picture(
+                _name.Picture,
+                box.X,
+                box.Y,
+                box.Z,
+                box.W,
+                new Vector4(colour, on * (0.55f + (0.45f * pulse))),
+                letter.Box);
+
+            for (int ring = 1; ring <= 3; ring++)
+            {
+                float scale = 1f + (ring * 0.28f * pulse);
+                float alpha = on * pulse * 0.5f / ring;
+
+                overlay.Picture(
+                    _name.Picture,
+                    centre.X - (box.Z * scale / 2f),
+                    centre.Y - (box.W * scale / 2f),
+                    box.Z * scale,
+                    box.W * scale,
+                    new Vector4(colour, alpha),
+                    letter.Box,
+                    OverlayBlend.Screen);
+            }
+        }
+    }
+
+    /// <summary>The statue, taking the colour of the lights on the floor beside it.</summary>
+    private void Strobe(Overlay overlay, Vector4 statue, DiscoParty party)
+    {
+        if (!party.Started)
+        {
+            return;
+        }
+
+        float beat = 0.18f + (0.16f * MathF.Max(0f, MathF.Cos(party.Beat * 2f * MathF.PI)));
+        Vector3 colour = Rainbow(party.Elapsed * 0.08f);
+
+        overlay.Picture(
+            _statue.Picture,
+            statue.X,
+            statue.Y,
+            statue.Z,
+            statue.W,
+            new Vector4(colour, beat),
+            null,
+            OverlayBlend.Screen);
+    }
+
+    /// <summary>What the bartender says, for a while, in the menu's own letters.</summary>
+    private static void Say(Overlay overlay, float width, float height, DiscoParty party)
+    {
+        const float Stays = 7f;
+
+        if (party.Caption is not { Length: > 0 } line || party.CaptionAge > Stays)
+        {
+            return;
+        }
+
+        float alpha = MathF.Min(
+            Math.Clamp(party.CaptionAge / 0.5f, 0f, 1f),
+            Math.Clamp((Stays - party.CaptionAge) / 1f, 0f, 1f));
+
+        float wide = overlay.Measure(line);
+        float x = (width - wide) / 2f;
+        float y = height * 0.80f - overlay.LineHeight;
+
+        overlay.Text(line, x + 2f, y + 2f, new Vector4(0f, 0f, 0f, alpha));
+        overlay.Text(line, x, y, new Vector4(1f, 0.95f, 0.8f, alpha));
+    }
+
+    /// <summary>A saturated colour from round the wheel.</summary>
+    private static Vector3 Rainbow(float turn)
+    {
+        float h = ((turn % 1f) + 1f) % 1f * 6f;
+        float x = 1f - MathF.Abs((h % 2f) - 1f);
+
+        return (int)h switch
+        {
+            0 => new Vector3(1f, x, 0f),
+            1 => new Vector3(x, 1f, 0f),
+            2 => new Vector3(0f, 1f, x),
+            3 => new Vector3(0f, x, 1f),
+            4 => new Vector3(x, 0f, 1f),
+            _ => new Vector3(1f, 0f, x),
+        };
+    }
+
+    /// <summary>Takes the party's music off while a film plays.</summary>
+    public void Hush() => _party?.Hush();
+
+    /// <summary>Puts it back.</summary>
+    public void Resume() => _party?.Resume();
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        _party?.Dispose();
+        _party = null;
     }
 
     /// <summary>Where the statue stands, in pixels.</summary>

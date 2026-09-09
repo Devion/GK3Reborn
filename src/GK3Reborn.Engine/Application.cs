@@ -1584,6 +1584,68 @@ public static class Application
 
             front.ModernMenuAvailable = menuArt.Complete;
 
+            // The party behind the title, for whoever spells the word. Built when it is
+            // asked for rather than here: it is a dozen models and their clips out of the
+            // archives, and almost nobody asks. Its textures come in the way a room's do,
+            // so the dancers wear the enhanced set where there is one. See UI.DiscoParty.
+            if (modern is not null)
+            {
+                modern.PartyMaker = wall =>
+                {
+                    var dressing = new Game.SceneLoader(archives)
+                    {
+                        Enhanced = Pictures(
+                            settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides,
+                            language: language),
+                        Compressed = settings.EnhancedTextures
+                            ? CompressedTextures.Open(
+                                packsOnly
+                                    ? string.Empty
+                                    : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
+                                packs,
+                                overrides,
+                                localized)
+                            : null,
+                    };
+
+                    var partyDiagnostics = new DiagnosticBag();
+
+                    UI.DiscoParty? party = UI.DiscoParty.Build(
+                        new UI.DiscoPartyContent(
+                            name => archives.Read(name + ".MOD") is { } bytes
+                                ? Formats.Models.ModFile.Parse(bytes, name)
+                                : null,
+                            clips,
+                            api.Animations,
+                            (sink, texture) => dressing.LoadTextureLate(sink, texture, partyDiagnostics),
+                            sounds,
+                            audio,
+                            wall)
+                        {
+                            // --dance-guests bar,gra photographs a guest or two on their own.
+                            Only = Option(args, "--dance-guests") is { Length: > 0 } few
+                                ? new HashSet<string>(
+                                    few.Split(',', StringSplitOptions.RemoveEmptyEntries),
+                                    StringComparer.OrdinalIgnoreCase)
+                                : null,
+                        },
+                        renderer,
+                        Log.Info);
+
+                    if (party is not null)
+                    {
+                        Log.Info($"Disco: the word was spelled; {string.Join(", ", party.Guests)}");
+                    }
+
+                    foreach (Diagnostic complaint in partyDiagnostics.Items)
+                    {
+                        Log.Info($"Disco: {complaint}");
+                    }
+
+                    return party;
+                };
+            }
+
             // The port's own screen carries the game's name in its own lettering, so the
             // page must not write it out as well -- the same reason TITLE.BMP suppresses it.
             front.Illustrated = title.Exists || modern is not null;
@@ -1633,6 +1695,7 @@ public static class Application
             {
                 // The film has its own soundtrack and the theme would play under it.
                 audio?.Silence(theme);
+                modern?.Hush();
                 renderer.SetBackdrop(null);
 
                 ShowIntro(window, renderer, movies, pages, which, front.Settings.MovieSubtitles);
@@ -1644,7 +1707,31 @@ public static class Application
                 window.EndFrame();
 
                 title.Show(renderer);
-                theme = Theme(audio, sounds);
+
+                // The party's music rather than the theme, where the party is on: it goes
+                // on until the game starts or ends, and the intro is a detour.
+                if (modern?.Party is not null)
+                {
+                    modern.Resume();
+                    renderer.SetBackdrop(null);
+                }
+                else
+                {
+                    theme = Theme(audio, sounds);
+                }
+            }
+
+            // The theme stops the moment the word is spelled. What follows is the ball
+            // coming down to its own sound effects, and then the bar's music. And the 1999
+            // picture comes down with it: the port's own screen paints black over it, and
+            // the party paints nothing, so it would show through the dance floor.
+            if (modern is not null)
+            {
+                modern.PartyStarted = () =>
+                {
+                    audio?.Silence(theme);
+                    renderer.SetBackdrop(null);
+                };
             }
 
             // --frames is a run that photographs something and ends, and no such run wants
@@ -1676,6 +1763,14 @@ public static class Application
             // first menu listed nothing while the same store held three saves.
             front.Saves = api.Saves?.List() ?? [];
             front.Illustrations = slot => Illustration(renderer, api.Saves, slot);
+
+            // --dance spells the word before the first frame, for a run that photographs
+            // the party rather than somebody who found it. After the picture has gone up,
+            // because spelling the word takes it down again.
+            if (modern is not null && args.Contains("--dance", StringComparer.OrdinalIgnoreCase))
+            {
+                modern.Spell();
+            }
 
             // Round again for the Intro row, which is the one thing on the menu that goes
             // somewhere and comes back.
@@ -1720,6 +1815,22 @@ public static class Application
                 {
                     renderer.DropOverlayPicture(UI.TitleScene.Named(layer));
                 }
+
+                // And the party, if there was one: its scene comes off the renderer before
+                // the room's goes on, its music stops with it, and the 1999 picture goes
+                // back up for the loading screen's bar to be drawn over.
+                //
+                // Frames are still in flight reading the party's buffers, and freeing
+                // those underneath the device is a crash somewhere else entirely — on
+                // Vulkan, a segmentation fault on the way out.
+                if (modern.Party is not null)
+                {
+                    renderer.SetScene(null, null);
+                    renderer.Idle();
+                    title.Show(renderer);
+                }
+
+                modern.Dispose();
             }
 
             // Restoring from the title screen. The save says where the player was, and that
@@ -6705,6 +6816,15 @@ public static class Application
             if (window.WasClicked(Platform.PointerButton.Primary))
             {
                 action = pages.Click(pointer, items);
+
+                // A click on no row of the first page goes to the title itself, whose
+                // letters can be clicked. Only the first page: the settings pages are
+                // panels drawn over the same picture, and a click beside a panel is a
+                // missed click rather than a letter.
+                if (!action.Happened && front.Page == FrontEndPage.Main)
+                {
+                    scene?.Click(pointer, window.FramebufferWidth, window.FramebufferHeight);
+                }
             }
             else if (window.IsDragging &&
                 pages.Drag(pointer, items, grabbed) is { Happened: true } dragged)
@@ -6777,6 +6897,18 @@ public static class Application
                 seconds);
 
             renderer.SetOverlay(pages.Overlay);
+
+            // The party, once there is one, is a scene the renderer draws under the page:
+            // the title screen's own list has no black in it from then on.
+            if (scene?.Party is { } party)
+            {
+                if (party.LightsMoved)
+                {
+                    renderer.SetLights(party.Lights, party.Extent);
+                }
+
+                renderer.SetScene(party.Geometry, party.Camera);
+            }
 
             window.EndFrame();
 
