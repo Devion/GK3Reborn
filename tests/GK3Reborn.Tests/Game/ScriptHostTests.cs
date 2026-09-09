@@ -116,6 +116,84 @@ public sealed class ScriptHostTests
         Assert.Equal(["LBY:Main$", "LBY102P:Target$"], host.CallStackTrace);
     }
 
+    /// <summary>
+    /// The shape of BINOCS.SHP's CD1104PLHMEnt: a function waits on something, calls a
+    /// second function without waiting (which itself waits), and then speaks in a wait
+    /// block of its own.
+    /// </summary>
+    private static SheepScriptFile Looker() =>
+        TestScripts.Build("BINOCS.SHP", builder =>
+        {
+            builder.Import("SetTimerSeconds", 0, 2);
+            builder.Import("Call", 0, 3);
+            builder.Import("SetFlag", 0, 3);
+            int leaves = builder.String("Leaves$");
+            int spoke = builder.String("Spoke");
+            int left = builder.String("Left");
+
+            builder.Function("Enter$")
+                .Op(SheepOpcode.BeginWait)
+                .OpF(SheepOpcode.PushF, 1f)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 0)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.EndWait)
+                .Op(SheepOpcode.PushS, leaves)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 1)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.BeginWait)
+                .Op(SheepOpcode.PushS, spoke)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 2)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.EndWait)
+                .Op(SheepOpcode.ReturnV);
+
+            builder.Function("Leaves$")
+                .Op(SheepOpcode.BeginWait)
+                .OpF(SheepOpcode.PushF, 5f)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 0)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.EndWait)
+                .Op(SheepOpcode.PushS, left)
+                .Op(SheepOpcode.GetString)
+                .Op(SheepOpcode.PushI, 1)
+                .Op(SheepOpcode.CallSysFunctionV, 2)
+                .Op(SheepOpcode.Pop)
+                .Op(SheepOpcode.ReturnV);
+        });
+
+    [Fact]
+    public void A_function_resumed_from_a_wait_still_runs_what_follows_an_unwaited_call()
+    {
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+
+        host.Scheduler = scheduler;
+        host.Add(Looker());
+
+        host.Run("BINOCS.SHP", "Enter$");
+
+        Assert.False(state.GetFlag("Spoke"));
+
+        // The first wait is over: Leaves$ is called and left running, and the line after
+        // it is spoken now, not when Leaves$ is over.
+        scheduler.Advance(1.5);
+
+        Assert.True(state.GetFlag("Spoke"), "the line after the unwaited call never ran");
+        Assert.False(state.GetFlag("Left"));
+
+        scheduler.Advance(5.0);
+
+        Assert.True(state.GetFlag("Left"));
+    }
+
     [Fact]
     public void Calling_a_script_that_is_not_loaded_is_reported_rather_than_ignored()
     {

@@ -70,6 +70,8 @@ namespace GK3Reborn.UI;
 /// Who else is out on the roads, and whether one of them is being chased. Live state like
 /// the hose: everyone on it moves every frame.
 /// </param>
+/// <param name="Caption">What is being said while the screen is up, or null.</param>
+/// <param name="Speaker">Who is saying it.</param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -90,7 +92,9 @@ public readonly record struct ScreenView(
     Func<string, bool, ItemIcon>? VerbIcons = null,
     Func<string, ItemIcon>? Artwork = null,
     Game.WaterAiming? Water = null,
-    Game.DrivingTraffic? Traffic = null);
+    Game.DrivingTraffic? Traffic = null,
+    string? Caption = null,
+    string? Speaker = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -322,9 +326,12 @@ public sealed class ScreenPainter
         ScreenKind.Water => Text.Say("screen.hose", "THE HOSE"),
         // "Where to?" is the wrong question while somebody is being followed: the ride is
         // not the player's to steer, and the answer is whichever road the quarry takes.
-        ScreenKind.Driving => view.Traffic is { Chase: { } chased }
-            ? Text.Say("driving.chase", "Following") + " " + Owned(chased.Noun)
-            : Text.Say("screen.driving", "WHERE TO?"),
+        ScreenKind.Driving => view.Traffic switch
+        {
+            { Chase: { } chased } => Text.Say("driving.chase", "Following") + " " + Owned(chased.Noun),
+            { Destination: { } going } => Text.Say("driving.riding", "Riding to") + " " + Place(view, going),
+            _ => Text.Say("screen.driving", "WHERE TO?"),
+        },
         ScreenKind.Fingerprint => Text.Say("screen.fingerprints", "FINGERPRINT KIT"),
 
         // Sidney is the machine's own name and every release keeps it.
@@ -1090,9 +1097,12 @@ public sealed class ScreenPainter
             }
 
             Corner(Text.Say("binoculars.back", "BACK"), "binocs:back", width, unit);
+            Subtitle(view, width, height, unit);
 
             return;
         }
+
+        Subtitle(view, width, height, unit);
 
         Sight? sighted = panorama?.At(view.Aim.X, view.Aim.Y);
 
@@ -1308,7 +1318,7 @@ public sealed class ScreenPainter
         // Nested rather than clamped: a panel narrower than the smallest useful column
         // makes the floor larger than the ceiling, and the answer there is the ceiling and
         // then the test below, not an exception.
-        bool chasing = view.Traffic is { Following: true };
+        bool chasing = view.Traffic is { Moving: true };
 
         float listWidth = chasing || stops.Count == 0
             ? 0
@@ -1531,7 +1541,9 @@ public sealed class ScreenPainter
         // said by the screen's title, which every screen has; this is the way to stop
         // watching it, and the panel's own way out gives up on the chase instead.
         Overlay.Text(
-            Text.Say("driving.watching", "Watching them go. Skip to arrive."),
+            traffic.Riding
+                ? Text.Say("driving.onTheRoad", "On the road. Skip to arrive.")
+                : Text.Say("driving.watching", "Watching them go. Skip to arrive."),
             body.X + (20 * unit),
             under + (10 * unit),
             Dim);
@@ -1549,9 +1561,46 @@ public sealed class ScreenPainter
         _hits.Add(("follow:skip", skipAt));
     }
 
+    /// <summary>
+    /// What is being said while the player looks through the eyepieces. The room's own
+    /// caption bar is not drawn under a screen, and the looks that speak — Mosely and
+    /// Buthane at L'Homme Mort, Buchelli's plate at the orange rock — are said while the
+    /// binoculars are up.
+    /// </summary>
+    private void Subtitle(ScreenView view, int width, int height, float unit)
+    {
+        if (view.Caption is not { Length: > 0 } caption)
+        {
+            return;
+        }
+
+        float row = Overlay.LineHeight;
+        float margin = 48f * unit;
+        float wide = MathF.Min(Overlay.Measure(caption) + (28f * unit), width - (margin * 2));
+        float x = (width - wide) / 2f;
+        float y = height - (30f * unit) - row - (20f * unit);
+
+        Overlay.Rect(x, y, wide, row + (20f * unit), Panel);
+        Overlay.Rect(x, y, 3 * unit, row + (20f * unit), Accent);
+        Overlay.Text(caption, x + (14 * unit), y + (10 * unit), Ink);
+
+        if (view.Speaker is { Length: > 0 } speaker &&
+            !speaker.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
+        {
+            Overlay.Text(speaker, x + (14 * unit), y - row - (2 * unit), Accent);
+        }
+    }
+
     /// <summary>What a place is called, falling back to its code.</summary>
     private static string Named(ScreenView view, DrivingStop stop) =>
         view.Map?.NameOf(stop) ?? stop.Code;
+
+    /// <summary>What a place is called, from its scene code.</summary>
+    private static string Place(ScreenView view, string scene) =>
+        DrivingMap.All.FirstOrDefault(
+            s => string.Equals(s.Scene, scene, StringComparison.OrdinalIgnoreCase)) is { } stop
+            ? Named(view, stop)
+            : scene;
 
     /// <summary>Draws a box around the marker the pointer is on.</summary>
     private void Ring(Vector4 bounds, float unit)

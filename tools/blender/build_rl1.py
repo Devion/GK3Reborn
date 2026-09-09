@@ -181,14 +181,13 @@ WALK = (-79.474701, -26.514526, 539.0, 1323.1)
 # The corners are covered by the north and south plates running the full width, so the four
 # make a ring rather than a cross.
 GROUND_PLATES = [
-    # Four hundred units wider all round than the streets need, because a frontage is
-    # measured from the road's centreline and the deepest house reaches five hundred units
-    # past it: a plate cut to the last street put a terrace's back corner twenty units over
-    # the edge and into the air. The check at the end of the run is what found it.
-    ("west",  -3200.0, -3300.0,  -476.0,  3900.0),
-    ("east",    714.0, -3300.0,  3520.0,  3900.0),
-    ("south", -3200.0, -3300.0,  3520.0,  -722.0),
-    ("north", -3200.0,  1660.0,  3520.0,  3900.0),
+    # Only as far as the houses reach. The plates once ran three thousand units out on every
+    # side and carried two whole quarters nobody could visit; a frontage is the road's half
+    # width, the verge and the deepest house, about five hundred units past a spine.
+    ("west",  -1900.0, -2000.0,  -476.0,  2900.0),
+    ("east",    714.0, -2000.0,  2200.0,  2900.0),
+    ("south", -1900.0, -2000.0,  2200.0,  -722.0),
+    ("north", -1900.0,  1660.0,  2200.0,  2900.0),
 ]
 
 # How the plates are meshed. 110 units to a cell is about two and a half metres, which is
@@ -218,71 +217,25 @@ GROUND_DROP = 0.5
 # Z -500 and again at Z 1100. Laying the road on the track rather than beside it is what
 # makes this a resurfacing instead of a second road.
 ROADS = [
-    ("main street", [(210, -2700), (210, -2200), (215, -1700), (215, -1150),
-                     (205, -800), (185, -500), (175, -220), (180, 60), (200, 340),
-                     (215, 620), (205, 900), (170, 1150), (150, 1400), (140, 1700),
-                     (135, 2200), (130, 2800), (130, 3300)], 190.0),
+    ("main street", [(210, -1500), (215, -1150), (205, -800), (185, -500), (175, -220),
+                     (180, 60), (200, 340), (215, 620), (205, 900), (170, 1150),
+                     (150, 1400), (140, 1700), (135, 2300)], 190.0),
 
-    # Each quarter is a plan rather than a scatter: a spine parallel to the old street, a
-    # second street eleven hundred units further out, and cross streets between them. The
-    # spacing is not a taste: a frontage needs the road's half width, seventy of verge and
-    # half the deepest house behind it, which is about five hundred units, so two streets
-    # facing each other across less than a thousand have no room between them and the
-    # packer refuses every house on the inner side of both.
-    #
-    # The same arithmetic decides how far out the spines go. `RL1CAMERABOUNDS` fences the
-    # camera at X -452 to 751, nothing may be built inside it, and the frontage on the
-    # town-facing side of a spine reaches five hundred units toward it -- so a spine at
-    # -820 had its whole east side refused and the quarter was half a street.
-    ("west spine", [(-1000, -2400), (-1010, -1800), (-1020, -1200), (-1015, -600),
-                    (-1010, 0), (-1005, 600), (-1000, 1200), (-995, 1800),
-                    (-990, 2400), (-985, 3000)], 150.0),
-    ("west outer", [(-2100, -2200), (-2110, -1600), (-2115, -1000), (-2110, -400),
-                    (-2105, 200), (-2100, 800), (-2095, 1400), (-2090, 2000),
-                    (-2085, 2600), (-2080, 3150)], 140.0),
+    # One short spine each side, parallel to the old street and a house's depth beyond
+    # the camera shell, so the town is a row of houses seen across the roofs and not two
+    # quarters the player cannot walk into. The spacing is not a taste: a frontage needs
+    # the road's half width, seventy of verge and half the deepest house, about five
+    # hundred units, and `RL1CAMERABOUNDS` fences the camera at X -452 to 751.
+    ("west spine", [(-1000, -900), (-1010, -300), (-1005, 300), (-1000, 900),
+                    (-995, 1300)], 150.0),
+    ("east spine", [(1320, -900), (1330, -300), (1335, 300), (1345, 900),
+                    (1350, 1500)], 150.0),
 
-    ("east spine", [(1320, -2400), (1330, -1800), (1340, -1200), (1335, -600),
-                    (1330, 0), (1335, 600), (1345, 1200), (1350, 1800),
-                    (1355, 2400), (1360, 3000)], 150.0),
-    ("east outer", [(2420, -2200), (2430, -1600), (2435, -1000), (2430, -400),
-                    (2425, 200), (2430, 800), (2435, 1400), (2440, 2000),
-                    (2445, 2600), (2450, 3150)], 140.0),
-
-    # The lanes off the old street into each quarter. Both leave by a gap Sierra left: the
+    # The lanes off the old street to each spine. Both leave by a gap Sierra left: the
     # west one at the swing the track already makes at Z -500, the east one between
     # `rl1_bar`, which ends at Z 795, and the gallery, which begins at 923.
-    ("west lane", [(185, -500), (-300, -520), (-800, -535), (-1300, -550),
-                   (-1800, -560), (-2400, -570)], 150.0),
-    ("east lane", [(215, 860), (700, 865), (1200, 870), (1700, 875), (2200, 878),
-                   (2800, 880)], 150.0),
-
-    # The cross streets, which is where most of the town ends up: they run across the
-    # quarters rather than along them, so each one is frontage the spines do not have.
-    ("west cross A", [(-2500, -1750), (-2000, -1745), (-1400, -1740), (-800, -1735)], 140.0),
-    ("west cross B", [(-2500, -1050), (-2000, -1045), (-1400, -1040), (-800, -1035)], 140.0),
-    ("west cross C", [(-2500, 200), (-2000, 205), (-1400, 210), (-800, 215)], 140.0),
-    ("west cross D", [(-2500, 900), (-2000, 905), (-1400, 910), (-800, 915)], 140.0),
-    ("west cross E", [(-2500, 1600), (-2000, 1605), (-1400, 1610), (-800, 1615)], 140.0),
-    ("west cross F", [(-2500, 2300), (-2000, 2305), (-1400, 2310), (-800, 2315)], 140.0),
-    ("west cross G", [(-2500, 3000), (-2000, 3005), (-1400, 3010), (-800, 3015)], 140.0),
-
-    ("east cross A", [(1100, -1750), (1700, -1745), (2300, -1740), (2900, -1735)], 140.0),
-    ("east cross B", [(1100, -1050), (1700, -1045), (2300, -1040), (2900, -1035)], 140.0),
-    ("east cross C", [(1100, 200), (1700, 205), (2300, 210), (2900, 215)], 140.0),
-    ("east cross D", [(1100, 1400), (1700, 1405), (2300, 1410), (2900, 1415)], 140.0),
-    ("east cross E", [(1100, 2100), (1700, 2105), (2300, 2110), (2900, 2115)], 140.0),
-    ("east cross F", [(1100, 2800), (1700, 2805), (2300, 2810), (2900, 2815)], 140.0),
-
-    # The south end, where the road comes into the town, and the north end beyond the
-    # bighouse. Both are far enough outside the camera shell to be built on both sides.
-    ("south street A", [(-2500, -1500), (-1400, -1490), (-300, -1480), (800, -1470),
-                        (1900, -1460), (2900, -1450)], 150.0),
-    ("south street B", [(-2500, -2300), (-1400, -2290), (-300, -2280), (800, -2270),
-                        (1900, -2260), (2900, -2250)], 140.0),
-    ("north street A", [(-2500, 2100), (-1400, 2105), (-300, 2110), (800, 2115),
-                        (1900, 2120), (2900, 2125)], 150.0),
-    ("north street B", [(-2500, 2900), (-1400, 2905), (-300, 2910), (800, 2915),
-                        (1900, 2920), (2900, 2925)], 140.0),
+    ("west lane", [(185, -500), (-300, -520), (-800, -535), (-1300, -550)], 150.0),
+    ("east lane", [(215, 860), (700, 865), (1200, 870), (1700, 875)], 150.0),
 ]
 
 # Surfaced areas rather than ribbons: (name, x0, z0, x1, z1). A spa town square, where the
@@ -290,7 +243,6 @@ ROADS = [
 # than a junction.
 APRONS = [
     ("west square", -1350.0, 220.0, -900.0, 660.0),
-    ("east yard", 1560.0, 560.0, 2000.0, 1000.0),
 ]
 
 # How wide the verge is: the gap between the kerb and the frontage line.
@@ -315,37 +267,15 @@ TREE_SPACING = 330.0
 # camera shell for its whole length, and both its sides are already built on -- the packer
 # would fill the two gaps Sierra left on purpose, one of which is the bar's terrace.
 FRONTAGES = [
-    # The cross streets first, because they are the frontage the quarters are actually
-    # built along and the packer gives what it reaches first the pick of the ground. Laying
-    # the spines first filled the corridor with a row facing the wrong way and left the
-    # cross streets with nothing.
-    ("west cross A", -1, VERGE), ("west cross A", +1, VERGE),
-    ("west cross B", -1, VERGE), ("west cross B", +1, VERGE),
-    ("west cross C", -1, VERGE), ("west cross C", +1, VERGE),
-    ("west cross D", -1, VERGE), ("west cross D", +1, VERGE),
-    ("west cross E", -1, VERGE), ("west cross E", +1, VERGE),
-    ("west cross F", -1, VERGE), ("west cross F", +1, VERGE),
-    ("west cross G", -1, VERGE), ("west cross G", +1, VERGE),
-
-    ("east cross A", -1, VERGE), ("east cross A", +1, VERGE),
-    ("east cross B", -1, VERGE), ("east cross B", +1, VERGE),
-    ("east cross C", -1, VERGE), ("east cross C", +1, VERGE),
-    ("east cross D", -1, VERGE), ("east cross D", +1, VERGE),
-    ("east cross E", -1, VERGE), ("east cross E", +1, VERGE),
-    ("east cross F", -1, VERGE), ("east cross F", +1, VERGE),
-
-    ("south street A", -1, VERGE), ("south street A", +1, VERGE),
-    ("south street B", -1, VERGE), ("south street B", +1, VERGE),
-    ("north street A", -1, VERGE), ("north street A", +1, VERGE),
-    ("north street B", -1, VERGE), ("north street B", +1, VERGE),
-
-    ("west spine", -1, VERGE), ("west spine", +1, VERGE),
-    ("west outer", -1, VERGE), ("west outer", +1, VERGE),
-    ("east spine", -1, VERGE), ("east spine", +1, VERGE),
-    ("east outer", -1, VERGE), ("east outer", +1, VERGE),
-
+    # The lanes first, because they are the frontage the player sees down the gaps in the
+    # old street, and the packer gives what it reaches first the pick of the ground.
     ("west lane", -1, VERGE), ("west lane", +1, VERGE),
     ("east lane", -1, VERGE), ("east lane", +1, VERGE),
+
+    # The spines, on the side that faces the town. Their far sides would be rows of
+    # houses nobody can see and the frame rate paid for them.
+    ("west spine", -1, VERGE),
+    ("east spine", +1, VERGE),
 
     # The main street's own frontage. The packer is blocked from the camera shell outright,
     # so these fill the approach south of the town and the ground north of the bighouse and
@@ -1004,7 +934,8 @@ def main():
             continue
 
         name = f"{piece}_{count:02d}"
-        obj, note = build_variant(name, os.path.join(out, piece + ".glb"), count % 2 == 1)
+        obj, note = build_variant(name, os.path.join(out, piece + ".glb"),
+                                  count % 2 == 1)
 
         if obj is None:
             report.append(f"  {name:22s} SKIPPED  {piece} {note}")

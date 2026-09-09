@@ -88,6 +88,9 @@ public sealed class Walker
     /// <summary>Which way they are facing, in radians about the vertical.</summary>
     public float Facing { get; private set; }
 
+    /// <summary>The heading the walk was asked to end facing, if it was asked.</summary>
+    public float? ArrivalFacing => _arrive;
+
     /// <summary>Whether the route reached what was asked for.</summary>
     public bool Reaches { get; }
 

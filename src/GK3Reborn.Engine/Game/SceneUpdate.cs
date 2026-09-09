@@ -2292,6 +2292,29 @@ public sealed class SceneUpdate
             : null;
     }
 
+    /// <summary>
+    /// The way an actor faces once they have stopped: the facing a walk under way was asked
+    /// to end on, else the way they stand.
+    /// </summary>
+    public float? SettledFacing(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _walking.TryGetValue(actor, out Walking? walking) && walking.Walker.ArrivalFacing is { } arriving
+            ? arriving
+            : Facing(actor);
+    }
+
+    /// <summary>Where an actor's eyes are, or null when they are not standing here.</summary>
+    public Vector3? EyesOf(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _standing.TryGetValue(actor, out PlacedModel? placed) && Where(actor) is { } feet
+            ? feet + (Vector3.UnitY * Eyes(placed))
+            : null;
+    }
+
     /// <summary>The direction a heading looks along.</summary>
     private static Vector3 Ahead(float heading) =>
         new(MathF.Sin(heading), 0f, MathF.Cos(heading));

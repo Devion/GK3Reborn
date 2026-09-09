@@ -91,6 +91,7 @@ import os
 import re
 import sys
 
+import bmesh
 import bpy
 from mathutils import Vector
 
@@ -141,6 +142,16 @@ FURNITURE = {
     "RBN_CZ_STREETBENCH": ("RC1_A", "rc1bench"),
     "RBN_CZ_BIN":         ("MOP", "mop_trash1"),
     "RBN_CZ_CRATES":      ("MOP", "mop_crates"),
+
+    # What makes a street look lived in: things parked on it. The taxi is the room's own
+    # and the only car the game has; the vespas are the ones two suspects ride.
+    "RBN_CZ_CAR":         ("TR1", "tr1_taxi"),
+    "RBN_CZ_SEDAN":       ("LHE", "lhe_larrycar_scene"),
+    "RBN_CZ_SEDAN2":      ("RC4_A", "rc4_pjcar"),
+    "RBN_CZ_VAN":         ("VGR_A_A", "vgr_van"),
+    "RBN_CZ_VESPA":       ("PL5", "pl5_howardmoped"),
+    "RBN_CZ_VESPA2":      ("PL3", "pl3_buchscooter"),
+    "RBN_CZ_LAMP":        ("TR1", "tr1_lamppost"),
 }
 
 # Where each stands: (piece, x, z, heading). Hand-placed, because there are six of them and
@@ -161,6 +172,34 @@ FURNITURE = {
 FURNITURE_SPOTS = [
     ("RBN_CZ_BENCH2", 1075, -552, 180),
     ("RBN_CZ_BIN", 1125, -552, 0),
+
+    # Down the main street, outside the yard: cars along the kerb with their length along
+    # the road (the taxi is long on x, so heading 90 lies it along a street that runs on
+    # z), lampposts a stride past the kerb, a bench and a bin at the side streets, and a
+    # vespa by each row of shops.
+    ("RBN_CZ_SEDAN", 1532, -1400, 88),
+    ("RBN_CZ_VAN", 1553, -1650, 92),
+    ("RBN_CZ_SEDAN2", 1437, 1200, 82),
+    ("RBN_CZ_SEDAN", 1380, 1620, 98),
+
+    # The forecourt's east band, south of the approach, where the walk bitmap stops short
+    # of the apron: two benches turned to the station and a second taxi nosed toward the
+    # first, which waits in the car park to the north.
+    ("RBN_CZ_BENCH2", 1132, -110, 180),
+    ("RBN_CZ_BENCH2", 1132, 40, 180),
+    ("RBN_CZ_CAR", 1184, -190, 270),
+    ("RBN_CZ_LAMP", 1560, -1780, 0),
+    ("RBN_CZ_LAMP", 1540, -1300, 0),
+    ("RBN_CZ_LAMP", 1516, -900, 0),
+    ("RBN_CZ_LAMP", 1478, 1080, 0),
+    ("RBN_CZ_LAMP", 1418, 1480, 0),
+    ("RBN_CZ_LAMP", 1358, 1880, 0),
+    ("RBN_CZ_VESPA", 1640, -548, 8),
+    ("RBN_CZ_VESPA2", 1600, 1178, 172),
+    ("RBN_CZ_STREETBENCH", 1520, -710, 270),
+    ("RBN_CZ_BIN", 1548, -700, 0),
+    ("RBN_CZ_STREETBENCH", 1460, 1330, 90),
+    ("RBN_CZ_BENCH3", 1230, 1780, 90),
 ]
 
 # A tree beside the bench. Listed apart from TREES because a street tree stands *on* the
@@ -842,10 +881,30 @@ def build_furniture(workspace, name, room, body_name):
         return None, f"{room}/{body_name} holds no mesh"
 
     clean_materials(imported)
+    drop_shadows(imported)
     piece = join(imported, name)
     stand_on_origin(piece)
 
     return piece, f"{room}/{body_name}"
+
+
+def drop_shadows(objects):
+    """Removes the faces painted with a baked ground shadow: a car's shadow quad lies on
+    the room it was made for and floats on any other ground."""
+    for obj in objects:
+        slots = [i for i, slot in enumerate(obj.material_slots)
+                 if slot.material and "shadow" in slot.material.name.lower()]
+
+        if not slots:
+            continue
+
+        mesh = obj.data
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.material_index in slots], context="FACES")
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
 
 
 def build_piece(workspace, name, room, body_name):
@@ -2450,7 +2509,8 @@ def main():
             continue
 
         name = f"{piece}_{count:02d}"
-        obj, note = build_variant(name, os.path.join(out, piece + ".glb"), count % 2 == 1)
+        obj, note = build_variant(name, os.path.join(out, piece + ".glb"),
+                                  count % 2 == 1 and piece not in FURNITURE)
 
         if obj is None:
             report.append(f"  {name:22s} SKIPPED  {piece} {note}")

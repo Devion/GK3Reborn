@@ -244,6 +244,54 @@ public sealed class DrivingTrafficTests
         Assert.Equal(new Vector2(460, 290), traffic.Riders.First(r => !r.IsPlayer).At);
     }
 
+    /// <summary>A ride the player chose goes down the roads and stops where they pointed.</summary>
+    [Fact]
+    public void A_ride_follows_the_roads_and_arrives_where_it_was_pointed()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "PLO" };
+        DrivingTraffic traffic = DrivingTraffic.For(story, Valley, ride: "PL4");
+
+        Assert.True(traffic.Riding);
+        Assert.False(traffic.Arrived);
+        Assert.Equal("PL4", traffic.Destination);
+
+        DrivingTraffic.Rider rider = Assert.Single(traffic.Riders);
+        Assert.True(rider.IsPlayer);
+        Assert.True(rider.Road.Count > 2, "the ride should bend through the junctions between");
+
+        for (int frame = 0; frame < 600 && !traffic.Arrived; frame++)
+        {
+            traffic.Advance(1.0 / 60);
+        }
+
+        Assert.True(traffic.Arrived);
+        Assert.Equal(new Vector2(460, 290), rider.At);
+    }
+
+    /// <summary>A ride to somewhere the roads do not reach is over before it starts.</summary>
+    [Fact]
+    public void A_ride_with_no_road_under_it_arrives_at_once()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "CD1" };
+        DrivingTraffic traffic = DrivingTraffic.For(story, Valley, ride: "PL4");
+
+        Assert.True(traffic.Riding);
+        Assert.True(traffic.Arrived);
+    }
+
+    /// <summary>Skipping a ride puts the player at the end of it.</summary>
+    [Fact]
+    public void Skipping_a_ride_arrives()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "PLO" };
+        DrivingTraffic traffic = DrivingTraffic.For(story, Valley, ride: "PL4");
+
+        traffic.Skip();
+
+        Assert.True(traffic.Arrived);
+        Assert.Equal(new Vector2(460, 290), Assert.Single(traffic.Riders).At);
+    }
+
     /// <summary>Somebody circling goes round again rather than stopping.</summary>
     [Fact]
     public void Somebody_circling_comes_back_round()

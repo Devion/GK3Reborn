@@ -68,11 +68,12 @@ public sealed class DrivingTraffic
     private Rider? _quarry;
     private Rider? _player;
 
-    private DrivingTraffic(DrivingMap map, Traveller? chase, string? from)
+    private DrivingTraffic(DrivingMap map, Traveller? chase, string? from, string? destination = null)
     {
         _map = map;
         Chase = chase;
         From = from;
+        Destination = destination;
     }
 
     /// <summary>Nobody on the roads.</summary>
@@ -86,6 +87,15 @@ public sealed class DrivingTraffic
 
     /// <summary>Whether a chase is under way.</summary>
     public bool Following => Chase is not null;
+
+    /// <summary>Where the player is riding to, as a scene code, or null when nowhere.</summary>
+    public string? Destination { get; }
+
+    /// <summary>Whether the player is on the road to somewhere they chose.</summary>
+    public bool Riding => Destination is not null;
+
+    /// <summary>Whether the picture is one to watch rather than one to click.</summary>
+    public bool Moving => Following || Riding;
 
     /// <summary>Whether the chase has run its course.</summary>
     public bool Arrived { get; private set; }
@@ -121,8 +131,11 @@ public sealed class DrivingTraffic
     /// Which chase to run, as <c>FollowOnDrivingMap</c> numbers them, or zero for an
     /// ordinary ride.
     /// </param>
+    /// <param name="ride">
+    /// Where the player is riding to, as a scene code, or null for a map to choose from.
+    /// </param>
     /// <returns>The traffic, which has nobody in it where the story has nobody out.</returns>
-    public static DrivingTraffic For(GameState story, DrivingMap map, int follow = 0)
+    public static DrivingTraffic For(GameState story, DrivingMap map, int follow = 0, string? ride = null)
     {
         ArgumentNullException.ThrowIfNull(story);
         ArgumentNullException.ThrowIfNull(map);
@@ -131,6 +144,23 @@ public sealed class DrivingTraffic
                       !string.Equals(where, DrivingMap.Location, StringComparison.OrdinalIgnoreCase)
             ? where
             : story.LastLocation is { Length: > 0 } before ? before : "MOP";
+
+        // The player's own ride, along the roads from where the moped stands to where
+        // they pointed, seen the way a chase is. Over at once where the roads do not
+        // reach: a place with no junction, or a run with no road network at all.
+        if (ride is { Length: > 0 } going)
+        {
+            var riding = new DrivingTraffic(map, null, from, going.ToUpperInvariant());
+
+            riding.Ride(
+                new Traveller(story.Ego, Ego, EgoFace, [from, going], Loops: false, 0, []),
+                [from, going],
+                player: true);
+
+            riding.Arrived = riding._player is null || riding._player.Road.Count < 2;
+
+            return riding;
+        }
 
         Traveller? chase = follow > 0 ? Chased(follow, from) : null;
         var traffic = new DrivingTraffic(map, chase, from);
@@ -172,7 +202,7 @@ public sealed class DrivingTraffic
     /// <param name="seconds">How long since the last frame.</param>
     public void Advance(double seconds)
     {
-        float step = (float)seconds * (Following ? Chasing : Wandering);
+        float step = (float)seconds * (Moving ? Chasing : Wandering);
 
         foreach (Rider one in _riders)
         {
@@ -181,17 +211,22 @@ public sealed class DrivingTraffic
 
         // The chase is over when the quarry stops, not when the player catches up: the
         // player is deliberately behind, and waiting for them to arrive would leave the
-        // picture still for the second it takes.
+        // picture still for the second it takes. A ride is over when the player stops.
         if (_quarry is { } front && front.Travelled >= Length(front.Road))
+        {
+            Arrived = true;
+        }
+
+        if (Riding && _player is { } rider && rider.Travelled >= Length(rider.Road))
         {
             Arrived = true;
         }
     }
 
-    /// <summary>Puts a chase at its end, for a player who does not want to watch it.</summary>
+    /// <summary>Puts a chase or a ride at its end, for a player who does not want to watch it.</summary>
     public void Skip()
     {
-        if (!Following)
+        if (!Moving)
         {
             return;
         }

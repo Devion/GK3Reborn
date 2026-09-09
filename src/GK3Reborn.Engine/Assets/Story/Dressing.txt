@@ -52,6 +52,25 @@ append TR1.SIF MODELS model=RBN_CZ_CROSSING, noun=OTR_BUILDINGS, type=prop, pos=
 append TR1.SIF MODELS model=RBN_CZ_CROSSKEEP, noun=OTR_BUILDINGS, type=prop, pos={150,-8.1,-1230}, heading=0
 append TR1.SIF MODELS model=RBN_CZ_BENCH2, noun=OTR_BUILDINGS, type=prop, pos={1075,20.6,-552}, heading=180
 append TR1.SIF MODELS model=RBN_CZ_BIN, noun=OTR_BUILDINGS, type=prop, pos={1125,22.1,-552}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_SEDAN, noun=OTR_BUILDINGS, type=prop, pos={1532,32.0,-1400}, heading=88
+append TR1.SIF MODELS model=RBN_CZ_VAN, noun=OTR_BUILDINGS, type=prop, pos={1553,34.2,-1650}, heading=92
+append TR1.SIF MODELS model=RBN_CZ_SEDAN2, noun=OTR_BUILDINGS, type=prop, pos={1437,-13.1,1200}, heading=82
+append TR1.SIF MODELS model=RBN_CZ_SEDAN_01, noun=OTR_BUILDINGS, type=prop, pos={1380,-6.0,1620}, heading=98
+append TR1.SIF MODELS model=RBN_CZ_BENCH2_01, noun=OTR_BUILDINGS, type=prop, pos={1132,12.2,-110}, heading=180
+append TR1.SIF MODELS model=RBN_CZ_BENCH2_02, noun=OTR_BUILDINGS, type=prop, pos={1132,11.5,40}, heading=180
+append TR1.SIF MODELS model=RBN_CZ_CAR, noun=OTR_BUILDINGS, type=prop, pos={1184,11.1,-190}, heading=270
+append TR1.SIF MODELS model=RBN_CZ_LAMP, noun=OTR_BUILDINGS, type=prop, pos={1560,35.4,-1780}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_01, noun=OTR_BUILDINGS, type=prop, pos={1540,22.0,-1300}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_02, noun=OTR_BUILDINGS, type=prop, pos={1516,15.2,-900}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_03, noun=OTR_BUILDINGS, type=prop, pos={1478,-23.7,1080}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_04, noun=OTR_BUILDINGS, type=prop, pos={1418,-19.2,1480}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_LAMP_05, noun=OTR_BUILDINGS, type=prop, pos={1358,-13.4,1880}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_VESPA, noun=OTR_BUILDINGS, type=prop, pos={1640,17.8,-548}, heading=8
+append TR1.SIF MODELS model=RBN_CZ_VESPA2, noun=OTR_BUILDINGS, type=prop, pos={1600,-15.6,1178}, heading=172
+append TR1.SIF MODELS model=RBN_CZ_STREETBENCH, noun=OTR_BUILDINGS, type=prop, pos={1520,10.5,-710}, heading=270
+append TR1.SIF MODELS model=RBN_CZ_BIN_01, noun=OTR_BUILDINGS, type=prop, pos={1548,11.0,-700}, heading=0
+append TR1.SIF MODELS model=RBN_CZ_STREETBENCH_01, noun=OTR_BUILDINGS, type=prop, pos={1460,-23.2,1330}, heading=90
+append TR1.SIF MODELS model=RBN_CZ_BENCH3, noun=OTR_BUILDINGS, type=prop, pos={1230,-11.2,1780}, heading=90
 
 [TREES]
 # Foliage cards, and they carry no pos on purpose: each one is authored at
@@ -138,152 +157,36 @@ append RL1.SIF MODELS model=RBN_RB_ROAD02, type=decal
 append RL1.SIF MODELS model=RBN_RB_ROAD03, type=decal
 append RL1.SIF MODELS model=RBN_RB_ROAD04, type=decal
 append RL1.SIF MODELS model=RBN_RB_ROAD05, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD06, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD07, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD08, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD09, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD10, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD11, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD12, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD13, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD14, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD15, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD16, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD17, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD18, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD19, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD20, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD21, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD22, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD23, type=decal
-append RL1.SIF MODELS model=RBN_RB_ROAD24, type=decal
 append RL1.SIF MODELS model=RBN_RB_APRON01, type=decal
-append RL1.SIF MODELS model=RBN_RB_APRON02, type=decal
 
 [RL1_FACADES]
 # Every one answers to BUILDINGS, which RL1_ALL.NVC already gives a
 # LOOK rule and a recorded line for both characters, so the town needs
 # no dialogue of its own.
-append RL1.SIF MODELS model=RBN_RB_LAID, noun=BUILDINGS, type=prop, pos={-2397,31.0,-2053}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BIG, noun=BUILDINGS, type=prop, pos={-1847,31.0,-2047}, heading=360
-append RL1.SIF MODELS model=RBN_RB_LAID_01, noun=BUILDINGS, type=prop, pos={-1572,31.0,-2045}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BIG_01, noun=BUILDINGS, type=prop, pos={-1297,31.0,-2043}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BAR, noun=BUILDINGS, type=prop, pos={-2372,52.0,-146}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BREAD, noun=BUILDINGS, type=prop, pos={-1922,50.7,-153}, heading=360
-append RL1.SIF MODELS model=RBN_RB_EGGS, noun=BUILDINGS, type=prop, pos={-1697,50.7,-182}, heading=360
-append RL1.SIF MODELS model=RBN_RB_TEETH, noun=BUILDINGS, type=prop, pos={-1422,50.7,-197}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BREAD_01, noun=BUILDINGS, type=prop, pos={-1197,50.7,-147}, heading=360
-append RL1.SIF MODELS model=RBN_RB_HOUSE, noun=BUILDINGS, type=prop, pos={-2353,53.8,542}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BIG_02, noun=BUILDINGS, type=prop, pos={-1853,58.3,510}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BAR_01, noun=BUILDINGS, type=prop, pos={-1553,54.3,556}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_01, noun=BUILDINGS, type=prop, pos={-2353,55.3,1242}, heading=179
-append RL1.SIF MODELS model=RBN_RB_HOUSE_02, noun=BUILDINGS, type=prop, pos={-1853,56.4,1246}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_03, noun=BUILDINGS, type=prop, pos={-1528,57.1,1212}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_02, noun=BUILDINGS, type=prop, pos={-1278,57.8,1270}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_03, noun=BUILDINGS, type=prop, pos={-2353,63.3,2642}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BIG_04, noun=BUILDINGS, type=prop, pos={-1828,77.5,2610}, heading=180
-append RL1.SIF MODELS model=RBN_RB_LAID_02, noun=BUILDINGS, type=prop, pos={-1553,87.5,2613}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_04, noun=BUILDINGS, type=prop, pos={-1278,89.3,2651}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_05, noun=BUILDINGS, type=prop, pos={-2353,89.3,3342}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BIG_05, noun=BUILDINGS, type=prop, pos={-1828,89.3,3310}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BAR_02, noun=BUILDINGS, type=prop, pos={-1528,89.3,3357}, heading=180
-append RL1.SIF MODELS model=RBN_RB_TEETH_01, noun=BUILDINGS, type=prop, pos={-1253,88.1,3418}, heading=180
-append RL1.SIF MODELS model=RBN_RB_LAID_03, noun=BUILDINGS, type=prop, pos={-1003,76.9,3317}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_06, noun=BUILDINGS, type=prop, pos={1603,38.1,-2049}, heading=360
-append RL1.SIF MODELS model=RBN_RB_LAID_04, noun=BUILDINGS, type=prop, pos={1878,38.1,-2047}, heading=360
-append RL1.SIF MODELS model=RBN_RB_LAID_05, noun=BUILDINGS, type=prop, pos={2128,38.1,-2045}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BIG_07, noun=BUILDINGS, type=prop, pos={2678,38.1,-2040}, heading=360
-append RL1.SIF MODELS model=RBN_RB_HOUSE_06, noun=BUILDINGS, type=prop, pos={1597,54.2,-706}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_08, noun=BUILDINGS, type=prop, pos={1922,71.3,-740}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_03, noun=BUILDINGS, type=prop, pos={2172,80.1,-682}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_07, noun=BUILDINGS, type=prop, pos={2672,80.1,-697}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_08, noun=BUILDINGS, type=prop, pos={1578,36.1,-136}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BIG_09, noun=BUILDINGS, type=prop, pos={1903,33.5,-97}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BREAD_04, noun=BUILDINGS, type=prop, pos={2153,32.2,-150}, heading=360
-append RL1.SIF MODELS model=RBN_RB_TEETH_02, noun=BUILDINGS, type=prop, pos={2653,29.4,-194}, heading=360
-append RL1.SIF MODELS model=RBN_RB_HOUSE_09, noun=BUILDINGS, type=prop, pos={2172,6.8,549}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_10, noun=BUILDINGS, type=prop, pos={2672,6.8,553}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_10, noun=BUILDINGS, type=prop, pos={2178,6.8,1106}, heading=360
-append RL1.SIF MODELS model=RBN_RB_LAID_06, noun=BUILDINGS, type=prop, pos={2653,6.8,1109}, heading=360
-append RL1.SIF MODELS model=RBN_RB_HOUSE_11, noun=BUILDINGS, type=prop, pos={1597,20.1,1744}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_11, noun=BUILDINGS, type=prop, pos={1922,6.8,1710}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_05, noun=BUILDINGS, type=prop, pos={2172,6.8,1768}, heading=180
-append RL1.SIF MODELS model=RBN_RB_LAID_07, noun=BUILDINGS, type=prop, pos={2647,6.8,1717}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_12, noun=BUILDINGS, type=prop, pos={1622,66.8,2444}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BIG_12, noun=BUILDINGS, type=prop, pos={1947,66.8,2410}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_06, noun=BUILDINGS, type=prop, pos={2197,66.8,2468}, heading=180
-append RL1.SIF MODELS model=RBN_RB_LAID_08, noun=BUILDINGS, type=prop, pos={2647,66.8,2417}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_13, noun=BUILDINGS, type=prop, pos={-547,59.0,-1827}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BREAD_07, noun=BUILDINGS, type=prop, pos={-297,60.5,-1844}, heading=359
-append RL1.SIF MODELS model=RBN_RB_TEETH_03, noun=BUILDINGS, type=prop, pos={-71,61.2,-1889}, heading=359
-append RL1.SIF MODELS model=RBN_RB_LAID_09, noun=BUILDINGS, type=prop, pos={453,72.5,-1782}, heading=359
-append RL1.SIF MODELS model=RBN_RB_GALLERY, noun=BUILDINGS, type=prop, pos={703,38.1,-1784}, heading=359
-append RL1.SIF MODELS model=RBN_RB_HOUSE_14, noun=BUILDINGS, type=prop, pos={-553,31.1,-1137}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BREAD_08, noun=BUILDINGS, type=prop, pos={-303,49.2,-1116}, heading=179
-append RL1.SIF MODELS model=RBN_RB_EGGS_01, noun=BUILDINGS, type=prop, pos={-79,60.5,-1083}, heading=179
-append RL1.SIF MODELS model=RBN_RB_LAID_10, noun=BUILDINGS, type=prop, pos={447,59.2,-1164}, heading=179
-append RL1.SIF MODELS model=RBN_RB_GALLERY_01, noun=BUILDINGS, type=prop, pos={697,38.1,-1157}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BREAD_09, noun=BUILDINGS, type=prop, pos={922,38.1,-1105}, heading=179
-append RL1.SIF MODELS model=RBN_RB_HOUSE_15, noun=BUILDINGS, type=prop, pos={-2347,31.0,-2639}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BIG_13, noun=BUILDINGS, type=prop, pos={-2022,31.0,-2599}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BAR_03, noun=BUILDINGS, type=prop, pos={-1722,31.0,-2641}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BREAD_10, noun=BUILDINGS, type=prop, pos={-1472,42.4,-2650}, heading=359
-append RL1.SIF MODELS model=RBN_RB_TEETH_04, noun=BUILDINGS, type=prop, pos={-1246,53.4,-2695}, heading=359
-append RL1.SIF MODELS model=RBN_RB_ROW_C, noun=BUILDINGS, type=prop, pos={-421,60.5,-2688}, heading=359
-append RL1.SIF MODELS model=RBN_RB_ROW_F, noun=BUILDINGS, type=prop, pos={704,38.1,-2661}, heading=359
-append RL1.SIF MODELS model=RBN_RB_ROW_G, noun=BUILDINGS, type=prop, pos={1629,38.1,-2669}, heading=359
-append RL1.SIF MODELS model=RBN_RB_HOUSE_16, noun=BUILDINGS, type=prop, pos={2003,38.1,-2599}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BIG_14, noun=BUILDINGS, type=prop, pos={2328,38.1,-2559}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BAR_04, noun=BUILDINGS, type=prop, pos={2628,38.1,-2600}, heading=359
-append RL1.SIF MODELS model=RBN_RB_BIG_15, noun=BUILDINGS, type=prop, pos={997,38.1,-1965}, heading=179
-append RL1.SIF MODELS model=RBN_RB_BREAD_11, noun=BUILDINGS, type=prop, pos={-623,68.4,1745}, heading=360
-append RL1.SIF MODELS model=RBN_RB_LAID_11, noun=BUILDINGS, type=prop, pos={926,66.6,1807}, heading=360
-append RL1.SIF MODELS model=RBN_RB_BREAD_12, noun=BUILDINGS, type=prop, pos={1152,64.9,1753}, heading=360
-append RL1.SIF MODELS model=RBN_RB_HOUSE_17, noun=BUILDINGS, type=prop, pos={-552,64.8,2454}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_13, noun=BUILDINGS, type=prop, pos={-302,64.8,2474}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_14, noun=BUILDINGS, type=prop, pos={-102,64.8,2475}, heading=180
-append RL1.SIF MODELS model=RBN_RB_ROW_F_01, noun=BUILDINGS, type=prop, pos={623,64.8,2509}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_15, noun=BUILDINGS, type=prop, pos={1098,65.6,2480}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_18, noun=BUILDINGS, type=prop, pos={-552,64.8,3249}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_16, noun=BUILDINGS, type=prop, pos={-302,64.8,3269}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_17, noun=BUILDINGS, type=prop, pos={-102,64.8,3270}, heading=180
-append RL1.SIF MODELS model=RBN_RB_TEETH_05, noun=BUILDINGS, type=prop, pos={373,64.8,3320}, heading=180
-append RL1.SIF MODELS model=RBN_RB_LAID_12, noun=BUILDINGS, type=prop, pos={624,64.8,3218}, heading=180
-append RL1.SIF MODELS model=RBN_RB_ROW_B, noun=BUILDINGS, type=prop, pos={1048,64.8,3275}, heading=180
-append RL1.SIF MODELS model=RBN_RB_ROW_C_01, noun=BUILDINGS, type=prop, pos={1873,65.2,3326}, heading=180
-append RL1.SIF MODELS model=RBN_RB_HOUSE_19, noun=BUILDINGS, type=prop, pos={2698,66.8,3264}, heading=180
-append RL1.SIF MODELS model=RBN_RB_BREAD_18, noun=BUILDINGS, type=prop, pos={-641,60.5,-2094}, heading=269
-append RL1.SIF MODELS model=RBN_RB_LAID_13, noun=BUILDINGS, type=prop, pos={-708,31.0,-828}, heading=270
-append RL1.SIF MODELS model=RBN_RB_GALLERY_02, noun=BUILDINGS, type=prop, pos={-699,33.7,-303}, heading=270
-append RL1.SIF MODELS model=RBN_RB_LAID_14, noun=BUILDINGS, type=prop, pos={-701,56.9,-53}, heading=270
-append RL1.SIF MODELS model=RBN_RB_BIG_16, noun=BUILDINGS, type=prop, pos={-698,59.3,472}, heading=270
-append RL1.SIF MODELS model=RBN_RB_LAID_15, noun=BUILDINGS, type=prop, pos={-692,55.8,1122}, heading=270
-append RL1.SIF MODELS model=RBN_RB_GALLERY_03, noun=BUILDINGS, type=prop, pos={-685,62.2,1372}, heading=270
-append RL1.SIF MODELS model=RBN_RB_BREAD_19, noun=BUILDINGS, type=prop, pos={-623,67.9,2722}, heading=270
-append RL1.SIF MODELS model=RBN_RB_BREAD_20, noun=BUILDINGS, type=prop, pos={-1382,31.0,-1306}, heading=89
-append RL1.SIF MODELS model=RBN_RB_EGGS_02, noun=BUILDINGS, type=prop, pos={-1412,31.0,-822}, heading=90
-append RL1.SIF MODELS model=RBN_RB_HOUSE_20, noun=BUILDINGS, type=prop, pos={-1340,63.3,1853}, heading=90
-append RL1.SIF MODELS model=RBN_RB_BREAD_21, noun=BUILDINGS, type=prop, pos={-1754,31.0,-1297}, heading=270
-append RL1.SIF MODELS model=RBN_RB_LAID_16, noun=BUILDINGS, type=prop, pos={-1810,31.0,-828}, heading=270
-append RL1.SIF MODELS model=RBN_RB_GALLERY_04, noun=BUILDINGS, type=prop, pos={-1783,63.3,1822}, heading=270
-append RL1.SIF MODELS model=RBN_RB_TEETH_06, noun=BUILDINGS, type=prop, pos={-2519,31.0,-1278}, heading=90
-append RL1.SIF MODELS model=RBN_RB_TEETH_07, noun=BUILDINGS, type=prop, pos={-2520,31.0,-822}, heading=90
-append RL1.SIF MODELS model=RBN_RB_HOUSE_21, noun=BUILDINGS, type=prop, pos={-2431,63.3,1853}, heading=90
-append RL1.SIF MODELS model=RBN_RB_BREAD_22, noun=BUILDINGS, type=prop, pos={1703,38.1,-1256}, heading=271
-append RL1.SIF MODELS model=RBN_RB_EGGS_03, noun=BUILDINGS, type=prop, pos={1729,66.8,-422}, heading=270
-append RL1.SIF MODELS model=RBN_RB_LAID_17, noun=BUILDINGS, type=prop, pos={1642,6.8,422}, heading=270
-append RL1.SIF MODELS model=RBN_RB_BAR_05, noun=BUILDINGS, type=prop, pos={1697,6.8,1144}, heading=271
-append RL1.SIF MODELS model=RBN_RB_HOUSE_22, noun=BUILDINGS, type=prop, pos={991,38.1,-753}, heading=90
-append RL1.SIF MODELS model=RBN_RB_BIG_17, noun=BUILDINGS, type=prop, pos={1025,53.3,-428}, heading=90
-append RL1.SIF MODELS model=RBN_RB_BAR_06, noun=BUILDINGS, type=prop, pos={978,40.6,-128}, heading=90
-append RL1.SIF MODELS model=RBN_RB_LAID_18, noun=BUILDINGS, type=prop, pos={1024,6.8,403}, heading=90
-append RL1.SIF MODELS model=RBN_RB_LAID_19, noun=BUILDINGS, type=prop, pos={1027,6.8,653}, heading=90
-append RL1.SIF MODELS model=RBN_RB_HOUSE_23, noun=BUILDINGS, type=prop, pos={999,6.8,1131}, heading=91
-append RL1.SIF MODELS model=RBN_RB_BREAD_23, noun=BUILDINGS, type=prop, pos={2792,59.1,-1253}, heading=270
-append RL1.SIF MODELS model=RBN_RB_BREAD_24, noun=BUILDINGS, type=prop, pos={2074,38.1,-1272}, heading=90
-append RL1.SIF MODELS model=RBN_RB_BREAD_25, noun=BUILDINGS, type=prop, pos={615,49.1,-2079}, heading=271
-append RL1.SIF MODELS model=RBN_RB_BREAD_26, noun=BUILDINGS, type=prop, pos={542,65.3,1904}, heading=269
-append RL1.SIF MODELS model=RBN_RB_BREAD_27, noun=BUILDINGS, type=prop, pos={-266,65.8,1896}, heading=89
+append RL1.SIF MODELS model=RBN_RB_HOUSE, noun=BUILDINGS, type=prop, pos={-685,50.7,-186}, heading=178
+append RL1.SIF MODELS model=RBN_RB_BREAD, noun=BUILDINGS, type=prop, pos={-1211,50.7,-183}, heading=178
+append RL1.SIF MODELS model=RBN_RB_HOUSE_01, noun=BUILDINGS, type=prop, pos={-664,31.0,-876}, heading=358
+append RL1.SIF MODELS model=RBN_RB_BREAD_01, noun=BUILDINGS, type=prop, pos={-1189,31.0,-911}, heading=358
+append RL1.SIF MODELS model=RBN_RB_HOUSE_02, noun=BUILDINGS, type=prop, pos={978,6.8,523}, heading=359
+append RL1.SIF MODELS model=RBN_RB_BREAD_02, noun=BUILDINGS, type=prop, pos={1529,6.8,509}, heading=359
+append RL1.SIF MODELS model=RBN_RB_HOUSE_03, noun=BUILDINGS, type=prop, pos={972,6.8,1213}, heading=179
+append RL1.SIF MODELS model=RBN_RB_BREAD_03, noun=BUILDINGS, type=prop, pos={1546,6.8,1237}, heading=179
+append RL1.SIF MODELS model=RBN_RB_BIG, noun=BUILDINGS, type=prop, pos={-698,67.8,147}, heading=270
+append RL1.SIF MODELS model=RBN_RB_LAID, noun=BUILDINGS, type=prop, pos={-695,63.6,422}, heading=270
+append RL1.SIF MODELS model=RBN_RB_GALLERY, noun=BUILDINGS, type=prop, pos={-688,52.5,672}, heading=270
+append RL1.SIF MODELS model=RBN_RB_BIG_01, noun=BUILDINGS, type=prop, pos={-691,52.5,972}, heading=270
+append RL1.SIF MODELS model=RBN_RB_HOUSE_04, noun=BUILDINGS, type=prop, pos={977,38.1,-744}, heading=91
+append RL1.SIF MODELS model=RBN_RB_BIG_02, noun=BUILDINGS, type=prop, pos={1020,63.5,-420}, heading=91
+append RL1.SIF MODELS model=RBN_RB_BAR, noun=BUILDINGS, type=prop, pos={979,40.5,-122}, heading=90
+append RL1.SIF MODELS model=RBN_RB_LAID_01, noun=BUILDINGS, type=prop, pos={1025,29.4,153}, heading=90
+append RL1.SIF MODELS model=RBN_RB_HOUSE_05, noun=BUILDINGS, type=prop, pos={597,38.1,-1356}, heading=271
+append RL1.SIF MODELS model=RBN_RB_BIG_03, noun=BUILDINGS, type=prop, pos={560,38.1,-1030}, heading=271
+append RL1.SIF MODELS model=RBN_RB_TEETH, noun=BUILDINGS, type=prop, pos={590,65.0,1929}, heading=270
+append RL1.SIF MODELS model=RBN_RB_LAID_02, noun=BUILDINGS, type=prop, pos={485,64.8,2178}, heading=270
+append RL1.SIF MODELS model=RBN_RB_HOUSE_06, noun=BUILDINGS, type=prop, pos={-173,60.5,-1345}, heading=91
+append RL1.SIF MODELS model=RBN_RB_BIG_04, noun=BUILDINGS, type=prop, pos={-137,58.6,-1020}, heading=91
+append RL1.SIF MODELS model=RBN_RB_HOUSE_07, noun=BUILDINGS, type=prop, pos={-247,64.8,1947}, heading=90
+append RL1.SIF MODELS model=RBN_RB_BREAD_04, noun=BUILDINGS, type=prop, pos={-268,64.8,2197}, heading=90
 
 [RL1_TREES]
 # Foliage cards, carrying no pos on purpose: each is authored at the
@@ -333,3 +236,6 @@ append RL1.SIF MODELS model=RBN_RB_TREE40, type=prop
 append RL1.SIF MODELS model=RBN_RB_TREE41, type=prop
 append RL1.SIF MODELS model=RBN_RB_TREE42, type=prop
 append RL1.SIF MODELS model=RBN_RB_TREE43, type=prop
+append RL1.SIF MODELS model=RBN_RB_TREE44, type=prop
+append RL1.SIF MODELS model=RBN_RB_TREE45, type=prop
+append RL1.SIF MODELS model=RBN_RB_TREE46, type=prop

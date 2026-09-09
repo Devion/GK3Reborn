@@ -199,8 +199,10 @@ public sealed class SceneDressingTests
         // pass has claimed a model, so a tree card with a pos would be a tree standing
         // somewhere the layout did not put it — and there would be nothing on screen to
         // say which of the two places was meant.
+        // A card is RBN_xx_TREEnn; a street bench has "tree" in it and is not one.
         List<(string Model, string Line)> trees =
-            [.. Added().Where(a => a.Model.Contains("TREE", StringComparison.OrdinalIgnoreCase))];
+            [.. Added().Where(a => System.Text.RegularExpressions.Regex.IsMatch(
+                a.Model, @"_TREE\d+$", System.Text.RegularExpressions.RegexOptions.IgnoreCase))];
 
         Assert.NotEmpty(trees);
 

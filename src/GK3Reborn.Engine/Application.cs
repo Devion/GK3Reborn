@@ -2789,6 +2789,17 @@ public static class Application
                 api.Perform("HideModel", [Sheep.SheepValue.FromString(api.State.Ego)]) is not null)
             {
                 Log.Info($"Binoculars: {api.State.Ego} is not in {scene.Name}");
+
+                // Nor is their moped: a roadside's scene file parks it there for whoever
+                // rides up, and nobody has.
+                foreach (Game.PlacedModel parked in scene.Placed ?? [])
+                {
+                    if (string.Equals(parked.Noun, "GABES_MOPED", StringComparison.OrdinalIgnoreCase) &&
+                        api.Perform("HideModel", [Sheep.SheepValue.FromString(parked.Name)]) is not null)
+                    {
+                        Log.Info($"Binoculars: {parked.Name} is not in {scene.Name} either");
+                    }
+                }
             }
 
             // And the room a look is being put down in is put back as it was: the player
@@ -3570,7 +3581,9 @@ public static class Application
             wanted.Split(':') is [string named, ..] &&
             Enum.TryParse(named, ignoreCase: true, out ScreenKind kind))
         {
-            string? about = wanted.Split(':') is [_, string subject, ..] ? subject : null;
+            // Everything after the kind, colons included: a subject may carry one of its
+            // own, as ride:TR1 does.
+            string? about = wanted.Split(':', 2) is [_, string subject] ? subject : null;
 
             if (about is { Length: > 0 })
             {
@@ -4039,10 +4052,11 @@ public static class Application
             api.Resuming = looking;
             api.WantedCamera = (looking.Eye, looking.Look);
 
-            story.Screens.Back();
+            // Still through the eyepieces: leaning back out is not putting them down.
+            story.Screens.Replace(new Screen(ScreenKind.Binoculars));
             update.Cancel();
 
-            Log.Info($"Binoculars lowered, back at {looking.From}");
+            Log.Info($"Binoculars raised again at {looking.From}");
 
             return new RoomExit(0, looking.From);
         }
@@ -4094,10 +4108,83 @@ public static class Application
                 $"{Game.BirdFlock.FlapsPerSecond(overhead.Wingspan):F1} beats a second"));
         }
 
+        // Whether the binoculars have been raised to the player's eyes this time round.
+        bool throughEyes = false;
+
+        // The last caption logged, so each line is said once.
+        string? captioned = null;
+
         // Whether anything was handed to the blended pass last frame. Only so that a room
         // which stops having any — the lasers being switched off — is told once, rather
         // than every frame of the two hundred rooms that never have any at all.
         bool blending = false;
+
+        // The room's smoke, embers, beams and birds, moved on and handed over sorted for
+        // the eye they are about to be seen by. Before SetScene so the two describe one
+        // instant. Shared with the binoculars, which are looked *through*: a frame under
+        // that screen still has a sky with birds in it.
+        void BlendAir(Camera view, float delta)
+        {
+            // And whatever the room's own machinery wants blended: CS2's laser beams are
+            // drawn as light scattering in the air, which is the one thing in this renderer
+            // that has to be see-through and so has to come through here. How much of the
+            // picture is being paid for goes the other way at the same time — the beams are
+            // drawn as light only where there is a lighting model to make that read.
+            if (api.Mechanism is { } machine)
+            {
+                machine.Tracing = renderer.Quality;
+
+                // And its own lights, where it has any that move. A self-lit surface is
+                // drawn bright and lights nothing, so a laser beam that is to lay red
+                // across the floor under it has to be in the rig — see
+                // SceneMechanism.Lights. Laid only when it says so: laying a rig rebuilds
+                // the scene's light grid, which is a per-room cost.
+                if (machine.LightsMoved)
+                {
+                    renderer.SetLights(
+                        [.. rig, .. machine.Lights],
+                        new SceneExtent(geometry.Minimum, geometry.Maximum));
+                }
+            }
+
+            IReadOnlyList<Rendering.Particle> blended =
+                api.Mechanism?.Particles(view.Position) ?? [];
+
+            if (smoke.Emitters > 0)
+            {
+                smoke.Advance(delta, view.Position);
+
+                IReadOnlyList<Rendering.Particle> puffs = smoke.Facing(view.Position);
+
+                // Both, where a room has both. Neither list is long and the pass takes one.
+                blended = blended.Count == 0 ? puffs : [.. puffs, .. blended];
+            }
+
+            // And the birds, ahead of all of it. They are the furthest thing the pass
+            // draws by a long way — the sky is over the room and everything else here is
+            // in it — and the list is drawn in the order it arrives, so they go first.
+            //
+            // Advanced whatever the switch says and drawn only when it is on, so that
+            // turning the birds off and on again does not teleport the flock: it is the
+            // same room a moment later, not a new one.
+            if (birds.Count > 0)
+            {
+                birds.Advance(delta);
+
+                if (front.Settings.Birds && !noBirds)
+                {
+                    IReadOnlyList<Rendering.Particle> flying = birds.Facing(view);
+
+                    blended = blended.Count == 0 ? flying : [.. flying, .. blended];
+                }
+            }
+
+            if (blended.Count > 0 || blending)
+            {
+                renderer.SetParticles(blended);
+                blending = blended.Count > 0;
+            }
+        }
 
         int cameraIndex = Math.Max(
             0,
@@ -4775,6 +4862,15 @@ public static class Application
                     $"  [{stopwatch.Elapsed.TotalSeconds:F2}s] {happened}"));
             }
 
+            // Every line as it starts, so a headless run can show that somebody spoke.
+            if (room?.Caption is { Length: > 0 } line && !ReferenceEquals(line, captioned))
+            {
+                captioned = line;
+                Log.Info(string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"  [{stopwatch.Elapsed.TotalSeconds:F2}s] {room.Speaker ?? "?"}: {line}"));
+            }
+
             // The story moving the camera takes it back off the player, for as long as it
             // is moving. Letting them keep flying through a scripted glide would fight
             // them for the mouse, and letting the glide win afterwards would take the view
@@ -5018,6 +5114,11 @@ public static class Application
             // interface and it takes the click. Nothing behind it is hovered, walked to or
             // acted on, which is what modal means and what stops a click on Sidney's menu
             // also being a click on the floor behind it.
+            if (story.Screens.Top?.Kind != ScreenKind.Binoculars)
+            {
+                throughEyes = false;
+            }
+
             if (screens is not null && story.Screens.Top is { } panel)
             {
                 Panorama seen = binoculars.For(scene.Name, story.Timeblock.ToString());
@@ -5067,12 +5168,18 @@ public static class Application
                         traffic = Game.DrivingTraffic.For(
                             story,
                             map,
-                            panel.Subject?.Split(':') is [_, string chased] &&
+                            panel.Subject?.Split(':') is ["follow", string chased] &&
                             int.TryParse(chased, NumberStyles.Integer, CultureInfo.InvariantCulture, out int which)
                                 ? which
-                                : 0);
+                                : 0,
+                            panel.Subject?.Split(':') is ["ride", string going] ? going : null);
 
                         trafficFor = opened;
+
+                        if (traffic.Destination is { } riding)
+                        {
+                            Log.Info($"Riding from {traffic.From} to {riding}");
+                        }
 
                         if (traffic.Chase is { } quarry)
                         {
@@ -5094,6 +5201,14 @@ public static class Application
 
                         story.Screens.CloseAll();
                         Arrive(chase, story);
+                    }
+                    else if (traffic is { Riding: true, Arrived: true, Destination: { } there })
+                    {
+                        traffic = null;
+                        trafficFor = null;
+
+                        story.Screens.CloseAll();
+                        story.RideTo(there);
                     }
                 }
                 else if (traffic is not null)
@@ -5421,11 +5536,37 @@ public static class Application
                 // are leaning into somewhere else: that view is the one the game's own data
                 // framed, in a room whose floor and walls the player is not standing on.
                 if (panel.Kind == ScreenKind.Binoculars &&
-                    !(panel.Subject?.StartsWith(Screen.Zoomed, StringComparison.Ordinal) ?? false) &&
-                    !console.Open &&
-                    !typing)
+                    !(panel.Subject?.StartsWith(Screen.Zoomed, StringComparison.Ordinal) ?? false))
                 {
-                    camera.Update(window, (float)delta);
+                    // Raised to the player's own eyes, once: just in front of the face, at
+                    // eye height, looking the way they stand. Not when the camera is
+                    // already there, which is what leaning back out of a look restores.
+                    if (!throughEyes)
+                    {
+                        throughEyes = true;
+
+                        if (update.EyesOf(story.Ego) is { } eyes)
+                        {
+                            // --aim outranks the way they stand, so a run can be pointed at a
+                            // sight without dragging a pointer it has not got.
+                            float facing = looking is { } asked
+                                ? asked.X * MathF.PI / 180f
+                                : update.SettledFacing(story.Ego) ?? (camera.Aim.X * MathF.PI / 180f);
+                            Vector3 ahead = new(MathF.Sin(facing), 0f, MathF.Cos(facing));
+                            Vector3 at = eyes + (ahead * 10f);
+
+                            if (Vector3.Distance(camera.Position, at) > 4f)
+                            {
+                                camera.Position = at;
+                                camera.Aim = new Vector2(facing * 180f / MathF.PI, looking?.Y ?? 0f);
+                            }
+                        }
+                    }
+
+                    if (!console.Open && !typing)
+                    {
+                        camera.Update(window, (float)delta);
+                    }
                 }
 
                 screens.Build(
@@ -5453,7 +5594,9 @@ public static class Application
                         verbIcons,
                         artwork,
                         aiming,
-                        traffic),
+                        traffic,
+                        front.Settings.Captions ? room?.Caption : null,
+                        front.Settings.Captions ? room?.Speaker : null),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -5461,6 +5604,15 @@ public static class Application
                 renderer.SetOverlay(screens.Overlay);
 
                 window.EndFrame();
+
+                // The binoculars are looked through, so the room behind them goes on: the
+                // birds keep flying and the fires keep burning. Every other screen covers
+                // the room, and what it covers may stand still.
+                if (panel.Kind == ScreenKind.Binoculars)
+                {
+                    BlendAir(view, delta);
+                }
+
                 renderer.SetScene(geometry, view);
 
                 // Here as well as below: a player who opens the inventory on the frame they
@@ -5920,68 +6072,7 @@ public static class Application
 
             window.EndFrame();
 
-            // The room's smoke and embers, moved on and handed over sorted for the eye they
-            // are about to be seen by. Before SetScene so the two describe one instant.
-            //
-            // And whatever the room's own machinery wants blended: CS2's laser beams are
-            // drawn as light scattering in the air, which is the one thing in this renderer
-            // that has to be see-through and so has to come through here. How much of the
-            // picture is being paid for goes the other way at the same time — the beams are
-            // drawn as light only where there is a lighting model to make that read.
-            if (api.Mechanism is { } machine)
-            {
-                machine.Tracing = renderer.Quality;
-
-                // And its own lights, where it has any that move. A self-lit surface is
-                // drawn bright and lights nothing, so a laser beam that is to lay red
-                // across the floor under it has to be in the rig — see
-                // SceneMechanism.Lights. Laid only when it says so: laying a rig rebuilds
-                // the scene's light grid, which is a per-room cost.
-                if (machine.LightsMoved)
-                {
-                    renderer.SetLights(
-                        [.. rig, .. machine.Lights],
-                        new SceneExtent(geometry.Minimum, geometry.Maximum));
-                }
-            }
-
-            IReadOnlyList<Rendering.Particle> blended =
-                api.Mechanism?.Particles(view.Position) ?? [];
-
-            if (smoke.Emitters > 0)
-            {
-                smoke.Advance(delta, view.Position);
-
-                IReadOnlyList<Rendering.Particle> puffs = smoke.Facing(view.Position);
-
-                // Both, where a room has both. Neither list is long and the pass takes one.
-                blended = blended.Count == 0 ? puffs : [.. puffs, .. blended];
-            }
-
-            // And the birds, ahead of all of it. They are the furthest thing the pass
-            // draws by a long way — the sky is over the room and everything else here is
-            // in it — and the list is drawn in the order it arrives, so they go first.
-            //
-            // Advanced whatever the switch says and drawn only when it is on, so that
-            // turning the birds off and on again does not teleport the flock: it is the
-            // same room a moment later, not a new one.
-            if (birds.Count > 0)
-            {
-                birds.Advance(delta);
-
-                if (front.Settings.Birds && !noBirds)
-                {
-                    IReadOnlyList<Rendering.Particle> flying = birds.Facing(view);
-
-                    blended = blended.Count == 0 ? flying : [.. flying, .. blended];
-                }
-            }
-
-            if (blended.Count > 0 || blending)
-            {
-                renderer.SetParticles(blended);
-                blending = blended.Count > 0;
-            }
+            BlendAir(view, delta);
 
             renderer.SetScene(geometry, view);
 
@@ -7063,9 +7154,10 @@ public static class Application
             // Riding the moped, which is arriving from the map rather than from the room
             // the player left: scene files and scene scripts both ask which it was, and the
             // moped standing in the yard when they get there is one of the answers.
+            // Watched down the roads first, the way a chase is; the arrival is the frame
+            // loop's, when the marker gets there. See DrivingTraffic.For.
             case "drive" when parts.Length > 1:
-                story.Screens.CloseAll();
-                story.RideTo(parts[1]);
+                story.Screens.Replace(new Screen(ScreenKind.Driving, "ride:" + parts[1]));
                 break;
 
             // Split into three at most, because what a command is *about* may itself carry
