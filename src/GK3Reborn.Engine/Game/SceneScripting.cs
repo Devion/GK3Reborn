@@ -1021,12 +1021,60 @@ public static class SceneScripting
         // the walk actually ends, which the boundary decides, not from where it was aimed.
         return world.Walk(
             actor,
-            Approach(world, actor, aim),
+            seeing && aim.Room && aim.Bounds is { } box
+                ? VantageFor(scene, box)
+                : Approach(world, actor, aim),
             aim.Heading,
             aim.Look,
             hurry,
             mayRun,
-            seeing ? aim.Bounds : null);
+            seeing && aim.Bounds is { } seen
+                ? new SightTarget(aim.Room ? place : null, seen.Minimum, seen.Maximum)
+                : null);
+    }
+
+    /// <summary>
+    /// Where a walk to see part of the room is aimed.
+    /// </summary>
+    /// <remarks>
+    /// The retail engine's own rule: half the object's horizontal diagonal out from the
+    /// middle of its box, along +Z, and then onwards in three-unit steps until the floor
+    /// is walkable. It is arbitrary, and it is what every WalkToSee in the game was tuned
+    /// against — aiming at the middle sends the walk *into* a hollow object, which is how
+    /// Gabriel came to look at Larry's study from inside Larry's house.
+    /// </remarks>
+    /// <param name="scene">The room.</param>
+    /// <param name="box">The object's bounds.</param>
+    /// <returns>The point to walk towards.</returns>
+    internal static Vector3 VantageFor(LoadedScene scene, (Vector3 Minimum, Vector3 Maximum) box)
+    {
+        Vector3 middle = (box.Minimum + box.Maximum) * 0.5f;
+        Vector3 size = box.Maximum - box.Minimum;
+        float radius = MathF.Sqrt((size.X * size.X) + (size.Z * size.Z)) * 0.5f;
+
+        var vantage = new Vector3(middle.X, middle.Y, middle.Z + radius);
+
+        if (scene.Walkable is not { } boundary || boundary.IsWalkable(vantage))
+        {
+            return vantage;
+        }
+
+        const float Step = 3f;
+        const int Patience = 400;
+
+        Vector3 onwards = vantage;
+
+        for (int i = 0; i < Patience; i++)
+        {
+            onwards.Z += Step;
+
+            if (boundary.IsWalkable(onwards))
+            {
+                return onwards;
+            }
+        }
+
+        return vantage;
     }
 
     /// <summary>
@@ -1558,11 +1606,13 @@ public static class SceneScripting
     /// How far that thing reaches, for deciding when it can be seen. Null for a named
     /// spot, which is a point on the floor and not a thing anybody looks at.
     /// </param>
+    /// <param name="Room">Whether the thing is part of the room's geometry rather than placed in it.</param>
     private readonly record struct Aiming(
         Vector3 Destination,
         float? Heading,
         Vector3? Look,
-        (Vector3 Minimum, Vector3 Maximum)? Bounds = null);
+        (Vector3 Minimum, Vector3 Maximum)? Bounds = null,
+        bool Room = false);
 
     /// <summary>Where a walking call is pointing.</summary>
     private static Aiming? Aim(LoadedScene scene, string place, bool toModel)
@@ -1596,7 +1646,7 @@ public static class SceneScripting
         // Most of what a script points at is part of the room rather than something
         // standing in it — a door, a rack, a noticeboard.
         return scene.MiddleOf(place) is { } middleOf
-            ? new Aiming(middleOf, null, middleOf, scene.ExtentOf(place))
+            ? new Aiming(middleOf, null, middleOf, scene.ExtentOf(place), Room: true)
             : null;
     }
 

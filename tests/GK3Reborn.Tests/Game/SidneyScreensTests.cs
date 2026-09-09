@@ -449,14 +449,59 @@ public sealed class DrivingMapTests
         Assert.False(DrivingMap.Reveal(state, "NOWHERE"));
     }
 
+    /// <summary>
+    /// The Site shares Blanchefort's parking lot, so a ride to Blanchefort on Day 1 must
+    /// not put Cardou on the map — that takes the noon it belongs to and ten signs of Le
+    /// Serpent Rouge, and either the sign flags or the script's count may say so.
+    /// </summary>
     [Fact]
-    public void Somewhere_the_player_has_been_stays_on_the_map()
+    public void Having_been_to_Blanchefort_does_not_reveal_The_Site()
     {
-        var state = new GameState { Ego = "GABRIEL" };
+        var state = new GameState { Ego = "GABRIEL", Timeblock = new Timeblock(1, 2, true) };
 
-        state.EnterLocation("GABRIEL", "MCB");
+        state.EnterLocation("GABRIEL", "PLO");
 
-        Assert.Contains(DrivingMap.Open(state), s => s.Code == "MCB");
+        Assert.DoesNotContain(DrivingMap.Open(state), s => s.Code == "TRE");
+
+        state.Timeblock = new Timeblock(3, 12, true);
+
+        Assert.DoesNotContain(DrivingMap.Open(state), s => s.Code == "TRE");
+
+        state.SetVariable("LSRState", 10);
+
+        Assert.Contains(DrivingMap.Open(state), s => s.Code == "TRE");
+
+        var flagged = new GameState { Ego = "GABRIEL", Timeblock = new Timeblock(3, 12, true) };
+
+        foreach (string sign in new[] { "Aquarius", "Pisces", "Aries", "Taurus", "Gemini",
+                     "Cancer", "Leo", "Virgo", "Libra", "Scorpio" })
+        {
+            flagged.SetFlag(sign);
+        }
+
+        Assert.Equal(10, DrivingMap.SerpentRougeSigns(flagged));
+        Assert.Contains(DrivingMap.Open(flagged), s => s.Code == "TRE");
+
+        // A gap in the sequence stops the count where the retail engine's does.
+        flagged.ClearFlag("Leo");
+
+        Assert.Equal(6, DrivingMap.SerpentRougeSigns(flagged));
+        Assert.DoesNotContain(DrivingMap.Open(flagged), s => s.Code == "TRE");
+    }
+
+    /// <summary>The hexagram's arms are open for one noon, not for the rest of the day.</summary>
+    [Fact]
+    public void The_hexagram_arms_are_only_on_the_map_at_noon_on_Day_3()
+    {
+        var noon = new GameState { Ego = "GABRIEL", Timeblock = new Timeblock(3, 12, true) };
+
+        Assert.Contains(DrivingMap.Open(noon), s => s.Code == "MCB");
+        Assert.Contains(DrivingMap.Open(noon), s => s.Code == "BEC");
+
+        var later = new GameState { Ego = "GABRIEL", Timeblock = new Timeblock(3, 3, true) };
+
+        Assert.DoesNotContain(DrivingMap.Open(later), s => s.Code == "MCB");
+        Assert.Contains(DrivingMap.Open(later), s => s.Code == "BMB");
     }
 
     [Fact]

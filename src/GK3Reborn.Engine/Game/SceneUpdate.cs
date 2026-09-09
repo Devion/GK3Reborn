@@ -2351,7 +2351,7 @@ public sealed class SceneUpdate
         Vector3? arriveLookingAt = null,
         bool hurry = false,
         bool mayRun = false,
-        (Vector3 Minimum, Vector3 Maximum)? untilSeen = null)
+        SightTarget? untilSeen = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -2376,7 +2376,7 @@ public sealed class SceneUpdate
         // crossing the room to get a better one is the behaviour this replaces.
         if (untilSeen is { } wanted &&
             Sight is { } sight &&
-            sight.InView(from + (Vector3.UnitY * Eyes(placed)), wanted.Minimum, wanted.Maximum))
+            sight.InView(from + (Vector3.UnitY * Eyes(placed)), wanted))
         {
             return Turn(actor, (wanted.Minimum + wanted.Maximum) * 0.5f);
         }
@@ -2394,7 +2394,23 @@ public sealed class SceneUpdate
         // And a walk to see something stops where it can see it.
         if (untilSeen is { } thing)
         {
+            WalkRoute whole = route;
+
             route = ShortenedWhenSeen(route, placed, thing);
+
+            string outcome = route.Points.Count < whole.Points.Count
+                ? string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"seen from point {route.Points.Count} at ({route.Points[^1].X:0.#}, {route.Points[^1].Z:0.#})")
+                : "never in view";
+
+            TraceActors?.Invoke(string.Create(
+                CultureInfo.InvariantCulture,
+                $"{placed.Name} walks to see ({thing.Minimum.X:0.#}, {thing.Minimum.Y:0.#}, " +
+                $"{thing.Minimum.Z:0.#})-({thing.Maximum.X:0.#}, {thing.Maximum.Y:0.#}, " +
+                $"{thing.Maximum.Z:0.#}) from ({from.X:0.#}, {from.Z:0.#}) aimed " +
+                $"({destination.X:0.#}, {destination.Z:0.#}): {whole.Points.Count} point(s) " +
+                $"ending ({whole.Points[^1].X:0.#}, {whole.Points[^1].Z:0.#}), {outcome}"));
         }
 
         // Asked for at once rather than walked. The route is still found, because where the
@@ -2499,8 +2515,7 @@ public sealed class SceneUpdate
     /// <param name="actor">Who is walking, for how tall they are.</param>
     /// <param name="thing">The bounds of what they are walking to see.</param>
     /// <returns>The route, cut where the thing is first visible.</returns>
-    private WalkRoute ShortenedWhenSeen(
-        WalkRoute route, PlacedModel actor, (Vector3 Minimum, Vector3 Maximum) thing)
+    private WalkRoute ShortenedWhenSeen(WalkRoute route, PlacedModel actor, SightTarget thing)
     {
         if (Sight is not { } sight || route.Points.Count == 0)
         {
@@ -2513,7 +2528,7 @@ public sealed class SceneUpdate
         {
             Vector3 corner = route.Points[i];
 
-            bool seen = sight.InView(corner + (Vector3.UnitY * eyes), thing.Minimum, thing.Maximum);
+            bool seen = sight.InView(corner + (Vector3.UnitY * eyes), thing);
 
             if (!seen && i > 0)
             {
@@ -2523,8 +2538,7 @@ public sealed class SceneUpdate
                 {
                     Vector3 between = Vector3.Lerp(previous, corner, along);
 
-                    seen = sight.InView(
-                        between + (Vector3.UnitY * eyes), thing.Minimum, thing.Maximum);
+                    seen = sight.InView(between + (Vector3.UnitY * eyes), thing);
                 }
             }
 

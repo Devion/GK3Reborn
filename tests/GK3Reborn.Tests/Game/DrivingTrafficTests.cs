@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using Xunit;
 
@@ -346,16 +346,21 @@ public sealed class DrivingTrafficTests
 
     /// <summary>
     /// And the story hands them over anyway once it has moved past the afternoon they
-    /// belong to.
+    /// belong to — but not during it, or the chases would have nothing to earn.
     /// </summary>
     [Fact]
-    public void The_afternoon_after_puts_all_three_on_the_map_regardless()
+    public void The_evening_after_puts_all_three_on_the_map_regardless()
     {
-        var story = new GameState { Timeblock = Block("104P"), Location = "PLO" };
+        var afternoon = new GameState { Timeblock = Block("104P"), Location = "PLO" };
 
-        Assert.Contains(DrivingMap.Open(story), s => s.Scene == "PL4");
-        Assert.Contains(DrivingMap.Open(story), s => s.Scene == "PL2");
-        Assert.Contains(DrivingMap.Open(story), s => s.Scene == "PL1");
+        Assert.DoesNotContain(DrivingMap.Open(afternoon), s => s.Scene == "PL4");
+        Assert.DoesNotContain(DrivingMap.Open(afternoon), s => s.Scene == "PL2");
+
+        var evening = new GameState { Timeblock = Block("106P"), Location = "PLO" };
+
+        Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL4");
+        Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL2");
+        Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL1");
     }
 
     /// <summary>The five places the map opens with are still the five it opens with.</summary>

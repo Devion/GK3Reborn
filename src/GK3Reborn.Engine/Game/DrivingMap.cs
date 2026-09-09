@@ -173,9 +173,10 @@ public sealed class DrivingMap
                 continue;
             }
 
+            // Being there is not the same as knowing the way: The Site and Blanchefort both
+            // load PLO, and a visit to the second must not put the first on the map.
             if (stop.Known ||
                 story.GetFlag(FlagFor(stop)) ||
-                story.WasEverInLocation(story.Ego, stop.Scene) ||
                 Found(story, stop))
             {
                 open.Add(stop);
@@ -191,34 +192,84 @@ public sealed class DrivingMap
     /// <summary>
     /// Whether the story itself has put a place on the map, without the player going there.
     /// </summary>
+    /// <remarks>
+    /// The rules are the retail engine's own, read out of the function that refreshes the
+    /// map's markers. They compare timeblocks chronologically, which is what its index
+    /// does, and the three places that are only ever open for one timeblock are open for
+    /// exactly that one.
+    /// </remarks>
     private static bool Found(GameState story, DrivingStop stop)
     {
-        int now = Story.TimeblockRules.Order(story.Timeblock);
+        Timeblock now = story.Timeblock;
 
         return stop.Sprite switch
         {
-            // L'Ermitage, at the end of Wilkes's ride out of Blanchefort.
-            "dm_ler" => now >= Order("104P") ||
+            // L'Ermitage, at the end of Wilkes's ride out of Blanchefort. Handed over
+            // from the evening after; during the afternoon itself only the chase earns it.
+            "dm_ler" => now > At("104P") ||
                         story.GetNounVerbCount("WILKES", Follow) > 1,
 
             // Coume Sourde and L'Homme Mort, at the end of Madeleine's.
-            "dm_csd" or "dm_lhm" => now >= Order("104P") ||
+            "dm_csd" or "dm_lhm" => now > At("104P") ||
                                     story.GetNounVerbCount("BUTHANE", Follow) > 1,
 
             // Where Lady Howard and Estelle dig, at the end of theirs.
-            "dm_wod" => now >= Order("307A") ||
+            "dm_wod" => now >= At("307A") ||
                         story.GetNounVerbCount("LADY_HOWARD", Follow) > 1,
 
-            "dm_arm" or "dm_pou" or "dm_cse" => now >= Order("202P"),
-            "dm_bec" or "dm_mcb" or "dm_tre" => now >= Order("312P"),
-            "dm_bmb" => now >= Order("303P"),
+            "dm_arm" or "dm_pou" or "dm_cse" => now >= At("202P"),
+
+            // The two arms of the hexagram are only worth a ride the one noon they matter.
+            "dm_bec" or "dm_mcb" => now == At("312P"),
+
+            // Orange Rock, once it has been looked at through the binoculars.
+            "dm_bmb" => now == At("303P") ||
+                        story.GetNounVerbCount("VIEW_OF_ORANGE_ROCK", "BINOCULARS") > 0,
+
+            // The Site, only that noon and only once Le Serpent Rouge has given up ten of
+            // its signs — Aquarius through Scorpio — which is what puts Cardou on the map.
+            "dm_tre" => now == At("312P") && SerpentRougeSigns(story) >= 10,
+
             _ => false,
         };
     }
 
-    /// <summary>Where a timeblock comes in the story, by its code.</summary>
-    private static int Order(string timeblock) =>
-        Timeblock.TryParse(timeblock, out Timeblock parsed) ? Story.TimeblockRules.Order(parsed) : int.MaxValue;
+    /// <summary>A point in the story, by its code.</summary>
+    private static Timeblock At(string timeblock) =>
+        Timeblock.TryParse(timeblock, out Timeblock parsed) ? parsed : throw new ArgumentException(timeblock);
+
+    /// <summary>
+    /// The signs of Le Serpent Rouge in the order Sidney works through them.
+    /// </summary>
+    private static readonly string[] Signs =
+    [
+        "Aquarius", "Pisces", "Aries", "Taurus", "Gemini", "Cancer", "Leo",
+        "Virgo", "Libra", "Scorpio", "Ophiuchus", "Sagittarius", "Capricorn",
+    ];
+
+    /// <summary>
+    /// How many signs of Le Serpent Rouge have been solved in order.
+    /// </summary>
+    /// <remarks>
+    /// The retail engine counts the sign flags set from Aquarius up to the first that is
+    /// not, and its scripts read the same number back as <c>LSRState</c>; either is
+    /// honoured, whichever the analysis writes.
+    /// </remarks>
+    /// <param name="story">The game.</param>
+    /// <returns>The count, from none to all thirteen.</returns>
+    public static int SerpentRougeSigns(GameState story)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+
+        int solved = 0;
+
+        while (solved < Signs.Length && story.GetFlag(Signs[solved]))
+        {
+            solved++;
+        }
+
+        return Math.Max(solved, story.GetVariable("LSRState"));
+    }
 
     /// <summary>
     /// The game variable that says where the moped is parked.
