@@ -36,7 +36,10 @@ public static class SkyboxShaders
         Vector3 right = Vector3.Normalize(Vector3.Cross(camera.Up, forward));
         Vector3 up = Vector3.Cross(forward, right);
 
-        Matrix4x4 turn = Matrix4x4.CreateRotationY(-azimuth);
+
+        // A quarter turn past the azimuth: the rooms' cameras and BINOCS.TXT were authored
+        // against a sky turned that far from the cube's face order. See terrain-plan.md.
+        Matrix4x4 turn = Matrix4x4.CreateRotationY(-azimuth - (MathF.PI / 2f));
 
         float tanY = MathF.Tan(camera.FieldOfView / 2f);
         float tanX = tanY * width / Math.Max(1, height);

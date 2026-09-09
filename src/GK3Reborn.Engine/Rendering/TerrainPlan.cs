@@ -227,9 +227,11 @@ public sealed class TerrainPlan
         ArgumentNullException.ThrowIfNull(camera);
 
         // The camera's offset from the scene centre, turned into backdrop metres and into
-        // the backdrop's own frame — the sky's azimuth separates the two. Clamped so no
-        // camera the scripts place can leave the grid or dive through a ridge.
-        Matrix4x4 intoTerrain = Matrix4x4.CreateRotationY(-_azimuth);
+        // the backdrop's own frame: the sky's azimuth, its quarter turn (SkyboxShaders),
+        // and a quarter more because the panorama's front face is +Z where the cube's is
+        // +X. Clamped so no camera the scripts place can leave the grid or dive through a
+        // ridge.
+        Matrix4x4 intoTerrain = Matrix4x4.CreateRotationY(-_azimuth - MathF.PI);
         Vector3 offset = Vector3.TransformNormal(
             (camera.Position - _anchorUnits) * MetersPerUnit, intoTerrain);
 

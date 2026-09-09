@@ -2403,6 +2403,10 @@ public sealed class SceneLoader
         }
     }
 
+    /// <summary>Whether a part of a terrain set is on disk beside the workspace.</summary>
+    private bool LooseTerrainPart(string set, string part) =>
+        TerrainDirectory is { Length: > 0 } root && File.Exists(Path.Combine(root, $"{set}.{part}"));
+
     /// <summary>One part of a terrain set: the loose file first, then the packs.</summary>
     private byte[]? ReadTerrainPart(string set, string part)
     {
@@ -2436,8 +2440,13 @@ public sealed class SceneLoader
 
         // Blocks first for both maps. They are always 1024 square, so decoding the PNGs
         // was a fixed 160 ms of every outdoor load; the blocks upload as they arrive.
-        CompressedImage? splatBlocks = TerrainBlocks(set, "splat");
-        CompressedImage? tintBlocks = TerrainBlocks(set, "tint");
+        // A loose PNG beats them, or a fresh publish would never show without a repack.
+        CompressedImage? splatBlocks = LooseTerrainPart(set, "splat.png")
+            ? null
+            : TerrainBlocks(set, "splat");
+        CompressedImage? tintBlocks = LooseTerrainPart(set, "tint.png")
+            ? null
+            : TerrainBlocks(set, "tint");
 
         byte[]? splatBytes = splatBlocks is null ? ReadTerrainPart(set, "splat.png") : null;
         byte[]? tintBytes = tintBlocks is null ? ReadTerrainPart(set, "tint.png") : null;

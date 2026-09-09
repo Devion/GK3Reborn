@@ -125,10 +125,11 @@ public sealed unsafe class D3D12ScreenTests
 
         SkyboxConstants straight = SkyboxShaders.Describe(camera, 0f, 320, 200);
 
-        // Looking down positive z, so that is where forward points and right is at a right
-        // angle to it. A basis read out of the wrong rows of the view matrix gives a sky that
-        // is plausible until the camera turns.
-        Assert.Equal(1f, new Vector3(straight.Forward.X, straight.Forward.Y, straight.Forward.Z).Z, 3);
+        // Looking down positive z, which the cube holds a quarter turn round (see Describe):
+        // forward comes out along minus x, and right stays at a right angle to it. A basis
+        // read out of the wrong rows of the view matrix gives a sky that is plausible until
+        // the camera turns.
+        Assert.Equal(-1f, new Vector3(straight.Forward.X, straight.Forward.Y, straight.Forward.Z).X, 3);
         Assert.Equal(0f, Vector3.Dot(
             new Vector3(straight.Forward.X, straight.Forward.Y, straight.Forward.Z),
             new Vector3(straight.Right.X, straight.Right.Y, straight.Right.Z)), 3);

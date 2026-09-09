@@ -250,7 +250,7 @@ SHEDS = {"RBN_CZ_SMALL3", "RBN_CZ_BARN"}
 # Couiza is a working town on the D118, not a hamlet at the end of a track, so the network
 # comes first and the houses are laid along it. Every road here is a polyline in the room's
 # own coordinates with a width, surfaced in `Full_Road` -- the metalled road at Poussin's
-# Tomb and the parking lots -- and laid as a ribbon that follows the floor.
+# Tomb and the parking lots -- and cut out of the floor along the line, one unit up.
 #
 # The main street follows the line TR1's own `rl1_Path2` already takes, so the town's road
 # is where Sierra put a road. It is in three pieces because the corridor pinches: between
@@ -341,23 +341,18 @@ SINGLES = [
 # rather than a hairline of daylight showing under a wall.
 SINK = 6.0
 
-# How far the surfacing floats above the floor. Two units is about five centimetres, and
-# it matters because actors walk on the *floor* -- the engine knows nothing about this
-# surfacing -- so every unit of lift is a unit the taxi driver stands under the tarmac.
-#
-# It was four for a while, because the floor rolls and the grass came up through the car
-# park. `Ground.highest` fixes that properly by making each quad clear the ground inside
-# its own footprint, so the lift came back down -- twice, to two and then to one, which
-# with the envelope's own margin leaves the taxi driver about four centimetres under the
-# tarmac instead of twelve.
+# How far the surfacing sits above the ground it is cut from: one unit, about two and a
+# half centimetres. Actors take their height from the floor, so every unit of lift is a
+# unit they stand under the tarmac.
 ROAD_LIFT = 1.0
 
-# And every surface after the first gets a little more, because two of them at the same
-# height fight. The station approach crosses the forecourt apron and a side street joins
-# the main street; both are the same asphalt at the same lift, so both flickered. Six
-# tenths of a unit is under a centimetre and a half -- invisible from any camera the room
-# has, and enough for the depth buffer to pick a winner.
+# Surfaces that cross each other take a different step, so the depth buffer has a winner
+# where they overlap; surfaces that never meet share one. See `surface_levels`.
 SURFACE_STEP = 0.6
+
+# How far the edge of a surface is skirted downward. Enhanced relief carves the grass up
+# to three units below the floor, so the lift alone would show as daylight under the kerb.
+SKIRT = 6.0
 
 # What a road is surfaced with. Plain asphalt: `Full_Road` carries a white edge line down
 # both sides of the bitmap, which is right for one carriageway and wrong the moment it
@@ -365,12 +360,11 @@ SURFACE_STEP = 0.6
 # between them. `ROAD` is the same asphalt with no markings.
 ROAD_TEXTURE = "ROAD"
 
-# Where the railway's ballast is, and how high its railhead sits. A lane laid on the floor
-# across the track is buried: the floor there is the trackbed at about y -9.5, the sleepers
-# and ballast are drawn on top of it, and the railhead is at -6. So a road crossing this
-# band comes up to meet the rails instead of following the floor under them.
-BALLAST = (-430.0, -115.0)
+# The level crossing's deck: flat at the railhead across the width of `tr1_rrtracks`,
+# measured off the object plus this margin either side. The floor under the track is the
+# trackbed at about -10; the rails top out at -6.
 RAILHEAD = -5.0
+DECK_MARGIN = 12.0
 
 
 YARD = (-153.948, -1123.133, 1294.102, 695.920)
@@ -1036,8 +1030,8 @@ def build_crossing(name):
     the rails on X. Building the arm long on X instead lays it straight down the track and
     over both rails, which is what it did.
 
-    No deck: the lane ribbon crosses here and follows the ground, so the road surface is
-    the crossing surface. A rigid slab on rolling ballast digs in at one corner.
+    No deck of its own: the lane is flattened to the railhead across the track's own
+    width (`track_extent`), so the road surface is the crossing surface.
     """
     reset_scene()
 
@@ -1122,22 +1116,159 @@ def build_keeper(name):
 
 
 # --------------------------------------------------------------------------------------
-# Trees
+# Surfacing
 # --------------------------------------------------------------------------------------
 
-def build_road(name, points, width, ground, lift, step=35.0):
-    """Lays a lane along a polyline, following the ground under it.
+# A road is not a sheet laid over the floor: it is the floor itself, cut to the road's
+# outline and lifted one unit. Each ground triangle is clipped to every cell of the
+# outline and the pieces keep the triangle's own plane, so the surface rolls where the
+# ground rolls and the gap under its edge is the lift and nothing more. The ribbon this
+# replaced was flat quads raised to the highest ground under each, and on a hillside a
+# quad a hundred and fifty units wide stood forty units clear of the grass downhill.
 
-    A ribbon of quads, each corner sampled off `tr1_floor` and lifted clear of it, painted
-    with the forecourt's own `rl1_Dirt` -- which is the sand Gabriel parks the moped on, so
-    the lane and the yard are the same surface.
+def signed_area(polygon):
+    return 0.5 * sum(x0 * z1 - x1 * z0
+                     for (x0, z0), (x1, z1) in zip(polygon, polygon[1:] + polygon[:1]))
 
-    Sampled every `step` units rather than only at the polyline's corners: the floor rolls,
-    and a ribbon drawn corner to corner cuts through every rise between them.
-    """
-    reset_scene()
 
-    # Walk the polyline at a fixed spacing so the ribbon follows the ground, not the chord.
+def is_convex(polygon):
+    sign = 0.0
+
+    for i in range(len(polygon)):
+        (ax, az), (bx, bz) = polygon[i - 1], polygon[i]
+        cx, cz = polygon[(i + 1) % len(polygon)]
+        cross = (bx - ax) * (cz - bz) - (bz - az) * (cx - bx)
+
+        if abs(cross) < 1e-9:
+            continue
+
+        if sign and cross * sign < 0.0:
+            return False
+
+        sign = cross
+
+    return True
+
+
+def clip_to(polygon, window):
+    """Sutherland-Hodgman: `polygon` cut to a convex window of positive area, in (x, z)."""
+    out = list(polygon)
+
+    for i in range(len(window)):
+        if not out:
+            break
+
+        ax, az = window[i]
+        bx, bz = window[(i + 1) % len(window)]
+        ex, ez = bx - ax, bz - az
+
+        def side(p):
+            return ex * (p[1] - az) - ez * (p[0] - ax)
+
+        current, out = out, []
+        prev, prev_side = current[-1], side(current[-1])
+
+        for point in current:
+            here = side(point)
+
+            if (here >= 0.0) != (prev_side >= 0.0):
+                t = prev_side / (prev_side - here)
+                out.append((prev[0] + (point[0] - prev[0]) * t,
+                            prev[1] + (point[1] - prev[1]) * t))
+
+            if here >= 0.0:
+                out.append(point)
+
+            prev, prev_side = point, here
+
+    return out
+
+
+def split_at_x(polygon, x):
+    """A polygon cut by the line x = `x`: the part west of it and the part east."""
+    if len(polygon) < 3:
+        return []
+
+    xs = [p[0] for p in polygon]
+    zs = [p[1] for p in polygon]
+
+    if min(xs) >= x or max(xs) <= x:
+        return [polygon]
+
+    low_z, high_z = min(zs) - 1.0, max(zs) + 1.0
+    low_x, high_x = min(xs) - 1.0, max(xs) + 1.0
+    west = clip_to(polygon, [(low_x, low_z), (x, low_z), (x, high_z), (low_x, high_z)])
+    east = clip_to(polygon, [(x, low_z), (high_x, low_z), (high_x, high_z), (x, high_z)])
+
+    return [part for part in (west, east) if len(part) >= 3]
+
+
+def plane_height(triangle, x, z):
+    """The height of a triangle's plane over (x, z), in the game's frame."""
+    (ax, ay, az), (bx, by, bz), (cx, cy, cz) = triangle
+    d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz)
+    u = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d
+    v = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d
+
+    return u * ay + v * by + (1.0 - u - v) * cy
+
+
+def on_segment(p, q, segment, tolerance=1e-3):
+    """Whether the edge p-q lies along `segment`."""
+    (ax, az), (bx, bz) = segment
+    ex, ez = bx - ax, bz - az
+    length = math.hypot(ex, ez)
+
+    if length < 1e-9:
+        return False
+
+    for x, z in (p, q):
+        off = abs(ex * (z - az) - ez * (x - ax)) / length
+        along = ((x - ax) * ex + (z - az) * ez) / length
+
+        if off > tolerance or along < -tolerance or along > length + tolerance:
+            return False
+
+    return True
+
+
+class RoadPaint:
+    """Paints a lane: u across it and v along it, from the nearest point of its centreline."""
+
+    def __init__(self, points, width, tile=160.0):
+        self.width = width
+        self.tile = tile
+        self.segments = []
+        run = 0.0
+
+        for (x0, z0), (x1, z1) in zip(points, points[1:]):
+            length = math.hypot(x1 - x0, z1 - z0)
+
+            if length < 1e-6:
+                continue
+
+            self.segments.append(
+                (x0, z0, (x1 - x0) / length, (z1 - z0) / length, length, run))
+            run += length
+
+    def __call__(self, x, z):
+        best = None
+
+        for x0, z0, tx, tz, length, run in self.segments:
+            t = min(max((x - x0) * tx + (z - z0) * tz, 0.0), length)
+            px, pz = x0 + tx * t, z0 + tz * t
+            away = (x - px) ** 2 + (z - pz) ** 2
+
+            if best is None or away < best[0]:
+                best = (away, run + t, (x - x0) * tz - (z - z0) * tx)
+
+        away, along, side = best
+
+        return (0.5 + math.copysign(math.sqrt(away), side) / self.width, along / self.tile)
+
+
+def ribbon_cells(points, width, step=35.0):
+    """A lane's outline as mitred quads along its polyline, each with its outer edges."""
     walked = []
 
     for (x0, z0), (x1, z1) in zip(points, points[1:]):
@@ -1150,69 +1281,240 @@ def build_road(name, points, width, ground, lift, step=35.0):
 
     walked.append(points[-1])
 
-    verts = []
-    ground_xz = []
-    faces = []
+    edges = []
 
     for i, (x, z) in enumerate(walked):
-        # The direction the lane runs here, from its neighbours, so corners mitre.
         ahead = walked[min(i + 1, len(walked) - 1)]
         behind = walked[max(i - 1, 0)]
         dx, dz = ahead[0] - behind[0], ahead[1] - behind[1]
         length = math.hypot(dx, dz) or 1.0
         nx, nz = -dz / length * width / 2.0, dx / length * width / 2.0
+        edges.append(((x - nx, z - nz), (x + nx, z + nz)))
 
-        for sx, sz in ((x - nx, z - nz), (x + nx, z + nz)):
-            height = ground.at(sx, sz) + lift
+    cells = []
 
-            if BALLAST[0] <= sx <= BALLAST[1]:
-                height = max(height, RAILHEAD)
+    for i in range(1, len(walked)):
+        (l0, r0), (l1, r1) = edges[i - 1], edges[i]
+        outer = [(l0, l1), (r0, r1)]
 
-            # Blender is Z-up and the exporter sends its +Y to the game's -Z.
-            verts.append((sx, -sz, height))
-            ground_xz.append((sx, sz))
+        if i == 1:
+            outer.append((l0, r0))
 
-        if i:
-            base = (i - 1) * 2
-            faces.append((base, base + 1, base + 3, base + 2))
+        if i == len(walked) - 1:
+            outer.append((r1, l1))
 
-    # The surface is an upper envelope over the floor, not a sample of it: each quad is
-    # raised to clear the highest ground inside its own footprint, and a corner shared with
-    # the next quad takes whichever of the two is higher.
-    for face in faces:
-        corners = [(ground_xz[i][0], ground_xz[i][1]) for i in face]
-        top = ground.highest(corners)
+        cells.append(([l0, r0, r1, l1], outer))
 
-        if top is None:
-            continue
+    return cells
 
-        for i in face:
-            verts[i] = (verts[i][0], verts[i][1], max(verts[i][2], top + lift))
+
+def conform(name, cells, ground, lift, paint, adjust=None, splits=(), skirt=SKIRT,
+            bucket=256.0):
+    """The ground under `cells`, cut out, lifted and painted: the surface itself.
+
+    `cells` are (outline, outer edges) in the game's (x, z). `paint(x, z)` gives the UV,
+    `adjust(x, z, y)` may raise a corner, and `splits` are x lines every piece is cut at
+    so a raised part has a crisp edge. Outer edges get a skirt hanging `skirt` units down.
+    """
+    reset_scene()
+
+    surfaces = ground.surfaces
+    index = {}
+
+    for t, tri in enumerate(surfaces):
+        xs = [c[0] for c in tri]
+        zs = [c[2] for c in tri]
+
+        for bx in range(int(min(xs) // bucket), int(max(xs) // bucket) + 1):
+            for bz in range(int(min(zs) // bucket), int(max(zs) // bucket) + 1):
+                index.setdefault((bx, bz), []).append(t)
+
+    known = {}
+    positions = []
+    coordinates = []
+    faces = []
+
+    def vertex(x, y, z):
+        u, v = paint(x, z)
+        key = (round(x, 3), round(y, 3), round(z, 3), round(u, 4), round(v, 4))
+        found = known.get(key)
+
+        if found is None:
+            found = known[key] = len(positions)
+            positions.append((x, -z, y))
+            coordinates.append((u, v))
+
+        return found
+
+    def emit(ring):
+        ids = [vertex(*corner) for corner in ring]
+        ids = [i for k, i in enumerate(ids) if i != ids[k - 1]]
+
+        if len(set(ids)) >= 3:
+            faces.append(ids)
+
+    for outline, outer in cells:
+        window = list(outline)
+
+        if signed_area(window) < 0.0:
+            window.reverse()
+
+        if is_convex(window):
+            windows = [window]
+        else:
+            a, b, c, d = window
+            windows = [w if signed_area(w) > 0.0 else w[::-1]
+                       for w in ([a, b, c], [a, c, d]) if abs(signed_area(w)) > 1e-6]
+
+        xs = [p[0] for p in window]
+        zs = [p[1] for p in window]
+        candidates = set()
+
+        for bx in range(int(min(xs) // bucket), int(max(xs) // bucket) + 1):
+            for bz in range(int(min(zs) // bucket), int(max(zs) // bucket) + 1):
+                candidates.update(index.get((bx, bz), ()))
+
+        for t in sorted(candidates):
+            tri = surfaces[t]
+            flat = [(c[0], c[2]) for c in tri]
+
+            if abs(signed_area(flat)) < 1e-6:
+                continue
+
+            for piece in windows:
+                parts = [clip_to(flat, piece)]
+
+                for line in splits:
+                    parts = [q for p in parts for q in split_at_x(p, line)]
+
+                for part in parts:
+                    if len(part) < 3 or abs(signed_area(part)) < 1e-3:
+                        continue
+
+                    ring = []
+
+                    for x, z in part:
+                        y = plane_height(tri, x, z) + lift
+
+                        if adjust is not None:
+                            y = adjust(x, z, y)
+
+                        ring.append((x, y, z))
+
+                    # Counter-clockwise in Blender's XY, which is (x, -z), faces up.
+                    if signed_area(part) > 0.0:
+                        ring.reverse()
+
+                    emit(ring)
+
+                    if skirt <= 0.0:
+                        continue
+
+                    for k in range(len(ring)):
+                        p, q = ring[k], ring[(k + 1) % len(ring)]
+
+                        if any(on_segment((p[0], p[2]), (q[0], q[2]), edge) for edge in outer):
+                            emit([p, (p[0], p[1] - skirt, p[2]),
+                                  (q[0], q[1] - skirt, q[2]), q])
 
     mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
+    mesh.from_pydata(positions, [], faces)
+    mesh.validate()
     mesh.update()
 
     uv = mesh.uv_layers.new(name="UVMap")
-    run = 0.0
 
-    for i, face in enumerate(mesh.polygons):
-        here = run
-        run += step / 160.0
+    for loop in mesh.loops:
+        uv.data[loop.index].uv = coordinates[loop.vertex_index]
 
-        for loop, coordinate in zip(face.loop_indices,
-                                    [(0.0, here), (1.0, here), (1.0, run), (0.0, run)]):
-            uv.data[loop].uv = coordinate
-
-    road = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(road)
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
 
     material = bpy.data.materials.get(ROAD_TEXTURE) or bpy.data.materials.new(ROAD_TEXTURE)
     material.use_nodes = False
-    road.data.materials.append(material)
+    obj.data.materials.append(material)
 
-    return road
+    return obj
 
+
+def build_road(name, points, width, ground, lift, step=35.0, adjust=None, splits=()):
+    """A lane along a polyline, cut out of the ground under it. See `conform`."""
+    return conform(name, ribbon_cells(points, width, step), ground, lift,
+                   RoadPaint(points, width), adjust, splits)
+
+
+def build_apron(name, x0, z0, x1, z1, ground, lift, tile=160.0):
+    """A surfaced rectangle, cut out of the ground under it. See `conform`."""
+    corners = [(x0, z0), (x1, z0), (x1, z1), (x0, z1)]
+    outer = list(zip(corners, corners[1:] + corners[:1]))
+
+    return conform(name, [(corners, outer)], ground, lift,
+                   lambda x, z: ((x - x0) / tile, (z - z0) / tile))
+
+
+def surface_boxes(points, width, step=50.0):
+    """The ground a lane covers, as boxes: half its width across, half a step along."""
+    half = width / 2.0
+    boxes = []
+
+    for x, z, tx, tz in walk_polyline(points, step):
+        reach_x = half * abs(tz) + step / 2.0 * abs(tx)
+        reach_z = half * abs(tx) + step / 2.0 * abs(tz)
+        boxes.append((x - reach_x, z - reach_z, x + reach_x, z + reach_z))
+
+    return boxes
+
+
+def surface_levels(footprints):
+    """Which step each surface takes, from its boxes: surfaces that meet differ, others share.
+
+    Stacking every surface a step above the last put the twenty-fourth road fifteen units
+    above the ground it was meant to lie on.
+    """
+    levels = []
+
+    for i, mine in enumerate(footprints):
+        taken = {levels[j] for j, theirs in enumerate(footprints[:i])
+                 if any(overlap(a, b) != (0.0, 0.0) for a in mine for b in theirs)}
+        level = 0
+
+        while level in taken:
+            level += 1
+
+        levels.append(level)
+
+    return levels
+
+
+def track_extent(workspace, margin=DECK_MARGIN):
+    """Where the level crossing's deck runs, off `tr1_rrtracks` itself: (west, east) in x."""
+    reset_scene()
+    objects = import_glb(os.path.join(
+        workspace, "enhanced", "scenes", "TR1", "original", "tr1_rrtracks.glb"))
+    least, most = bounds(objects)
+    reset_scene()
+
+    return least.x - margin, most.x + margin
+
+
+def crosses(points, band):
+    """Whether a polyline has points on both sides of an x band."""
+    xs = [x for x, _ in points]
+
+    return min(xs) < band[0] and max(xs) > band[1]
+
+
+def deck_over(band):
+    """The adjustment that lifts a lane to the railhead across the track."""
+    def adjust(x, z, y):
+        return max(y, RAILHEAD) if band[0] - 1e-6 <= x <= band[1] + 1e-6 else y
+
+    return adjust
+
+
+# --------------------------------------------------------------------------------------
+# Trees
+# --------------------------------------------------------------------------------------
 
 def build_tree_card(name, x, z, height, sprite, ground):
     """One foliage card, standing where it stands.
@@ -1664,66 +1966,6 @@ def protected(workspace, margin=70.0):
     return boxes
 
 
-def build_apron(name, x0, z0, x1, z1, ground, lift, step=40.0):
-    """A surfaced area rather than a ribbon: the forecourt and the car park.
-
-    Same rules as a road -- every corner sampled off the floor and lifted clear of it, and
-    the same `Full_Road` surface -- but gridded over a rectangle, because a station
-    forecourt is a place rather than a line.
-    """
-    reset_scene()
-
-    across = max(2, int((x1 - x0) / step) + 1)
-    through = max(2, int((z1 - z0) / step) + 1)
-
-    verts = []
-    ground_xz = []
-    faces = []
-
-    for i in range(across):
-        x = x0 + (x1 - x0) * i / (across - 1)
-
-        for j in range(through):
-            z = z0 + (z1 - z0) * j / (through - 1)
-            verts.append((x, -z, ground.at(x, z) + lift))
-            ground_xz.append((x, z))
-
-    for i in range(across - 1):
-        for j in range(through - 1):
-            a = i * through + j
-            faces.append((a, a + 1, a + through + 1, a + through))
-
-    # An upper envelope, as for the roads.
-    for face in faces:
-        top = ground.highest([ground_xz[i] for i in face])
-
-        if top is None:
-            continue
-
-        for i in face:
-            verts[i] = (verts[i][0], verts[i][1], max(verts[i][2], top + lift))
-
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(verts, [], faces)
-    mesh.update()
-
-    uv = mesh.uv_layers.new(name="UVMap")
-
-    for face in mesh.polygons:
-        for loop in face.loop_indices:
-            corner = mesh.vertices[mesh.loops[loop].vertex_index].co
-            uv.data[loop].uv = ((corner.x - x0) / 160.0, (-corner.y - z0) / 160.0)
-
-    apron = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(apron)
-
-    material = bpy.data.materials.get(ROAD_TEXTURE) or bpy.data.materials.new(ROAD_TEXTURE)
-    material.use_nodes = False
-    apron.data.materials.append(material)
-
-    return apron
-
-
 def lane_boxes(step=50.0, named=False):
     """The ground the roads and aprons cover, as boxes.
 
@@ -1739,13 +1981,7 @@ def lane_boxes(step=50.0, named=False):
         cells.append((label, (x0, z0, x1, z1)) if named else (x0, z0, x1, z1))
 
     for label, points, width in ROADS:
-        half = width / 2.0
-
-        for x, z, tx, tz in walk_polyline(points, step):
-            # Across the road is the normal; along it is one step.
-            reach_x = half * abs(tz) + step / 2.0 * abs(tx)
-            reach_z = half * abs(tx) + step / 2.0 * abs(tz)
-            box = (x - reach_x, z - reach_z, x + reach_x, z + reach_z)
+        for box in surface_boxes(points, width, step):
             cells.append((label, box) if named else box)
 
     return cells
@@ -1898,6 +2134,19 @@ class Ground:
 
         reset_scene()
 
+        # What surfacing is cut from: the floor, and whatever a run lays beside it.
+        self.surfaces = list(self.triangles)
+
+    def add_surface(self, obj):
+        """Counts a Blender object's triangles as ground that surfacing may be cut from."""
+        mesh = obj.data
+        mesh.calc_loop_triangles()
+        matrix = obj.matrix_world
+
+        for tri in mesh.loop_triangles:
+            corners = [matrix @ mesh.vertices[i].co for i in tri.vertices]
+            self.surfaces.append(tuple((corner.x, corner.z, -corner.y) for corner in corners))
+
     def at(self, x, z, default=0.0):
         """The highest surface under (x, z), in the game's frame."""
         best = None
@@ -1921,28 +2170,6 @@ class Ground:
                 best = y
 
         return default if best is None else best
-
-    def highest(self, corners, steps=4):
-        """The highest ground anywhere inside a quad, sampled on a grid.
-
-        Surfacing takes this rather than the height at its own corners. A quad is flat and
-        the floor is not, so a road whose corners sit on the ground dips below it wherever
-        the ground bulges in between -- which showed as grass growing up through the car
-        park and a strip of it across the forecourt.
-        """
-        found = None
-
-        for i in range(steps + 1):
-            for j in range(steps + 1):
-                u, v = i / steps, j / steps
-                x = (corners[0][0] * (1 - u) + corners[1][0] * u) * (1 - v) +                     (corners[3][0] * (1 - u) + corners[2][0] * u) * v
-                z = (corners[0][1] * (1 - u) + corners[1][1] * u) * (1 - v) +                     (corners[3][1] * (1 - u) + corners[2][1] * u) * v
-                y = self.at(x, z, None)
-
-                if y is not None and (found is None or y > found):
-                    found = y
-
-        return found
 
     def off_map(self, x, z):
         """Whether there is no floor under a point at all."""
@@ -2033,7 +2260,16 @@ TABLE_HEADER = """\
 
 
 def write_table(path, facades, trees):
+    """Writes Couiza's sections, keeping whatever build_rl1.py wrote after them."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    theirs = []
+
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as handle:
+            for line in handle:
+                if theirs or line.strip().startswith("[RL1_"):
+                    theirs.append(line)
 
     lines = [TABLE_HEADER]
     lines.extend(facades)
@@ -2045,6 +2281,10 @@ def write_table(path, facades, trees):
                  "# same way. type=prop matches those seventeen; no noun, because a tree in\n"
                  "# this room is scenery and has never had one.\n")
     lines.extend(trees)
+
+    if theirs:
+        lines.append("\n")
+        lines.extend(theirs)
 
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
         handle.write("".join(lines))
@@ -2226,14 +2466,23 @@ def main():
         obj, note = build(name)
         keep(name, obj, note)
 
-    # 8. The lanes, and then the trees. Both are authored where they stand and carry no
-    #    pos: a lane follows the ground and a grown tree brings its own transform.
+    # 8. The surfacing, then the trees. Both are authored where they stand and carry no
+    #    pos: a lane is cut from the ground and a grown tree brings its own transform.
+    #    Aprons first, so a road across one is the one on top.
+    footprints = [[(x0, z0, x1, z1)] for _, x0, z0, x1, z1 in APRONS]
+    footprints += [surface_boxes(points, width) for _, points, width in ROADS]
+    levels = surface_levels(footprints)
+    lifts = {label: ROAD_LIFT + level * SURFACE_STEP
+             for (label, *_), level in zip(APRONS + ROADS, levels)}
+    deck = track_extent(workspace)
     road_lines = []
 
     for index, (label, points, width) in enumerate(ROADS, start=1):
         name = f"RBN_CZ_ROAD{index:02d}"
-        road = build_road(name, points, width, ground,
-                          ROAD_LIFT + (len(APRONS) + index - 1) * SURFACE_STEP)
+        over_track = crosses(points, deck)
+        road = build_road(name, points, width, ground, lifts[label],
+                          adjust=deck_over(deck) if over_track else None,
+                          splits=deck if over_track else ())
 
         if not args.dry_run:
             export_glb(road, os.path.join(out, name + ".glb"))
@@ -2260,8 +2509,11 @@ def main():
 
         # A bench on the forecourt stands on the forecourt. The surfacing is lifted clear
         # of the floor, so anything put on it at floor height is buried to the ankles.
-        if any(cell[0] <= x <= cell[2] and cell[1] <= z <= cell[3] for cell in roads):
-            y = ground.at(x, z) + ROAD_LIFT
+        on = next((label for label, cell in lane_boxes(named=True)
+                   if cell[0] <= x <= cell[2] and cell[1] <= z <= cell[3]), None)
+
+        if on is not None:
+            y = ground.at(x, z) + lifts[on]
 
         facade_lines.append(
             f"append TR1.SIF MODELS model={model}, noun=OTR_BUILDINGS, type=prop, "
@@ -2277,12 +2529,9 @@ def main():
     #     The test is the trunk's own footing, not the crown, which is meant to overhang.
     TRUNK = 40.0
 
-    # Aprons sit lowest and the roads stack above them, so a road crossing open surfacing
-    # reads as a road rather than as a flicker.
     for index, (label, x0, z0, x1, z1) in enumerate(APRONS, start=1):
         name = f"RBN_CZ_APRON{index:02d}"
-        apron = build_apron(name, x0, z0, x1, z1, ground,
-                            ROAD_LIFT + (index - 1) * SURFACE_STEP)
+        apron = build_apron(name, x0, z0, x1, z1, ground, lifts[label])
 
         if not args.dry_run:
             export_glb(apron, os.path.join(out, name + ".glb"))

@@ -96,6 +96,8 @@ from build_couiza import (  # noqa: E402
     pack_along,
     reset_scene,
     shapes_overlap,
+    surface_boxes,
+    surface_levels,
     walk_polyline,
 )
 
@@ -209,7 +211,7 @@ GROUND_DROP = 0.5
 # --------------------------------------------------------------------------------------
 
 # The main street first, then the lanes off it. Every road is a polyline in the room's own
-# coordinates with a width, and `build_road` lays it as a ribbon that follows the floor.
+# coordinates with a width, and `build_road` cuts it out of the ground along that line.
 #
 # The main street traces `rl1_Path2`, which is the dirt track already baked into the floor:
 # measured band by band it runs X 18-324 through the middle of the map, swings west at
@@ -358,8 +360,8 @@ STREET_GAP = 26.0
 # How far a building is pushed into the ground, so the grass closes over the footing.
 SINK = 6.0
 
-# How far the surfacing floats above the floor, and how much each surface after the first
-# adds so that two of them crossing do not fight. Both are Couiza's, for its reasons.
+# How far the surfacing sits above the ground it is cut from, and the step two surfaces
+# that cross take apart. Both are Couiza's, for its reasons.
 ROAD_LIFT = 1.0
 SURFACE_STEP = 0.6
 
@@ -628,19 +630,14 @@ class TownGround(Ground):
     Everything downstream asks the ground three questions -- how high is it here, is there
     any here at all, and what is the lowest of it under this footprint -- and all three go
     through ``at``. Overriding that one method is therefore the whole of extending the map:
-    the packer stops refusing a house for standing off the floor, a road laid across the
-    new quarter follows ground instead of hanging at zero, and a plate's own vertices and
-    the road on top of it read the same number and cannot part company.
+    the packer stops refusing a house for standing off the floor, and a plate's own
+    vertices and the houses on it read the same number.
 
-    Off the floor the answer is the height of the nearest floor there is, taken off a
-    coarse grid built once. That is what makes the seam continuous: a point just outside
-    the floor's edge reads the cell just inside it, which is the height the floor actually
-    arrives at, so the extension leaves at whatever angle the floor is running.
-
-    The grid exists for speed and the speed is the point. ``Ground.at`` walks every one of
-    the floor's 1,663 triangles, and the plates alone want a few thousand samples with a
-    search behind each one; done directly that is a quarter of a billion triangle tests and
-    the run does not finish.
+    Off the floor the answer is the height of the nearest point on the floor's own rim,
+    interpolated along the rim edge. That is what makes the seam continuous: the plate
+    leaves the floor at exactly the height the floor arrives at. Borrowing from a grid of
+    samples inside the floor instead put the plate twenty-five units below the floor's
+    south edge, where the floor climbs a bank in its last eighty units.
     """
 
     def __init__(self, path, plates, cell=90.0):
@@ -648,25 +645,7 @@ class TownGround(Ground):
 
         self._cell = cell
         self._plates = list(plates)
-        self._grid = {}
-
-        x0, z0, x1, z1 = FLOOR
-
-        # One sample per cell over the floor's own rectangle. A cell with no floor under
-        # its centre is simply absent, which is how the edge of the map is described.
-        self._columns = int((x1 - x0) / cell) + 1
-        self._rows = int((z1 - z0) / cell) + 1
-        self._origin = (x0, z0)
-
-        for column in range(self._columns):
-            for row in range(self._rows):
-                x = x0 + column * cell
-                z = z0 + row * cell
-                found = super().at(x, z, None)
-
-                if found is not None:
-                    self._grid[(column, row)] = found
-
+        self._rim = rim_edges(self.triangles)
         self._nearest = {}
 
     def covered(self, x, z):
@@ -685,51 +664,56 @@ class TownGround(Ground):
         if not self.covered(x, z):
             return default
 
-        # The borrowed height itself, with no drop applied. This is a height field and
-        # nothing else: the plates take the drop when they are meshed, the roads take
-        # their lift when they are laid, and a height function that had already decided
-        # one of those would be answering a question it was not asked.
+        # The borrowed height itself, with no drop applied: the plates take the drop when
+        # they are meshed and the roads take their lift when they are cut.
         return self._borrowed(x, z)
 
     def _borrowed(self, x, z):
-        """The height of the nearest floor cell, cached per cell rather than per point."""
-        cell = self._cell
-        key = (int(round((x - self._origin[0]) / cell)),
-               int(round((z - self._origin[1]) / cell)))
+        """The height of the nearest point on the floor's rim, cached per cell."""
+        key = (int(round(x / self._cell)), int(round(z / self._cell)))
 
         if key in self._nearest:
             return self._nearest[key]
 
-        # Clamped into the grid first, so a point far out to the west searches from the
-        # floor's west edge rather than from wherever it happens to be.
-        column = min(max(key[0], 0), self._columns - 1)
-        row = min(max(key[1], 0), self._rows - 1)
-
         best = None
-        closest = None
 
-        for (gc, gr), height in self._grid.items():
-            distance = (gc - column) ** 2 + (gr - row) ** 2
+        for (ax, ay, az), (bx, by, bz) in self._rim:
+            ex, ez = bx - ax, bz - az
+            length = ex * ex + ez * ez
+            t = 0.0 if length < 1e-9 else min(max(((x - ax) * ex + (z - az) * ez) / length, 0.0), 1.0)
+            px, pz = ax + ex * t, az + ez * t
+            away = (x - px) ** 2 + (z - pz) ** 2
 
-            if closest is None or distance < closest:
-                closest = distance
-                best = height
+            if best is None or away < best[0]:
+                best = (away, ay + (by - ay) * t)
 
-        self._nearest[key] = best if best is not None else 0.0
+        self._nearest[key] = best[1] if best is not None else 0.0
 
         return self._nearest[key]
 
 
-def build_ground(name, x0, z0, x1, z1, ground, cell=GROUND_CELL):
-    """One plate of new ground, meshed on a grid and hung off the floor's own edge.
+def rim_edges(triangles, places=1):
+    """The edges of a mesh that belong to one triangle only, as ((x, y, z), (x, y, z))."""
+    seen = {}
 
-    Every vertex takes the height of the floor under it. Where there is no floor under it
-    -- which is most of a plate, because the point of them is to be outside it -- it takes
-    the height of the nearest point that *does* have floor, found by walking back toward
-    the floor's middle. That is what makes the seam continuous: a vertex on the join reads
-    the floor directly, and the one beyond it reads the same triangle, so the two agree to
-    the millimetre and the extension leaves the floor at whatever angle the floor arrives
-    at.
+    for tri in triangles:
+        for a, b in ((tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])):
+            ka = tuple(round(v, places) for v in a)
+            kb = tuple(round(v, places) for v in b)
+            key = (ka, kb) if ka < kb else (kb, ka)
+            seen[key] = seen.get(key, 0) + 1
+
+    return [key for key, count in seen.items() if count == 1]
+
+
+def build_ground(name, x0, z0, x1, z1, ground, cell=GROUND_CELL):
+    """One plate of new ground, meshed on a grid and hung off the floor's own rim.
+
+    Every vertex takes the height of the floor under it, or of the nearest point of the
+    floor's rim where there is none. The grid line nearest the floor is snapped onto the
+    rim itself, vertex by vertex: without it the span from the last vertex on the floor to
+    the first one off it cut straight across the bank at the south edge and left the floor
+    hanging fifteen units over the plate.
 
     Dropped half a unit below what it samples, so that where the plate laps over the floor
     the floor wins every pixel and the join cannot flicker.
@@ -740,36 +724,80 @@ def build_ground(name, x0, z0, x1, z1, ground, cell=GROUND_CELL):
     obj = bpy.data.objects.new(name, mesh)
     bpy.context.collection.objects.link(obj)
 
-    across = max(1, int(round((x1 - x0) / cell)))
-    along = max(1, int(round((z1 - z0) / cell)))
+    # Which side of the plate the floor is on: the rim lies within the 40-unit overlap.
+    if x1 <= FLOOR[0] + 60.0:
+        seam, axis, outward = x1, "x", -1.0
+    elif x0 >= FLOOR[2] - 60.0:
+        seam, axis, outward = x0, "x", 1.0
+    elif z1 <= FLOOR[1] + 60.0:
+        seam, axis, outward = z1, "z", -1.0
+    else:
+        seam, axis, outward = z0, "z", 1.0
 
-    # The same answer the roads and the houses on this plate will take, because it is the
-    # same call. A plate meshed off one height function and surfaced off another is a road
-    # that floats over its own ground wherever the two disagree.
+    def rim_at(other):
+        """Where the floor ends, walking outward from the seam line, or None."""
+        inside, outside = 0.0, 80.0
+        point = (lambda d: (seam + outward * d, other)) if axis == "x" else (
+            lambda d: (other, seam + outward * d))
+
+        if ground.off_map(*point(inside)) or not ground.off_map(*point(outside)):
+            return None
+
+        for _ in range(12):
+            middle = (inside + outside) / 2.0
+            inside, outside = (middle, outside) if not ground.off_map(*point(middle)) else (inside, middle)
+
+        return point(inside)
+
+    # The grid's own lines perpendicular to the seam, with the rim inserted after the
+    # first: seam, rim, then the regular spacing outward.
+    span = (x1 - x0) if axis == "x" else (z1 - z0)
+    count = max(2, int(round(span / cell)))
+    lines = [seam + outward * span * i / count for i in range(count + 1)]
+    lines = [lines[0], None] + lines[1:]
+
+    other_span = (z1 - z0) if axis == "x" else (x1 - x0)
+    other_count = max(1, int(round(other_span / cell)))
+    other_start = z0 if axis == "x" else x0
     height = ground.at
 
     verts = []
     faces = []
 
-    for row in range(along + 1):
-        for column in range(across + 1):
-            x = x0 + (x1 - x0) * column / across
-            z = z0 + (z1 - z0) * row / along
+    for row in range(other_count + 1):
+        other = other_start + other_span * row / other_count
+
+        for line in lines:
+            if line is None:
+                found = rim_at(other)
+
+                if found is None:
+                    line = seam + outward * min(40.0, span / count / 2.0)
+                    x, z = (line, other) if axis == "x" else (other, line)
+                else:
+                    x, z = found
+            else:
+                x, z = (line, other) if axis == "x" else (other, line)
 
             # Blender's Y is the game's -Z, and Blender's Z is the game's Y.
             verts.append(Vector((x, -z, height(x, z) - GROUND_DROP)))
 
-    for row in range(along):
-        for column in range(across):
-            a = row * (across + 1) + column
+    columns = len(lines)
+
+    for row in range(other_count):
+        for column in range(columns - 1):
+            a = row * columns + column
             b = a + 1
-            c = a + across + 1
+            c = a + columns
             d = c + 1
 
-            # Wound so the face points up in the game's frame.
-            faces.append((a, c, d, b))
+            # Wound so the face points up in the game's frame, whichever way the grid runs.
+            ring = [verts[i] for i in (a, c, d, b)]
+            area = sum(p.x * q.y - q.x * p.y for p, q in zip(ring, ring[1:] + ring[:1]))
+            faces.append((a, c, d, b) if area > 0.0 else (a, b, d, c))
 
     mesh.from_pydata([tuple(v) for v in verts], [], faces)
+    mesh.validate()
     mesh.update()
 
     material = bpy.data.materials.new(GROUND_TEXTURE)
@@ -992,6 +1020,7 @@ def main():
     for index, (label, x0, z0, x1, z1) in enumerate(GROUND_PLATES, start=1):
         name = f"{PREFIX}GROUND{index:02d}"
         plate = build_ground(name, x0, z0, x1, z1, ground)
+        ground.add_surface(plate)
 
         if not args.dry_run:
             export_glb(plate, os.path.join(out, name + ".glb"))
@@ -1002,14 +1031,17 @@ def main():
 
     reset_scene()
 
-    # The ground has to be under the roads, so the roads' own lift is measured from the
-    # floor and every plate is already below it.
+    # Each surface is cut from the floor and the plates alike, and lifted; surfaces that
+    # meet take different steps so the depth buffer has a winner where they cross.
+    footprints = [[(x0, z0, x1, z1)] for _, x0, z0, x1, z1 in APRONS]
+    footprints += [surface_boxes(points, width) for _, points, width in ROADS]
+    lifts = {label: ROAD_LIFT + level * SURFACE_STEP
+             for (label, *_), level in zip(APRONS + ROADS, surface_levels(footprints))}
     road_lines = []
 
     for index, (label, points, width) in enumerate(ROADS, start=1):
         name = f"{PREFIX}ROAD{index:02d}"
-        road = build_road(name, points, width, ground,
-                          ROAD_LIFT + (len(APRONS) + index - 1) * SURFACE_STEP)
+        road = build_road(name, points, width, ground, lifts[label])
 
         if not args.dry_run:
             export_glb(road, os.path.join(out, name + ".glb"))
@@ -1020,8 +1052,7 @@ def main():
 
     for index, (label, x0, z0, x1, z1) in enumerate(APRONS, start=1):
         name = f"{PREFIX}APRON{index:02d}"
-        apron = build_apron(name, x0, z0, x1, z1, ground,
-                            ROAD_LIFT + (index - 1) * SURFACE_STEP)
+        apron = build_apron(name, x0, z0, x1, z1, ground, lifts[label])
 
         if not args.dry_run:
             export_glb(apron, os.path.join(out, name + ".glb"))

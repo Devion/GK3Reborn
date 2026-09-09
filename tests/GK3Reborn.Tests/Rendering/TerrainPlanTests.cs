@@ -145,13 +145,15 @@ public sealed class TerrainPlanTests
         plan.LiftMeters = 0f;
         plan.ClearanceMeters = 0f;
 
-        // Forty units east of the scene's centre is one metre east in the backdrop, which
-        // is the one constant where a room unit meets a terrain metre.
+        // Forty units east of the scene's centre is one metre in the backdrop, which is
+        // the one constant where a room unit meets a terrain metre. The backdrop's frame is
+        // a half turn from the room's at azimuth nought (see TerrainPlan.Frame), so east in
+        // the room is minus x here.
         TerrainFrame frame = plan.Frame(Looking(new Vector3(40f, 0f, 0f)), 640, 480);
 
-        Assert.Equal(1f, frame.Eye.X, 4);
+        Assert.Equal(-1f, frame.Eye.X, 4);
         Assert.Equal(0f, frame.Eye.Z, 4);
-        Assert.Equal(40f * TerrainPlan.MetersPerUnit, frame.Eye.X, 4);
+        Assert.Equal(40f * TerrainPlan.MetersPerUnit, MathF.Abs(frame.Eye.X), 4);
     }
 
     [Fact]
@@ -174,7 +176,7 @@ public sealed class TerrainPlanTests
         // A quarter of the extent out, however far the scripts put the camera.
         TerrainFrame frame = plan.Frame(Looking(new Vector3(100_000f, 0f, 0f)), 640, 480);
 
-        Assert.Equal(25f, frame.Eye.X, 3);
+        Assert.Equal(25f, MathF.Abs(frame.Eye.X), 3);
     }
 
     [Fact]

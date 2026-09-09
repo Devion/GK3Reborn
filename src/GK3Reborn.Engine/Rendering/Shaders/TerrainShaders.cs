@@ -259,9 +259,16 @@ public static class TerrainShaders
             albedo = mix(calm, albedo, exp(-away / 400.0));
 
             // Hue only: the vista's colour mood without the old painting's darkness.
-            vec3 mood = texture(tint, gridUv).rgb;
+            vec4 moodSample = texture(tint, gridUv);
+            vec3 mood = moodSample.rgb;
             float luminance = dot(mood, vec3(0.299, 0.587, 0.114));
             albedo = mix(albedo, albedo * (mood / max(luminance, 1e-3)), push.params.y);
+
+            // Except on a landmark, where the alpha says the colour is the thing itself
+            // and the tiles keep only their light and shade. See stamp_landmarks.py.
+            float landmark = 1.0 - moodSample.a;
+            albedo = mix(albedo, mood * (0.55 + dot(albedo, vec3(0.299, 0.587, 0.114))),
+                         landmark);
 
             // A sunless hour is a dark one: the night sets carry their day sibling's
             // geometry and colours, and the hour's whole difference is made here.
