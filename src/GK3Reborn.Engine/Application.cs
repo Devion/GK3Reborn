@@ -4701,6 +4701,16 @@ public static class Application
                 story.Screens.Top is not null &&
                 window.WasPressed(Platform.CameraAction.Quit))
             {
+                // Leaning into another room through the binoculars is the one screen a
+                // pop cannot close: the room under it is the looked-at one, with no ego in
+                // it and the story saying the player is somewhere else. Popping left the
+                // player stranded there. The vantage has to be asked for, the same way the
+                // back button does it.
+                if (api.Leaning is { } backing)
+                {
+                    return Lower(backing);
+                }
+
                 story.Screens.Back();
             }
             else if (!typing && !movies.Playing && window.WasPressed(Platform.CameraAction.Quit))
