@@ -50,6 +50,14 @@ public sealed class SceneRenderStage
     /// </summary>
     public bool Fog { get; set; } = true;
 
+    /// <summary>
+    /// Whether the sun's rays are drawn, for the rooms that have a sun.
+    /// </summary>
+    public bool SunRays { get; set; } = true;
+
+    /// <summary>Whether grass is grown over the lawns.</summary>
+    public bool Grass { get; set; } = true;
+
     /// <summary>Renders a scene.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
@@ -261,6 +269,7 @@ public sealed class SceneRenderStage
             : TreeLibrary.Open(string.Empty);
 
         loader.Trees = grown;
+        loader.Grass = Grass;
         _log(grown.IsEmpty
             ? "trees: none grown; every foliage card stays flat"
             : $"trees: {grown.Count} grown across {grown.SpeciesCount} species, " +
@@ -444,6 +453,18 @@ public sealed class SceneRenderStage
                 CultureInfo.InvariantCulture,
                 $"fog: to y={fog.Top:0.#}, thinning over {fog.Falloff:0.#} units, " +
                 $"{fog.Density:0.####} a unit, {fog.Steps} steps"));
+        }
+
+        // And the sun's rays through it, where the room has a sun. Reported for the same
+        // reason the fog is: they touch the whole frame.
+        Rendering.SunRays rays = Rendering.SunRays.For(scene.Sun).Lit(SunRays);
+        renderer.SetSunRays(rays);
+
+        if (rays.Any)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"sun rays: toward ({rays.Toward.X:F2}, {rays.Toward.Y:F2}, {rays.Toward.Z:F2})"));
         }
 
         // An action can point the camera somewhere - CS3's wardrobe cuts to OPEN_WARDROBE

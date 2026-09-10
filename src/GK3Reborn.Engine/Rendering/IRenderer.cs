@@ -70,6 +70,16 @@ public interface IRenderer : IDisposable
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
     void SetFog(FogVolume fog);
 
+    /// <summary>Gives the room its sun's rays, or takes them away again.</summary>
+    /// <param name="rays">The sun and how strongly to draw it, or <see cref="SunRays.None"/>.</param>
+    void SetSunRays(SunRays rays);
+
+    /// <summary>
+    /// How strongly the air over the room's distant ground wavers with heat: nought for
+    /// not at all, one for the pass's own tuning. See <see cref="HeatHaze"/>.
+    /// </summary>
+    float Shimmer { get; set; }
+
     // --- how much of it -----------------------------------------------------------------
 
     /// <summary>Whether this renderer can trace rays at all.</summary>

@@ -2770,11 +2770,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 // the block has a free slot and the two sets — surfaces that sway and
                 // surfaces that reflect — have nothing in common; a leaf's own w stays
                 // zero, and a mirror does not sway.
-                batch.Foliage
-                    ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
-                    : new Vector4(
-                        0f, 0f, 0f,
-                        isMirror ? Materials.Of(batch.Drawn).MirrorInset : 0f),
+                //
+                // Grass says so with a negative reach: the blades are baked in world space
+                // and bend by how far up the blade a vertex is rather than by how far up the
+                // model. See GrassCards and MeshShaders.Sway.
+                batch.Grass
+                    ? new Vector4(-GrassCards.Sway, GrassCards.Speed, previousSeconds, 0f)
+                    : batch.Foliage
+                        ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
+                        : new Vector4(
+                            0f, 0f, 0f,
+                            isMirror ? Materials.Of(batch.Drawn).MirrorInset : 0f),
 
                 // The skin under the coat. The shells over it are below, and a surface with
                 // no coat is told so with a zero depth in y rather than by being left out,
@@ -3021,6 +3027,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // knows: a grown tree is two batches, one of bark and one of leaves, and only
             // the leaves move. See MoveInWind.
             Foliage = _wind.Contains(Path.GetFileNameWithoutExtension(texture)),
+            Grass = GrassCards.IsGrass(texture),
 
             // Whether the picture on it has holes the colour key cut. Read here rather than
             // per frame because it is a fact about the texture and the texture is already
@@ -3074,6 +3081,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>Whether this batch is foliage, and so moves in the wind.</summary>
         public bool Foliage { get; init; }
+
+        /// <summary>Whether this batch is grass, which moves in the wind its own way.</summary>
+        public bool Grass { get; init; }
 
         /// <summary>Whether the picture on it is a cutout: holes rather than a solid sheet.</summary>
         public bool Keyed { get; init; }

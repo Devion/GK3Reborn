@@ -430,6 +430,34 @@ outside the walk bitmap and outside the camera's shell, with nothing that shippe
 repainted. **Settings → Picture → Rebuilt towns** turns both back into the rooms the game
 shipped, or `--no-towns` for one run.
 
+### Air
+
+Four things are added to the air of a room by day, each with its own row under Settings →
+Picture and its own switch for one run.
+
+Where the room has a sun, the sun draws rays. Outdoors every pixel looks along the line
+toward the sun and gathers how much of it is sky, so the light streams past the trees and
+over the rooflines and is held back by the clouds the sky shows; it is only ever seen
+looking toward the light, which is also true outdoors. Indoors the daylight comes in at the
+windows as shafts: boxes of lit air standing off every pane, the church's stained glass
+included, marched through by every pixel's ray up to whatever the room drew there, so a
+pillar standing in a shaft cuts it and a shaft behind a wall is not seen. The dust that
+hangs in a shaft shines in it. **Rays of sunlight**, or `--no-sun-rays`; `render-scene
+--no-sun-rays` does the same for the offline renderer.
+
+A few midges dance under the nearest trees and a fly or two cross the air, small and faint,
+and dust drifts round the camera wherever the sun reaches, through a bedroom window as
+much as over a square. **Insects and dust in the air**, or `--no-insects`.
+
+Ankle-high grass stands on every surface the game's own floor map calls grass: clumps of
+blades drawn in the colour of the very texture underneath, dark at the root and light at
+the tip, shaded under the trees, lit and shadowed as the lawn beside them is, bending in
+the wind. Baked into the room like the modelled trees, so the row takes effect at the next
+door. **Grass on the lawns**, or `--no-grass`; `render-scene --no-grass` likewise.
+
+Through the hot part of the day, the far ground outdoors wavers a little with heat, and
+nothing near the eye does. **Heat haze in the distance**, or `--no-shimmer`.
+
 ### Upscaling and HDR
 
 Settings → Upscaling offers four: off, the engine's own, FSR and DLSS. The first two need

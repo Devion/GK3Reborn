@@ -89,6 +89,13 @@ public sealed record LoadedScene(
     public IReadOnlyList<GrownStand>? Woods { get; init; }
 
     /// <summary>
+    /// The shafts of daylight at the room's windows, decided once the room's sun and rig
+    /// are known. Empty outdoors, after dark, and in a room with no window. See
+    /// <see cref="SceneShafts"/>.
+    /// </summary>
+    public IReadOnlyList<Rendering.LightShaft> Shafts { get; set; } = [];
+
+    /// <summary>
     /// The rig the room is actually lit by: the artists' lights, with any scenekey the
     /// synthesized sun stands in for taken out and the sun put in.
     /// </summary>
@@ -369,6 +376,15 @@ public sealed class SceneLoader
     /// Modelled trees to stand in place of the scene's flat foliage cards.
     /// </summary>
     public TreeLibrary? Trees { get; set; }
+
+    /// <summary>
+    /// Whether ankle-high grass is grown over the ground the room paints as grass. See
+    /// <see cref="Game.Grass"/>.
+    /// </summary>
+    public bool Grass { get; set; } = true;
+
+    /// <summary>The floor map, read once for the grass: which textures are lawn.</summary>
+    private Actors.Footsteps? _steps;
 
     /// <summary>
     /// Improved geometry for the rooms themselves, where any has been built.
@@ -713,6 +729,12 @@ public sealed class SceneLoader
         // them are left out.
         PlantWoods(geometry, woods, diagnostics);
         Timeline?.Stamp("plant woods");
+
+        // And the grass, over whatever the room paints as lawn. After the props for the
+        // reason the woods are: the crowns the props put up are where the grass takes its
+        // shaded card.
+        PlantGrass(geometry, bsp, init, placed, scene, diagnostics);
+        Timeline?.Stamp("plant grass");
         Reached(AtProps);
 
         // The people in the room, and what is left of the bar. They are read the same way
@@ -1883,6 +1905,52 @@ public sealed class SceneLoader
                 $"room's own objects, {full} of them at full detail" +
                 (doubled > 0 ? $", {doubled} left to the props standing on them" : string.Empty));
         }
+    }
+
+    private void PlantGrass(
+        ISceneSink geometry,
+        BspFile bsp,
+        SceneDefinition init,
+        IReadOnlyList<PlacedModel> placed,
+        string scene,
+        DiagnosticBag diagnostics)
+    {
+        if (!Grass)
+        {
+            return;
+        }
+
+        _steps ??= Actors.Footsteps.Open(_archives);
+
+        IReadOnlyList<GrassBed> beds = Game.Grass.Grow(
+            bsp,
+            _steps.GroundOf,
+            HiddenObjects(init),
+            name => TerrainTile(name, diagnostics),
+            SceneDrift.Crowns(bsp, placed),
+            SceneDrift.Seed(scene));
+
+        if (beds.Count == 0)
+        {
+            return;
+        }
+
+        int clumps = 0;
+
+        foreach (GrassBed bed in beds)
+        {
+            if (!geometry.HasTexture(bed.Texture))
+            {
+                geometry.AddTexture(bed.Texture, bed.Card);
+            }
+
+            geometry.Add(bed.Clumps, Matrix4x4.Identity);
+            clumps += bed.Count;
+        }
+
+        _log?.Invoke(
+            $"grass: {clumps} clump(s) over {beds.Count} kind(s) of ground: " +
+            string.Join(", ", beds.Select(b => $"{b.Ground} {b.Count}")));
     }
 
     /// <summary>

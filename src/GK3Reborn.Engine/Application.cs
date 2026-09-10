@@ -1426,6 +1426,20 @@ public static class Application
             relanguage = true;
         }
 
+        // The sun over the room the player is in, for the rays: remembered here because the
+        // row that turns them on and off is pressed between rooms as well as in them.
+        Rendering.SunRays daylight = Rendering.SunRays.None;
+
+        bool RaysWanted(Settings chosen) =>
+            chosen.SunRays && !args.Contains("--no-sun-rays", StringComparer.OrdinalIgnoreCase);
+
+        // And how hot the room is: the heat haze over its far ground, decided with the
+        // room and switched with the row.
+        float heat = 0f;
+
+        bool HazeWanted(Settings chosen) =>
+            chosen.HeatHaze && !args.Contains("--no-shimmer", StringComparer.OrdinalIgnoreCase);
+
         void Apply(Settings chosen)
         {
             // Before the assignment, because `settings` is still the old answer here and
@@ -1484,6 +1498,10 @@ public static class Application
                 chosen.FloorReflections &&
                     !args.Contains("--no-floor-reflections", StringComparer.OrdinalIgnoreCase));
             renderer.VerticalSync = chosen.VerticalSync;
+
+            // And the sun's rays, which are the room's sun with the row's answer on it.
+            renderer.SetSunRays(daylight.Lit(RaysWanted(chosen)));
+            renderer.Shimmer = HazeWanted(chosen) ? heat : 0f;
 
             window.Present(chosen.Display, chosen.DisplayWidth, chosen.DisplayHeight);
 
@@ -2059,6 +2077,12 @@ public static class Application
             // for the same reason the compressed textures are: a shipped game has packs and
             // no content workspace at all, so gating the trees on a loose directory would
             // mean nobody who installed the game ever saw one.
+            // The grass, which is baked into the room like the trees are. Its own row and its
+            // own switch, because it is the one addition here that costs a room triangles by
+            // the hundred thousand.
+            loader.Grass = settings.Grass &&
+                !args.Contains("--no-grass", StringComparer.OrdinalIgnoreCase);
+
             if (settings.ModelledTrees)
             {
                 TreeLibrary trees = TreeLibrary.Open(
@@ -2320,13 +2344,58 @@ public static class Application
                 burning,
                 windows,
                 new SceneExtent(geometry.Minimum, geometry.Maximum),
-                out int shafts);
+                out int moved);
 
-            if (shafts > 0)
+            if (moved > 0)
             {
                 Log.Info(
-                    $"Daylight: {shafts} light(s) moved to {windows.Count} window(s), " +
+                    $"Daylight: {moved} light(s) moved to {windows.Count} window(s), " +
                     "where a wall can shape them");
+            }
+
+            // And the shafts the daylight throws in at them, where the room is indoors and
+            // has a sun this hour. Every object named for a pane, the church's stained glass
+            // included; the roof test is what keeps a village's house windows from throwing
+            // light out into the square. Kept on the scene: the dust that hangs in them is
+            // lit by them in the frame loop. See Game.SceneShafts.
+            scene.Shafts = [];
+            heat = 0f;
+
+            if (scene.Sun is not null)
+            {
+                bool roofed = Game.SceneShafts.IsRoofed(scene.Geometry, scene.Walkable);
+
+                // The heat haze over the far ground, outdoors through the hot part of the
+                // day: full at noon and two, less at ten and four, none at all after.
+                heat = roofed ? 0f : Game.SceneShafts.Heat(api.State.Timeblock);
+
+                var panes = new List<(string Name, Vector3 Minimum, Vector3 Maximum)>();
+
+                foreach (string pane in scene.Geometry?.ObjectNames ?? [])
+                {
+                    if (Game.SceneShafts.IsPane(pane) &&
+                        SceneScripting.Bounds(scene, pane) is var (low, high))
+                    {
+                        panes.Add((pane, low, high));
+                    }
+                }
+
+                if (panes.Count > 0 && roofed)
+                {
+                    scene.Shafts = Game.SceneShafts.For(
+                        panes,
+                        scene.Sun,
+                        (geometry.Minimum, geometry.Maximum),
+                        scene.Ground is { } underfoot ? underfoot.Height : null);
+                }
+
+                if (scene.Shafts.Count > 0)
+                {
+                    Log.Info(string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Daylight: {scene.Shafts.Count} shaft(s) at {panes.Count} window(s), " +
+                        $"{scene.Shafts.Count(s => s.Strength >= 1f)} of them the sun's own"));
+                }
             }
 
             if (args.Contains("--daylight-list", StringComparer.OrdinalIgnoreCase))
@@ -2400,6 +2469,18 @@ public static class Application
                 Log.Info(
                     $"Sun: elevation {MathF.Asin(-sun.Direction.Y) * 180f / MathF.PI:0}°, " +
                     $"the rig's other {scene.Lights.Count - 1} lights kept");
+            }
+
+            // And its rays, drawn through whatever stands between it and the eye: past the
+            // trees outdoors, in at the windows indoors. A room with no sun — after dark —
+            // hands over none, which is also what takes the last room's rays away.
+            daylight = Rendering.SunRays.For(scene.Sun).Through(scene.Shafts);
+            renderer.SetSunRays(daylight.Lit(RaysWanted(settings)));
+            renderer.Shimmer = HazeWanted(settings) ? heat : 0f;
+
+            if (heat > 0f)
+            {
+                Log.Info(string.Create(CultureInfo.InvariantCulture, $"Heat: haze over the far ground at {heat:F1}"));
             }
 
             // The air in the room, for the handful that have any. Set with the rig rather
@@ -4220,6 +4301,32 @@ public static class Application
                 $"{Game.BirdFlock.FlapsPerSecond(overhead.Wingspan):F1} beats a second"));
         }
 
+        // And what drifts through it: insects under its trees and dust in its air. Which
+        // rooms have either is decided from the room — where its foliage cards are, and
+        // whether it has a sun over it — rather than from a list. See Game.SceneDrift.
+        bool noInsects = options.Contains("--no-insects", StringComparer.OrdinalIgnoreCase);
+
+        IReadOnlyList<Game.Crown> crowns = Game.SceneDrift.Crowns(scene.Geometry, scene.Models);
+
+        var drifting = new Game.DriftField(
+            Game.SceneDrift.For(story.Timeblock, crowns.Count, sunlit: scene.Sun is not null),
+            crowns,
+            Game.SceneDrift.Seed(here));
+
+        if (drifting.Any)
+        {
+            Log.Info(string.Create(
+                CultureInfo.InvariantCulture,
+                $"Drift: {crowns.Count} crown(s) over {here}, up to {drifting.InsectCount} " +
+                $"insect(s), {drifting.MoteCount} specks of dust, wind bearing " +
+                $"{MathF.Atan2(drifting.Wind.X, drifting.Wind.Z) * 180f / MathF.PI:F0}"));
+        }
+
+        // The dust hangs in the daylight at the windows, where there is any, and is lit
+        // by it. Only while the shafts themselves are drawn: a speck shining in a shaft
+        // nobody can see is a speck shining for no reason.
+        bool noSunRays = options.Contains("--no-sun-rays", StringComparer.OrdinalIgnoreCase);
+
         // Whether the binoculars have been raised to the player's eyes this time round.
         bool throughEyes = false;
 
@@ -4288,6 +4395,26 @@ public static class Application
                     IReadOnlyList<Rendering.Particle> flying = birds.Facing(view);
 
                     blended = blended.Count == 0 ? flying : [.. flying, .. blended];
+                }
+            }
+
+            // And the insects and the dust, after the rest. They hide a little of what is
+            // behind them and so want sorting against the smoke, and get away without it:
+            // there is no fire in any room that has them. Advanced whatever the switch
+            // says, for the same reason the birds are.
+            if (drifting.Any)
+            {
+                drifting.LitBy(front.Settings.SunRays && !noSunRays ? scene.Shafts : []);
+                drifting.Advance(delta, view);
+
+                if (front.Settings.InsectsAndDust && !noInsects)
+                {
+                    IReadOnlyList<Rendering.Particle> adrift = drifting.Facing(view);
+
+                    if (adrift.Count > 0)
+                    {
+                        blended = blended.Count == 0 ? adrift : [.. blended, .. adrift];
+                    }
                 }
             }
 

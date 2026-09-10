@@ -41,6 +41,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     private IReadOnlyList<Particle> _particles = [];
     private D3D12FogPass? _fogPass;
     private FogVolume _fog = FogVolume.None;
+    private D3D12SunRayPass? _sunRayPass;
+    private SunRays _sunRays = SunRays.None;
     private D3D12Texture? _lit;
 
     /// <summary>The room as this frame's mirror sees it, if the room has one.</summary>
@@ -479,8 +481,9 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             finished = Compose(list, scene, camera, width, height);
         }
 
-        // --- the air in the room, and then what is burning in it ---
+        // --- the air in the room, the sun through it, and then what is burning in it ---
         RecordFog(list, finished, camera, width, height);
+        RecordSunRays(list, finished, camera, width, height);
         RecordParticles(list, finished, camera, width, height);
 
         // --- the upscale, where one was asked for ---
@@ -576,6 +579,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         _particlePass = null;
         _fogPass?.Dispose();
         _fogPass = null;
+        _sunRayPass?.Dispose();
+        _sunRayPass = null;
         _compiler.Dispose();
         _geometry.Dispose();
     }
@@ -647,6 +652,58 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <summary>Gives the room its fog, or takes it away again.</summary>
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
     public void SetFog(FogVolume fog) => _fog = fog;
+
+    /// <summary>Gives the room its sun's rays, or takes them away again.</summary>
+    /// <param name="rays">The sun and how strongly to draw it, or <see cref="SunRays.None"/>.</param>
+    public void SetSunRays(SunRays rays)
+    {
+        _sunRays = rays;
+        _sunRayPass?.Shafts(rays.Windows);
+    }
+
+    /// <summary>
+    /// Draws the sun's rays over the picture it has just made.
+    /// </summary>
+    /// <param name="list">Command list to record into.</param>
+    /// <param name="finished">The picture, whichever target it ended up in.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Render width.</param>
+    /// <param name="height">Its height.</param>
+    private void RecordSunRays(
+        ID3D12GraphicsCommandList4* list,
+        D3D12Texture finished,
+        Camera camera,
+        int width,
+        int height)
+    {
+        if (!_sunRays.Any || _targets is null || _depth is null)
+        {
+            return;
+        }
+
+        if (_sunRayPass is null)
+        {
+            _sunRayPass = D3D12SunRayPass.Create(_context, _compiler, GBufferFormats.Light);
+            _sunRayPass.Shafts(_sunRays.Windows);
+        }
+
+        finished.Transition(list, ResourceStates.RenderTarget);
+        _depth.Transition(list, ResourceStates.AllShaderResource);
+
+        _sunRayPass.Record(
+            list,
+            _targets.Cpu(_rayTracing ? Slots.Lit : 0),
+            _depth,
+            width,
+            height,
+            SunRayConstants.For(
+                _sunRays,
+                camera,
+                _terrain?.Plan.CloudField,
+                width,
+                height,
+                _frames.Seconds));
+    }
 
     /// <summary>
     /// Marches the room's fog over the picture it has just made.
@@ -927,11 +984,13 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 _context, GBufferFormats.Light, width, height, opaque);
         }
 
-        // Sampled as well as tested, when there is a denoiser: it reads the depth to turn a
-        // pixel back into the point in the room it came from, and reads the frame before to
-        // decide whether the two are the same surface.
+        // Sampled as well as tested, always: the denoiser reads it to turn a pixel back
+        // into the point in the room it came from, and the fog and the sun's rays read it
+        // on every path to find out where the room ends. A typed depth resource cannot be
+        // given a shader view at all, so a pass that reads it on the raster path needs it
+        // typeless from the start.
         _depth = D3D12Texture.CreateDepthTarget(
-            _context, GBufferFormats.Depth, width, height, sampled: _rayTracing);
+            _context, GBufferFormats.Depth, width, height, sampled: true);
 
         // Display-sized, and unordered access rather than a render target: DLSS writes into
         // it with a compute shader of its own, and a resource it may not write to is a frame

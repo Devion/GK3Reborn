@@ -35,6 +35,10 @@ public interface IOffscreenRenderer : IDisposable
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
     void SetFog(FogVolume fog);
 
+    /// <summary>Gives the room its sun's rays, or takes them away again.</summary>
+    /// <param name="rays">The sun and how strongly to draw it, or <see cref="SunRays.None"/>.</param>
+    void SetSunRays(SunRays rays);
+
     /// <summary>Somewhere to put a scene, on this renderer's device.</summary>
     /// <returns>Empty geometry.</returns>
     SceneGeometry CreateGeometry();

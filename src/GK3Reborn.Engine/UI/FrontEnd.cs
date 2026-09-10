@@ -734,6 +734,9 @@ public sealed class FrontEnd
                 "trees", Text.Say("picture.trees", "Modelled trees"), Settings.ModelledTrees),
 
             Toggle(
+                "grass", Text.Say("picture.grass", "Grass on the lawns"), Settings.Grass),
+
+            Toggle(
                 "terrain",
                 Text.Say("picture.terrain", "Reconstructed horizon"),
                 Settings.TerrainBackdrop),
@@ -752,6 +755,21 @@ public sealed class FrontEnd
                 "birds",
                 Text.Say("picture.birds", "Birds in the sky"),
                 Settings.Birds),
+
+            Toggle(
+                "insects",
+                Text.Say("picture.insects", "Insects and dust in the air"),
+                Settings.InsectsAndDust),
+
+            Toggle(
+                "sunrays",
+                Text.Say("picture.sunrays", "Rays of sunlight"),
+                Settings.SunRays),
+
+            Toggle(
+                "shimmer",
+                Text.Say("picture.shimmer", "Heat haze in the distance"),
+                Settings.HeatHaze),
 
             // One row for two towns. They are installed separately and the engine checks
             // for them separately, but somebody switching this off is asking for the 1999
@@ -1614,10 +1632,14 @@ public sealed class FrontEnd
 
             "enhanced" => Settings with { EnhancedTextures = !Settings.EnhancedTextures },
             "trees" => Settings with { ModelledTrees = !Settings.ModelledTrees },
+            "grass" => Settings with { Grass = !Settings.Grass },
             "terrain" => Settings with { TerrainBackdrop = !Settings.TerrainBackdrop },
             "rooms" => Settings with { ImprovedSceneGeometry = !Settings.ImprovedSceneGeometry },
             "rails" => Settings with { ThickCutoutCards = !Settings.ThickCutoutCards },
             "birds" => Settings with { Birds = !Settings.Birds },
+            "insects" => Settings with { InsectsAndDust = !Settings.InsectsAndDust },
+            "sunrays" => Settings with { SunRays = !Settings.SunRays },
+            "shimmer" => Settings with { HeatHaze = !Settings.HeatHaze },
             "towns" => Settings with { RebuiltTowns = !Settings.RebuiltTowns },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },

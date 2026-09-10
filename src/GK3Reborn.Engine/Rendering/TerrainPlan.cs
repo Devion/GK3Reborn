@@ -120,6 +120,16 @@ public sealed class TerrainPlan
     /// <summary>Fraction of the procedural sky occupied by cloud, zero to one.</summary>
     public float CloudCoverage { get; set; } = 0.78f;
 
+    /// <summary>
+    /// The cloud field the sky is drawn with: coverage, scale, and a stable offset per scene.
+    /// Published so the sun's rays can read the same clouds the sky shows.
+    /// </summary>
+    public Vector4 CloudField => new(
+        Math.Clamp(CloudCoverage, 0f, 1f),
+        Math.Clamp(CloudScale, 0.25f, 4f),
+        19.7f + (MathF.Sin(_azimuth) * 13.1f),
+        -7.3f + (MathF.Cos(_azimuth) * 17.9f));
+
     /// <summary>Frequency of the cloud forms; smaller values make broader masses.</summary>
     public float CloudScale { get; set; } = 1f;
 
@@ -297,11 +307,7 @@ public sealed class TerrainPlan
             Sun = _sunDirection is { } sunWorld
                 ? new Vector4(Vector3.Normalize(-sunWorld), 1f)
                 : new Vector4(0f, 1f, 0f, 0f),
-            Clouds = new Vector4(
-                Math.Clamp(CloudCoverage, 0f, 1f),
-                Math.Clamp(CloudScale, 0.25f, 4f),
-                19.7f + (MathF.Sin(_azimuth) * 13.1f),
-                -7.3f + (MathF.Cos(_azimuth) * 17.9f)),
+            Clouds = CloudField,
         };
 
         return new TerrainFrame(ground, sky, offset, reselected);

@@ -32,6 +32,8 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     private ParticlePipeline? _particlePipeline;
     private IReadOnlyList<Particle> _particles = [];
     private FogPipeline? _fogPipeline;
+    private SunRayPipeline? _sunRayPipeline;
+    private SunRays _sunRays = SunRays.None;
     private FogVolume _fog = FogVolume.None;
 
     private SceneRenderer(
@@ -158,6 +160,13 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
     public void SetFog(FogVolume fog) => _fog = fog;
 
+    /// <inheritdoc/>
+    public void SetSunRays(SunRays rays)
+    {
+        _sunRays = rays;
+        _sunRayPipeline?.Shafts(rays.Windows);
+    }
+
     /// <summary>Renders geometry and returns the image.</summary>
     /// <param name="geometry">What to draw.</param>
     /// <param name="width">Image width.</param>
@@ -240,13 +249,13 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         Target direct = CreateTarget(
             width, height, GBuffer.LightFormat, parts, ImageAspectFlags.ColorBit);
 
-        // Sampled where the compositing pass will trace against it, and where there is fog
-        // to march to it. Both read the depth after the room has been drawn; a room with
-        // neither leaves it an attachment and nothing else.
+        // Sampled where the compositing pass will trace against it, where there is fog to
+        // march to it, and where the sun's rays walk over it. All three read the depth after
+        // the room has been drawn; a room with none leaves it an attachment and nothing else.
         Target depth = CreateTarget(
             width, height, DepthFormat,
             ImageUsageFlags.DepthStencilAttachmentBit |
-                (tracing || _fog.Any ? ImageUsageFlags.SampledBit : 0),
+                (tracing || _fog.Any || _sunRays.Any ? ImageUsageFlags.SampledBit : 0),
             ImageAspectFlags.DepthBit);
 
         try
@@ -295,7 +304,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
             VulkanSceneDraw.Begin(
                 _context.Api, command, colors, depth.View, width, height, camera.Background,
-                keepDepth: tracing || _fog.Any || _particles.Count > 0);
+                keepDepth: tracing || _fog.Any || _sunRays.Any || _particles.Count > 0);
 
             VulkanSceneDraw.Record(
                 _context.Api, command, pipeline, frames, geometry, 0, width, height, camera);
@@ -315,10 +324,14 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
             // away that wall happened to be.
             bool fogged = RecordFog(command, picture.View, depth, frames, camera, width, height, tracing);
 
+            // And the sun through it, over the fog and under the smoke.
+            bool sunlit = RecordSunRays(
+                command, picture.View, depth, camera, width, height, tracing || fogged);
+
             // Over the finished picture and under nothing: smoke is the last thing in the
             // room and the only blended thing in the renderer.
             RecordParticles(
-                command, picture.View, depth, camera, width, height, tracing || fogged);
+                command, picture.View, depth, camera, width, height, tracing || fogged || sunlit);
 
             _context.Transition(
                 command, picture.Image, ImageLayout.ColorAttachmentOptimal,
@@ -410,6 +423,77 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
             height,
             FogConstants.For(
                 _fog, LightGrid, Tracing.Ambient, camera, Seconds, width, height));
+
+        _context.Api.CmdEndRendering(command);
+
+        return true;
+    }
+
+    /// <summary>Draws the sun's rays over the picture it has just made.</summary>
+    /// <param name="command">Command buffer to record into.</param>
+    /// <param name="picture">The finished picture, which the rays are added onto.</param>
+    /// <param name="depth">How far the room got, which is what says where the sky is.</param>
+    /// <param name="camera">Where the frame was looked at from.</param>
+    /// <param name="width">Target width.</param>
+    /// <param name="height">Its height.</param>
+    /// <param name="sampled">Whether the depth is already in the layout a shader reads it in.</param>
+    /// <returns>True when rays were drawn, which leaves the depth readable by a shader.</returns>
+    private bool RecordSunRays(
+        CommandBuffer command,
+        ImageView picture,
+        Target depth,
+        Camera camera,
+        int width,
+        int height,
+        bool sampled)
+    {
+        if (!_sunRays.Any)
+        {
+            return false;
+        }
+
+        if (_sunRayPipeline is null)
+        {
+            _sunRayPipeline = SunRayPipeline.Create(_context, ColorFormat, _compiler);
+            _sunRayPipeline.Shafts(_sunRays.Windows);
+        }
+
+        if (!sampled)
+        {
+            _context.Transition(
+                command, depth.Image, ImageLayout.DepthStencilAttachmentOptimal,
+                ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
+        }
+
+        _sunRayPipeline.Bind(depth.View);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = picture,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = new Extent2D((uint)width, (uint)height) },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        _context.Api.CmdBeginRendering(command, in rendering);
+
+        // No clouds: this renderer draws the room and not the horizon, so the sky behind
+        // it is the cleared depth and nothing more, and the rays are shaped by the room.
+        _sunRayPipeline.Record(
+            command,
+            width,
+            height,
+            SunRayConstants.For(_sunRays, camera, clouds: null, width, height, Seconds));
 
         _context.Api.CmdEndRendering(command);
 
@@ -511,6 +595,8 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
 
         _fogPipeline?.Dispose();
         _fogPipeline = null;
+        _sunRayPipeline?.Dispose();
+        _sunRayPipeline = null;
 
         if (_placeholderSampler.Handle != 0)
         {

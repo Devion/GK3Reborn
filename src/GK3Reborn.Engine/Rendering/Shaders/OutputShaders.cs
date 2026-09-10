@@ -28,6 +28,10 @@ public static class OutputShaders
 
         layout(set = 0, binding = 0) uniform sampler2D picture;
 
+        // How far the room got at each pixel, at the size the room was drawn: the heat
+        // haze is a fact about distance.
+        layout(set = 0, binding = 1) uniform sampler2D depthTarget;
+
         layout(push_constant) uniform Display
         {
             // x transfer function, y paper white, z headroom above it, w tone curve
@@ -35,7 +39,58 @@ public static class OutputShaders
 
             // x sharpness, yz one source pixel in texture coordinates
             vec4 sharpen;
+
+            // x how far the haze bends the picture at its fullest, in pixels; y the clock
+            // in seconds; z the depth the haze begins at and w the depth it is full at
+            vec4 shimmer;
         } display;
+
+        // Where the picture is read from for a pixel: itself, or a little off itself where
+        // the air over hot ground is bending the light.
+        //
+        // Heat haze is refraction through air that is warmer in some places than others
+        // and moving. It is seen over ground at a distance — close to, the air between the
+        // eye and the thing is too short a path to bend anything — so the bend grows with
+        // depth and is nothing near the eye, which is also what keeps a face in the
+        // foreground still while the far end of the square wavers behind it. Two waves
+        // that share no period, mostly up and down, because rising air moves up and down.
+        vec2 Wavering(vec2 uv)
+        {
+            if (display.shimmer.x <= 0.0)
+            {
+                return uv;
+            }
+
+            float depth = texture(depthTarget, uv).x;
+
+            // The sky does not shimmer: the haze is over the ground, and past the ground
+            // there is nothing for it to bend.
+            if (depth >= 0.9999995)
+            {
+                return uv;
+            }
+
+            float far = smoothstep(display.shimmer.z, display.shimmer.w, depth);
+
+            if (far <= 0.0)
+            {
+                return uv;
+            }
+
+            // Slow and broad. A quick fine waver is what the eye is built to notice;
+            // hot air over a field moves at the pace of a breath.
+            float t = display.shimmer.y;
+            vec2 at = uv * vec2(22.0, 34.0);
+
+            float rise = sin((at.y * 1.0) + (t * 1.1) + sin((at.x * 0.7) + (t * 0.6)))
+                       + (0.5 * sin((at.y * 2.3) - (t * 1.6) + (at.x * 0.4)));
+            float drift = cos((at.x * 0.9) + (t * 0.9) + sin((at.y * 0.6) - (t * 0.5)))
+                        * 0.5;
+
+            vec2 bend = vec2(drift, rise) * display.shimmer.x * far * display.sharpen.yz;
+
+            return uv + bend;
+        }
 
         // Rec.709 to Rec.2020, which is what ST.2084 signalling is carried in. Written out
         // rather than looked up: it is nine constants and a matrix constructor, and a
@@ -144,7 +199,7 @@ public static class OutputShaders
 
         void main()
         {
-            vec3 colour = max(Sharpened(inUv), vec3(0.0));
+            vec3 colour = max(Sharpened(Wavering(inUv)), vec3(0.0));
 
             float transfer = display.tuning.x;
 

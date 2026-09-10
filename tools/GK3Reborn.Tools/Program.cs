@@ -161,6 +161,8 @@ public static class Program
             {
                 Restore = options.Restore,
                 Fog = options.Fog,
+                SunRays = options.SunRays,
+                Grass = options.Grass,
                 Cull = options.Cull,
             }.Run(
                 options.Source,
@@ -813,6 +815,8 @@ public static class Program
                                    Draw every room as it shipped.
               --no-trees           Leave foliage cards flat instead of growing trees.
               --no-fog             Leave the air clear.
+              --no-sun-rays        The sun draws no rays through the air.
+              --no-grass           No grass grown over the lawns.
               --wind SECONDS       Where the wind's clock stops. Two values render both.
               --heads N            Head refinement, 0 to 3.
               --tool NAME          What produced the candidates, recorded as provenance.
@@ -934,6 +938,12 @@ public static class Program
         /// <summary>Whether render-scene draws the fog of a room that has any.</summary>
         public bool Fog { get; init; } = true;
 
+        /// <summary>Whether render-scene draws the sun's rays in a room that has a sun.</summary>
+        public bool SunRays { get; init; } = true;
+
+        /// <summary>Whether render-scene grows grass over the lawns.</summary>
+        public bool Grass { get; init; } = true;
+
         /// <summary>Expand block-compressed textures on the host, as a Mac has to.</summary>
         public bool ExpandBlocks { get; init; }
 
@@ -975,6 +985,8 @@ public static class Program
             bool relief = true;
             bool trees = true;
             bool fog = true;
+            bool sunRays = true;
+            bool grass = true;
             bool improved = true;
             bool thickCards = true;
             bool cardShadows = true;
@@ -1024,6 +1036,12 @@ public static class Program
                         break;
                     case "--no-fog":
                         fog = false;
+                        break;
+                    case "--no-sun-rays":
+                        sunRays = false;
+                        break;
+                    case "--no-grass":
+                        grass = false;
                         break;
                     case "--expand-blocks":
                         expandBlocks = true;
@@ -1180,6 +1198,8 @@ public static class Program
                 Relief = relief,
                 Trees = trees,
                 Fog = fog,
+                SunRays = sunRays,
+                Grass = grass,
                 Improved = improved,
                 ThickCards = thickCards,
                 CardShadows = cardShadows,

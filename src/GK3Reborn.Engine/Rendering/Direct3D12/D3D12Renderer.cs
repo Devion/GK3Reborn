@@ -326,6 +326,18 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <inheritdoc/>
     public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
 
+    /// <inheritdoc/>
+    public void SetSunRays(SunRays rays) => _pipeline.SetSunRays(rays);
+
+    private float _shimmer;
+
+    /// <inheritdoc/>
+    public float Shimmer
+    {
+        get => _shimmer;
+        set => _shimmer = Math.Clamp(value, 0f, 4f);
+    }
+
     /// <summary>Says that whatever a temporal pass remembers is worthless.</summary>
     public void ResetHistory() => _pipeline.Reset = true;
 
@@ -538,7 +550,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _output!.Draw(
             list,
             [target],
-            [picture.Colour],
+            [picture.Colour, _pipeline.Guides ?? picture.Colour],
             new OutputTuning(
                 new Vector4(
                     display.Transfer,
@@ -555,7 +567,8 @@ public sealed unsafe class D3D12Renderer : IRenderer
                         : 0f,
                     width > 0 ? 1f / width : 0f,
                     height > 0 ? 1f / height : 0f,
-                    0f)),
+                    0f),
+                HeatHaze.Constants(_shimmer, _pipeline.Frames.Seconds, _camera, height)),
             width,
             height);
 
@@ -975,8 +988,8 @@ public sealed unsafe class D3D12Renderer : IRenderer
             OutputShaders.Vertex,
             OutputShaders.Fragment,
             "output",
-            inputs: 1,
-            constantBytes: 32,
+            inputs: 2,
+            constantBytes: 48,
             [_surface]);
 
         _movie = D3D12ScreenPass.Create(
@@ -1002,5 +1015,5 @@ public sealed unsafe class D3D12Renderer : IRenderer
     }
 
     /// <summary>What the output pass is told.</summary>
-    private readonly record struct OutputTuning(Vector4 Tuning, Vector4 Sharpen);
+    private readonly record struct OutputTuning(Vector4 Tuning, Vector4 Sharpen, Vector4 Shimmer);
 }

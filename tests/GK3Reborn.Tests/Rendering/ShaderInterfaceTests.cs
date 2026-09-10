@@ -16,6 +16,7 @@ public sealed class ShaderInterfaceTests
         "composite",
         "output",
         "fog",
+        "sunrays",
     };
 
     private static (string Vertex, string Fragment) SourcesOf(string name) => name switch
@@ -28,6 +29,7 @@ public sealed class ShaderInterfaceTests
         // The composite's vertex stage, which every full-screen pass shares: it declares no
         // varyings at all, and this is what says the fog's fragment stage asks for none.
         "fog" => (CompositeShaders.Vertex, FogShaders.Fragment),
+        "sunrays" => (CompositeShaders.Vertex, SunRayShaders.Fragment),
         _ => throw new ArgumentOutOfRangeException(nameof(name), name, "no such pair"),
     };
 

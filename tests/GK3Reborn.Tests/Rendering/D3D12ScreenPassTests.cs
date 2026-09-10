@@ -77,12 +77,15 @@ public sealed class D3D12ScreenPassTests
                 OutputShaders.Vertex,
                 OutputShaders.Fragment,
                 "output",
-                inputs: 1,
-                constantBytes: 32,
+
+                // The picture and the depth the heat haze reads; the block carries the
+                // haze's own vector after the display's two.
+                inputs: 2,
+                constantBytes: 48,
                 [format]);
 
-            Assert.Equal(1u, pass.Signature.ViewDescriptorCount);
-            Assert.Equal(1u, pass.Signature.SamplerDescriptorCount);
+            Assert.Equal(2u, pass.Signature.ViewDescriptorCount);
+            Assert.Equal(2u, pass.Signature.SamplerDescriptorCount);
         }
 
         Assert.DoesNotContain(

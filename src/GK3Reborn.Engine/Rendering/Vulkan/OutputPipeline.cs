@@ -22,8 +22,9 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// <param name="Sharpen">
 /// x how hard to sharpen — nought for not at all — and yz the size of one source pixel.
 /// </param>
+/// <param name="Shimmer">The heat haze, from <see cref="HeatHaze.Constants"/>; zero for none.</param>
 [StructLayout(LayoutKind.Sequential)]
-internal readonly record struct OutputConstants(Vector4 Tuning, Vector4 Sharpen);
+internal readonly record struct OutputConstants(Vector4 Tuning, Vector4 Sharpen, Vector4 Shimmer);
 
 /// <summary>
 /// The last thing that happens to a frame: a tone curve, a sharpen, and whatever encoding
@@ -102,19 +103,24 @@ internal sealed unsafe class OutputPipeline : IDisposable
         ShaderModule vertexModule = Module(vk, device, compiler, Vertex, ShaderStage.Vertex);
         ShaderModule fragmentModule = Module(vk, device, compiler, Fragment, ShaderStage.Fragment);
 
-        var binding = new DescriptorSetLayoutBinding
+        DescriptorSetLayoutBinding* bindings = stackalloc DescriptorSetLayoutBinding[2];
+
+        for (uint i = 0; i < 2; i++)
         {
-            Binding = 0,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            DescriptorCount = 1,
-            StageFlags = ShaderStageFlags.FragmentBit,
-        };
+            bindings[i] = new DescriptorSetLayoutBinding
+            {
+                Binding = i,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                DescriptorCount = 1,
+                StageFlags = ShaderStageFlags.FragmentBit,
+            };
+        }
 
         var layoutInfo = new DescriptorSetLayoutCreateInfo
         {
             SType = StructureType.DescriptorSetLayoutCreateInfo,
-            BindingCount = 1,
-            PBindings = &binding,
+            BindingCount = 2,
+            PBindings = bindings,
         };
 
         vk.CreateDescriptorSetLayout(device, in layoutInfo, null, out DescriptorSetLayout setLayout);
@@ -139,7 +145,7 @@ internal sealed unsafe class OutputPipeline : IDisposable
 
         vk.CreatePipelineLayout(device, in pipelineLayoutInfo, null, out PipelineLayout layout);
 
-        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 8);
+        var poolSize = new DescriptorPoolSize(DescriptorType.CombinedImageSampler, 16);
 
         var poolInfo = new DescriptorPoolCreateInfo
         {
@@ -291,9 +297,14 @@ internal sealed unsafe class OutputPipeline : IDisposable
         };
     }
 
-    /// <summary>Points the pass at the finished picture.</summary>
+    /// <summary>Points the pass at the finished picture, and at the depth the room left.</summary>
     /// <param name="picture">The linear frame, at the size it will be shown.</param>
-    public void Bind(ImageView picture)
+    /// <param name="depth">
+    /// How far the room got at each pixel, at the size the room was drawn, for the heat
+    /// haze. The picture itself where there is none: the haze then reads a colour as a
+    /// depth and is turned off by the constants before it can.
+    /// </param>
+    public void Bind(ImageView picture, ImageView depth)
     {
         if (_set.Handle != 0)
         {
@@ -317,24 +328,38 @@ internal sealed unsafe class OutputPipeline : IDisposable
             throw new VulkanException("Could not allocate the output descriptor set.");
         }
 
-        var image = new DescriptorImageInfo
+        DescriptorImageInfo* images = stackalloc DescriptorImageInfo[2];
+
+        images[0] = new DescriptorImageInfo
         {
             Sampler = _sampler,
             ImageView = picture,
             ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
         };
 
-        var write = new WriteDescriptorSet
+        images[1] = new DescriptorImageInfo
         {
-            SType = StructureType.WriteDescriptorSet,
-            DstSet = _set,
-            DstBinding = 0,
-            DescriptorCount = 1,
-            DescriptorType = DescriptorType.CombinedImageSampler,
-            PImageInfo = &image,
+            Sampler = _sampler,
+            ImageView = depth.Handle != 0 ? depth : picture,
+            ImageLayout = ImageLayout.ShaderReadOnlyOptimal,
         };
 
-        _vk.UpdateDescriptorSets(_device, 1, in write, 0, null);
+        WriteDescriptorSet* writes = stackalloc WriteDescriptorSet[2];
+
+        for (uint i = 0; i < 2; i++)
+        {
+            writes[i] = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = _set,
+                DstBinding = i,
+                DescriptorCount = 1,
+                DescriptorType = DescriptorType.CombinedImageSampler,
+                PImageInfo = &images[i],
+            };
+        }
+
+        _vk.UpdateDescriptorSets(_device, 2, writes, 0, null);
     }
 
     /// <summary>Whether anything has been bound to draw.</summary>

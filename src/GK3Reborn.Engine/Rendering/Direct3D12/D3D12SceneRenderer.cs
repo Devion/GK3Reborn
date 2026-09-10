@@ -129,8 +129,8 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
                 OutputShaders.Vertex,
                 OutputShaders.Fragment,
                 "output",
-                inputs: 1,
-                constantBytes: 32,
+                inputs: 2,
+                constantBytes: 48,
                 [GBufferFormats.Picture]);
 
             return new D3D12SceneRenderer(context, pipeline, output);
@@ -160,6 +160,9 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
 
     /// <inheritdoc/>
     public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
+
+    /// <inheritdoc/>
+    public void SetSunRays(SunRays rays) => _pipeline.SetSunRays(rays);
 
     /// <summary>Draws a scene and returns the picture.</summary>
     /// <param name="geometry">What to draw, already finished.</param>
@@ -195,8 +198,8 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
         _output.Draw(
             list,
             [_target!.Cpu(0)],
-            [picture.Colour],
-            new OutputTuning(default, default),
+            [picture.Colour, _pipeline.Guides ?? picture.Colour],
+            new OutputTuning(default, default, default),
             picture.Width,
             picture.Height);
 
@@ -253,5 +256,5 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
 
     /// <summary>What the output pass is told, which is nothing much without an upscaler.</summary>
     private readonly record struct OutputTuning(
-        System.Numerics.Vector4 Tuning, System.Numerics.Vector4 Sharpen);
+        System.Numerics.Vector4 Tuning, System.Numerics.Vector4 Sharpen, System.Numerics.Vector4 Shimmer);
 }

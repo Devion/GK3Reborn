@@ -150,9 +150,28 @@ public static class MeshShaders
         // texture sliding.
         vec3 Sway(vec3 position, float seconds)
         {
-            if (draw.wind.x <= 0.0)
+            if (draw.wind.x == 0.0)
             {
                 return position;
+            }
+
+            // Grass, which is thousands of clumps baked into one mesh in world space and so
+            // has no model height to bend as a fraction of. A blade bends from its root by
+            // how far up the blade the vertex is — which its texture coordinate says, the
+            // root at the bottom of the card — by a fixed distance at the tip, and its
+            // phase comes from where it stands, so a gust runs across a field rather than
+            // the whole field nodding together.
+            if (draw.wind.x < 0.0)
+            {
+                float up = clamp(1.0 - inTexCoord.y, 0.0, 1.0);
+                float bend = -draw.wind.x * up * up;
+                float where = dot(position.xz, vec2(0.011, 0.007));
+                float gust = (seconds * draw.wind.y) + where;
+
+                return position + vec3(
+                    (sin(gust) + (0.4 * sin((gust * 2.3) + 1.0))) * bend,
+                    -abs(sin(gust)) * bend * 0.25,
+                    (cos((gust * 0.9) + 0.6) + (0.3 * cos(gust * 2.9))) * bend * 0.7);
             }
 
             float held = clamp(position.y, 0.0, 1.0);

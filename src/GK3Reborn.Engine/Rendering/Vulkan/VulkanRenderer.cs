@@ -127,6 +127,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private ParticlePipeline? _particlePipeline;
     private IReadOnlyList<Particle> _particles = [];
     private FogPipeline? _fogPipeline;
+    private SunRayPipeline? _sunRayPipeline;
+    private SunRays _sunRays = SunRays.None;
     private FogVolume _fog = FogVolume.None;
 
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
@@ -146,6 +148,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private IUpscaler? _upscaler;
     private bool _upscalerFailed;
     private ImageView _outputSource;
+    private ImageView _outputDepth;
+    private float _shimmer;
 
     /// <summary>What the player has asked the upscaler for.</summary>
     private UpscalePlan _upscaling = UpscalePlan.None;
@@ -1017,6 +1021,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _particlePipeline = null;
             _fogPipeline?.Dispose();
             _fogPipeline = null;
+            _sunRayPipeline?.Dispose();
+            _sunRayPipeline = null;
             _denoiser?.Dispose();
             _denoiser = null;
             _composite?.Dispose();
@@ -1934,10 +1940,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 ImageLayout.ShaderReadOnlyOptimal, ImageAspectFlags.DepthBit);
         }
 
-        // The air in the room, and then what is burning in it. Both over the finished
-        // picture and under everything that is not in the room: the movie, the interface
-        // and the fade all come later.
+        // The air in the room, the sun through it, and then what is burning in it. All
+        // over the finished picture and under everything that is not in the room: the
+        // movie, the interface and the fade all come later.
         RecordFog(buffer);
+        RecordSunRays(buffer);
         RecordParticles(buffer);
 
         _litSettled = true;
@@ -2131,10 +2138,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
         else
         {
-            if (_outputSource.Handle != picture.Handle)
+            if (_outputSource.Handle != picture.Handle || _outputDepth.Handle != _depthView.Handle)
             {
-                _outputPipeline.Bind(picture);
+                _outputPipeline.Bind(picture, _depthView);
                 _outputSource = picture;
+                _outputDepth = _depthView;
             }
         }
 
@@ -2199,7 +2207,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
                         : 0f,
                     _extent.Width > 0 ? 1f / _extent.Width : 0f,
                     _extent.Height > 0 ? 1f / _extent.Height : 0f,
-                    0f)));
+                    0f),
+                HeatHaze.Constants(
+                    _shimmer,
+                    (float)_wind.Elapsed.TotalSeconds,
+                    _camera,
+                    (int)_extent.Height)));
 
         // Over the room and under the interface. A movie covers the window, so what is
         // behind it does not matter; the captions that go with one do.
@@ -2519,6 +2532,74 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     /// <inheritdoc/>
     public void SetFog(FogVolume fog) => _fog = fog;
+
+    /// <inheritdoc/>
+    public void SetSunRays(SunRays rays)
+    {
+        _sunRays = rays;
+        _sunRayPipeline?.Shafts(rays.Windows);
+    }
+
+    /// <inheritdoc/>
+    public float Shimmer
+    {
+        get => _shimmer;
+        set => _shimmer = Math.Clamp(value, 0f, 4f);
+    }
+
+    /// <summary>
+    /// Draws the sun's rays over the picture, in a scope of their own.
+    /// </summary>
+    /// <param name="buffer">Command buffer being recorded.</param>
+    private void RecordSunRays(CommandBuffer buffer)
+    {
+        if (!_sunRays.Any || _sunRayPipeline is not { Ready: true } || _camera is null ||
+            _litImage.Handle == 0 || _depthImage.Handle == 0)
+        {
+            return;
+        }
+
+        int width = (int)_renderExtent.Width;
+        int height = (int)_renderExtent.Height;
+
+        Transition(
+            buffer, _litImage, ImageLayout.ShaderReadOnlyOptimal,
+            ImageLayout.ColorAttachmentOptimal);
+
+        var attachment = new RenderingAttachmentInfo
+        {
+            SType = StructureType.RenderingAttachmentInfo,
+            ImageView = _litView,
+            ImageLayout = ImageLayout.ColorAttachmentOptimal,
+            LoadOp = AttachmentLoadOp.Load,
+            StoreOp = AttachmentStoreOp.Store,
+        };
+
+        var rendering = new RenderingInfo
+        {
+            SType = StructureType.RenderingInfo,
+            RenderArea = new Rect2D { Extent = _renderExtent },
+            LayerCount = 1,
+            ColorAttachmentCount = 1,
+            PColorAttachments = &attachment,
+        };
+
+        _vk.CmdBeginRendering(buffer, in rendering);
+
+        _sunRayPipeline.Record(
+            buffer,
+            width,
+            height,
+            Geometry.SunRayConstants.For(
+                _sunRays, _camera, _terrain?.Plan.CloudField, width, height,
+                (float)_wind.Elapsed.TotalSeconds));
+
+        _vk.CmdEndRendering(buffer);
+
+        Transition(
+            buffer, _litImage, ImageLayout.ColorAttachmentOptimal,
+            ImageLayout.ShaderReadOnlyOptimal);
+    }
 
     /// <summary>
     /// Marches the room's fog over the picture, in a scope of its own.
@@ -2885,6 +2966,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         // costs one compile at start-up and nothing a frame, and building it on the first
         // room that wants one would put that compile in the middle of a scene change.
         _fogPipeline = FogPipeline.Create(_context, GBuffer.LightFormat, _shaderCompiler);
+        _sunRayPipeline = SunRayPipeline.Create(_context, GBuffer.LightFormat, _shaderCompiler);
 
         RebuildForFormat();
 
@@ -2916,6 +2998,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
 
         _fogPipeline.Bind(_frames.Rig, _frames.Cells, _frames.Reaching, _depthView);
+        _sunRayPipeline?.Bind(_depthView);
     }
 
     /// <summary>
