@@ -1,0 +1,33 @@
+# St. George's Books, behind Rennes-le-Chateau's bookstore door.
+#
+# The port's own easter egg, and neither cut content nor scenery: nobody at Sierra wrote,
+# recorded or modelled it. Open the bookstore door in RC1 five times running as Gabriel
+# and it gives, onto his own shop in New Orleans from the first game -- as he might dream
+# it, and he says as much on the way in. The room is tools/rooms/build_sgb.py; its scene
+# and action files are in tools/rooms/sgb and are shipped in the packs under the room kind.
+# See docs/bookshop.md.
+#
+# Applied only when the shop is installed -- when something answers for SGB.SIF, which is
+# what the packs or a loose enhanced/rooms directory provide -- so an installation without
+# the enhanced content is exactly the game as it shipped: the door stays closed and the
+# original line is all it says.
+#
+# Three edits, and each is the smallest that works:
+#
+#   The action file with the counted door. A file of its own in RC1's scope rather than a
+#   change to RC1_ALL.NVC, because the shipped file has one rule for the door and the new
+#   ones outrank it by their cases, not by their order -- see Game.ActionResolver.Worth.
+#
+#   Where Gabriel stands when he comes back out. RC1's own PlaceEgo$ knows every door on
+#   the square but this one; FR_ plus the room he came from is the name the loader looks
+#   for. The spot is thirty-five units out from the door, on the street side, facing away
+#   from it. Measured off rc1_bookstore_door: (3251.3, 42.4, -1419.2) to (3278.4, 132.4,
+#   -1458.7), whose street side is the one the room's "bookstore" camera stands on.
+#
+#   The name the corner of the screen shows for the room, in the string table every other
+#   room's name comes from.
+
+[BOOKSHOP]
+append RC1.SIF ACTIONS rc1_all_sgb.nvc
+append RC1.SIF POSITIONS FR_SGB,pos={3236.0,24.7,-1459.0},heading=-124.4
+append ESTRINGS.TXT - loc_sgb   = St. George's Books

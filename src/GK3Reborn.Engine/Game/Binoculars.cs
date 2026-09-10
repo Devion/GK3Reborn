@@ -59,6 +59,19 @@ public sealed record Sight(
 public sealed record BinocularView(
     string From, Sight Sight, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look);
 
+/// <summary>
+/// Where the player stood in a room when they left it for one the game never had. See
+/// <see cref="Gk3SheepApi.Returning"/>.
+/// </summary>
+/// <param name="Room">The room they left, and will be stood in again.</param>
+/// <param name="Through">The added room they went into.</param>
+/// <param name="Standing">Where they stood.</param>
+/// <param name="Facing">Which way they faced, in radians.</param>
+/// <param name="Eye">Where the camera was.</param>
+/// <param name="Look">Which way it was aimed: heading and pitch.</param>
+public sealed record ReturnSpot(
+    string Room, string Through, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look);
+
 /// <summary>Somewhere a voice-over plays when the binoculars settle on it.</summary>
 /// <param name="From">Lower corner, in degrees.</param>
 /// <param name="To">Upper corner.</param>

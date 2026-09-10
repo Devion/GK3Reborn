@@ -15,7 +15,7 @@ namespace GK3Reborn.Content;
 public sealed class AddedAssets
 {
     private static readonly string[] Kinds =
-        [".SIF", ".NVC", ".BMP", ".TXT", ".SHP", ".YAK", ".SCN", ".ANM", ".ACT"];
+        [".SIF", ".NVC", ".BMP", ".TXT", ".SHP", ".YAK", ".SCN", ".ANM", ".ACT", ".STK"];
 
     private readonly Dictionary<string, string> _loose;
     private readonly RebarnContent? _packs;
@@ -93,6 +93,7 @@ public sealed class AddedAssets
 
         return Overrides?.Has(RebarnKind.Raw, name) == true
             || _loose.ContainsKey(name)
+            || _packs?.Has(RebarnKind.Room, name) == true
             || _packs?.Has(RebarnKind.Raw, name) == true;
     }
 
@@ -120,7 +121,10 @@ public sealed class AddedAssets
             return null;
         }
 
-        return _packs?.Read(RebarnKind.Raw, name);
+        // The room kind first, which keeps a file's extension and so can tell a room's
+        // .SIF from its .SCN; then raw, which is where a pack written before that kind
+        // existed put its action files and clips.
+        return _packs?.Read(RebarnKind.Room, name) ?? _packs?.Read(RebarnKind.Raw, name);
     }
 
     /// <summary>A line for the startup log.</summary>

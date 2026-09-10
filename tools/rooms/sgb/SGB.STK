@@ -1,0 +1,17 @@
+// St. George's Books. Not a 1999 file; see SGB.SIF.
+//
+// SGBTHEME is the first game's bookshop music -- St. George's Books as it was scored in
+// 1993 -- wrapped by tools/rooms/build_sgb.py --music into the RIFF the game stores its own
+// music in, and shipped in the packs under enhanced/audio. It plays through on the way in,
+// then the room is quiet for a while before it comes round again, so a player who stays is
+// not looped at.
+
+[SOUND]
+Name=SGBTHEME
+Volume=70.0
+StopMethod=1
+FadeOutMS=3000
+
+[WAIT]
+MinWaitMS=20000
+MaxWaitMS=40000

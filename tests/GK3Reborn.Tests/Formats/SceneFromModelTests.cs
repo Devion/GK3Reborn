@@ -52,6 +52,26 @@ public sealed class SceneFromModelTests
     }
 
     [Fact]
+    public void A_room_that_marks_a_surface_unlit_has_the_rest_lit_by_its_rig()
+    {
+        // The bookshop marks its window glass and lamp shades KHR_materials_unlit; that is
+        // the file saying the rest of it is a wall, and a wall takes the authored lights.
+        // TE2 marks nothing and stays as it was: every surface its own light.
+        ModFile model = Model(("sgb_walls", 1), ("sgb_window01", 1));
+        ModMesh window = model.Meshes[1];
+        ModFile marked = ModFile.FromMeshes("Sgb",
+        [
+            model.Meshes[0],
+            window with { Submeshes = [window.Submeshes[0] with { Unlit = true }] },
+        ]);
+
+        BspFile room = Assert.IsType<BspFile>(SceneFromModel.Build(marked, "Sgb"));
+
+        Assert.Equal(0u, room.Surfaces[0].Flags & BspSurface.IgnoreLightmapFlag);
+        Assert.Equal(BspSurface.IgnoreLightmapFlag, room.Surfaces[1].Flags & BspSurface.IgnoreLightmapFlag);
+    }
+
+    [Fact]
     public void The_nodes_transform_is_baked_into_the_vertices()
     {
         // A .MOD keeps a node's transform separate so a scene can pose the parts of a

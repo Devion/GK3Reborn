@@ -58,6 +58,13 @@ public enum RebarnKind : byte
     /// </summary>
     Menu = 13,
 
+    /// <summary>
+    /// A file of a room the game never had -- its scene files, its geometry, its walk
+    /// boundary, its action files -- addressed by its whole name, because a room's
+    /// <c>.SIF</c>, <c>.SCN</c> and <c>.STK</c> share a stem.
+    /// </summary>
+    Room = 14,
+
     /// <summary>Anything else, addressed by name alone.</summary>
     Raw = 255,
 }
@@ -160,7 +167,7 @@ public static class RebarnFormat
         }
 
         int dot = span.LastIndexOf('.');
-        if (kind is not (RebarnKind.Audio or RebarnKind.Localized) && dot > 0)
+        if (kind is not (RebarnKind.Audio or RebarnKind.Localized or RebarnKind.Room) && dot > 0)
         {
             span = span[..dot];
         }
@@ -246,6 +253,7 @@ public static class RebarnFormat
         RebarnKind.Manifest => "manifests",
         RebarnKind.Audio => "audio",
         RebarnKind.Menu => "menu",
+        RebarnKind.Room => "rooms",
         _ => "raw",
     };
 
@@ -271,6 +279,7 @@ public static class RebarnFormat
             "MANIFESTS" or "MANIFEST" => RebarnKind.Manifest,
             "AUDIO" => RebarnKind.Audio,
             "MENU" => RebarnKind.Menu,
+            "ROOMS" or "ROOM" => RebarnKind.Room,
             "RAW" => RebarnKind.Raw,
             _ => null,
         };

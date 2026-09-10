@@ -315,6 +315,31 @@ public sealed class FontAndSoundTests
     }
 
     [Fact]
+    public void The_bookshop_theme_decodes_out_of_the_workspace_when_it_is_there()
+    {
+        // The shop's music is an MP3 wrapped by tools/rooms/build_sgb.py --music into the
+        // RIFF the game's own music uses. Not a fixture: it is three megabytes and belongs
+        // to the workspace, so the test says nothing when the workspace is not here.
+        string path = Path.Combine(
+            AppContext.BaseDirectory, "..", "..", "..", "..", "..", "..",
+            "ContentWorkspace", "enhanced", "audio", "music", "SGBTHEME.WAV.wav");
+
+        if (!File.Exists(path))
+        {
+            return;
+        }
+
+        var bag = new DiagnosticBag();
+        WavFile? sound = WavFile.Read(File.ReadAllBytes(path), "SGBTHEME.WAV", bag);
+
+        Assert.True(bag.Items.Count == 0, string.Join("; ", bag.Items.Select(d => d.Message)));
+        Assert.NotNull(sound);
+        Assert.Equal(2, sound.Channels);
+        Assert.Equal(48000, sound.SampleRate);
+        Assert.InRange(sound.Duration, 130, 150);
+    }
+
+    [Fact]
     public void Restored_twenty_four_bit_pcm_is_read_without_changing_its_duration()
     {
         // 0x7fff00 and -0x800000 reduce exactly to the two signed 16-bit endpoints.

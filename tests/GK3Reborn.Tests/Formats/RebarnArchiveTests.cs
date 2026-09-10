@@ -321,6 +321,28 @@ public sealed class RebarnArchiveTests : IDisposable
     }
 
     [Fact]
+    public void A_rooms_key_keeps_its_extension_so_its_three_files_are_three_entries()
+    {
+        // SGB.SIF, SGB.SCN and SGB.STK share a stem. As raw entries they were one key, and
+        // the scene file answered a read of the geometry; the room kind tells them apart.
+        Assert.NotEqual(
+            RebarnFormat.Key(RebarnKind.Room, "SGB.SIF"),
+            RebarnFormat.Key(RebarnKind.Room, "SGB.SCN"));
+
+        Assert.Equal(
+            RebarnFormat.Key(RebarnKind.Room, "Sgb.glb"),
+            RebarnFormat.Key(RebarnKind.Room, @"enhanced
+ooms\SGB.GLB"));
+
+        Assert.Equal(
+            RebarnFormat.Key(RebarnKind.Raw, "SGB.SIF"),
+            RebarnFormat.Key(RebarnKind.Raw, "SGB.SCN"));
+
+        Assert.Equal(RebarnKind.Room, RebarnFormat.KindOf("rooms"));
+        Assert.Equal("rooms", RebarnFormat.DirectoryOf(RebarnKind.Room));
+    }
+
+    [Fact]
     public void ADdsReadOutOfAPackDecodesToTheSameImageAsALooseOne()
     {
         // The whole point of the container: a texture goes to the device straight out of

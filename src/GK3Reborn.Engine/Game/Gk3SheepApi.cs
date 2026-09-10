@@ -72,6 +72,15 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>The look through the binoculars that is being put down, or null.</summary>
     public BinocularView? Resuming { get; set; }
 
+    /// <summary>
+    /// Where the player was standing when they walked into a room the game never had, so
+    /// that they can be stood there again on the way back out. The 1999 scripts place a
+    /// player on arrival by asking which room they came from, and a room those scripts
+    /// have never heard of gets their fallback — the hotel door, in the square — so the
+    /// port remembers instead. Null when nobody is out in such a room.
+    /// </summary>
+    public ReturnSpot? Returning { get; set; }
+
     /// <summary>The state these functions operate on.</summary>
     public GameState State { get; }
 

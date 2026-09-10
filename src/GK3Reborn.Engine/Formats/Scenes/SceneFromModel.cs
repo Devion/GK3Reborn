@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -44,6 +44,15 @@ public static class SceneFromModel
             return null;
         }
 
+        // Whether the model made the distinction between a surface that gives light and
+        // one that receives it. A room that marks nothing unlit is drawn as it was
+        // authored, full bright, the way the original binds a white lightmap for a surface
+        // the bake never touched; a room that marks its lamp shades and window glass
+        // unlit has said the rest is a wall, and a wall is lit by the room's rig. The
+        // choice is the file's rather than a switch here, because only its author knows
+        // which of its pictures are already lit.
+        bool lit = model.Meshes.Any(mesh => mesh.Submeshes.Any(submesh => submesh.Unlit));
+
         List<string> objectNames = [];
         List<BspSurface> surfaces = [];
         List<BspPolygon> polygons = [];
@@ -85,7 +94,7 @@ public static class SceneFromModel
                     TextureName = submesh.TextureName,
                     LightmapUvOffset = Vector2.Zero,
                     LightmapUvScale = Vector2.One,
-                    Flags = BspSurface.IgnoreLightmapFlag,
+                    Flags = !lit || submesh.Unlit ? BspSurface.IgnoreLightmapFlag : 0,
                 });
 
                 for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)

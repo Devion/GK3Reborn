@@ -33,6 +33,7 @@ public static class GlbReader
         JsonElement[] accessors = Array(root, "accessors");
         JsonElement[] views = Array(root, "bufferViews");
         string[] materials = MaterialTextures(root);
+        bool[] unlit = MaterialsUnlit(root);
 
         List<ModMesh> built = [];
 
@@ -67,7 +68,7 @@ public static class GlbReader
                 foreach (JsonElement primitive in Array(meshes[at], "primitives"))
                 {
                     submeshes.AddRange(
-                        ReadPrimitive(primitive, accessors, views, binary, materials, name));
+                        ReadPrimitive(primitive, accessors, views, binary, materials, unlit, name));
                 }
 
                 if (submeshes.Count > 0)
@@ -286,6 +287,7 @@ public static class GlbReader
         JsonElement[] views,
         byte[] binary,
         string[] materials,
+        bool[] unlit,
         string name)
     {
         if (primitive.TryGetProperty("mode", out JsonElement mode) && mode.GetInt32() != 4)
@@ -315,14 +317,22 @@ public static class GlbReader
             ? Indices(accessors, views, binary, indexAt.GetInt32(), name)
             : [.. Enumerable.Range(0, positions.Length)];
 
-        string texture = primitive.TryGetProperty("material", out JsonElement materialAt) &&
-                         materialAt.GetInt32() >= 0 && materialAt.GetInt32() < materials.Length
-            ? materials[materialAt.GetInt32()]
+        int material = primitive.TryGetProperty("material", out JsonElement materialAt)
+            ? materialAt.GetInt32()
+            : -1;
+
+        string texture = material >= 0 && material < materials.Length
+            ? materials[material]
             : string.Empty;
+
+        // KHR_materials_unlit, which is how a glTF says "draw this as painted, whatever
+        // the light is doing". For a built room that is the distinction between a lamp
+        // shade and the wall it lights — see Scenes.SceneFromModel.
+        bool selfLit = material >= 0 && material < unlit.Length && unlit[material];
 
         foreach (ModSubmesh submesh in Chop(positions, normals, texCoords, indices, texture))
         {
-            yield return submesh;
+            yield return submesh with { Unlit = selfLit };
         }
     }
 
@@ -430,6 +440,23 @@ public static class GlbReader
         }
 
         return named;
+    }
+
+    /// <summary>Which materials declare <c>KHR_materials_unlit</c>, by index.</summary>
+    private static bool[] MaterialsUnlit(JsonElement root)
+    {
+        JsonElement[] materials = Array(root, "materials");
+        bool[] unlit = new bool[materials.Length];
+
+        for (int index = 0; index < materials.Length; index++)
+        {
+            unlit[index] =
+                materials[index].TryGetProperty("extensions", out JsonElement extensions) &&
+                extensions.ValueKind == JsonValueKind.Object &&
+                extensions.TryGetProperty("KHR_materials_unlit", out _);
+        }
+
+        return unlit;
     }
 
     private static string ImageName(

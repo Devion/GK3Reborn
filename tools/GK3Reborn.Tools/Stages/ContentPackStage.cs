@@ -68,29 +68,21 @@ public sealed class ContentPackStage
         new(RebarnKind.SceneGeometry, "enhanced/scene-geometry", null, false, 0, "Reborn", "*.glb"),
         new(RebarnKind.Manifest, "enhanced/scene-geometry", null, false, 0, "Reborn", "*.json"),
 
-        // **The files no barn has**, from `enhanced/rooms`: the action file the crow's-nest
-        // puzzle needs, the two clips the nest and the crow are animated with, and the
-        // wrappers for the four of its lines the game has no `.YAK` for at all.
-        // `AddedAssets` asks for these by their 1999 name and is consulted after every
-        // archive, so an entry here can only ever answer for a name the game does not know.
+        // **The rooms the game never had**, from `enhanced/rooms`: TE2's blockout and St.
+        // George's Books, each a scene file, a scene asset, a soundtrack, a walk boundary,
+        // its geometry as glTF and its action files -- plus the crow's-nest puzzle's action
+        // file, its two clips and the wrappers for the four lines the game has no `.YAK`
+        // for. `AddedAssets` asks for these by their 1999 name and is consulted after every
+        // archive, so an entry here can only ever answer for a name the game does not know;
+        // `RoomLibrary` asks for the geometry the same way, after every `.BSP`.
         //
-        // Left out until 2026-09-03, and invisible for the same reason the material library
-        // was: the loader reads them loose from the workspace, and in development the
-        // workspace is always there. A player has only the two volumes, and against those
-        // `rc2_crowsnest.nvc` was a file the scene listed and no archive contained -- so the
-        // restored puzzle could be looked at and not solved.
-        //
-        // **Four extensions and not the nine `AddedAssets` reads**, because a pack key
-        // drops the extension (`RebarnFormat.Key`) and these are addressed by their own
-        // names rather than by a room's. Two added files with the same stem are one entry,
-        // and worse, a built room's `.SIF` answers a read of its `.BSP` -- which is why TE2
-        // is not here. See docs/known-issues.md. The four below cannot collide: an action
-        // file, a clip, a clip's data and a licence plate are each named for themselves.
-        // One kind per extension because `Files` is one glob.
-        new(RebarnKind.Raw, "enhanced/rooms", null, false, 0, "Reborn", "*.nvc"),
-        new(RebarnKind.Raw, "enhanced/rooms", null, false, 0, "Reborn", "*.anm"),
-        new(RebarnKind.Raw, "enhanced/rooms", null, false, 0, "Reborn", "*.act"),
-        new(RebarnKind.Raw, "enhanced/rooms", null, false, 0, "Reborn", "*.yak"),
+        // A kind of its own, whose key keeps the file's extension. Every other kind drops
+        // it (`RebarnFormat.Key`), and a room's `.SIF`, `.SCN` and `.STK` share a stem: as
+        // raw entries the three were one entry, and a built room's `.SIF` answered a read
+        // of its `.BSP`. That is why TE2 could not be packed until 2026-09-10 and shipped
+        // loose only. One glob, every file in the directory, because a room is whatever
+        // its builder wrote beside it.
+        new(RebarnKind.Room, "enhanced/rooms", null, false, 0, "Reborn", "*"),
 
         // The modelled trees, all three parts of them, out of the one directory they are
         // grown into. The foliage cards go through the encoder like any other colour

@@ -34,7 +34,7 @@ public sealed class CutContent
     private readonly Dictionary<string, List<Edit>> _edits = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, byte[]> _done = new(StringComparer.OrdinalIgnoreCase);
 
-    private static readonly Dictionary<(CutContentTier Tier, DressedTowns Dressing), CutContent> Tables = [];
+    private static readonly Dictionary<(CutContentTier Tier, DressedTowns Dressing, bool Bookshop), CutContent> Tables = [];
     private int _applied;
     private int _failed;
     private int _unreadable;
@@ -72,14 +72,20 @@ public sealed class CutContent
     /// a separate table on a separate switch because it is not a restoration: nobody at
     /// Sierra wrote, recorded or modelled any of it.
     /// </param>
+    /// <param name="bookshop">
+    /// Whether to open the bookstore door in RC1 onto St. George's Books — see
+    /// <c>Assets/Story/Bookshop.txt</c>. Its own switch because it is neither a
+    /// restoration nor scenery: it is the port's own easter egg, and it is on exactly when
+    /// the room it leads to is installed.
+    /// </param>
     /// <returns>
     /// The edits, or an empty set when the tier is <see cref="CutContentTier.None"/> and
-    /// there is no dressing either.
+    /// there is no dressing or bookshop either.
     /// </returns>
     public static CutContent Open(
-        CutContentTier tier, DressedTowns dressing = DressedTowns.None)
+        CutContentTier tier, DressedTowns dressing = DressedTowns.None, bool bookshop = false)
     {
-        if (tier == CutContentTier.None && dressing == DressedTowns.None)
+        if (tier == CutContentTier.None && dressing == DressedTowns.None && !bookshop)
         {
             return new CutContent();
         }
@@ -88,7 +94,7 @@ public sealed class CutContent
         // an asset once and the result kept; handing out a fresh table each time a room
         // asks whether to change anything would apply every edit again, count it again,
         // and report a failure once per room rather than once.
-        var key = (tier, dressing);
+        var key = (tier, dressing, bookshop);
 
         lock (Tables)
         {
@@ -98,7 +104,7 @@ public sealed class CutContent
             }
         }
 
-        CutContent table = Read(tier, dressing);
+        CutContent table = Read(tier, dressing, bookshop);
 
         lock (Tables)
         {
@@ -113,7 +119,7 @@ public sealed class CutContent
         return table;
     }
 
-    private static CutContent Read(CutContentTier tier, DressedTowns dressing)
+    private static CutContent Read(CutContentTier tier, DressedTowns dressing, bool bookshop)
     {
         var table = new CutContent();
 
@@ -158,6 +164,16 @@ public sealed class CutContent
                     "GK3Reborn.Assets.Story.RennesLeChateau.txt",
                     section => section == "RC3_CEMETERY_GATE");
             }
+        }
+
+        // The door to the bookshop, which is neither of the above and is on its own switch:
+        // whether the room behind it is installed.
+        if (bookshop)
+        {
+            FillFromResource(
+                table,
+                "GK3Reborn.Assets.Story.Bookshop.txt",
+                section => section == "BOOKSHOP");
         }
 
         return table;

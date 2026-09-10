@@ -107,6 +107,12 @@ public static class Application
     /// <summary>Where the story starts.</summary>
     private const string OpeningScene = "R25";
 
+    /// <summary>
+    /// The file whose presence means St. George's Books is installed: the scene file of
+    /// the room behind RC1's bookstore door. See Assets/Story/Bookshop.txt.
+    /// </summary>
+    private const string Bookshop = "SGB.SIF";
+
     /// <summary>The time of day the story starts at.</summary>
     private const string OpeningTimeblock = "110A";
 
@@ -449,8 +455,35 @@ public static class Application
 
         Content.DressedTowns dressing = Dressed();
 
+        // The other half of a restoration: files no barn has and none can, for rooms that
+        // were cut before there was anything to cut them from — and, since 2026-09-10,
+        // for the one room that was never cut because it was never Sierra's: the bookshop.
+        // Not gated on the restoration tier, as it was until then, because the layer only
+        // answers for names the archives do not know and cannot put a player anywhere by
+        // itself: what sends somebody to TE2 is a restored rule, which is behind the tier,
+        // and what sends them to the bookshop is the door below, which is behind whether
+        // the room is installed. Opened before the restoration table because that second
+        // gate is a question about this layer.
+        AddedAssets rebuilt = AddedAssets.Open(
+            packsOnly || enhancedDirectory is not { Length: > 0 }
+                ? string.Empty
+                : Beside(enhancedDirectory, "rooms"),
+            packs);
+
+        rebuilt.Overrides = overrides;
+
+        if (!rebuilt.IsEmpty)
+        {
+            archives.Added = rebuilt;
+            Log.Info($"Added assets: {rebuilt.Describe()}");
+        }
+
+        // Whether St. George's Books is installed, which is what decides whether RC1's
+        // bookstore door can ever be opened. See Assets/Story/Bookshop.txt.
+        bool bookshop = rebuilt.Has(Bookshop);
+
         var restoreDiagnostics = new DiagnosticBag();
-        CutContent restored = CutContent.Open(RestorationTier(args, settings), dressing);
+        CutContent restored = CutContent.Open(RestorationTier(args, settings), dressing, bookshop);
 
         if (!restored.IsEmpty)
         {
@@ -498,35 +531,22 @@ public static class Application
                 }.Where(name => name is not null))
               + ", from the installed geometry");
 
-        // The other half of a restoration: files no barn has and none can, for content that
-        // was cut before there was anything to cut it from. Only with the tier that admits
-        // rebuilt objects, because a room the game never had is the largest of those.
-        AddedAssets rebuilt =
-            RestorationTier(args, settings) >= CutContentTier.Reconstructed
-                ? AddedAssets.Open(
-                    enhancedDirectory is { Length: > 0 }
-                        ? Beside(enhancedDirectory, "rooms")
-                        : string.Empty,
-                    packs)
-                : AddedAssets.Empty;
-
-        rebuilt.Overrides = overrides;
-
-        if (!rebuilt.IsEmpty)
-        {
-            archives.Added = rebuilt;
-            Log.Info($"Added assets: {rebuilt.Describe()}");
-        }
+        // Said either way, like the dressing above and for the same reason: a door that
+        // stays shut and a door that was never wired look the same from the square.
+        Log.Info(bookshop
+            ? "Bookshop: installed, so RC1's bookstore door gives on the fifth try"
+            : $"Bookshop: not installed — nothing answers for {Bookshop}, so RC1's "
+              + "bookstore door stays closed");
 
         // Before the window, the device and the menu. A room that is not in the archives
         // fails the same way whenever it is noticed, and noticing it here means the player
         // is told what is wrong instead of watching the game quit the moment they press
         // Play.
         //
-        // After the added assets rather than before them, because one of the rooms this
-        // build can open is not in any archive: TE2 exists only while cut content is being
-        // restored, and asking before that layer is attached would refuse to start in the
-        // one case the layer is for.
+        // After the added assets rather than before them, because two of the rooms this
+        // build can open are in no archive: TE2 and the bookshop exist only in that layer,
+        // and asking before it is attached would refuse to start in the one case the
+        // layer is for.
         if (archives.Read(sceneName + ".SIF") is null)
         {
             Log.Error(
@@ -2106,7 +2126,7 @@ public static class Application
             // turning it on or off in the menu takes effect the next time the player walks
             // into one. The table itself is one per tier for the life of the process, so
             // this costs a dictionary lookup rather than a re-read and a re-apply.
-            CutContent restoring = CutContent.Open(RestorationTier(args, settings), Dressed());
+            CutContent restoring = CutContent.Open(RestorationTier(args, settings), Dressed(), bookshop);
             archives.Restoration = restoring.IsEmpty ? null : restoring;
             archives.RestorationDiagnostics = restoring.IsEmpty ? null : restoreDiagnostics;
 
@@ -3043,6 +3063,37 @@ public static class Application
                 Log.Info($"entered: SCENE:ENTER [{entering.Case}]");
             }
 
+            // Back from a room the game never had. After the entering script and not
+            // before it, because that script's PlaceEgo is what stands the player at the
+            // hotel door for want of a better answer; this is the better answer. A spot is
+            // kept while the player is in the room it was kept for, and dropped the moment
+            // they arrive anywhere else: whoever went through the shop and out the back of
+            // the story did not come back this way.
+            if (api.Returning is { } returning && request.Counts)
+            {
+                bool home = string.Equals(returning.Room, scene.Name, StringComparison.OrdinalIgnoreCase);
+
+                if (home || !string.Equals(returning.Through, scene.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    api.Returning = null;
+                }
+
+                if (home &&
+                    string.Equals(returning.Through, api.State.LastLocation, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info(update.Place(api.State.Ego, returning.Standing, returning.Facing)
+                        ? $"Returned: {api.State.Ego} stood where they left {scene.Name} for {returning.Through}"
+                        : $"Returned: {api.State.Ego} could not be stood where they left {scene.Name}");
+
+                    // And the view they had, in place of the cut the entering script made
+                    // toward the door it chose. The room loop takes WantedCamera as the
+                    // opening view; the named angle is cleared so the update does not cut
+                    // away from it on the first frame.
+                    api.WantedCamera = (returning.Eye, returning.Look);
+                    api.State.CameraAngle = string.Empty;
+                }
+            }
+
             // What the room sounds like when nothing is happening in it. A soundtrack is a
             // list being walked rather than a sound being held, so what is worth saying is
             // which lists are running and what, if anything, is audible this moment.
@@ -3167,6 +3218,27 @@ public static class Application
                 break;
             }
 
+            // Into a room the game never had. Its scripts cannot bring the player back to
+            // this door, because the room they will be coming back from is not one of the
+            // rooms those scripts ask about, so where they stand now is kept and they are
+            // stood there again on the way out. Asked here, while the room they are
+            // leaving is still up. See Gk3SheepApi.Returning.
+            if (api.Returning is { } spot &&
+                string.Equals(spot.Room, scene.Name, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(spot.Through, next, StringComparison.OrdinalIgnoreCase))
+            {
+                if (archives.IsAdded(next + ".SIF") && !archives.IsAdded(scene.Name + ".SIF"))
+                {
+                    Log.Info(
+                        $"Returning: {api.State.Ego} will be stood back in {scene.Name} on " +
+                        $"the way out of {next}");
+                }
+                else
+                {
+                    api.Returning = null;
+                }
+            }
+
             // Before the room is taken down, because what the fade darkens is a photograph
             // of it and the photograph comes off the swapchain. From here on the picture on
             // screen owes nothing to the geometry, which is what lets the next room be read
@@ -3187,7 +3259,7 @@ public static class Application
             // they are being lowered in. Neither is somewhere the player went, and moving
             // the story to the room being looked at is exactly the fault that put Gabriel
             // at L'Homme Mort with his moped four miles away.
-            bool looking = api.Leaning is not null || api.Resuming is not null;
+            bool looking = Looking(api);
 
             if (!looking)
             {
@@ -4486,8 +4558,9 @@ public static class Application
         camera.CopyFrom(template);
 
         // A room reached by leaning in through the binoculars starts at the camera the
-        // binoculars named rather than at the room's own. Taken once, because it describes
-        // an arrival rather than a place.
+        // binoculars named rather than at the room's own, and a room come back to from one
+        // the game never had starts at the view the player left it with. Taken once,
+        // because it describes an arrival rather than a place.
         if (api.WantedCamera is { } leaned)
         {
             api.WantedCamera = null;
@@ -4497,7 +4570,7 @@ public static class Application
 
             Log.Info(string.Create(
                 CultureInfo.InvariantCulture,
-                $"Arrived through the binoculars, at {leaned.Position:F0} looking {leaned.Angle.X:F0}"));
+                $"Arrived at a view of the room's own choosing: {leaned.Position:F0} looking {leaned.Angle.X:F0}"));
         }
 
         // --eye and --aim put the camera where no authored camera stands. Held rather than
@@ -6387,6 +6460,22 @@ public static class Application
             {
                 Log.Info($"Leaving {here} for {elsewhere}");
 
+                // Where they stood and what they saw, in case the room they are going to
+                // is one the game never had. Kept here because the camera is here; whether
+                // it is wanted is decided by the room loop, which knows the archives. Not
+                // while one is already kept: that one is the way back, and this door is
+                // the way back through it. See Gk3SheepApi.Returning.
+                if (api.Returning is null && !Looking(api) && update.Where(story.Ego) is { } stood)
+                {
+                    api.Returning = new Game.ReturnSpot(
+                        here,
+                        elsewhere,
+                        stood,
+                        update.SettledFacing(story.Ego) ?? 0f,
+                        camera.Position,
+                        camera.Aim);
+                }
+
                 // Nothing this room was still holding back gets to happen in the next one.
                 // What is queued is an action script belonging to the room being left, and
                 // letting one run through a door is how it opens twice.
@@ -8075,6 +8164,13 @@ public static class Application
 
     /// <summary>Reads an option's value from the command line.</summary>
     private static string? Option(string[] args, string name) => CommandLine.Value(args, name);
+
+    /// <summary>
+    /// Whether the room being built is one the binoculars are showing, or the one they are
+    /// being lowered in. Neither is somewhere the player went.
+    /// </summary>
+    private static bool Looking(Gk3SheepApi api) =>
+        api.Leaning is not null || api.Resuming is not null;
 
     /// <summary>How much of the cut-content table the command line asks for.</summary>
     /// <param name="args">The command line.</param>

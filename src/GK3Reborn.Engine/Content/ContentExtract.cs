@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Rebarn;
 
@@ -129,7 +129,7 @@ public static class ContentExtract
         // sequence number is: ESTRINGS.TXT and ESTRINGS.SIF would be one name without it,
         // and a French bitmap would answer a question about a French model. It has no
         // editable wrapper, so the match is simply exact.
-        if (entry.Kind == RebarnKind.Localized)
+        if (entry.Kind is RebarnKind.Localized or RebarnKind.Room)
         {
             return Path.GetFileName(entry.Name).Equals(
                 Path.GetFileName(wanted), StringComparison.OrdinalIgnoreCase);

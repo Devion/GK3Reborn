@@ -43,6 +43,13 @@ public sealed class SceneAudio
 
         /// <summary>Where the bed being decoded belongs.</summary>
         public AudioPlacement? Where;
+
+        /// <summary>
+        /// The one-shot the list opened with, for saying what the room sounds like when
+        /// it has no bed: a theme that plays through and then waits is what most of the
+        /// game's music is.
+        /// </summary>
+        public string? Opened;
     }
 
     /// <summary>The soundtracks the room is running, one program each.</summary>
@@ -248,7 +255,9 @@ public sealed class SceneAudio
             playing.Program.Advance(0, sound => Sound(playing, sound));
         }
 
-        return Ambience ?? _programs.Find(p => p.Waiting is { Length: > 0 })?.Waiting;
+        return Ambience
+            ?? _programs.Find(p => p.Waiting is { Length: > 0 })?.Waiting
+            ?? _programs.Find(p => p.Opened is { Length: > 0 })?.Opened;
     }
 
     /// <summary>Starts one sound of a soundtrack, and says how long it lasts.</summary>
@@ -295,6 +304,7 @@ public sealed class SceneAudio
         // bus being stopped, but a soundtrack saying Music or Ambient is not on that bus
         // and nothing else was holding it.
         playing.Voices.Add(voice);
+        playing.Opened ??= sound.Name;
 
         float gain = Math.Clamp(sound.Volume / 100f, 0f, 1f);
 

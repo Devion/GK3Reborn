@@ -1,4 +1,4 @@
-using GK3Reborn.Formats;
+﻿using GK3Reborn.Formats;
 using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Rebarn;
 using GK3Reborn.Foundation.Diagnostics;
@@ -142,7 +142,7 @@ public sealed class RebarnContent : IDisposable
     public IReadOnlyList<string> Names(RebarnKind kind) =>
         [.. _entries.Values
             .Where(e => e.Entry.Kind == kind)
-            .Select(e => e.Entry.Kind == RebarnKind.Audio
+            .Select(e => e.Entry.Kind is RebarnKind.Audio or RebarnKind.Room
                 ? Path.GetFileName(e.Entry.Name)
                 : Path.GetFileNameWithoutExtension(e.Entry.Name))
             .Concat(Overrides?.Names(kind) ?? [])

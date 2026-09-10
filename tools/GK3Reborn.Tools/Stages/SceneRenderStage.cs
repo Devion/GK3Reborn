@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Rendering.Upscaling;
 using GK3Reborn.Rendering.Direct3D12;
 using GK3Reborn.Rendering.Geometry;
@@ -312,32 +312,33 @@ public sealed class SceneRenderStage
         // judged with, could not see Couiza, Rennes-les-Bains or RC3's cemetery gateway at
         // all. The game asks the same question and then asks the player as well; a render
         // is not a player, so the second gate is open here.
+        // The files no barn has, for the rooms that were cut before there was anything to
+        // cut them from, and for the bookshop. Last of every layer, as in the game, and
+        // opened first here because the bookshop's door is gated on whether this layer
+        // answers for the room behind it.
+        AddedAssets rebuilt = AddedAssets.Open(
+            enhanced is { Length: > 0 } ? Beside(enhanced, "rooms") : string.Empty,
+            volumes,
+            diagnostics);
+
+        if (!rebuilt.IsEmpty)
+        {
+            archives.Added = rebuilt;
+            _log($"added assets: {rebuilt.Describe()}");
+        }
+
         CutContent restored = CutContent.Open(
             Restore,
             SceneDressing.Installed(
                 enhanced is { Length: > 0 } ? Beside(enhanced, "models") : string.Empty,
-                volumes));
+                volumes),
+            rebuilt.Has("SGB.SIF"));
 
         if (!restored.IsEmpty)
         {
             archives.Restoration = restored;
             archives.RestorationDiagnostics = diagnostics;
             _log($"cut content: {restored.EditCount} edit(s) in {restored.Count} file(s)");
-        }
-
-        // The files no barn has, for the rooms that were cut before there was anything to
-        // cut them from. Last of every layer, as in the game.
-        AddedAssets rebuilt = Restore >= CutContentTier.Reconstructed
-            ? AddedAssets.Open(
-                enhanced is { Length: > 0 } ? Beside(enhanced, "rooms") : string.Empty,
-                volumes,
-                diagnostics)
-            : AddedAssets.Empty;
-
-        if (!rebuilt.IsEmpty)
-        {
-            archives.Added = rebuilt;
-            _log($"added assets: {rebuilt.Describe()}");
         }
 
         // Rooms the game never had, from the same two supplies. Only consulted for a name

@@ -220,6 +220,32 @@ public sealed class GameArchives : IDisposable
         return Added?.Has(name) == true;
     }
 
+    /// <summary>
+    /// Whether an asset exists only because the remake added it: no archive the game
+    /// shipped holds it, and the added-assets layer does.
+    /// </summary>
+    /// <param name="name">Asset name, with extension.</param>
+    /// <returns>True for a name the 1999 game has never heard of.</returns>
+    public bool IsAdded(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (Added?.Has(name) != true)
+        {
+            return false;
+        }
+
+        foreach (BarnArchive archive in _archives)
+        {
+            if (archive.Find(name) is { IsPointer: false })
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /// <summary>Reads a text asset by name.</summary>
     /// <param name="name">Asset name, with extension.</param>
     /// <returns>Its text, or null if no archive holds it.</returns>

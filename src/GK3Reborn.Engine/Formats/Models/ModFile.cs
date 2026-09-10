@@ -17,6 +17,12 @@ public sealed record ModSubmesh
     /// <summary>Tint colour. The stored alpha is always zero and is ignored.</summary>
     public required (byte R, byte G, byte B) Color { get; init; }
 
+    /// <summary>
+    /// Whether the source said to draw this group as painted rather than lit. A
+    /// <c>.MOD</c> never says so; a glTF does through <c>KHR_materials_unlit</c>.
+    /// </summary>
+    public bool Unlit { get; init; }
+
     /// <summary>Vertex positions, in mesh space.</summary>
     public required Vector3[] Positions { get; init; }
 

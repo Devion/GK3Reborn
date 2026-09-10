@@ -26,6 +26,32 @@ public sealed class CutContentTests
         + "TREES,     LOOK,  GABE_ALL,  script={wait StartVoiceOver(\"0NLO044QS1\",1);}\r\n";
 
     [Fact]
+    public void The_bookshop_door_is_wired_only_when_the_shop_is_installed()
+    {
+        // Neither a restoration nor scenery: its own switch, on when something answers for
+        // SGB.SIF. Off, the table has nothing to say about RC1 and the door stays closed.
+        CutContent off = CutContent.Open(CutContentTier.None, DressedTowns.None, bookshop: false);
+        CutContent on = CutContent.Open(CutContentTier.None, DressedTowns.None, bookshop: true);
+
+        Assert.True(off.IsEmpty);
+        Assert.False(on.IsEmpty);
+        Assert.Equal(0, on.Unreadable);
+        Assert.True(on.Handles("RC1.SIF"));
+        Assert.True(on.Handles("ESTRINGS.TXT"));
+
+        const string rc1 = "[GENERAL]\r\nfloor=rc1_floor\r\n\r\n[POSITIONS]\r\n"
+            + "FR_LBY,pos={2281.79,0.00,-1415.28},heading=192.34\r\n\r\n"
+            + "[ACTIONS]\r\nrc1_all.nvc\r\n";
+
+        string edited = System.Text.Encoding.Latin1.GetString(
+            on.Apply("RC1.SIF", System.Text.Encoding.Latin1.GetBytes(rc1)));
+
+        Assert.Contains("rc1_all_sgb.nvc", edited, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("FR_SGB,", edited, StringComparison.Ordinal);
+        Assert.Equal(0, on.Failed);
+    }
+
+    [Fact]
     public void NothingIsRestoredWithoutTheFlag()
     {
         CutContent table = CutContent.Open(CutContentTier.None);

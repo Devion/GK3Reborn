@@ -38,7 +38,7 @@ public sealed class RoomLibrary
     /// <summary>Whether there is nowhere at all to look.</summary>
     public bool IsEmpty =>
         _loose.Count == 0 && _packs is null &&
-        (Overrides?.CountOf(RebarnKind.SceneGeometry) ?? 0) == 0;
+        (Overrides?.CountOf(RebarnKind.Room) ?? 0) == 0;
 
     /// <summary>Indexes a directory of rooms, a set of packs, or both.</summary>
     /// <param name="directory">Where the loose ones are. May be empty or missing.</param>
@@ -92,9 +92,9 @@ public sealed class RoomLibrary
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return Overrides?.Has(RebarnKind.SceneGeometry, name) == true
+        return Overrides?.Has(RebarnKind.Room, name) == true
             || _loose.ContainsKey(name)
-            || _packs?.Has(RebarnKind.SceneGeometry, name) == true;
+            || _packs?.Has(RebarnKind.Room, name + ".glb") == true;
     }
 
     /// <summary>Builds a room, if one of the layers has it and it can be one.</summary>
@@ -138,7 +138,7 @@ public sealed class RoomLibrary
     /// <returns>What is available, or null when nothing is.</returns>
     public string? Describe()
     {
-        int overridden = Overrides?.CountOf(RebarnKind.SceneGeometry) ?? 0;
+        int overridden = Overrides?.CountOf(RebarnKind.Room) ?? 0;
 
         if (IsEmpty)
         {
@@ -154,7 +154,13 @@ public sealed class RoomLibrary
 
         if (_packs is not null)
         {
-            parts.Add("the packs");
+            int packed = _packs.Names(RebarnKind.Room)
+                .Count(n => n.EndsWith(".glb", StringComparison.OrdinalIgnoreCase));
+
+            if (packed > 0)
+            {
+                parts.Add($"{packed} packed");
+            }
         }
 
         if (overridden > 0)
@@ -167,7 +173,7 @@ public sealed class RoomLibrary
 
     private byte[]? Bytes(string name, DiagnosticBag? diagnostics)
     {
-        if (Overrides?.Read(RebarnKind.SceneGeometry, name, diagnostics) is { } replaced)
+        if (Overrides?.Read(RebarnKind.Room, name, diagnostics) is { } replaced)
         {
             return replaced;
         }
@@ -177,6 +183,8 @@ public sealed class RoomLibrary
             return File.ReadAllBytes(file);
         }
 
-        return _packs?.Read(RebarnKind.SceneGeometry, name);
+        // With its extension, because the room kind keeps one: a room's geometry sits in
+        // the pack beside its scene files, and the stem alone would name all of them.
+        return _packs?.Read(RebarnKind.Room, name + ".glb");
     }
 }

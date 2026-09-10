@@ -46,7 +46,7 @@ That encodes every PNG under `enhanced/` to DDS and writes two volumes into
 | Flag | What it does |
 | --- | --- |
 | `--output <dir>` | Where the volumes go. `<workspace>/build/pack` by default. |
-| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video movie-audio localized audio manifests` |
+| `--kinds a,b` | Only these kinds. `textures normals orm height emissive models scene-geometry video movie-audio localized audio rooms manifests` |
 | `--only <dir>` | Only the kinds packed from a source directory, such as `enhanced/trees`. |
 | `--cap normals=512` | Longest edge a kind is encoded at, overriding the default. |
 | `--single-volume` | One file rather than two. The language volumes are unaffected. |
@@ -192,6 +192,7 @@ so a later full run does not generate maps for it either.
 | movie-audio | `.m4a`, stored | — | One language's words over a shared picture. |
 | localized | stored or deflated by payload | — | A 1999 asset as one language spells it. |
 | manifests | `.json`, deflated | — | Text, and text deflates. The material library is one of these. |
+| rooms | stored or deflated by payload | — | Every file of a room the game never had, keyed with its extension. |
 | raw: `*.splat.png` | `BC7_UNORM` | source | Four blend weights. Data, so **not** colour. |
 | raw: `*.tint.png` | `BC7_UNORM_SRGB` | source | The vista's colour. |
 | raw: everything else | stored or deflated by payload | — | Heightfields and forests. |
@@ -223,10 +224,10 @@ glob covers both: `material-library*.json`.
 
 ### Why a localised asset is a kind and not a raw entry
 
-Two kinds keep their extension in the key, and they are the only two: `audio`, because GK3
-puts a recording's sequence number where a type would go — `A0NQIB44.QR1` and `.QR2` are two
-different lines — and `localized`, because an entry there **is** a 1999 file name and the
-game asks for it by that whole name. A key that dropped the extension would make
+Three kinds keep their extension in the key: `audio`, because GK3 puts a recording's
+sequence number where a type would go — `A0NQIB44.QR1` and `.QR2` are two different lines —
+`localized`, because an entry there **is** a 1999 file name and the game asks for it by that
+whole name, and `rooms`, for the same reason as `localized` (see below). A key that dropped the extension would make
 `ESTRINGS.TXT` and `ESTRINGS.SIF` the same entry, collide every French `.YAK` with the
 English recording of the same line, and let `27KASHAF.BMP` answer a question about
 `27KASHAF`'s enhanced texture.
@@ -235,6 +236,17 @@ The volume is separate too: `Reborn_FR.rebarn`, opened by `LocalizedContent` and
 `RebarnContent`. The game reads exactly one language, an install may carry several, and
 merging them into the shared namespace would put the last one alphabetically in front of the
 archives for everybody. See [localization.md](../localization.md).
+
+### Why a built room is a kind, and keeps its extension
+
+`enhanced/rooms` holds the rooms the game never had — TE2's blockout and St. George's Books
+(see [../bookshop.md](../bookshop.md)) — and each is several files sharing one stem: `SGB.SIF`,
+`SGB.SCN`, `SGB.STK`, `Sgb.glb`, plus a walk boundary and its action files. As raw entries
+the first four were one key, so a room's scene file answered a read of its geometry, which is
+why TE2 shipped loose only until 2026-09-10. The `rooms` kind keeps the extension, one glob
+takes everything in the directory, and `AddedAssets` and `RoomLibrary` ask it by whole name
+after every archive and every `.BSP`. The crow's-nest puzzle's files live here too; a pack
+written before the kind existed holds them as `raw`, which `AddedAssets` still falls back to.
 
 ### Why improved room geometry is a kind and not a model
 
