@@ -1462,6 +1462,7 @@ public static class Application
             // pixels a second is a stick that does not move the cursor, and a second flag
             // saying the same thing is a second thing to keep in step.
             window.PointerSpeed = chosen.GamepadCursor ? chosen.GamepadCursorSpeed : 0f;
+            window.PointerScale = chosen.CursorScale;
 
             if (renderer.SupportsRayTracing)
             {
@@ -5789,6 +5790,9 @@ public static class Application
 
                 renderer.SetOverlay(screens.Overlay);
 
+                // A screen in front of the room has no nouns, so the pointer is the arrow.
+                window.PointerShape = Platform.PointerShape.Default;
+
                 window.EndFrame();
 
                 // The binoculars are looked through, so the room behind them goes on: the
@@ -6162,6 +6166,8 @@ public static class Application
             // picture are different enough that somebody may want one and not the other.
             if (movies.Playing)
             {
+                window.PointerShape = Platform.PointerShape.Default;
+
                 if (pages is not null && front.Settings.MovieSubtitles &&
                     movies.Caption is { Length: > 0 })
                 {
@@ -6192,6 +6198,12 @@ public static class Application
                 // An empty claim advertises nothing: the room has taken the click, and
                 // there is nothing useful to say about it.
                 bool advertised = menu is null && claimed is { Length: > 0 };
+
+                // The pointer says what a click would do, before the bar has to be read:
+                // the arrow over nothing, a glass over what can be looked at, a bubble
+                // over who can be talked to, a hand on a knob over the way out, and a
+                // pointing hand over the rest.
+                window.PointerShape = PointerChoice.For(hover, claimed, menu is not null, scene.Actions?.Verbs);
 
                 hud.Build(
                     new HudState(

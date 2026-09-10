@@ -31,6 +31,9 @@ public sealed class VerbLibrary
     private readonly Dictionary<string, (string Up, string Hover)> _art =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The cursor the original put up over a verb, for the nine verbs that name one.</summary>
+    private readonly Dictionary<string, string> _cursors = new(StringComparer.OrdinalIgnoreCase);
+
     private VerbLibrary()
     {
     }
@@ -88,6 +91,14 @@ public sealed class VerbLibrary
             {
                 library._art[verb] = (up, line.Value("hover") is { Length: > 0 } hover ? hover : up);
             }
+
+            // The original's own pointer over the verb: c_exit_forward and its four
+            // directions on the verbs that leave a room, c_grab on the two that take hold
+            // of something, and nothing on the rest.
+            if (line.Value("cursor") is { Length: > 0 } cursor)
+            {
+                library._cursors[verb] = cursor;
+            }
         }
 
         return library;
@@ -114,6 +125,18 @@ public sealed class VerbLibrary
 
         return string.Concat((lit ? art.Hover : art.Up).ToUpperInvariant(), ".BMP");
     }
+
+    /// <summary>The cursor the file names for a verb.</summary>
+    /// <param name="verb">The verb, as an action file writes it.</param>
+    /// <returns>Its name, such as <c>c_exit_up</c>, or null for a verb given none.</returns>
+    public string? CursorOf(string? verb) =>
+        verb is { Length: > 0 } && _cursors.TryGetValue(verb, out string? cursor) ? cursor : null;
+
+    /// <summary>Whether a verb takes the player out of the room, by the cursor it is given.</summary>
+    /// <param name="verb">The verb.</param>
+    /// <returns>True when its cursor is one of the <c>c_exit_*</c> family.</returns>
+    public bool LeadsOut(string? verb) =>
+        CursorOf(verb)?.StartsWith("c_exit", StringComparison.OrdinalIgnoreCase) == true;
 
     /// <summary>
     /// Whether the file lists a verb at all.

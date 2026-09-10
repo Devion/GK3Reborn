@@ -1,4 +1,6 @@
 ﻿using System.Numerics;
+using GK3Reborn.Foundation.Diagnostics;
+using Silk.NET.Core;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.Windowing;
@@ -178,6 +180,24 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>When the last frame was, for moving the cursor at a speed rather than a rate.</summary>
     private double _lastFrame;
 
+    /// <summary>What the pointer is drawn as.</summary>
+    private PointerShape _pointer = PointerShape.Default;
+
+    /// <summary>How big, as a multiple of the usual.</summary>
+    private float _pointerScale = 1f;
+
+    /// <summary>The side of the pointer on screen now, or nought while it is the system's own.</summary>
+    private int _pointerSize;
+
+    /// <summary>The pictures already shrunk to the size in use, one a shape.</summary>
+    private readonly Dictionary<PointerShape, PointerImage?> _pointerImages = [];
+
+    /// <summary>
+    /// Whether the platform refused a picture. Once it has, the system's own arrow is left
+    /// alone rather than asked for again every frame.
+    /// </summary>
+    private bool _pointerRefused;
+
     private SilkGameWindow(IWindow window)
     {
         _window = window;
@@ -297,6 +317,105 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
     /// <inheritdoc/>
     public nint WindowHandle => _window.Native?.Win32?.Hwnd ?? 0;
+
+    /// <inheritdoc/>
+    public PointerShape PointerShape
+    {
+        get => _pointer;
+        set
+        {
+            if (_pointer != value)
+            {
+                _pointer = value;
+                ShowPointer();
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public float PointerScale
+    {
+        get => _pointerScale;
+        set
+        {
+            float wanted = float.IsFinite(value) && value > 0f ? value : 1f;
+
+            if (Math.Abs(wanted - _pointerScale) > 0.0001f)
+            {
+                _pointerScale = wanted;
+                ShowPointer();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Hands the platform the picture for the shape at the size the framebuffer asks for.
+    /// A picture is shrunk once a size and kept; a new size throws the old ones away,
+    /// because a resize is rare and five pictures at every size ever seen is a leak.
+    /// </summary>
+    private void ShowPointer()
+    {
+        if (_mouse is null || _pointerRefused)
+        {
+            return;
+        }
+
+        int size = PointerArt.SizeFor(FramebufferHeight, _pointerScale);
+
+        if (size != _pointerSize)
+        {
+            _pointerImages.Clear();
+        }
+
+        if (!_pointerImages.TryGetValue(_pointer, out PointerImage? image))
+        {
+            image = PointerArt.Load(_pointer, size);
+            _pointerImages[_pointer] = image;
+        }
+
+        ICursor cursor = _mouse.Cursor;
+
+        try
+        {
+            if (image is null)
+            {
+                cursor.Type = CursorType.Standard;
+                cursor.StandardCursor = StandardCursor.Default;
+                _pointerSize = 0;
+
+                return;
+            }
+
+            // Back to the platform's own first, so that the three properties below are
+            // three assignments rather than three rebuilds of a cursor the platform
+            // remakes every time one of them changes.
+            cursor.Type = CursorType.Standard;
+            cursor.Image = new RawImage(image.Width, image.Height, image.Pixels);
+            cursor.HotspotX = image.HotspotX;
+            cursor.HotspotY = image.HotspotY;
+            cursor.Type = CursorType.Custom;
+            _pointerSize = size;
+        }
+        catch (Exception error) when (error is not OutOfMemoryException)
+        {
+            // A platform that will not take a picture - a compositor with no cursor
+            // protocol, a size it refuses - is left with its own arrow. Said once, because
+            // a game that runs is better than one that insists.
+            _pointerRefused = true;
+            _pointerSize = 0;
+            Log.Warning($"Pointer: the platform refused a custom cursor, keeping its own ({error.Message})");
+
+            try
+            {
+                cursor.Type = CursorType.Standard;
+                cursor.StandardCursor = StandardCursor.Default;
+            }
+            catch (Exception again) when (again is not OutOfMemoryException)
+            {
+                // Nothing left to fall back to.
+            }
+        }
+    }
 
     /// <inheritdoc/>
     public Vector2 PointerDelta => _pointerDelta;
@@ -522,6 +641,13 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         Poll();
 
+        // The pointer keeps its proportion to the framebuffer, so a window that has just
+        // been resized or moved to a sharper monitor gets it remade at the new size.
+        if (_pointerSize != 0 && _pointerSize != PointerArt.SizeFor(FramebufferHeight, _pointerScale))
+        {
+            ShowPointer();
+        }
+
         // Pointer movement is tracked by difference rather than through the move event,
         // because raw motion is not delivered on every backend and a difference works the
         // same everywhere.
@@ -732,6 +858,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         if (_mouse is not null)
         {
+            // The other four pictures are decoded off this thread, so the first time the
+            // pointer crosses a noun it changes shape at once rather than after a PNG.
+            // The arrow is wanted now and is decoded here.
+            _ = Task.Run(PointerArt.Warm);
+            ShowPointer();
+
             // A click is only a click if the pointer did not travel while the button was
             // down. Dragging to look around passes over every noun between where it
             // started and where it stopped, and acting on the one it happens to end over

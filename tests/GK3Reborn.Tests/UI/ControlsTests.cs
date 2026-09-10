@@ -255,4 +255,40 @@ public sealed class ControlsTests
 
         Assert.Equal(0f, reflective.Reflectivity);
     }
+
+    [Fact]
+    public void The_pointer_size_is_a_slider_that_reads_as_a_percentage()
+    {
+        FrontEnd front = Controls();
+        MenuItem row = Row(front, "cursorsize");
+
+        Assert.Equal(MenuItemKind.Slider, row.Kind);
+        Assert.Equal("100%", row.Value);
+
+        front.Choose(new MenuAction("cursorsize", Fraction: 1f));
+
+        Assert.Equal(Settings.LargestCursor, front.Settings.CursorScale);
+        Assert.Equal("200%", Row(front, "cursorsize").Value);
+
+        front.Choose(new MenuAction("cursorsize", Fraction: 0f));
+
+        Assert.Equal(Settings.SmallestCursor, front.Settings.CursorScale);
+        Assert.Equal("50%", Row(front, "cursorsize").Value);
+
+        // Stepped, it moves and lands on a round number rather than on 57.5%.
+        front.Choose(new MenuAction("cursorsize", Step: 1));
+
+        float scale = front.Settings.CursorScale;
+
+        Assert.True(scale > Settings.SmallestCursor);
+        Assert.True(Math.Abs((scale * 20f) - MathF.Round(scale * 20f)) < 0.001f, $"{scale} is not a twentieth");
+    }
+
+    [Fact]
+    public void The_pointer_size_is_clamped_to_something_that_is_still_a_pointer()
+    {
+        Assert.Equal(Settings.LargestCursor, new Settings { CursorScale = 9f }.Sane().CursorScale);
+        Assert.Equal(Settings.SmallestCursor, new Settings { CursorScale = 0f }.Sane().CursorScale);
+        Assert.Equal(1f, new Settings { CursorScale = float.NaN }.Sane().CursorScale);
+    }
 }

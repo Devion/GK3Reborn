@@ -298,6 +298,9 @@ public sealed record Settings
     /// <summary>How fast it moves it, in logical pixels a second at full deflection.</summary>
     public float GamepadCursorSpeed { get; init; } = 1200f;
 
+    /// <summary>How big the pointer is drawn, as a multiple of its usual size.</summary>
+    public float CursorScale { get; init; } = 1f;
+
     /// <summary>Where the settings live for this user.</summary>
     public static string DefaultPath => Path.Combine(InstallPaths.UserData, "settings.json");
 
@@ -464,7 +467,17 @@ public sealed record Settings
         GamepadCursorSpeed = float.IsFinite(GamepadCursorSpeed)
             ? Math.Clamp(GamepadCursorSpeed, SlowestCursor, FastestCursor)
             : 1200f,
+
+        CursorScale = float.IsFinite(CursorScale)
+            ? Math.Clamp(CursorScale, SmallestCursor, LargestCursor)
+            : 1f,
     };
+
+    /// <summary>The smallest the pointer may be drawn, as a multiple of its usual size.</summary>
+    public const float SmallestCursor = 0.5f;
+
+    /// <summary>And the largest.</summary>
+    public const float LargestCursor = 2f;
 
     /// <summary>The strongest a reflection may be made.</summary>
     public const float MostReflective = 2f;

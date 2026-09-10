@@ -1257,6 +1257,17 @@ public sealed class FrontEnd
 
         List<MenuItem> rows =
         [
+            MenuItem.Heading(Text.Say("controls.mouse", "Mouse")),
+
+            MenuItem.Slider(
+                "cursorsize",
+                Text.Say("controls.cursorsize", "Pointer size"),
+                Fraction(
+                    Settings.CursorScale,
+                    GK3Reborn.Game.Settings.SmallestCursor,
+                    GK3Reborn.Game.Settings.LargestCursor),
+                Times(Settings.CursorScale)),
+
             MenuItem.Heading(Text.Say("controls.gamepad", "Gamepad")),
 
             Toggle(
@@ -1645,6 +1656,18 @@ public sealed class FrontEnd
 
             "padcursor" => Settings with { GamepadCursor = !Settings.GamepadCursor },
 
+            // Rounded to a twentieth so the row reads as a round number and two players who
+            // set it to the same thing get the same thing.
+            "cursorsize" => Settings with
+            {
+                CursorScale = MathF.Round(
+                    Between(
+                        Settings.CursorScale,
+                        GK3Reborn.Game.Settings.SmallestCursor,
+                        GK3Reborn.Game.Settings.LargestCursor,
+                        action) * 20f) / 20f,
+            },
+
             "padspeed" => Settings with
             {
                 GamepadCursorSpeed = Between(
@@ -1718,6 +1741,10 @@ public sealed class FrontEnd
     /// <summary>Where a slider between two plain numbers ends up.</summary>
     private static float Between(float current, float low, float high, MenuAction action) =>
         low + ((high - low) * Level(Fraction(current, low, high), action));
+
+    /// <summary>How a multiplier reads: the usual size is 100%.</summary>
+    private static string Times(float value) => string.Create(
+        CultureInfo.InvariantCulture, $"{value * 100:F0}%");
 
     /// <summary>How a luminance reads.</summary>
     private string Nits(float value) => Text.Say(

@@ -179,6 +179,23 @@ public interface IGameInput
     GamepadButton AnyButton => GamepadButton.None;
 
     /// <summary>
+    /// What the pointer is drawn as. Decided by whoever knows what is under it, which is
+    /// the game; the window only draws it.
+    /// </summary>
+    PointerShape PointerShape
+    {
+        get => PointerShape.Default;
+        set { }
+    }
+
+    /// <summary>How big it is drawn, as a multiple of its usual size.</summary>
+    float PointerScale
+    {
+        get => 1f;
+        set { }
+    }
+
+    /// <summary>
     /// Puts the pointer somewhere, without the mouse having moved.
     /// </summary>
     /// <param name="position">Where, in pixels from the top-left of the window.</param>

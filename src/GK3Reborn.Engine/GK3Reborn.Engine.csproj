@@ -53,6 +53,16 @@
     <EmbeddedResource Include="Assets/Ui/interface-pl.json" />
     <EmbeddedResource Include="Assets/Ui/interface-pt.json" />
 
+    <!-- The pointer, one picture a shape. The port's own and carried in the executable
+         rather than in a pack: a game with no packs still has a pointer, and a pack
+         cannot swap it. 512 square, downsampled at run time to the size the framebuffer
+         and the player's setting ask for. See Platform/PointerArt.cs. -->
+    <EmbeddedResource Include="Assets/Cursors/Default.png" />
+    <EmbeddedResource Include="Assets/Cursors/Exit.png" />
+    <EmbeddedResource Include="Assets/Cursors/Look.png" />
+    <EmbeddedResource Include="Assets/Cursors/Interact.png" />
+    <EmbeddedResource Include="Assets/Cursors/Talk.png" />
+
   </ItemGroup>
 
   <ItemGroup>
