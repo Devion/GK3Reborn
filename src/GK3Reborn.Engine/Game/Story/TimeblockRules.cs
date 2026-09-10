@@ -205,7 +205,8 @@ public static class TimeblockRules
 
     private static TimeblockCompletion? Day1At2Pm(GameState state)
     {
-        // Must be on the map screen.
+        // Must be on the map screen. Which is the only place this can end, and the
+        // frame loop asks as the map opens for that reason: see GameState.Whereabouts.
         if (!At(state, "MAP"))
         {
             return null;
@@ -525,7 +526,7 @@ public static class TimeblockRules
 
     /// <summary>The Sheep <c>IsCurrentLocation</c>.</summary>
     private static bool At(GameState state, string location) =>
-        string.Equals(state.Location, location, StringComparison.OrdinalIgnoreCase);
+        string.Equals(state.Whereabouts, location, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The Sheep <c>WasLastLocation</c>.</summary>
     private static bool CameFrom(GameState state, string location) =>

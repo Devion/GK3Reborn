@@ -24,6 +24,21 @@ public sealed class GameStateTests
         Assert.Equal(2, state.GetNounVerbCount("WINDOW", "look"));
     }
 
+    /// <summary>The map counts as where the player is while it is open, and only then.</summary>
+    [Fact]
+    public void The_player_is_on_the_map_while_it_is_open_and_in_the_room_otherwise()
+    {
+        var state = new GameState { Location = "MOP" };
+        Assert.Equal("MOP", state.Whereabouts);
+
+        state.Screens.Show(new GK3Reborn.UI.Screen(GK3Reborn.UI.ScreenKind.Driving));
+        Assert.Equal(DrivingMap.Location, state.Whereabouts);
+        Assert.Equal("MOP", state.Location);
+
+        state.Screens.Back();
+        Assert.Equal("MOP", state.Whereabouts);
+    }
+
     [Fact]
     public void Unset_values_read_as_zero_or_empty()
     {

@@ -1,5 +1,6 @@
-using GK3Reborn.Game;
+﻿using GK3Reborn.Game;
 using GK3Reborn.Game.Story;
+using GK3Reborn.UI;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -47,6 +48,71 @@ public sealed class TimeblockRulesTests
 
             Assert.Null(TimeblockRules.Check(state));
         }
+    }
+
+    /// <summary>
+    /// Everything the first afternoon asks for, short of where the two quarries went. On
+    /// the map, which is a screen over the moped yard rather than a room of its own.
+    /// </summary>
+    private static GameState Afternoon102P()
+    {
+        var state = new GameState { Timeblock = new Timeblock(1, 2, true), Location = "MOP" };
+        state.Screens.Show(new Screen(ScreenKind.Driving));
+        state.Inventory.Add("GABRIEL", "MOPED_KEYS");
+        state.SetNounVerbCount("ARRIVALS_IN_CU", "THINK", 1);
+        state.SetNounVerbCount("TAXI_DRIVER", "WALLET", 2);
+        return state;
+    }
+
+    /// <summary>
+    /// The first afternoon reads where the two chases left Madeleine and Wilkes. Reported
+    /// as a game that could not leave 2pm: both had been followed all the way, the map
+    /// knew both places, and neither was anywhere at all.
+    /// </summary>
+    [Fact]
+    public void The_first_afternoon_ends_once_both_chases_have_left_their_quarry_somewhere()
+    {
+        GameState state = Afternoon102P();
+        state.SetActorLocation("BUTHANE", "CSD");
+        state.SetActorLocation("WILKES", "LER");
+
+        TimeblockCompletion done = Assert.NotNull(TimeblockRules.Check(state));
+
+        Assert.Equal("104P", done.Next.ToString());
+    }
+
+    /// <summary>
+    /// The map is a screen over a room, and the rule reads the map, not the room. Reported
+    /// as nothing happening after the quarries were placed: the check ran on every room
+    /// the player rode to and never on the map they rode from.
+    /// </summary>
+    [Fact]
+    public void The_first_afternoon_ends_on_the_map_and_not_in_the_room_under_it()
+    {
+        GameState state = Afternoon102P();
+        state.SetActorLocation("BUTHANE", "CSD");
+        state.SetActorLocation("WILKES", "LER");
+
+        state.Screens.CloseAll();
+        Assert.Null(TimeblockRules.Check(state));
+
+        state.Screens.Show(new Screen(ScreenKind.Driving));
+        Assert.NotNull(TimeblockRules.Check(state));
+    }
+
+    [Fact]
+    public void The_first_afternoon_does_not_end_while_the_quarries_are_nowhere()
+    {
+        GameState state = Afternoon102P();
+        state.SetNounVerbCount("BUTHANE", DrivingMap.Follow, 2);
+        state.SetNounVerbCount("WILKES", DrivingMap.Follow, 2);
+
+        Assert.Null(TimeblockRules.Check(state));
+
+        // Which is what loading such a save repairs.
+        DrivingTraffic.RecordWhereChasesEnded(state);
+
+        Assert.NotNull(TimeblockRules.Check(state));
     }
 
     [Fact]

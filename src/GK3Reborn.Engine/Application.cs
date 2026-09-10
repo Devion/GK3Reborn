@@ -5284,6 +5284,31 @@ public static class Application
                 {
                     string opened = panel.ToString();
 
+                    // The map is a place, and opening it asks whether the point in the
+                    // story is over the way walking through a door does. The original
+                    // changed location to MAP to show it and ran the rules on that, and
+                    // the first afternoon ends nowhere else: 102P is over when the map
+                    // opens with both chases run, and its card shows over the map. Not
+                    // while giving chase — the original skips the check there too, or the
+                    // last chase of the afternoon ended it a room early — and not on the
+                    // port's own ride, which is a map the player has already chosen from.
+                    //
+                    // The map is left open on purpose. The room is built again under it
+                    // in the new timeblock, the outer loop's own check reads the map as
+                    // where the player is (GameState.Whereabouts) and moves the clock,
+                    // and the map is what the player sees after the card — which is where
+                    // the original puts them.
+                    if (panel.Subject is null &&
+                        (traffic is null || trafficFor != opened) &&
+                        !story.ChangingTimeblock &&
+                        Game.Story.TimeblockRules.Check(story) is not null)
+                    {
+                        Log.Info($"Timeblock: {story.Timeblock} is over on the map");
+                        update.Cancel();
+
+                        return new RoomExit(0, here);
+                    }
+
                     if (traffic is null || trafficFor != opened)
                     {
                         traffic = Game.DrivingTraffic.For(
@@ -5315,13 +5340,46 @@ public static class Application
                     // And the chase ends where the quarry stops. Everything it was for
                     // happens here: what they led the player to goes on the map for good,
                     // the count that says so is written, and the player rides after them.
+                    //
+                    // After what Gabriel has to say about it, said over the map the way
+                    // the original says it, and waited out before the map closes. The
+                    // line is the chase's whole verdict — Madeleine's and Wilkes's say
+                    // where they went, Lady Howard's says she is going nowhere — and a
+                    // chase that closed the map on the last frame of the ride said none
+                    // of it, so Lady Howard's circuit back to where it began looked like
+                    // a chase that had not worked. It runs as an action so that the room
+                    // counts it down and Acting says when it is over.
                     if (traffic is { Following: true, Arrived: true } chase)
                     {
-                        traffic = null;
-                        trafficFor = null;
+                        if (!chase.Said)
+                        {
+                            chase.Said = true;
 
-                        story.Screens.CloseAll();
-                        Arrive(chase, story);
+                            if (chase.Chase?.Says is { Length: > 0 } verdict)
+                            {
+                                new ActionRunner(api).Run(new Formats.Actions.NvcAction
+                                {
+                                    Noun = chase.Chase.Noun,
+                                    Verb = DrivingMap.Follow,
+                                    Case = "ARRIVED",
+                                    Script = string.Create(
+                                        CultureInfo.InvariantCulture,
+                                        $"wait StartDialogue(\"{verdict}\", 1)"),
+                                    Source = "the chase",
+                                });
+
+                                Log.Info($"Followed {chase.Chase.Noun}: {verdict}");
+                            }
+                        }
+
+                        if (!update.Acting)
+                        {
+                            traffic = null;
+                            trafficFor = null;
+
+                            story.Screens.CloseAll();
+                            Arrive(chase, story);
+                        }
                     }
                     else if (traffic is { Riding: true, Arrived: true, Destination: { } there })
                     {
@@ -5344,6 +5402,13 @@ public static class Application
                         story.SetNounVerbCount(gaveUp.Counted, DrivingMap.Follow, 0);
 
                         Log.Info($"Gave up following {gaveUp.Noun}");
+                    }
+                    else if (traffic is { Following: true, Arrived: true } caught)
+                    {
+                        // Closed while Gabriel was still saying what he made of it. The
+                        // chase happened all the same, and what it earned is not lost
+                        // with the rest of the sentence.
+                        Arrive(caught, story);
                     }
 
                     traffic = null;
@@ -7736,6 +7801,13 @@ public static class Application
             {
                 Log.Info($"The map now knows {place}");
             }
+        }
+
+        // And where they are now. The end of 102P asks IsActorAtLocation about both of
+        // the afternoon's quarries, and this is the only thing in the game that answers.
+        if (quarry.LeavesThemAt is { } at)
+        {
+            story.SetActorLocation(quarry.Noun, at);
         }
 
         string arrived = quarry.Arrives ?? traffic.From ?? story.Location;

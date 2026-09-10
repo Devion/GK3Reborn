@@ -83,6 +83,10 @@ public sealed class Gk3SheepApi : ISheepApi
 
         State.Restore(save);
 
+        // A save from before a chase recorded where it left its quarry has Day 1 stuck at
+        // 2pm: the count says both were followed and nothing says where they went.
+        DrivingTraffic.RecordWhereChasesEnded(State);
+
         ActionSeconds = 0;
         ActingOn = string.Empty;
 

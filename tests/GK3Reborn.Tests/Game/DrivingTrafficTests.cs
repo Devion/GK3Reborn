@@ -166,6 +166,95 @@ public sealed class DrivingTrafficTests
     }
 
     /// <summary>
+    /// The first afternoon's two chases leave their quarry somewhere the story asks about,
+    /// and nothing else in the game ever places them there.
+    /// </summary>
+    [Theory]
+    [InlineData(1, "BUTHANE", "CSD")]
+    [InlineData(2, "WILKES", "LER")]
+    [InlineData(6, "ESTELLE", "WOD")]
+    public void A_chase_records_where_it_left_whoever_was_followed(int follow, string who, string where)
+    {
+        Traveller chase = Assert.IsType<Traveller>(DrivingTraffic.Chased(follow, "PLO"));
+
+        Assert.Equal(who, chase.Noun);
+        Assert.Equal(where, chase.LeavesThemAt);
+    }
+
+    /// <summary>
+    /// Every chase the game has ends on a line from Gabriel saying what it was worth. The
+    /// port's own extra chase, Madeleine to Poussin's tomb, has none written for it.
+    /// </summary>
+    [Theory]
+    [InlineData(1, "2196L3WL71")]
+    [InlineData(2, "2196L3WLM1")]
+    [InlineData(4, "21A6L3WLX1")]
+    [InlineData(5, "21F6L3WBH1")]
+    [InlineData(6, "21K6L3WJI1")]
+    [InlineData(7, null)]
+    public void A_chase_ends_on_what_Gabriel_makes_of_it(int follow, string? plate)
+    {
+        Traveller chase = Assert.IsType<Traveller>(DrivingTraffic.Chased(follow, "PLO"));
+
+        Assert.Equal(plate, chase.Says);
+    }
+
+    /// <summary>Lady Howard's ride round the valley ends where it began and records nothing.</summary>
+    [Fact]
+    public void A_chase_that_leads_nowhere_new_places_nobody()
+    {
+        Traveller chase = Assert.IsType<Traveller>(DrivingTraffic.Chased(4, "PLO"));
+
+        Assert.Null(chase.LeavesThemAt);
+        Assert.Empty(chase.Reveals);
+        Assert.Equal("PLO", chase.Arrives);
+        Assert.Equal("PL4", Assert.IsType<Traveller>(DrivingTraffic.Chased(4, "PL4")).Arrives);
+    }
+
+    /// <summary>
+    /// A game saved after both chases but before their quarry's whereabouts were written
+    /// gets them on loading, from the count that is the save's only memory of the chase.
+    /// </summary>
+    [Fact]
+    public void A_save_from_before_the_quarry_was_placed_is_repaired_on_loading()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "RC1" };
+        story.SetNounVerbCount("BUTHANE", DrivingMap.Follow, 2);
+        story.SetNounVerbCount("WILKES", DrivingMap.Follow, 2);
+
+        DrivingTraffic.RecordWhereChasesEnded(story);
+
+        Assert.Equal("CSD", story.GetActorLocation("BUTHANE"));
+        Assert.Equal("LER", story.GetActorLocation("WILKES"));
+    }
+
+    /// <summary>A chase walked out of, or never given, places nobody.</summary>
+    [Fact]
+    public void A_chase_not_followed_all_the_way_places_nobody()
+    {
+        var story = new GameState { Timeblock = Block("102P"), Location = "RC1" };
+        story.SetNounVerbCount("BUTHANE", DrivingMap.Follow, 1);
+
+        DrivingTraffic.RecordWhereChasesEnded(story);
+
+        Assert.Empty(story.GetActorLocation("BUTHANE"));
+        Assert.Empty(story.GetActorLocation("WILKES"));
+    }
+
+    /// <summary>And a script that moved them since is believed over the chase.</summary>
+    [Fact]
+    public void Somebody_a_script_has_moved_since_the_chase_stays_moved()
+    {
+        var story = new GameState { Timeblock = Block("104P"), Location = "RC1" };
+        story.SetNounVerbCount("BUTHANE", DrivingMap.Follow, 2);
+        story.SetActorLocation("BUTHANE", "LHM");
+
+        DrivingTraffic.RecordWhereChasesEnded(story);
+
+        Assert.Equal("LHM", story.GetActorLocation("BUTHANE"));
+    }
+
+    /// <summary>
     /// Following Madeleine ends at Coume Sourde, and the road she takes depends on where
     /// the chase started.
     /// </summary>

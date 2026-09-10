@@ -44,6 +44,25 @@ public sealed record Traveller(
     /// </summary>
     public string Counted { get; init; } = Noun;
 
+    /// <summary>
+    /// Where the story records them as being once the chase has ended, as a scene code,
+    /// or null where nothing asks. Nothing else places them: no script and no scene sets
+    /// Madeleine at Coume Sourde or Wilkes at L'Ermitage, and the retail driving layer
+    /// writes it as the chase ends — which is what the end of the first afternoon reads,
+    /// so a chase that left it unwritten could never be over.
+    /// </summary>
+    public string? LeavesThemAt { get; init; }
+
+    /// <summary>
+    /// What the player says as the quarry stops, as a dialogue licence plate, or null for
+    /// nothing. Said over the map before it closes: the retail driving layer plays it from
+    /// the chase's own end, so no script has it, and it is the whole of what tells the
+    /// player what the chase was worth. Lady Howard's is "they are just driving round the
+    /// valley" — without it a chase that puts the player back where they started reads as
+    /// a chase that did not work, which is how it was reported.
+    /// </summary>
+    public string? Says { get; init; }
+
     /// <summary>Where the road ends, as a scene code, or null for a route that loops.</summary>
     public string? Arrives =>
         Loops || Junctions.Count == 0 ? null : Junctions[^1].ToUpperInvariant();
@@ -87,6 +106,12 @@ public sealed class DrivingTraffic
 
     /// <summary>Whether a chase is under way.</summary>
     public bool Following => Chase is not null;
+
+    /// <summary>
+    /// Whether what the player says as a chase ends has been started. The frame loop's
+    /// mark, kept here because it belongs to this chase and to no other.
+    /// </summary>
+    public bool Said { get; set; }
 
     /// <summary>Where the player is riding to, as a scene code, or null when nowhere.</summary>
     public string? Destination { get; }
@@ -501,6 +526,31 @@ public sealed class DrivingTraffic
     }
 
     /// <summary>
+    /// Records where every chase already followed all the way left its quarry.
+    /// </summary>
+    /// <remarks>
+    /// For a game saved before <see cref="Traveller.LeavesThemAt"/> was written at the end
+    /// of a chase. The count says the chase happened, and it is the only memory of it, so
+    /// this puts the quarry where it would have put them — and only where nothing has
+    /// placed them since, because a script that moved them afterwards knows better.
+    /// </remarks>
+    /// <param name="story">The game.</param>
+    public static void RecordWhereChasesEnded(GameState story)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+
+        for (int follow = 1; follow <= 7; follow++)
+        {
+            if (Chased(follow, from: null) is { LeavesThemAt: { } at } chase &&
+                story.GetNounVerbCount(chase.Counted, DrivingMap.Follow) >= 2 &&
+                story.GetActorLocation(chase.Noun).Length == 0)
+            {
+                story.SetActorLocation(chase.Noun, at);
+            }
+        }
+    }
+
+    /// <summary>
     /// The chase one of the game's own follow numbers describes.
     /// </summary>
     /// <param name="follow">The number <c>FollowOnDrivingMap</c> was given.</param>
@@ -523,7 +573,11 @@ public sealed class DrivingTraffic
                     : ["pl4", "bec", "pl5", "tr1", "in1", "lhe", "plo", "pl3", "rl1", "in4", "pl2"],
                 Loops: false,
                 Follow: 1,
-                ["PL2", "PL1"]),
+                ["PL2", "PL1"])
+            {
+                LeavesThemAt = "CSD",
+                Says = "2196L3WL71",
+            },
 
             // Wilkes, to L'Ermitage.
             2 => new Traveller(
@@ -533,7 +587,11 @@ public sealed class DrivingTraffic
                 ["plo", "pl3", "rl1", "in4", "vgr", "pl4"],
                 Loops: false,
                 Follow: 2,
-                ["PL4"]),
+                ["PL4"])
+            {
+                LeavesThemAt = "LER",
+                Says = "2196L3WLM1",
+            },
 
             // Lady Howard, all the way round and back to where she started. She is not
             // going anywhere the player does not know, which is the point of her.
@@ -546,7 +604,10 @@ public sealed class DrivingTraffic
                     : ["pl4", "bec", "pl5", "tr1", "in1", "lhe", "plo", "pl3", "rl1", "in4", "vgr", "pl4"],
                 Loops: false,
                 Follow: 4,
-                []),
+                [])
+            {
+                Says = "21A6L3WLX1",
+            },
 
             // Buchelli and Emilio, to Larry Chester's house.
             5 => new Traveller(
@@ -558,7 +619,10 @@ public sealed class DrivingTraffic
                 : ["mop", "in2", "in1", "tr1", "pl5", "bec", "pl4", "vgr", "in4", "rl1", "pl3", "plo", "lhe"],
                 Loops: false,
                 Follow: 5,
-                []),
+                [])
+            {
+                Says = "21F6L3WBH1",
+            },
 
             // Estelle, to where she and Lady Howard are digging.
             6 => new Traveller(
@@ -574,6 +638,8 @@ public sealed class DrivingTraffic
                 ["PL5"])
             {
                 Counted = "LADY_HOWARD",
+                LeavesThemAt = "WOD",
+                Says = "21K6L3WJI1",
             },
 
             // Madeleine again, out of Rennes-le-Château to Poussin's tomb.

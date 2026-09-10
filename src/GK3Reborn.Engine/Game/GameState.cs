@@ -139,6 +139,21 @@ public sealed class GameState
     public string LastLocation { get; private set; } = string.Empty;
 
     /// <summary>
+    /// Where the story's rules find the player: the map while it is open, and otherwise
+    /// the room.
+    /// </summary>
+    /// <remarks>
+    /// The original made the map a place of its own. Showing it was a change of location
+    /// to <c>MAP</c>, the room underneath was unloaded, and a timeblock's rules ran on it
+    /// as they ran on any other — and the first afternoon ends on exactly that: 102P is
+    /// over when the map opens with everything done, and the card shows over the map.
+    /// The port keeps the room built under the map and the map is a screen over it, so
+    /// <see cref="Location"/> stays the room, and this answers for the rules instead.
+    /// </remarks>
+    public string Whereabouts =>
+        Screens.IsOnTop(ScreenKind.Driving) ? DrivingMap.Location : Location;
+
+    /// <summary>
     /// Rides the moped somewhere, arriving from the driving map.
     /// </summary>
     /// <param name="location">The room the chosen place loads.</param>
