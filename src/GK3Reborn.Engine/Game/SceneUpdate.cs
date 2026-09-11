@@ -2728,7 +2728,17 @@ public sealed class SceneUpdate
         // authored absolutely at the back of her van with her turned to the map — 128° from
         // him. Adopting that left her talking to the whole conversation over her shoulder,
         // because the talk script that plays through her placement is relative.
-        if (playing.FromBehaviour)
+        //
+        // <b>Except an absolute clip on an actor the scene stood nowhere.</b> Buthane has a
+        // spot, and the narrowing protects it. Mosely at L'Homme Mort at 4pm has none: his
+        // [ACTORS] line carries no pos and no initanim, and the only thing that ever puts
+        // him beside his bag is his idle, whose clips are absolute (MosLhmLook1Temp2 and
+        // the rest carry the two offset triplets). When that idle switches to a relative
+        // one — WHENNEAR Gabriel ends in NEWIDLE MosIdle.gas — the fidgets play through a
+        // placement nothing had written, and he stood waist-deep in the hill by his future
+        // hole, four hundred units from the bag. The same rule the opening pose applies:
+        // where an absolute clip leaves an unspotted actor is where they now are.
+        if (playing.FromBehaviour && (playing.Target.Spotted || !playing.Absolute))
         {
             return;
         }

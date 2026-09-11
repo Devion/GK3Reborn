@@ -587,17 +587,15 @@ public static class SceneScripting
                 continue;
             }
 
-            foreach (ModMesh mesh in placed.Model.Meshes)
+            // As it is posed and standing now, which is the reference's live AABB
+            // (WalkerBoundaryBlockModel reads GetMeshRenderer()->GetAABB()). Measuring the
+            // authored shape at the scene's placement put L'Homme Mort's blocked patch at
+            // the world origin: Mosely's bag is placed by an initanim sampled at frame 0,
+            // which moves the mesh groups and leaves the placement alone.
+            if (Extent(placed) is var (low, high))
             {
-                Matrix4x4 toWorld = mesh.MeshToLocal * placed.Transform;
-
-                foreach (ModSubmesh submesh in mesh.Submeshes)
-                {
-                    foreach (Vector3 position in submesh.Positions)
-                    {
-                        Grow(Vector3.Transform(position, toWorld));
-                    }
-                }
+                Grow(low);
+                Grow(high);
             }
         }
 

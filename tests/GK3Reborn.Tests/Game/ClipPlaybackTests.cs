@@ -9,6 +9,7 @@ using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Actors;
 using GK3Reborn.Rendering;
+using GK3Reborn.Tests.Formats;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -1062,5 +1063,118 @@ public sealed class ClipPlaybackTests
 
         update.Advance(0.5);
         Assert.Equal(["stop all", "play LHEAmbEve"], music);
+    }
+
+    /// <summary>
+    /// An actor with a hip triad and two shoes, so a clip's end can be read as a place.
+    /// </summary>
+    private static ModFile Character() => ModFile.FromMeshes(
+        "gab",
+        [.. Enumerable.Range(0, 3).Select(_ => new ModMesh
+        {
+            MeshToLocal = Matrix4x4.Identity,
+            BoundsMin = Vector3.Zero,
+            BoundsMax = Vector3.One,
+            Submeshes =
+            [
+                new ModSubmesh
+                {
+                    TextureName = "GAB",
+                    Color = (255, 255, 255),
+                    Positions = [Vector3.Zero],
+                    Normals = [Vector3.UnitY],
+                    TexCoords = [Vector2.Zero],
+                    Indices = [0, 0, 0],
+                },
+            ],
+        })]);
+
+    /// <summary>A still clip posing the three triads: shoes apart, hips up, facing +Z.</summary>
+    private static byte[] Triads(int frames)
+    {
+        var clip = new ClipBuilder(3, "gab");
+
+        for (int frame = 0; frame < frames; frame++)
+        {
+            clip.Frame(
+                (0, ClipBuilder.Transform(Matrix4x4.CreateTranslation(2, 0, 0))),
+                (1, ClipBuilder.Transform(Matrix4x4.CreateTranslation(-2, 0, 0))),
+                (2, ClipBuilder.Transform(Matrix4x4.CreateTranslation(0, 30, 0))),
+                (2, ClipBuilder.Shape(0, Vector3.Zero)));
+        }
+
+        return clip.Build();
+    }
+
+    [Fact]
+    public void An_idle_authored_somewhere_stands_an_unplaced_actor_there_for_the_clips_that_follow()
+    {
+        // Mosely at L'Homme Mort at 4pm. His [ACTORS] line has no pos and no initanim; his
+        // idle's clips are absolute and put him beside his bag, and when that idle hands
+        // over to a relative one (WHENNEAR ... NEWIDLE MosIdle.gas) the fidgets played
+        // through a placement nothing had written, four hundred units away on the hill.
+        var sink = new Sink();
+        sink.Add(Character());
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse(
+                "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,0,0}, Default", "T.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Placed:
+            [
+                new PlacedModel(
+                    "gab", "GABRIEL", null, Character(), Matrix4x4.Identity,
+                    PlacedModelKind.Actor, new ModelPlacement(0))
+                {
+                    Spotted = false,
+                    Idle = GK3Reborn.Formats.Animation.GasFile.Parse(
+                        Encoding.Latin1.GetBytes("ANIM Ledge\nANIM Fidget\nloop\n")),
+                },
+            ]);
+
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Characters = CharacterLibrary.Parse(
+                "[GAB]\nHipAxesMeshIndex=2\nLShoeAxesMeshIndex=1\nRShoeAxesMeshIndex=0\n"),
+
+            Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
+            {
+                // Eight numbers: absolute, and authored Away along X.
+                "LEDGE.ANM" => $"[HEADER]\n15\n\n[ACTIONS]\n1\n0,gab_Ledge,0,0,0,0,{Away},0,0,0\n",
+
+                // Four: relative, played through whatever placement the actor has.
+                "FIDGET.ANM" => "[HEADER]\n15\n\n[ACTIONS]\n1\n0,gab_Fidget,0,0,0,0\n",
+                _ => null,
+            }),
+
+            Clips = new ClipLibrary(n => n.ToUpperInvariant() switch
+            {
+                "GAB_LEDGE.ACT" or "GAB_FIDGET.ACT" => Triads(15),
+                _ => null,
+            })
+            { KeepVertices = true },
+        };
+
+        update.StartScenery();
+
+        // Through the whole of the absolute clip and into the relative one.
+        for (int i = 0; i < 90; i++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        // The placement itself, which is what the relative clip is played through.
+        Assert.Equal(Away, sink.TransformOf(new ModelPlacement(0)).Translation.X, 1);
+
+        // And the hips are drawn there, not back at the origin.
+        float drawn = Vector3.Transform(
+            sink.Poses[(0, 2)].Translation, sink.TransformOf(new ModelPlacement(0))).X;
+
+        Assert.True(
+            MathF.Abs(drawn - Away) < 1f,
+            $"the fidget drew the hips at {drawn}, not at the {Away} the idle's own clip stood them at.");
     }
 }
