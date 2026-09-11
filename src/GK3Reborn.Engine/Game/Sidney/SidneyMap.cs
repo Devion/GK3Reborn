@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -50,7 +50,16 @@ public sealed record LaidShape(
     float Size,
     float Turn,
     bool Locked,
-    IReadOnlyList<Vector2> Points);
+    IReadOnlyList<Vector2> Points)
+{
+    /// <summary>
+    /// Whether the figure is settled for good: a step of Le Serpent Rouge the machine has
+    /// confirmed, drawn where the answer is and beyond picking up, turning or erasing. The
+    /// retail engine keeps these apart as "locked" figures; here they stay in the one list
+    /// and simply stop answering to anything but the eye. See <see cref="SerpentRougeAnalysis"/>.
+    /// </summary>
+    public bool Fixed { get; init; }
+}
 
 /// <summary>What the points the player entered turned out to be.</summary>
 public enum MapFinding
@@ -147,9 +156,10 @@ public sealed class SidneyMap
     public static Vector2 Church => Sites[0].At;
 
     /// <summary>
-    /// The ruin of the Château de Blanchefort, where the sunrise line is drawn to.
+    /// The ruin of the Château de Blanchefort, where the sunrise line is drawn to. The
+    /// retail engine's own spot for it, measured from the foot of its map and turned over.
     /// </summary>
-    public static readonly Vector2 Blanchefort = new(691f, 357f);
+    public static readonly Vector2 Blanchefort = new(652f, 307f);
 
     /// <summary>
     /// How near a line has to pass to a named place to be said to go through it.
@@ -176,23 +186,63 @@ public sealed class SidneyMap
     /// </summary>
     public IReadOnlyList<LaidShape> Laid => _laid;
 
+    /// <summary>
+    /// The figure the player is working on: the one most recently laid that is not settled
+    /// for good. Minus one when there is none.
+    /// </summary>
+    private int Current
+    {
+        get
+        {
+            for (int i = _laid.Count - 1; i >= 0; i--)
+            {
+                if (!_laid[i].Fixed)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+    }
+
+    /// <summary>The figure being worked on, or null.</summary>
+    public LaidShape? Working
+    {
+        get
+        {
+            int at = Current;
+
+            return at >= 0 ? _laid[at] : null;
+        }
+    }
+
+    /// <summary>The figures settled for good, in the order they were settled.</summary>
+    public IEnumerable<LaidShape> Fixed => _laid.Where(laid => laid.Fixed);
+
     /// <summary>The figure most recently laid, if any.</summary>
-    public MapShape Shape => _laid.Count > 0 ? _laid[^1].Shape : MapShape.None;
+    public MapShape Shape => Working?.Shape ?? MapShape.None;
 
     /// <summary>Where it sits, in map pixels.</summary>
-    public Vector2 ShapeAt => _laid.Count > 0 ? _laid[^1].At : Vector2.Zero;
+    public Vector2 ShapeAt => Working?.At ?? Vector2.Zero;
 
     /// <summary>How big it is: the radius of the circle it is drawn inside.</summary>
-    public float ShapeSize => _laid.Count > 0 ? _laid[^1].Size : 0f;
+    public float ShapeSize => Working?.Size ?? 0f;
 
     /// <summary>How far it has been turned, in degrees.</summary>
-    public float ShapeTurn => _laid.Count > 0 ? _laid[^1].Turn : 0f;
+    public float ShapeTurn => Working?.Turn ?? 0f;
 
     /// <summary>Whether the marked places sit on it.</summary>
-    public bool Locked => _laid.Count > 0 && _laid[^1].Locked;
+    public bool Locked => Working?.Locked ?? false;
 
     /// <summary>How many cells the grid is divided into each way, or zero for none.</summary>
     public int Grid { get; private set; }
+
+    /// <summary>
+    /// Whether the grid is the chessboard the Gemini and Cancer verses ask for, ruled inside
+    /// the square and settled for good.
+    /// </summary>
+    public bool GridFixed { get; private set; }
 
     /// <summary>The last analysis, or null.</summary>
     public MapAnalysis? Found { get; private set; }
@@ -216,7 +266,12 @@ public sealed class SidneyMap
     /// <returns>True when it was taken.</returns>
     public bool Enter(Vector2 at)
     {
-        if (Selected != MapShape.None)
+        // A figure placed by construction rather than fitted to marks — the square round
+        // the circle, the hexagram inside it — takes no marks of its own: a place marked
+        // while it is in hand is a place on the map, as the meridian line's two are.
+        bool constructed = Working is { Points.Count: 0, Locked: true };
+
+        if (Selected != MapShape.None && !constructed)
         {
             if (Complete)
             {
@@ -284,7 +339,8 @@ public sealed class SidneyMap
             return true;
         }
 
-        if (figure >= _laid.Count || which < 0 || which >= _laid[figure].Points.Count)
+        if (figure >= _laid.Count || which < 0 || which >= _laid[figure].Points.Count ||
+            _laid[figure].Fixed)
         {
             return false;
         }
@@ -313,18 +369,40 @@ public sealed class SidneyMap
     /// <param name="inShape">Whether to rule inside the figure rather than the whole map.</param>
     public void DrawGrid(int cells, bool inShape = false)
     {
+        if (GridFixed)
+        {
+            return;
+        }
+
         Grid = Math.Clamp(cells, 0, 64);
         GridInShape = inShape && Grid > 0;
+    }
+
+    /// <summary>Settles the grid for good, as the chessboard.</summary>
+    public void FixGrid()
+    {
+        if (Grid > 0)
+        {
+            GridFixed = true;
+        }
     }
 
     /// <summary>Whether the grid is ruled inside the figure rather than over the whole map.</summary>
     public bool GridInShape { get; private set; }
 
     /// <summary>Takes the grid off again.</summary>
-    public void EraseGrid()
+    /// <returns>True when there was one to take off; the chessboard, once settled, stays.</returns>
+    public bool EraseGrid()
     {
+        if (GridFixed || Grid == 0)
+        {
+            return false;
+        }
+
         Grid = 0;
         GridInShape = false;
+
+        return true;
     }
 
     /// <summary>
@@ -341,8 +419,10 @@ public sealed class SidneyMap
         LaidShape placed = Place(shape, _points);
 
         // Laying a figure that is already there re-fits it rather than stacking a second
-        // copy on the first, and brings it to the front so that the rotate turns it.
-        _laid.RemoveAll(already => already.Shape == shape);
+        // copy on the first, and brings it to the front so that the rotate turns it. A
+        // figure settled for good is not "already there" in that sense: the sunrise line is
+        // fixed and a second line may still be drawn.
+        _laid.RemoveAll(already => already.Shape == shape && !already.Fixed);
         _laid.Add(placed);
 
         Found = null;
@@ -358,11 +438,16 @@ public sealed class SidneyMap
 
         foreach (LaidShape laid in _laid)
         {
-            if (laid.Shape == shape)
+            if (laid.Shape == shape && !laid.Fixed)
             {
-                // Already drawn: its places come back to be edited.
-                _points.Clear();
-                _points.AddRange(laid.Points);
+                // Already drawn: its places come back to be edited. A figure with none
+                // leaves the marks on the map alone; they were never its.
+                if (laid.Points.Count > 0)
+                {
+                    _points.Clear();
+                    _points.AddRange(laid.Points);
+                }
+
                 Found = null;
 
                 return;
@@ -373,9 +458,12 @@ public sealed class SidneyMap
         // as many as it is made of. Adopting the lot gave a triangle four places and a
         // hexagram five, each fitted to whatever happened to be lying about, and the map
         // filled up with figures answering to nothing.
+        // Choosing nothing leaves the marks as they are: they belong to nobody yet, which
+        // is what they were before. Trimming to "nought places" here threw every mark away
+        // whenever ANALYZE put the figure in hand down.
         int needs = Needs(shape);
 
-        if (_points.Count > needs)
+        if (shape != MapShape.None && _points.Count > needs)
         {
             _points.RemoveRange(needs, _points.Count - needs);
         }
@@ -400,9 +488,115 @@ public sealed class SidneyMap
     {
         for (int i = 0; i < _laid.Count; i++)
         {
+            // Settled figures do not move, and a figure with no places of its own — the
+            // square round the circle — has nothing to re-fit to and would only lose the
+            // turn the player has given it.
+            if (_laid[i].Fixed || _laid[i].Points.Count == 0)
+            {
+                continue;
+            }
+
             _laid[i] = Place(_laid[i].Shape, _laid[i].Points);
         }
     }
+
+    /// <summary>
+    /// Settles a figure for good, where the answer is.
+    /// </summary>
+    /// <param name="figure">The figure, placed; it is kept as confirmed and fixed.</param>
+    public void Fix(LaidShape figure)
+    {
+        ArgumentNullException.ThrowIfNull(figure);
+
+        _laid.Add(figure with { Locked = true, Fixed = true });
+        Found = null;
+    }
+
+    /// <summary>Replaces the figure being worked on.</summary>
+    /// <param name="figure">What it becomes.</param>
+    /// <returns>True when there was one.</returns>
+    public bool Rework(LaidShape figure)
+    {
+        ArgumentNullException.ThrowIfNull(figure);
+
+        int at = Current;
+
+        if (at < 0)
+        {
+            return false;
+        }
+
+        _laid[at] = figure;
+
+        return true;
+    }
+
+    /// <summary>
+    /// A marked place near a spot, whether it is the working set's or an unsettled
+    /// figure's, and takes it off the map.
+    /// </summary>
+    /// <remarks>
+    /// The retail engine's <c>GetPlacedPointNearPoint</c>, twenty pixels, and the removal
+    /// that follows every successful match: a place recognised becomes the answer's own.
+    /// </remarks>
+    /// <param name="spot">Where, in map pixels.</param>
+    /// <param name="within">How near counts.</param>
+    /// <returns>True when one was there.</returns>
+    public bool TakeNear(Vector2 spot, float within = NearEnough)
+    {
+        for (int i = 0; i < _points.Count; i++)
+        {
+            if (Vector2.Distance(_points[i], spot) < within)
+            {
+                _points.RemoveAt(i);
+                Found = null;
+
+                return true;
+            }
+        }
+
+        for (int f = 0; f < _laid.Count; f++)
+        {
+            if (_laid[f].Fixed)
+            {
+                continue;
+            }
+
+            for (int i = 0; i < _laid[f].Points.Count; i++)
+            {
+                if (Vector2.Distance(_laid[f].Points[i], spot) < within)
+                {
+                    List<Vector2> own = [.. _laid[f].Points];
+
+                    own.RemoveAt(i);
+                    _laid[f] = own.Count == 0 && _laid[f].Shape == MapShape.Line
+                        ? _laid[f] with { Points = own }
+                        : Place(_laid[f].Shape, own);
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Whether a marked place is near a spot, without taking it.</summary>
+    /// <param name="spot">Where, in map pixels.</param>
+    /// <param name="within">How near counts.</param>
+    /// <returns>True when one is.</returns>
+    public bool HasNear(Vector2 spot, float within = NearEnough) =>
+        _points.Any(p => Vector2.Distance(p, spot) < within) ||
+        _laid.Any(l => !l.Fixed && l.Points.Any(p => Vector2.Distance(p, spot) < within));
+
+    /// <summary>Whether a settled figure has one of its places at a spot.</summary>
+    /// <param name="spot">Where, in map pixels.</param>
+    /// <returns>True when one has.</returns>
+    public bool HasFixedNear(Vector2 spot) =>
+        _laid.Any(l => l.Fixed && l.Points.Any(p => Vector2.Distance(p, spot) < NearEnough));
+
+    /// <summary>How near a marked place has to be to a spot to be taken for it, in map pixels.</summary>
+    public const float NearEnough = 20f;
 
     /// <summary>Where a figure sits once it is fitted to the marks.</summary>
     /// <summary>
@@ -419,7 +613,9 @@ public sealed class SidneyMap
         {
             // A square with nothing of its own goes round the circle already laid, which is
             // the step the puzzle actually asks for: "fit exactly on the outer edge of the
-            // previous circle". Failing that, the middle of the map, big enough to see.
+            // previous circle". A hexagram with nothing of its own goes inside it, a point
+            // to the north, which is where the retail engine puts a fresh one before the
+            // player turns it. Failing either, the middle of the map, big enough to see.
             foreach (LaidShape already in _laid)
             {
                 if (shape == MapShape.Square && already.Shape == MapShape.Circle)
@@ -431,6 +627,11 @@ public sealed class SidneyMap
                         45f,
                         Locked: true,
                         own);
+                }
+
+                if (shape == MapShape.Hexagram && already.Shape == MapShape.Circle && already.Fixed)
+                {
+                    return new LaidShape(shape, already.At, already.Size, 270f, Locked: true, own);
                 }
             }
 
@@ -506,24 +707,31 @@ public sealed class SidneyMap
     /// <returns>Whether it now sits on the marked places.</returns>
     public bool Rotate(float degrees)
     {
-        if (_laid.Count == 0)
+        int at = Current;
+
+        if (at < 0)
         {
             return false;
         }
 
-        LaidShape turned = _laid[^1] with { Turn = (_laid[^1].Turn + degrees) % 360f };
+        LaidShape turned = _laid[at] with { Turn = ((_laid[at].Turn + degrees) % 360f + 360f) % 360f };
 
-        _laid[^1] = turned with { Locked = Fits(turned) };
+        // A figure with no places of its own keeps whatever confirmation it had: the square
+        // round the circle is confirmed by the circle, not by marks, and turning it must not
+        // take that away.
+        _laid[at] = turned with { Locked = turned.Points.Count > 0 ? Fits(turned) : turned.Locked };
 
-        return _laid[^1].Locked;
+        return _laid[at].Locked;
     }
 
-    /// <summary>Takes the most recently laid figure off again.</summary>
+    /// <summary>Takes the figure being worked on off again.</summary>
     public void EraseShape()
     {
-        if (_laid.Count > 0)
+        int at = Current;
+
+        if (at >= 0)
         {
-            _laid.RemoveAt(_laid.Count - 1);
+            _laid.RemoveAt(at);
         }
     }
 
@@ -549,7 +757,12 @@ public sealed class SidneyMap
 
         foreach (LaidShape figure in figures)
         {
-            _laid.Add(figure with { Locked = Fits(figure) });
+            // A settled figure is taken on trust: it is the answer, and its places are
+            // where the answer put them. Anything else is confirmed again from its marks,
+            // save a figure with none, which keeps what the save said.
+            _laid.Add(figure.Fixed
+                ? figure with { Locked = true }
+                : figure with { Locked = figure.Points.Count > 0 ? Fits(figure) : figure.Locked });
         }
 
         if (_points.Count > 0)
@@ -558,18 +771,28 @@ public sealed class SidneyMap
         }
     }
 
-    /// <summary>Takes one named figure off.</summary>
-    /// <param name="shape">Which figure.</param>
-    public void Remove(MapShape shape) => _laid.RemoveAll(laid => laid.Shape == shape);
+    /// <summary>Puts a saved grid back, settled or not.</summary>
+    /// <param name="grid">How many cells, negative for one ruled inside the figure.</param>
+    /// <param name="fixedGrid">Whether it is the chessboard, settled for good.</param>
+    public void RestoreGrid(int grid, bool fixedGrid)
+    {
+        Grid = Math.Clamp(Math.Abs(grid), 0, 64);
+        GridInShape = grid < 0;
+        GridFixed = fixedGrid && Grid > 0;
+    }
 
-    /// <summary>Takes every figure off.</summary>
-    public void EraseShapes() => _laid.Clear();
+    /// <summary>Takes one named figure off, where it is not settled.</summary>
+    /// <param name="shape">Which figure.</param>
+    public void Remove(MapShape shape) => _laid.RemoveAll(laid => laid.Shape == shape && !laid.Fixed);
+
+    /// <summary>Takes every unsettled figure off.</summary>
+    public void EraseShapes() => _laid.RemoveAll(laid => !laid.Fixed);
 
     /// <summary>
     /// Whether every marked place sits on the shape as it is placed.
     /// </summary>
     /// <returns>True when the shape is locked down by the marks.</returns>
-    public bool Fits() => _laid.Count > 0 && Fits(_laid[^1]);
+    public bool Fits() => Working is { } working && Fits(working);
 
     /// <summary>Whether every marked place sits on one figure as it is placed.</summary>
     /// <param name="laid">The figure.</param>
@@ -639,7 +862,7 @@ public sealed class SidneyMap
     /// The shape's corners, in map pixels and in order round it.
     /// </summary>
     /// <returns>The corners; empty for a circle, which has none.</returns>
-    public Vector2[] Corners() => _laid.Count > 0 ? Corners(_laid[^1]) : [];
+    public Vector2[] Corners() => Working is { } working ? Corners(working) : [];
 
     /// <summary>One figure's corners, in map pixels and in order round it.</summary>
     /// <param name="laid">The figure.</param>
@@ -678,7 +901,7 @@ public sealed class SidneyMap
     /// <summary>The two triangles a hexagram is drawn as, or nothing.</summary>
     /// <returns>Each triangle's three corners.</returns>
     public IReadOnlyList<Vector2[]> Triangles() =>
-        _laid.Count > 0 ? Triangles(_laid[^1]) : [];
+        Working is { } working ? Triangles(working) : [];
 
     /// <summary>The two triangles a hexagram is drawn as, or nothing.</summary>
     /// <param name="laid">The figure.</param>

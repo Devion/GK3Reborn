@@ -72,6 +72,10 @@ namespace GK3Reborn.UI;
 /// </param>
 /// <param name="Caption">What is being said while the screen is up, or null.</param>
 /// <param name="Speaker">Who is saying it.</param>
+/// <param name="Poem">
+/// The page of Le Serpent Rouge a close-up is showing, with its verses, or null for any
+/// other close-up. See <see cref="SerpentRouge"/>.
+/// </param>
 public readonly record struct ScreenView(
     Screen Screen,
     IReadOnlyList<string> Inventory,
@@ -94,7 +98,8 @@ public readonly record struct ScreenView(
     Game.WaterAiming? Water = null,
     Game.DrivingTraffic? Traffic = null,
     string? Caption = null,
-    string? Speaker = null);
+    string? Speaker = null,
+    SerpentRougePage? Poem = null);
 
 /// <summary>
 /// The screens that go in front of the room.
@@ -859,7 +864,39 @@ public sealed class ScreenPainter
             art = view.Icons?.Invoke(subject) ?? default;
         }
 
-        if (art.Drawn)
+        // Le Serpent Rouge is a book rather than a picture: a page at a time, with a verse
+        // under the pointer answering a click the way a noun in the room does. See
+        // Game.SerpentRouge.
+        if (view.Poem is { } poem && view.Artwork?.Invoke(poem.Picture) is { Drawn: true } page)
+        {
+            Vector4 at = Fitted(page, frame);
+            float scale = at.Z / SerpentRouge.PageWidth;
+
+            Overlay.Picture(page.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+
+            foreach (SerpentRougeRegion region in poem.Regions)
+            {
+                Vector4 verse = region.Verse.Bounds;
+                var bounds = new Vector4(
+                    at.X + (verse.X * scale), at.Y + (verse.Y * scale), verse.Z * scale, verse.W * scale);
+
+                if (region.Picture is { } lit && view.Artwork.Invoke(lit) is { Drawn: true } over)
+                {
+                    Overlay.Picture(over.Picture, bounds.X, bounds.Y, bounds.Z, bounds.W, Vector4.One);
+                }
+
+                if (Inside(_pointer, bounds))
+                {
+                    Overlay.Rect(bounds.X, bounds.Y, bounds.Z, 1, Accent);
+                    Overlay.Rect(bounds.X, bounds.Y + bounds.W - 1, bounds.Z, 1, Accent);
+                    Overlay.Rect(bounds.X, bounds.Y, 1, bounds.W, Accent);
+                    Overlay.Rect(bounds.X + bounds.Z - 1, bounds.Y, 1, bounds.W, Accent);
+                }
+
+                _hits.Add(("verse:" + region.Verse.Noun, bounds));
+            }
+        }
+        else if (art.Drawn)
         {
             Vector4 at = Fitted(art, frame);
 

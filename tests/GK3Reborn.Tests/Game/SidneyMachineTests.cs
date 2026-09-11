@@ -335,8 +335,11 @@ public sealed class SidneyMachineTests
     }
 
     [Fact]
-    public void A_figure_that_locks_sets_the_flag_the_timeblock_waits_on()
+    public void A_figure_that_locks_is_noted_but_is_not_a_verse_of_the_poem()
     {
+        // LockedHexagram is what the end of the third morning waits on, and it is Libra's
+        // to set: a hexagram that fits six marks anywhere is a figure confirmed, not the
+        // verse solved. See SerpentRougeAnalysisTests.
         SidneyMachine sidney = Machine(out GameState state);
 
         Opened(sidney, "POUSSIN_POSTCARD");
@@ -354,7 +357,8 @@ public sealed class SidneyMachineTests
         sidney.LayShape(MapShape.Hexagram);
 
         Assert.True(sidney.Map.Locked);
-        Assert.True(state.GetFlag("LockedHexagram"));
+        Assert.True(state.GetFlag("SidneyShape:Hexagram"));
+        Assert.False(state.GetFlag("LockedHexagram"));
     }
 
     [Fact]
@@ -456,10 +460,11 @@ public sealed class SidneyMachineTests
     }
 
     [Fact]
-    public void The_assist_finishes_the_map_with_the_places_the_survey_marks()
+    public void The_assist_does_the_next_verse_by_the_ordinary_road()
     {
         // A player can be genuinely stuck in front of this, with a timeblock that will not
-        // end until the map is done. Being stuck for good is worse than being told.
+        // end until the map is done. Being stuck for good is worse than being told. One
+        // verse per asking, and everything it sets is set by the path the player would take.
         SidneyMachine sidney = Machine(out GameState state);
 
         Opened(sidney, "PARCHMENT_2");
@@ -469,20 +474,20 @@ public sealed class SidneyMachineTests
         sidney.Assist();
         sidney.Finish(yes: true);
 
-        // The sunrise line, the circle through the four crosses, and the square round it.
-        Assert.Equal(
-            [MapShape.Line, MapShape.Circle, MapShape.Square],
-            sidney.Map.Laid.Select(laid => laid.Shape));
+        // The sunrise line, settled.
+        LaidShape line = Assert.Single(sidney.Map.Laid);
 
-        Assert.All(sidney.Map.Laid, laid => Assert.True(laid.Locked));
+        Assert.Equal(MapShape.Line, line.Shape);
+        Assert.True(line.Fixed);
+        Assert.True(state.GetFlag("Aquarius"));
+        Assert.False(state.GetFlag("Pisces"));
 
-        // The chessboard is ruled inside the square, as the Gemini passage asks.
-        Assert.Equal(8, sidney.Map.Grid);
-        Assert.True(sidney.Map.GridInShape);
+        // Then the circle through the three villages.
+        sidney.Finish(yes: true);
 
-        // And the flags the story reads are set by the ordinary path, not written directly.
+        Assert.Equal([MapShape.Line, MapShape.Circle], sidney.Map.Laid.Select(laid => laid.Shape));
         Assert.True(state.GetFlag("LockedCircle"));
-        Assert.True(state.GetFlag("LockedSquare"));
+        Assert.True(state.GetFlag("Pisces"));
     }
 
     [Fact]
@@ -593,6 +598,9 @@ public sealed class SidneyMachineTests
         sidney.Mark(new Vector2(930, 930));
         sidney.Mark(new Vector2(450, 900));
         sidney.LayShape(MapShape.Square);
+
+        // A grid inside the figure is only allowed while Gemini is the verse in hand.
+        state.SetFlag("Taurus");
 
         sidney.RuleInShape = true;
         sidney.Rule(8);

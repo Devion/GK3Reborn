@@ -113,6 +113,29 @@ public sealed class SceneInteraction
         return new Hover(pick, offered, Called(noun, pick, offered));
     }
 
+    /// <summary>
+    /// A question put to the player as a verb bar, for a noun that is nowhere in the room.
+    /// </summary>
+    /// <remarks>
+    /// The retail engine's topic bar, opened from code rather than from a click: the lobby's
+    /// action files answer <c>CROW</c> and <c>DAGGER</c> with two topics each and nothing in
+    /// the room is called either. The bar's rows are whatever the files offer for the noun
+    /// now, and choosing one performs it the way any row does.
+    /// </remarks>
+    /// <param name="noun">The noun the action files answer for.</param>
+    /// <param name="label">What the bar is headed, since the noun itself means nothing to a player.</param>
+    /// <returns>A hover to open the bar on, with no rows when the files offer none.</returns>
+    public Hover Ask(string noun, string label)
+    {
+        ArgumentNullException.ThrowIfNull(noun);
+
+        var pick = new ScenePick(noun, noun, null, 0f, Vector3.Zero, PickKind.HitTest);
+
+        return _actions is null
+            ? new Hover(pick, [], label)
+            : new Hover(pick, _actions.Resolve(noun, _api.State.Ego, Carrying), label);
+    }
+
     /// <summary>The verb that looks closely at something, and the one that stops.</summary>
     private const string Inspect = "INSPECT";
 

@@ -139,7 +139,28 @@ public static class SidneyMapView
                 float radians = laid.Turn * MathF.PI / 180f;
                 var along = new Vector2(MathF.Cos(radians), MathF.Sin(radians)) * laid.Size;
 
-                if (Across(laid.At - along, laid.At + along, SidneyMap.Extent)
+                // A line the player is working on runs right across the country, because
+                // where it goes on past its places is what it is for. A line settled by
+                // the analysis is the segment the answer drew — the sunrise line out to the
+                // edge, the temple's four walls between their corners — and a settled
+                // figure of no length is a place, not a line.
+                if (laid.Fixed)
+                {
+                    if (laid.Size >= 1f)
+                    {
+                        Vector2 one = laid.At - along;
+                        Vector2 other = laid.At + along;
+
+                        surface.Stroke(
+                            left + ((one.X - origin.X) * scale),
+                            top + ((one.Y - origin.Y) * scale),
+                            left + ((other.X - origin.X) * scale),
+                            top + ((other.Y - origin.Y) * scale),
+                            ink,
+                            weight);
+                    }
+                }
+                else if (Across(laid.At - along, laid.At + along, SidneyMap.Extent)
                     is [Vector2 one, Vector2 other])
                 {
                     surface.Stroke(
@@ -213,11 +234,15 @@ public static class SidneyMapView
                     (dot * 0.85f) + MathF.Max(1, surface.Em(held ? 2.4f : 1f)),
                     held ? SidneyPalette.Amber : SidneyPalette.Halo);
 
-                surface.Disc(x, y, dot * 0.85f, SidneyPalette.Mark);
+                surface.Disc(x, y, dot * 0.85f, laid.Fixed ? SidneyPalette.Confirmed : SidneyPalette.Mark);
 
-                surface.Hit(
-                    $"sidney:point:{f}:{i}",
-                    new Vector4(x - (dot * 2), y - (dot * 2), dot * 4, dot * 4));
+                // A settled figure's places are the answer's, and stay where they are.
+                if (!laid.Fixed)
+                {
+                    surface.Hit(
+                        $"sidney:point:{f}:{i}",
+                        new Vector4(x - (dot * 2), y - (dot * 2), dot * 4, dot * 4));
+                }
             }
         }
 
@@ -248,6 +273,20 @@ public static class SidneyMapView
             surface.Hit(
                 $"sidney:point:-1:{i}",
                 new Vector4(x - (dot * 2), y - (dot * 2), dot * 4, dot * 4));
+        }
+
+        // The Site's label and the red serpent: the two pictures the original lays over
+        // the map once Scorpio and Sagittarius are done, anchored from the foot of the map
+        // the way it places them, the label at half strength as it draws it.
+        if (machine.ShowsSite)
+        {
+            Lay(surface, view, "MAPLG_THE.BMP", 804f, 1045f, left, top, scale, origin, 0.5f);
+            Lay(surface, view, "MAPLG_SITE.BMP", 777f, 989f, left, top, scale, origin, 0.5f);
+        }
+
+        if (machine.ShowsSerpent)
+        {
+            Lay(surface, view, "SERPENT.BMP", 724f, 1159f, left, top, scale, origin, 1f);
         }
 
         surface.Overlay.PopClip();
@@ -552,7 +591,10 @@ public static class SidneyMapView
 
         if (machine.Map.GridInShape && machine.Map.Laid.Count > 0)
         {
-            LaidShape laid = machine.Map.Laid[^1];
+            // Inside the square, which is the figure the chessboard is ruled in, whether or
+            // not it was the last thing laid.
+            LaidShape laid = machine.Map.Laid.LastOrDefault(l => l.Shape == MapShape.Square)
+                ?? machine.Map.Laid[^1];
             Vector2[] corners = SidneyMap.Corners(laid);
 
             if (corners.Length == 4)
@@ -594,6 +636,37 @@ public static class SidneyMapView
             surface.Fill(left + ((at - origin.X) * scale), top, 1, side, SidneyPalette.Rule);
             surface.Fill(left, top + ((at - origin.Y) * scale), side, 1, SidneyPalette.Rule);
         }
+    }
+
+    /// <summary>
+    /// One of the game's own pictures laid on the map, anchored from the map's foot.
+    /// </summary>
+    private static void Lay(
+        SidneySurface surface,
+        ScreenView view,
+        string file,
+        float x,
+        float fromFoot,
+        float left,
+        float top,
+        float scale,
+        Vector2 origin,
+        float strength)
+    {
+        if (view.Artwork?.Invoke(file) is not { Drawn: true } art)
+        {
+            return;
+        }
+
+        float y = SidneyMap.Extent - fromFoot - art.Height;
+
+        surface.Overlay.Picture(
+            art.Picture,
+            left + ((x - origin.X) * scale),
+            top + ((y - origin.Y) * scale),
+            art.Width * scale,
+            art.Height * scale,
+            new Vector4(1f, 1f, 1f, strength));
     }
 
     /// <summary>

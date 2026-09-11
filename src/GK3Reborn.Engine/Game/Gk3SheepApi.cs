@@ -734,6 +734,20 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // Le Serpent Rouge's pages, which the inventory's own TURN rules call. The close-up
+        // goes back to being of the poem rather than of a verse on the page just left.
+        Register("TurnLsrPageLeft", _ =>
+        {
+            TurnPoem(-1);
+            return SheepValue.FromInt(0);
+        });
+
+        Register("TurnLsrPageRight", _ =>
+        {
+            TurnPoem(1);
+            return SheepValue.FromInt(0);
+        });
+
         // Looking closely at something in the room is a camera and not a screen: the view
         // moves to a close-up of the thing and the room stays where it is. These used to put
         // up a modal panel instead, which was harmless only for as long as nothing drew it —
@@ -1069,6 +1083,19 @@ public sealed class Gk3SheepApi : ISheepApi
                 Events.Add(new RecordedEvent(captured, [.. a.Select(v => v.AsString())]));
                 return SheepValue.FromInt(0);
             }, waitable);
+        }
+    }
+
+    /// <summary>Turns a page of Le Serpent Rouge; see <see cref="SerpentRouge.Turn"/>.</summary>
+    /// <param name="by">How many pages, forward for positive.</param>
+    private void TurnPoem(int by)
+    {
+        SerpentRouge.Turn(State, by);
+
+        if (State.Screens.Top is { Kind: ScreenKind.InventoryInspect } top &&
+            SerpentRouge.VerseOf(top.Subject) is not null)
+        {
+            State.Screens.Replace(new Screen(ScreenKind.InventoryInspect, SerpentRouge.Item));
         }
     }
 

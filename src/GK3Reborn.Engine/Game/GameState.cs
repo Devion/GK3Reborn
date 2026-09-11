@@ -615,6 +615,7 @@ public sealed class GameState
             SidneyMarks = [.. SidneyMap.Marks],
             SidneyFigures = [.. SidneyMap.Figures],
             SidneyGrid = SidneyMap.Grid,
+            SidneyGridFixed = SidneyMap.GridFixed,
             Introduced = Introduced,
             BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
             Inventories =
@@ -731,7 +732,7 @@ public sealed class GameState
         }
 
         SidneyMap = new SavedMap(
-            [.. save.SidneyMarks], [.. save.SidneyFigures], save.SidneyGrid);
+            [.. save.SidneyMarks], [.. save.SidneyFigures], save.SidneyGrid, save.SidneyGridFixed);
 
         // Who this save says the player already knows. Empty for a game played through in
         // this engine, which answers the question out of its own topic counts, and filled

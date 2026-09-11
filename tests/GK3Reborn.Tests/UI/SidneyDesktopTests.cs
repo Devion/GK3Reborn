@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using GK3Reborn.Rendering;
@@ -135,8 +135,11 @@ public sealed class SidneyDesktopTests
     {
         // The regression: the list drew until it ran out of panel and then stopped, which
         // lost the tenth name at ordinary window sizes — and his print is the one that
-        // names him.
-        SidneyMachine sidney = Machine(out _);
+        // names him. All ten are only on the list from the second evening, once his print
+        // has been lifted.
+        SidneyMachine sidney = Machine(out GameState state);
+        state.Timeblock = new Timeblock(2, 5, IsAfternoon: true);
+        state.SetFlag("GotPMoselyPrint");
         sidney.Screen = SidneyScreen.Suspects;
 
         ScreenPainter painter = Painter();

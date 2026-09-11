@@ -976,6 +976,9 @@ public static class Application
             // things up, and what she can find is a real puzzle rather than a menu.
             Search = Game.Sidney.SidneySearch.Open(archives),
 
+            // What each verse of Le Serpent Rouge is worth when the map confirms it.
+            Scores = api.Scores,
+
             // What the player's things are called, which is the one family of per-object
             // text GK3 localised, and which language the dozen phrases Sidney says that the
             // 1999 game has no string for should be said in.
@@ -1127,7 +1130,11 @@ public static class Application
             // map's own art because it is a portrait, made the same way and framed the same
             // way, and the map takes the same square out of it.
             List<string> everybody =
-                [.. Game.Sidney.SidneySuspect.Portraits, Game.DrivingTraffic.EgoFace];
+            [
+                .. Game.Sidney.SidneySuspect.Portraits,
+                Game.DrivingTraffic.EgoFace,
+                Game.DrivingTraffic.TwoMenFace,
+            ];
 
             int portraits = 0;
 
@@ -3894,14 +3901,14 @@ public static class Application
                 {
                     case Game.Sidney.SidneyScreen.EMail:
                         opened.ReadMail(
-                            opened.Library.Mail().FirstOrDefault(
+                            opened.Mail().FirstOrDefault(
                                 m => m.Id.Equals(about, StringComparison.OrdinalIgnoreCase)));
 
                         break;
 
                     case Game.Sidney.SidneyScreen.Suspects when int.TryParse(about, out int index):
                         opened.OpenSuspect(
-                            opened.Library.Suspects().FirstOrDefault(s => s.Index == index));
+                            opened.Suspects().FirstOrDefault(s => s.Index == index));
 
                         break;
 
@@ -4620,6 +4627,13 @@ public static class Application
         Hover? menu = null;
         Vector2 menuAt = Vector2.Zero;
         int menuIndex = 0;
+
+        // The lobby's glass whose print is waiting on an answer; see Game.DirtyGlasses.
+        GlassQuestion? glassAsked = null;
+
+        // Whether Sidney was up last frame, so that putting it away can run what the
+        // original runs then.
+        bool sidneyWasUp = false;
         Vector2? pinned = Pinned(options);
         bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
 
@@ -5302,6 +5316,125 @@ public static class Application
                 menuIndex = 0;
             }
 
+            // The poem keeps its page only while it is open; closed, it opens next time at
+            // the verse in hand, as the retail engine has it.
+            if (story.Screens.Top is not { Kind: ScreenKind.InventoryInspect } reading ||
+                !Game.SerpentRouge.IsReader(reading.Subject))
+            {
+                Game.SerpentRouge.Close(story);
+            }
+
+            // What Sidney has to do outside its own screen: a line Grace says over it, a room
+            // the story leaves for, Sidney put away — one at a time, each once the last is
+            // over, which is the order the retail engine's callbacks give them.
+            if (sidney is { HasCues: true } && !update.Acting && sidney.TakeCue() is { } cue)
+            {
+                switch (cue.Kind)
+                {
+                    case Game.Sidney.SerpentRougeCue.Say:
+                        new ActionRunner(api).Run(new Formats.Actions.NvcAction
+                        {
+                            Noun = "SIDNEY",
+                            Verb = "SAYS",
+                            Case = "ALL",
+                            Script = string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"wait StartDialogue(\"{cue.Plate}\", {cue.Lines})"),
+                            Source = "Sidney",
+                        });
+
+                        Log.Info($"Sidney: {cue.Plate}");
+                        break;
+
+                    case Game.Sidney.SerpentRougeCue.Leave:
+                        // The end of the second afternoon: Gemini done, and Grace goes out
+                        // to the hallway, where the rules end the timeblock.
+                        story.Screens.Hide(ScreenKind.Sidney);
+                        story.Location = cue.Plate;
+
+                        Log.Info($"Sidney: leaving for {cue.Plate}");
+                        break;
+
+                    case Game.Sidney.SerpentRougeCue.Close:
+                        story.Screens.Hide(ScreenKind.Sidney);
+
+                        Log.Info("Sidney: put away");
+                        break;
+
+                    default:
+                        break;
+                }
+            }
+
+            // Putting Sidney away runs the room's own ExitSidney, as the original does
+            // whenever Sidney is closed: it stands Grace up from the desk, and it is where
+            // two of the timeblocks she works through at the computer are ended.
+            bool sidneyUp = story.Screens.IsOpen(ScreenKind.Sidney);
+
+            if (sidneyWasUp && !sidneyUp && !update.Acting &&
+                string.Equals(here, "R25", StringComparison.OrdinalIgnoreCase))
+            {
+                new ActionRunner(api).Run(new Formats.Actions.NvcAction
+                {
+                    Noun = "SIDNEY",
+                    Verb = "EXIT",
+                    Case = "ALL",
+                    Script = "wait CallSheep(\"R25_ALL\", \"ExitSidney\")",
+                    Source = "Sidney",
+                });
+
+                Log.Info("Sidney: ExitSidney");
+            }
+
+            sidneyWasUp = sidneyUp;
+
+            // Whose glass was that? The retail engine asks with a topic bar it opens
+            // itself once Gabriel has wondered aloud, and reads the answer off which topic
+            // was picked. Here the bar is the ordinary verb menu, opened on the question's
+            // noun once the line is over; the answer is the topic count that moved, because
+            // choosing a row performs the lobby's own rule and that is what a performed
+            // topic leaves behind. A menu put away unanswered leaves the glass undusted.
+            if (glassAsked is { } pending)
+            {
+                if (!pending.Opened)
+                {
+                    if (menu is null && !update.Acting)
+                    {
+                        menu = interaction.Ask(pending.Question, interaction.NameOf(pending.Glass));
+                        menuAt = pointer;
+                        menuIndex = 0;
+                        radioOpen = false;
+
+                        glassAsked = pending with
+                        {
+                            Opened = true,
+                            Wilkes = story.GetTopicCount(pending.Question, Game.DirtyGlasses.SaidWilkes),
+                            Buchelli = story.GetTopicCount(pending.Question, Game.DirtyGlasses.SaidBuchelli),
+                        };
+                    }
+                }
+                else if (menu is null)
+                {
+                    string? answer =
+                        story.GetTopicCount(pending.Question, Game.DirtyGlasses.SaidWilkes) > pending.Wilkes
+                            ? Game.DirtyGlasses.SaidWilkes
+                        : story.GetTopicCount(pending.Question, Game.DirtyGlasses.SaidBuchelli) > pending.Buchelli
+                            ? Game.DirtyGlasses.SaidBuchelli
+                        : null;
+
+                    if (answer is not null)
+                    {
+                        Dusted(Game.DirtyGlasses.Answer(pending.Glass, answer, story), pending.Glass, story, api);
+                    }
+                    else
+                    {
+                        Log.Info($"fingerprints: {pending.Glass} put away unanswered");
+                    }
+
+                    glassAsked = null;
+                }
+            }
+
             if (!console.Open && window.WasClicked(Platform.PointerButton.Secondary))
             {
                 // The menu belongs to the thing it was opened over, not to wherever the
@@ -5578,8 +5711,26 @@ public static class Application
                             traffic = null;
                             trafficFor = null;
 
-                            story.Screens.CloseAll();
-                            Arrive(chase, story);
+                            if (Arrive(chase, story) is { } rideOn)
+                            {
+                                story.Screens.CloseAll();
+                                story.RideTo(rideOn);
+                            }
+                            else
+                            {
+                                // The map stays up for the player to choose from, as a
+                                // plain map with whoever is still circling on it. Its
+                                // traffic is built here, under the same name the next
+                                // frame will read off the screen, so that the timeblock is
+                                // not asked about until the map is next opened — the
+                                // original asks on the way in, not after a chase.
+                                var plain = new Screen(ScreenKind.Driving);
+
+                                story.Screens.Replace(plain);
+
+                                traffic = Game.DrivingTraffic.For(story, map);
+                                trafficFor = plain.ToString();
+                            }
                         }
                     }
                     else if (traffic is { Riding: true, Arrived: true, Destination: { } there })
@@ -5609,7 +5760,10 @@ public static class Application
                         // Closed while Gabriel was still saying what he made of it. The
                         // chase happened all the same, and what it earned is not lost
                         // with the rest of the sentence.
-                        Arrive(caught, story);
+                        if (Arrive(caught, story) is { } rideOn)
+                        {
+                            story.RideTo(rideOn);
+                        }
                     }
 
                     traffic = null;
@@ -5642,12 +5796,26 @@ public static class Application
                     {
                         string bare = lifting.Split('|')[0];
 
-                        IReadOnlyList<string> gained =
-                            Game.FingerprintKit.Lift(bare, story, api.Scores);
+                        // The lobby's two glasses are the one surface whose print is not
+                        // simply whose the file says: see Game.DirtyGlasses.
+                        if (Game.DirtyGlasses.Dust(bare, story) is { } glass)
+                        {
+                            Dusted(glass, bare, story, api);
 
-                        Log.Info(gained.Count > 0
-                            ? $"fingerprints: {bare} gave {string.Join(", ", gained)}"
-                            : $"fingerprints: {bare} lifted");
+                            if (glass.Asks is { } question)
+                            {
+                                glassAsked = new GlassQuestion(bare, question);
+                            }
+                        }
+                        else
+                        {
+                            IReadOnlyList<string> gained =
+                                Game.FingerprintKit.Lift(bare, story, api.Scores);
+
+                            Log.Info(gained.Count > 0
+                                ? $"fingerprints: {bare} gave {string.Join(", ", gained)}"
+                                : $"fingerprints: {bare} lifted");
+                        }
 
                         story.Screens.Back();
                     }
@@ -5686,6 +5854,27 @@ public static class Application
                     // there, the only way to follow anybody was to catch them going past
                     // in the room. Reported as the puzzle being lost — see
                     // Game.DrivingTraffic.
+                    // A place the map will not take the player just now: Larry's driveway
+                    // the evening the two men are in it and the night Gabriel goes over on
+                    // foot, and the station on the days Grace has no business there. The
+                    // retail map answers with a line and stays open, and so does this.
+                    else if (chose.StartsWith("drive:", StringComparison.Ordinal) &&
+                             panel.Kind == ScreenKind.Driving &&
+                             DrivingMap.Refused(story, chose[6..]) is { } excuse)
+                    {
+                        new ActionRunner(api).Run(new Formats.Actions.NvcAction
+                        {
+                            Noun = chose[6..],
+                            Verb = "DRIVE",
+                            Case = "REFUSED",
+                            Script = string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"wait StartDialogue(\"{excuse}\", 1)"),
+                            Source = "the map",
+                        });
+
+                        Log.Info($"The map will not go to {chose[6..]}: {excuse}");
+                    }
                     else if (chose.StartsWith("follow:", StringComparison.Ordinal) &&
                              panel.Kind == ScreenKind.Driving)
                     {
@@ -5983,7 +6172,10 @@ public static class Application
                         aiming,
                         traffic,
                         front.Settings.Captions ? room?.Caption : null,
-                        front.Settings.Captions ? room?.Speaker : null),
+                        front.Settings.Captions ? room?.Speaker : null,
+                        panel.Kind == ScreenKind.InventoryInspect && Game.SerpentRouge.IsReader(panel.Subject)
+                            ? Game.SerpentRouge.Show(story, Game.SerpentRouge.Page(story))
+                            : null),
                     window.FramebufferWidth,
                     window.FramebufferHeight,
                     pointer);
@@ -7556,6 +7748,12 @@ public static class Application
                 story.Screens.Back();
                 break;
 
+            // A verse of Le Serpent Rouge: the close-up becomes the verse's, so that the
+            // verbs along the foot are the verse's own — READ, THINK, the turn of the page.
+            case "verse" when parts.Length > 1 && Game.SerpentRouge.VerseOf(parts[1]) is { } verse:
+                story.Screens.Replace(new Screen(ScreenKind.InventoryInspect, verse.Noun));
+                break;
+
             // Putting the hose down. Whatever the puzzle wants to say about it is said by
             // the interface's own EXIT rule when the room performs it; what matters here is
             // that there is a way out at all.
@@ -7848,8 +8046,7 @@ public static class Application
         switch (what)
         {
             case "screen" when Enum.TryParse(which, out Game.Sidney.SidneyScreen screen):
-                sidney.Screen = screen;
-                sidney.OpenFile(null);
+                sidney.Show(screen);
                 break;
 
             case "home":
@@ -7860,7 +8057,7 @@ public static class Application
             // notification off. Nothing did before, so the original's NEW E-MAIL light
             // would have burned for the whole game.
             case "mail":
-                sidney.ReadMail(sidney.Library.Mail().FirstOrDefault(m => m.Id == which));
+                sidney.ReadMail(sidney.Mail().FirstOrDefault(m => m.Id == which));
                 break;
 
             // The translate screen keeps its own open file: analysing a parchment and
@@ -7935,7 +8132,7 @@ public static class Application
 
             case "suspect" when int.TryParse(which, out int index):
                 sidney.OpenSuspect(
-                    sidney.Library.Suspects().FirstOrDefault(s => s.Index == index));
+                    sidney.Suspects().FirstOrDefault(s => s.Index == index));
 
                 break;
 
@@ -8009,11 +8206,15 @@ public static class Application
     /// </summary>
     /// <param name="traffic">The chase.</param>
     /// <param name="story">The game.</param>
-    private static void Arrive(Game.DrivingTraffic traffic, GameState story)
+    /// <returns>
+    /// Where the player rides on to, or null when the map is left up for them to choose —
+    /// which is every chase but Lady Howard's; see <see cref="Traveller.LeavesMapOpen"/>.
+    /// </returns>
+    private static string? Arrive(Game.DrivingTraffic traffic, GameState story)
     {
         if (traffic.Chase is not { } quarry)
         {
-            return;
+            return null;
         }
 
         // Two only where the chase led somewhere new. The original's map reads the count
@@ -8040,15 +8241,73 @@ public static class Application
 
         string arrived = quarry.Arrives ?? traffic.From ?? story.Location;
 
-        Log.Info($"Followed {quarry.Noun} to {arrived}");
+        Log.Info(quarry.LeavesMapOpen
+            ? $"Followed {quarry.Noun} to {arrived}; the map stays open"
+            : $"Followed {quarry.Noun} to {arrived}");
 
-        story.RideTo(arrived);
+        return quarry.LeavesMapOpen ? null : arrived;
     }
 
     /// <summary>Why a room was left.</summary>
     /// <param name="Code">Process exit code, if this is the end of it.</param>
     /// <param name="Destination">Where the story went, or null when the player quit.</param>
     private readonly record struct RoomExit(int Code, string? Destination);
+
+    /// <summary>
+    /// A dusted glass waiting on the player to say whose it was.
+    /// </summary>
+    /// <param name="Glass">Which glass.</param>
+    /// <param name="Question">The noun whose topics ask.</param>
+    private readonly record struct GlassQuestion(string Glass, string Question)
+    {
+        /// <summary>Whether the bar has been opened yet, or the line is still being said.</summary>
+        public bool Opened { get; init; }
+
+        /// <summary>How often Wilkes had been named before the bar opened.</summary>
+        public int Wilkes { get; init; }
+
+        /// <summary>How often Buchelli had been named before the bar opened.</summary>
+        public int Buchelli { get; init; }
+    }
+
+    /// <summary>
+    /// What dusting one of the lobby's glasses came to, done to the story.
+    /// </summary>
+    /// <param name="glass">What Gabriel made of it.</param>
+    /// <param name="noun">Which glass.</param>
+    /// <param name="story">The game.</param>
+    /// <param name="api">The room, for the line and the score sheet.</param>
+    private static void Dusted(Game.GlassDusting glass, string noun, GameState story, Gk3SheepApi api)
+    {
+        if (glass.Says is { Length: > 0 } line)
+        {
+            new ActionRunner(api).Run(new Formats.Actions.NvcAction
+            {
+                Noun = noun,
+                Verb = "FINGERPRINT_KIT",
+                Case = "DUSTED",
+                Script = string.Create(
+                    CultureInfo.InvariantCulture, $"wait StartDialogue(\"{line}\", 1)"),
+                Source = "the fingerprint kit",
+            });
+        }
+
+        if (glass.Lifts)
+        {
+            IReadOnlyList<string> gained = Game.FingerprintKit.Lift(noun, story, api.Scores);
+
+            Log.Info($"fingerprints: {noun} gave {string.Join(", ", gained)}");
+        }
+
+        if (glass.Mislabels is { Length: > 0 } wrong)
+        {
+            story.Inventory.Add(story.Ego, wrong);
+
+            Log.Info($"fingerprints: {noun} gave {wrong}, which is the wrong name");
+        }
+
+        Log.Info($"fingerprints: {Game.DirtyGlasses.Variable} = {story.GetVariable(Game.DirtyGlasses.Variable)}");
+    }
 
     /// <summary>
     /// Makes sure the scene is loaded at a point in the story, not merely at a time of day.

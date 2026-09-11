@@ -112,6 +112,15 @@ public sealed class SidneyWords
             "Nessun file. Prima acquisisci qualcosa.",
             "Nenhum ficheiro. Digitalize algo primeiro.",
         ],
+        ["AssistStuck"] =
+        [
+            "Nothing more can be done on the map just now.",
+            "Auf der Karte lässt sich im Moment nichts weiter tun.",
+            "Por ahora no se puede hacer nada más en el mapa.",
+            "Rien de plus à faire sur la carte pour le moment.",
+            "Per ora non c'è altro da fare sulla mappa.",
+            "De momento não há mais nada a fazer no mapa.",
+        ],
         ["NoFigures"] =
         [
             "no figures saved yet",

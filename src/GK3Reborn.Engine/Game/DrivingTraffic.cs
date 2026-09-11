@@ -63,6 +63,17 @@ public sealed record Traveller(
     /// </summary>
     public string? Says { get; init; }
 
+    /// <summary>
+    /// Whether the map stays up once the chase is over, for the player to choose where to
+    /// go next, rather than the ride carrying on to wherever the quarry stopped. The retail
+    /// driving layer leaves it up after every chase but Lady Howard's, whose circuit puts
+    /// the player back where they set out: Madeleine's and Wilkes's end with a new place
+    /// on the map to pick, and the two men's ends outside Larry Chester's, where pulling
+    /// in after them is refused — Gabriel parks at Blanchefort and walks over. Riding on
+    /// put the moped in Larry's driveway while he was meant to be hiding.
+    /// </summary>
+    public bool LeavesMapOpen { get; init; }
+
     /// <summary>Where the road ends, as a scene code, or null for a route that loops.</summary>
     public string? Arrives =>
         Loops || Junctions.Count == 0 ? null : Junctions[^1].ToUpperInvariant();
@@ -368,7 +379,7 @@ public sealed class DrivingTraffic
     /// <summary>Lady Howard and Estelle, in a car.</summary>
     private static Vector4 Howard { get; } = Paint(0x8B3827);
 
-    /// <summary>Buchelli and Emilio.</summary>
+    /// <summary>Mallory and MacDougall, Prince James's men, in a sedan.</summary>
     private static Vector4 TwoMen { get; } = Paint(0x34931B);
 
     /// <summary>The player.</summary>
@@ -388,8 +399,13 @@ public sealed class DrivingTraffic
     /// <inheritdoc cref="WilkesFace"/>
     private const string EstelleFace = "PORTRAIT_EST";
 
-    /// <inheritdoc cref="WilkesFace"/>
-    private const string TwoMenFace = "PORTRAIT_VIT";
+    /// <summary>
+    /// Prince James's men are nobody's suspect, so Sidney has no portrait of either; this
+    /// one is Mallory's, rendered from his own model the way the suspects' were
+    /// (<c>render-model --model HE1 --portrait</c>). The map drew Buchelli's face for a
+    /// while, which is how it was reported.
+    /// </summary>
+    public const string TwoMenFace = "PORTRAIT_MAL";
 
     /// <summary>
     /// Gabriel, which is the marker the player is watching.
@@ -484,7 +500,7 @@ public sealed class DrivingTraffic
                 []));
         }
 
-        // Day 1, six: Buchelli and Emilio, but only once the story has them out on the
+        // Day 1, six: Prince James's men, but only once the story has them out on the
         // road. TwoMenState is the game's own variable and four is its own number for it.
         if (string.Equals(now, "106P", StringComparison.OrdinalIgnoreCase) &&
             story.GetVariable("TwoMenState") == 4)
@@ -577,6 +593,7 @@ public sealed class DrivingTraffic
             {
                 LeavesThemAt = "CSD",
                 Says = "2196L3WL71",
+                LeavesMapOpen = true,
             },
 
             // Wilkes, to L'Ermitage.
@@ -591,6 +608,7 @@ public sealed class DrivingTraffic
             {
                 LeavesThemAt = "LER",
                 Says = "2196L3WLM1",
+                LeavesMapOpen = true,
             },
 
             // Lady Howard, all the way round and back to where she started. She is not
@@ -609,7 +627,7 @@ public sealed class DrivingTraffic
                 Says = "21A6L3WLX1",
             },
 
-            // Buchelli and Emilio, to Larry Chester's house.
+            // Mallory and MacDougall, to Larry Chester's house.
             5 => new Traveller(
                 "TWO_MEN",
                 TwoMen,
@@ -622,6 +640,7 @@ public sealed class DrivingTraffic
                 [])
             {
                 Says = "21F6L3WBH1",
+                LeavesMapOpen = true,
             },
 
             // Estelle, to where she and Lady Howard are digging.
@@ -640,6 +659,7 @@ public sealed class DrivingTraffic
                 Counted = "LADY_HOWARD",
                 LeavesThemAt = "WOD",
                 Says = "21K6L3WJI1",
+                LeavesMapOpen = true,
             },
 
             // Madeleine again, out of Rennes-le-Château to Poussin's tomb.
@@ -650,7 +670,10 @@ public sealed class DrivingTraffic
                 ["mop", "in1", "lhe", "pl6", "mcb", "pou"],
                 Loops: false,
                 Follow: 7,
-                ["POU"]),
+                ["POU"])
+            {
+                LeavesMapOpen = true,
+            },
 
             _ => null,
         };

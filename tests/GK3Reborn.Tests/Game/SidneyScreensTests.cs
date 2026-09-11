@@ -391,16 +391,146 @@ public sealed class SidneyScreensTests
     public void Printing_an_identity_is_something_the_story_can_read()
     {
         SidneyMachine sidney = Machine(out GameState state);
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
 
         sidney.PrintIdentity(sidney.Library.Identities()[0]);
 
         Assert.Equal("DOCTOR", sidney.Identity?.Title);
+        Assert.Null(sidney.TakeCue()?.Plate);
 
         // Keyed on the row rather than on the job, because the job is translated and the
         // key is not: a card printed in a French game means the same thing in an English
         // one.
         Assert.True(state.GetFlag("SidneyId:Menu1Item1"));
     }
+
+    /// <summary>
+    /// A card is only needed the afternoon Gabriel calls on Montreaux; any other time the
+    /// printer says so, in whichever voice is sitting there, and prints nothing.
+    /// </summary>
+    [Fact]
+    public void Printing_an_identity_any_other_time_is_refused_aloud()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.PrintIdentity(sidney.Library.Identities()[0]);
+
+        Assert.False(state.GetFlag("SidneyId:Menu1Item1"));
+        Assert.Equal("02O8G5FZ51", sidney.TakeCue()?.Plate);
+        Assert.Null(sidney.TakeCue()?.Plate);
+
+        state.Ego = "GABRIEL";
+        sidney.PrintIdentity(sidney.Library.Identities()[0]);
+
+        Assert.Equal("02O8G5FVU1", sidney.TakeCue()?.Plate);
+    }
+
+    /// <summary>The scanner on the second morning: Grace has nothing to scan, and says so.</summary>
+    [Fact]
+    public void Add_data_on_the_second_morning_says_there_is_nothing_to_scan()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        state.Timeblock = new Timeblock(2, 7, IsAfternoon: false);
+
+        sidney.Show(SidneyScreen.AddData);
+
+        Assert.Equal(SidneyScreen.AddData, sidney.Screen);
+        Assert.Equal("0264G2ZPF1", sidney.TakeCue()?.Plate);
+
+        state.Timeblock = new Timeblock(2, 10, IsAfternoon: false);
+        sidney.Show(SidneyScreen.AddData);
+
+        Assert.Null(sidney.TakeCue()?.Plate);
+    }
+
+    /// <summary>
+    /// The list grows as the story does: Montreaux once Grace has met him, Mosely from five
+    /// that evening and only if his print was lifted. All ten on the first morning named
+    /// two people the story had not.
+    /// </summary>
+    [Fact]
+    public void The_suspects_are_added_when_the_story_adds_them()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Assert.Equal(8, sidney.Suspects().Count);
+        Assert.DoesNotContain(sidney.Suspects(), s => s.Name.Contains("Montreaux", StringComparison.Ordinal));
+
+        state.Timeblock = new Timeblock(2, 10, IsAfternoon: false);
+        Assert.Equal(8, sidney.Suspects().Count);
+
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+        Assert.Equal(9, sidney.Suspects().Count);
+        Assert.Contains(sidney.Suspects(), s => s.Name.Contains("Montreaux", StringComparison.Ordinal));
+
+        state.Timeblock = new Timeblock(2, 5, IsAfternoon: true);
+        Assert.Equal(9, sidney.Suspects().Count);
+
+        state.SetFlag("GotPMoselyPrint");
+        Assert.Equal(10, sidney.Suspects().Count);
+
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+        Assert.Equal(9, sidney.Suspects().Count);
+    }
+
+    /// <summary>Mosely arrives with his print already on his file, as the original does it.</summary>
+    [Fact]
+    public void Moselys_print_is_linked_to_him_as_he_is_added()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        state.Timeblock = new Timeblock(2, 5, IsAfternoon: true);
+        state.SetFlag("GotPMoselyPrint");
+
+        SidneySuspect mosely = sidney.Suspects().Single(s => s.Index == 10);
+
+        sidney.Scan("MOSELYS_PRINT");
+
+        Assert.Contains(sidney.LinkedTo(mosely), f => f.Kind == SidneyKind.KnownPrint);
+    }
+
+    /// <summary>
+    /// The inbox fills as the days go by: three from the start, the temple's divisions from
+    /// the third noon, the symbols from Serres from that evening, the egg's only once found.
+    /// </summary>
+    [Fact]
+    public void Mail_arrives_when_the_story_sends_it()
+    {
+        const string mail = """
+            [EMail Files]
+            EMail1 = Hello!
+            EMail2 = Greetings
+            EMail3 = Itinerary
+            EMail4 = Temple of Solomon
+            EMail5 = Symbols from Serres
+            EMail6 = Egg
+
+            [EMail1]
+            Subject = Hello!
+            """;
+
+        var state = new GameState { Ego = "GRACE" };
+        var sidney = new SidneyMachine(SidneyLibrary.From(Text, mail), state);
+
+        Assert.Equal(["EMail1", "EMail2", "EMail3"], sidney.Mail().Select(m => m.Id));
+        Assert.Equal(3, sidney.Unread);
+
+        state.Timeblock = new Timeblock(3, 10, IsAfternoon: false);
+        Assert.Equal(3, sidney.Mail().Count);
+
+        state.Timeblock = new Timeblock(3, 12, IsAfternoon: true);
+        Assert.Equal(["EMail1", "EMail2", "EMail3", "EMail4"], sidney.Mail().Select(m => m.Id));
+
+        state.Timeblock = new Timeblock(3, 3, IsAfternoon: true);
+        Assert.Equal(4, sidney.Mail().Count);
+
+        state.Timeblock = new Timeblock(3, 6, IsAfternoon: true);
+        Assert.Equal(5, sidney.Mail().Count);
+        Assert.DoesNotContain(sidney.Mail(), m => m.Id == "EMail6");
+
+        state.SetFlag("Egg");
+        Assert.Equal(6, sidney.Mail().Count);
+    }
+
 }
 
 /// <summary>

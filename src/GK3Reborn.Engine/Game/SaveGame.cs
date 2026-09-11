@@ -12,8 +12,9 @@ namespace GK3Reborn.Game;
 /// <param name="Marks">The places marked, as "x,y" in the map's own 1,368 pixels.</param>
 /// <param name="Figures">The figures laid over them, in the order they were laid.</param>
 /// <param name="Grid">How many cells the ruling is divided into, or nought for none.</param>
+/// <param name="GridFixed">Whether the ruling is the chessboard, settled for good.</param>
 public sealed record SavedMap(
-    IReadOnlyList<string> Marks, IReadOnlyList<SavedFigure> Figures, int Grid);
+    IReadOnlyList<string> Marks, IReadOnlyList<SavedFigure> Figures, int Grid, bool GridFixed = false);
 
 /// <summary>One figure laid over Sidney's map.</summary>
 /// <param name="Shape">Which figure, as <c>MapShape</c> names it.</param>
@@ -24,13 +25,15 @@ public sealed record SavedMap(
 /// <param name="Points">
 /// The places it was fitted to, as "x,y" in map pixels — its own, and not the map's.
 /// </param>
+/// <param name="Fixed">Whether it is settled for good, as a step of Le Serpent Rouge confirmed.</param>
 public sealed record SavedFigure(
     string Shape,
     float X,
     float Y,
     float Size,
     float Turn,
-    IReadOnlyList<string> Points)
+    IReadOnlyList<string> Points,
+    bool Fixed = false)
 {
     /// <summary>A figure saved before figures kept their own places.</summary>
     public SavedFigure(string shape, float x, float y, float size, float turn)
@@ -174,6 +177,9 @@ public sealed record SaveGame
 
     /// <summary>How many cells the map's grid is ruled into, or nought for none.</summary>
     public int SidneyGrid { get; init; }
+
+    /// <summary>Whether that grid is the chessboard of Le Serpent Rouge, settled for good.</summary>
+    public bool SidneyGridFixed { get; init; }
 
     /// <summary>What everyone is carrying.</summary>
     public IReadOnlyList<SavedInventory> Inventories { get; init; } = [];

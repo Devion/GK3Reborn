@@ -69,6 +69,13 @@ public sealed class SidneyMachine
     private static readonly int[] GridSizes = [2, 4, 8, 12, 16];
     private readonly SidneyMap _map = new();
     private SavedMap? _mapWas;
+    private readonly Queue<SidneySpeech> _cues = new();
+
+    /// <summary>
+    /// The score sheet, for what each step of Le Serpent Rouge is worth. Null awards
+    /// nothing, which is what a test wants and what nothing else does.
+    /// </summary>
+    public ScoreEvents? Scores { get; init; }
 
     /// <summary>Creates the machine.</summary>
     /// <param name="library">The game's own Sidney text.</param>
@@ -115,6 +122,7 @@ public sealed class SidneyMachine
                     _state.SidneyMap.Marks.Select(Place),
                     _state.SidneyMap.Figures.Select(Figure),
                     _state.SidneyMap.Grid);
+                _map.RestoreGrid(_state.SidneyMap.Grid, _state.SidneyMap.GridFixed);
             }
 
             return _map;
@@ -140,9 +148,11 @@ public sealed class SidneyMachine
                         .. laid.Points.Select(point => string.Create(
                             System.Globalization.CultureInfo.InvariantCulture,
                             $"{point.X},{point.Y}")),
-                    ])),
+                    ],
+                    laid.Fixed)),
             ],
-            _map.GridInShape ? -_map.Grid : _map.Grid);
+            _map.GridInShape ? -_map.Grid : _map.Grid,
+            _map.GridFixed);
 
         _state.SidneyMap = kept;
         _mapWas = kept;
@@ -163,8 +173,17 @@ public sealed class SidneyMachine
             new System.Numerics.Vector2(saved.X, saved.Y),
             saved.Size,
             saved.Turn,
-            Locked: false,
-            [.. saved.Points.Select(Place)]);
+            Locked: saved.Fixed,
+            [.. saved.Points.Select(Place)])
+        {
+            Fixed = saved.Fixed,
+        };
+
+    /// <summary>Whether The Site has been marked, so the map shows its label.</summary>
+    public bool ShowsSite => _state.GetFlag("MarkedTheSite");
+
+    /// <summary>Whether the red serpent has been marked, so the map shows it.</summary>
+    public bool ShowsSerpent => _state.GetFlag("PlacedSerpent");
 
     /// <summary>Whether the analyze screen is waiting for a point to be marked.</summary>
     public bool Marking { get; private set; }
@@ -217,10 +236,124 @@ public sealed class SidneyMachine
     }
 
     /// <summary>How many messages have not been opened yet.</summary>
-    public int Unread => _library.Mail().Count(m => !HasRead(m));
+    public int Unread => Mail().Count(m => !HasRead(m));
+
+    /// <summary>
+    /// Grace's inbox as it stands at this point in the story.
+    /// </summary>
+    /// <remarks>
+    /// The file lists every message she will ever get, and the retail engine hands them
+    /// over as the days go by: the first three from the start, the Temple of Solomon's
+    /// divisions from the third noon, the analysis of the symbols from Serres from six
+    /// that evening, and the one about the egg only once the egg has been found. Showing
+    /// the whole file from the first morning gave away two of the third day's puzzles on
+    /// the second, which is how it was reported.
+    /// </remarks>
+    /// <returns>The messages received so far, in the order the file lists them.</returns>
+    public IReadOnlyList<SidneyMail> Mail()
+    {
+        Timeblock now = _state.Timeblock;
+
+        return [.. _library.Mail().Where(m => m.Id.ToUpperInvariant() switch
+        {
+            "EMAIL4" => now >= new Timeblock(3, 12, IsAfternoon: true),
+            "EMAIL5" => now >= new Timeblock(3, 6, IsAfternoon: true),
+            "EMAIL6" => _state.GetFlag("Egg"),
+            _ => true,
+        })];
+    }
+
+    /// <summary>
+    /// The people Sidney has a file on at this point in the story.
+    /// </summary>
+    /// <remarks>
+    /// Eight from the start. Montreaux is added on the second afternoon, once Grace has
+    /// met him; Mosely from five that day, and only if his print was lifted that morning
+    /// — the retail engine's own two rules, from the function that fills the list — and
+    /// his print is linked to him as he is added, the way it does. All ten from the first
+    /// morning named two people the story had not yet, which is how it was reported.
+    /// </remarks>
+    /// <returns>The suspects so far, in the file's order.</returns>
+    public IReadOnlyList<SidneySuspect> Suspects()
+    {
+        Timeblock now = _state.Timeblock;
+        List<SidneySuspect> people = [];
+
+        foreach (SidneySuspect person in _library.Suspects())
+        {
+            switch (person.Index)
+            {
+                case 9 when now < new Timeblock(2, 2, IsAfternoon: true):
+                    continue;
+
+                case 10 when now < new Timeblock(2, 5, IsAfternoon: true) ||
+                             !_state.GetFlag("GotPMoselyPrint"):
+                    continue;
+
+                case 10:
+                    if (SidneyFiles.For("MOSELYS_PRINT") is { } print)
+                    {
+                        _state.SetFlag(Link(person, print));
+                    }
+
+                    break;
+
+                default:
+                    break;
+            }
+
+            people.Add(person);
+        }
+
+        return people;
+    }
 
     /// <summary>What the last operation said, or null.</summary>
     public SidneyResult? Showing { get; private set; }
+
+    /// <summary>
+    /// Takes the next thing waiting to happen outside the screen — a line said aloud, a
+    /// room left for, Sidney put away — so that it happens once, in order. Sidney's screens
+    /// are text, but the retail engine has Grace speak over them and ends two timeblocks
+    /// from them; the frame loop takes these one at a time, each once the last is over.
+    /// </summary>
+    /// <returns>The cue, or null when nothing is waiting.</returns>
+    public SidneySpeech? TakeCue() => _cues.Count > 0 ? _cues.Dequeue() : null;
+
+    /// <summary>Whether anything is waiting to happen outside the screen.</summary>
+    public bool HasCues => _cues.Count > 0;
+
+    private void Speak(string plate, int lines = 1) =>
+        _cues.Enqueue(new SidneySpeech(SerpentRougeCue.Say, plate, lines));
+
+    private void Cue(SerpentRougeOutcome outcome)
+    {
+        foreach (SidneySpeech cue in outcome.Cues ?? [])
+        {
+            _cues.Enqueue(cue);
+        }
+    }
+
+    /// <summary>
+    /// Opens one of the screens from the menu.
+    /// </summary>
+    /// <remarks>
+    /// The one screen with a rule of its own is ADD DATA on the second morning: the retail
+    /// engine has Grace say she has nothing to scan yet (<c>0264G2ZPF1</c>) instead of
+    /// asking for input. The screen still opens here, with its own "nothing to scan".
+    /// </remarks>
+    /// <param name="screen">Which screen.</param>
+    public void Show(SidneyScreen screen)
+    {
+        Screen = screen;
+        OpenFile(null);
+
+        if (screen == SidneyScreen.AddData &&
+            _state.Timeblock == new Timeblock(2, 7, IsAfternoon: false))
+        {
+            Speak("0264G2ZPF1");
+        }
+    }
 
     /// <summary>
     /// The game's own text, for whatever draws this.
@@ -791,6 +924,21 @@ public sealed class SidneyMachine
 
         Identity = identity;
 
+        // A card is only ever needed the afternoon Gabriel calls on Montreaux as a
+        // journalist; any other time the retail engine prints nothing and has whoever is
+        // sitting there say they do not need a fake ID. Printing one regardless left a
+        // card in the story that the story never asked for.
+        if (_state.Timeblock != new Timeblock(2, 2, IsAfternoon: true))
+        {
+            Speak(string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase)
+                ? "02O8G5FVU1"
+                : "02O8G5FZ51");
+
+            Showing = new SidneyResult(string.Empty);
+
+            return Showing;
+        }
+
         // Keyed on the row rather than on the job, because the job is translated: a save
         // made in French would otherwise carry SidneyId:JOURNALISTE and mean nothing to the
         // same game opened in English.
@@ -882,8 +1030,9 @@ public sealed class SidneyMachine
         Marking = true;
 
         // A square asked for with nothing marked goes round the circle already laid, which
-        // is what the Aries passage asks of it.
-        if (Map.Points.Count == 0 && shape == MapShape.Square)
+        // is what the Aries passage asks of it; a hexagram with nothing marked goes inside
+        // it, which is what the Libra passage asks.
+        if (Map.Points.Count == 0 && shape is MapShape.Square or MapShape.Hexagram)
         {
             Map.UseShape(shape);
         }
@@ -898,9 +1047,52 @@ public sealed class SidneyMachine
             }
         }
 
-        Showing = new SidneyResult(Note(shape));
+        Showing = new SidneyResult(Progress() ?? Note(shape));
 
         return Showing;
+    }
+
+    /// <summary>
+    /// Asks Le Serpent Rouge whether the figures as they stand have finished a verse, and
+    /// records what it says.
+    /// </summary>
+    /// <returns>The note to show for a verse finished, or null when nothing changed.</returns>
+    private string? Progress()
+    {
+        SerpentRougeOutcome outcome = SerpentRougeAnalysis.Changed(Map, _state, Scores);
+
+        if (!outcome.Handled)
+        {
+            return null;
+        }
+
+        Cue(outcome);
+        Marking = false;
+        RememberMap();
+
+        return NoteOf(outcome);
+    }
+
+    /// <summary>What the analyze screen shows for what a step came to, in the game's words.</summary>
+    private string? NoteOf(SerpentRougeOutcome outcome)
+    {
+        if (outcome.Note is not { Length: > 0 } key)
+        {
+            return null;
+        }
+
+        // The Site is typed on to the map through a little box of its own in the original:
+        // title, prompt and the words. Shown here as the three lines they are.
+        if (key == "SiteText")
+        {
+            return Say("SiteTextTitle") + "\n" + Say("SiteTextPrompt") + " " + Say("SiteText");
+        }
+
+        string said = Say(key);
+
+        return outcome.Argument is { } argument
+            ? said.Replace("%s", argument, StringComparison.Ordinal)
+            : said;
     }
 
     /// <summary>
@@ -988,7 +1180,7 @@ public sealed class SidneyMachine
 
         MapAnalysis found = Map.Analyse();
 
-        Showing = new SidneyResult(Verdict(found));
+        Showing = new SidneyResult(Progress() ?? Verdict(found));
 
         return Showing;
     }
@@ -1063,8 +1255,16 @@ public sealed class SidneyMachine
     }
 
     /// <summary>
-    /// Finishes the map puzzle, as far as what the player has earned allows.
+    /// Does the next verse of Le Serpent Rouge for the player, as far as what they have
+    /// earned allows.
     /// </summary>
+    /// <remarks>
+    /// One verse a time, by the same road the player would take — the places marked, the
+    /// figure laid, ANALYZE pressed — so that everything the verse sets is set by the
+    /// ordinary path. A figure the pictures have not given up yet is not laid: the machine
+    /// says so instead. Verses that are not on the map (Ophiuchus is the anagram) and steps
+    /// that wait on something else (Scorpio waits on a mail) are left to the player.
+    /// </remarks>
     /// <param name="yes">Whether they said to.</param>
     /// <returns>What the machine says.</returns>
     public SidneyResult Finish(bool yes)
@@ -1076,87 +1276,113 @@ public sealed class SidneyMachine
             return Showing;
         }
 
-        List<string> done = [];
-
-        // The sunrise line: the church at Rennes-le-Château over the ruin at Blanchefort.
-        if (Draw(MapShape.Line, [SidneyMap.Church, SidneyMap.Blanchefort]))
+        Showing = SerpentRougeAnalysis.Solved(_state) switch
         {
-            done.Add(Words.Shape(MapShape.Line));
-        }
-
-        // The circle through the four the survey crosses.
-        if (Draw(
-            MapShape.Circle,
-            [.. SidneyMap.Sites.Take(4).Select(site => site.At)]))
-        {
-            done.Add(Words.Shape(MapShape.Circle));
-        }
-
-        // The square round it, which takes no places of its own.
-        if (Draw(MapShape.Square, []))
-        {
-            done.Add(Words.Shape(MapShape.Square));
-
-            RuleInShape = true;
-            Rule(8);
-        }
-
-        // <b>The hexagram is not drawn.</b> Poussin's painting gives it up, and the
-        // timeblock in R25307A will not end without it, but where it goes on the country is
-        // not something the survey says: its places are not the crosses, and a hexagram put
-        // somewhere plausible would not lock and would leave a wrong figure on the map
-        // looking like an answer. See docs/sidney.md.
-
-        Map.Select(MapShape.None);
-        RememberMap();
-
-        Showing = new SidneyResult(
-            done.Count == 0
-                ? Say("NoShapeNote")
-                : string.Join(", ", done) + ".\n\n" + Say("MapShapeLockNote"));
+            0 => MarkAndAnalyse(SerpentRougeAnalysis.Church, SerpentRougeAnalysis.Ruin),
+            1 => Lay(
+                MapShape.Circle,
+                SerpentRougeAnalysis.Coustaussa, SerpentRougeAnalysis.Bezu, SerpentRougeAnalysis.Bugarach),
+            2 => Lay(MapShape.Square),
+            3 => Align(),
+            4 or 5 => Chessboard(),
+            6 => MarkAndAnalyse(SerpentRougeAnalysis.Ermitage, SerpentRougeAnalysis.Tomb),
+            7 => MarkAndAnalyse(SerpentRougeAnalysis.TempleCorners),
+            8 => Lay(MapShape.Hexagram, turn: SerpentRougeAnalysis.HexagramTurn),
+            9 => Divide(),
+            11 when _state.GetFlag("Ophiuchus") =>
+                MarkAndAnalyse(SerpentRougeAnalysis.SerpentTail, SerpentRougeAnalysis.SerpentHead),
+            _ => new SidneyResult(Words.Own("AssistStuck")),
+        };
 
         return Showing;
     }
 
-    /// <summary>Draws one figure over named places, when the player has earned it.</summary>
-    /// <param name="shape">The figure.</param>
-    /// <param name="places">Where it goes, which may be empty.</param>
-    /// <returns>True when it was drawn.</returns>
-    private bool Draw(MapShape shape, IReadOnlyList<System.Numerics.Vector2> places)
+    /// <summary>Marks places and presses ANALYZE, which is most of the verses.</summary>
+    private SidneyResult MarkAndAnalyse(params System.Numerics.Vector2[] places)
     {
-        if (!Shapes.Contains(shape))
-        {
-            return false;
-        }
-
-        // Cleared before the figure is chosen, not after: choosing it first lets it adopt
-        // whatever the previous step left lying about, which gave the square the circle's
-        // four places instead of letting it go round the circle.
         Map.Select(MapShape.None);
         Map.ClearPoints();
-        Map.Select(shape);
 
         foreach (System.Numerics.Vector2 at in places)
         {
             Map.Enter(at);
         }
 
-        if (places.Count == 0)
+        return AnalysedMap();
+    }
+
+    /// <summary>Lays a figure over places, or over the circle, and turns it where asked.</summary>
+    private SidneyResult Lay(MapShape shape, params System.Numerics.Vector2[] places) =>
+        Lay(shape, null, places);
+
+    private SidneyResult Lay(MapShape shape, float? turn, params System.Numerics.Vector2[] places)
+    {
+        if (!Shapes.Contains(shape))
         {
-            Map.UseShape(shape);
+            return new SidneyResult(Say("NoShapeNote"));
         }
 
-        Map.Analyse();
+        Map.Select(MapShape.None);
+        Map.ClearPoints();
 
-        foreach (LaidShape laid in Map.Laid)
+        foreach (System.Numerics.Vector2 at in places)
         {
-            if (laid.Shape == shape && laid.Locked)
-            {
-                Locked(shape);
-            }
+            Map.Enter(at);
         }
 
-        return true;
+        SidneyResult laid = LayShape(shape);
+
+        if (turn is { } to && Map.Working is { } working)
+        {
+            Map.Rework(working with { Turn = to });
+            RememberMap();
+
+            return new SidneyResult(Progress() ?? laid.Text);
+        }
+
+        return laid;
+    }
+
+    /// <summary>Taurus: the meridian line down, and the square turned to it.</summary>
+    private SidneyResult Align()
+    {
+        if (!_state.GetFlag("PlacedMeridianLine"))
+        {
+            MarkAndAnalyse(SerpentRougeAnalysis.Serres, SerpentRougeAnalysis.Meridian);
+        }
+
+        if (Map.Working is not { Shape: MapShape.Square } square)
+        {
+            return Lay(MapShape.Square, turn: SerpentRougeAnalysis.SquareTurn);
+        }
+
+        Map.Rework(square with { Turn = SerpentRougeAnalysis.SquareTurn });
+        RememberMap();
+
+        return new SidneyResult(Progress() ?? Say("MapShapeLockNote"));
+    }
+
+    /// <summary>Gemini and Cancer: the eight by eight ruled inside the square.</summary>
+    private SidneyResult Chessboard()
+    {
+        RuleInShape = true;
+
+        return Rule(8);
+    }
+
+    /// <summary>Scorpio: the temple's divisions, then The Site — each only when it can be.</summary>
+    private SidneyResult Divide()
+    {
+        if (_state.GetFlag("PlacedTempleDivisions"))
+        {
+            Map.Select(MapShape.None);
+
+            return Mark(SerpentRougeAnalysis.Site);
+        }
+
+        return _state.GetFlag("OpenedTempleDiagram")
+            ? MarkAndAnalyse(SerpentRougeAnalysis.TempleDivisions)
+            : new SidneyResult(Words.Own("AssistStuck"));
     }
 
     /// <summary>Whether a place is already marked, by the working set or by any figure.</summary>
@@ -1205,9 +1431,35 @@ public sealed class SidneyMachine
     /// <returns>What the machine says.</returns>
     public SidneyResult Rule(int cells)
     {
-        Map.DrawGrid(cells, RuleInShape && Map.Laid.Count > 0);
-        RememberMap();
+        // Filling the shape is the player's choice whether or not a figure is down; what
+        // is drawn inside is the square, when there is one, and the whole map otherwise.
+        bool inShape = RuleInShape;
+
         Ruling = false;
+
+        // Filling a shape is only ever the answer while Gemini is the verse in hand; any
+        // other time Grace says a grid will not help, and nothing is drawn.
+        if (inShape && SerpentRougeAnalysis.RefusesShapeGrid(_state) is { } refusal)
+        {
+            Speak(refusal);
+            Showing = new SidneyResult(Say("GridList"));
+
+            return Showing;
+        }
+
+        if (Map.GridFixed)
+        {
+            Showing = new SidneyResult(Say("GridDispNote"));
+
+            return Showing;
+        }
+
+        Map.DrawGrid(cells, inShape && Map.Laid.Count > 0);
+
+        SerpentRougeOutcome outcome = SerpentRougeAnalysis.Ruled(Map, _state, Scores, cells, inShape);
+
+        Cue(outcome);
+        RememberMap();
 
         Showing = new SidneyResult(Say("MapGridPointsNote"));
 
@@ -1262,8 +1514,16 @@ public sealed class SidneyMachine
         }
 
         // Fifteen degrees a step, which is fine enough to find a fit and coarse enough that
-        // finding one takes a few presses rather than a hundred.
+        // finding one takes a few presses rather than a hundred. A step that sweeps past
+        // the turn a verse is waiting for lands on it: see SerpentRougeAnalysis.Snap.
+        float from = Map.ShapeTurn;
         bool locked = Map.Rotate(15f);
+
+        if (SerpentRougeAnalysis.Snap(Map, _state, from, Map.ShapeTurn) is { } snapped &&
+            Map.Working is { } turned)
+        {
+            Map.Rework(turned with { Turn = snapped });
+        }
 
         RememberMap();
 
@@ -1272,7 +1532,8 @@ public sealed class SidneyMachine
             Locked(Map.Shape);
         }
 
-        return new SidneyResult(locked ? Say("MapShapeLockNote") : Say("CirclePointsNote"));
+        return new SidneyResult(
+            Progress() ?? (locked ? Say("MapShapeLockNote") : Say("CirclePointsNote")));
     }
 
     private SidneyResult Unshaped()
@@ -1280,6 +1541,14 @@ public sealed class SidneyMachine
         if (Map.Shape == MapShape.None)
         {
             return new SidneyResult(Say("NoShapeNote"));
+        }
+
+        if (SerpentRougeAnalysis.RefusesErase(Map, _state) is { } refusal)
+        {
+            // "I think that's right — I don't want to erase it."
+            Speak(refusal);
+
+            return new SidneyResult(Say("MapShapeLockNote"));
         }
 
         Choosing = false;
@@ -1296,9 +1565,31 @@ public sealed class SidneyMachine
     /// <returns>What the machine says.</returns>
     public SidneyResult Mark(System.Numerics.Vector2 at)
     {
+        if (SerpentRougeAnalysis.RefusesMarking(_state) is { } refusal)
+        {
+            Speak(refusal);
+            Marking = false;
+            Showing = new SidneyResult(Say("EnterPointsNote"));
+
+            return Showing;
+        }
+
         if (!Map.Enter(at))
         {
             Showing = new SidneyResult(Say("MapIndeterminateNote"));
+
+            return Showing;
+        }
+
+        // The one place that answers the moment it is marked.
+        SerpentRougeOutcome marked = SerpentRougeAnalysis.Marked(Map, _state, Scores);
+
+        if (marked.Handled)
+        {
+            Cue(marked);
+            Marking = false;
+            RememberMap();
+            Showing = new SidneyResult(NoteOf(marked) ?? Say("MapEnterPointNote"));
 
             return Showing;
         }
@@ -1331,7 +1622,7 @@ public sealed class SidneyMachine
             said = said + "\n\n" + Verdict(found);
         }
 
-        Showing = new SidneyResult(said);
+        Showing = new SidneyResult(Progress() ?? said);
 
         return Showing;
     }
@@ -1431,6 +1722,13 @@ public sealed class SidneyMachine
     /// </summary>
     private SidneyResult Marked()
     {
+        if (!Marking && SerpentRougeAnalysis.RefusesMarking(_state) is { } refusal)
+        {
+            Speak(refusal);
+
+            return new SidneyResult(Say("EnterPointsNote"));
+        }
+
         Marking = !Marking;
 
         return new SidneyResult(Say("EnterPointsNote"));
@@ -1501,23 +1799,23 @@ public sealed class SidneyMachine
 
     private SidneyResult Unruled()
     {
-        if (Map.Grid == 0)
+        if (!Map.EraseGrid())
         {
             return new SidneyResult(Say("NoGridEraseNote"));
         }
 
-        Map.EraseGrid();
         RememberMap();
 
         return new SidneyResult(Say("ShapeErasedNote"));
     }
 
     /// <summary>What the machine says about a file it has just been told to analyse.</summary>
-    private SidneyResult Analysed(SidneyFile file) => Finished(file.Kind switch
+    private SidneyResult Analysed(SidneyFile file) => file.Kind == SidneyKind.Map
+        ? AnalysedMap()
+        : Finished(file.Kind switch
     {
         SidneyKind.Parchment1 => "AnalyzeParch1",
         SidneyKind.Parchment2 => "AnalyzeParch2",
-        SidneyKind.Map => "MapNoPrimitiveNote",
         SidneyKind.Poussin => "AnalyzePous",
         SidneyKind.Teniers => "GeometryTenier1",
         SidneyKind.Symbols => "AnalyzeHermNote",
@@ -1530,6 +1828,23 @@ public sealed class SidneyMachine
     });
 
     private SidneyResult Finished(string key) => new(Say(key));
+
+    /// <summary>
+    /// ANALYZE over the map: Le Serpent Rouge's turn to look at what is marked.
+    /// </summary>
+    private SidneyResult AnalysedMap()
+    {
+        SerpentRougeOutcome outcome = SerpentRougeAnalysis.Analyse(Map, _state, Scores);
+
+        Cue(outcome);
+
+        // Analysing always puts point entry and the figure in hand away, as the original does.
+        Marking = false;
+        Map.Select(MapShape.None);
+        RememberMap();
+
+        return new SidneyResult(NoteOf(outcome) ?? Say("MapIndeterminateNote"));
+    }
 
     /// <summary>
     /// An operation that ends by asking the player something.
@@ -1582,8 +1897,10 @@ public sealed class SidneyMachine
             return;
         }
 
+        // Only the machine's own note of it. LockedCircle, LockedSquare and LockedHexagram
+        // are the story's, set by Pisces, Taurus and Libra and read by the end of the third
+        // morning; a hexagram that happens to fit six marks anywhere is not Libra.
         _state.SetFlag($"SidneyShape:{SidneyMap.NameOf(shape)}");
-        _state.SetFlag($"Locked{SidneyMap.NameOf(shape)}");
     }
 
     private static string Flag(SidneyFile file, SidneyAction action) =>

@@ -317,6 +317,45 @@ public sealed class DrivingMap
     /// <summary>The flag that says a script has put a place on the map.</summary>
     private static string FlagFor(DrivingStop stop) => $"MapKnows:{stop.Sprite}";
 
+    /// <summary>
+    /// Why the map will not take the player somewhere just now, as a dialogue licence
+    /// plate, or null when it will.
+    /// </summary>
+    /// <remarks>
+    /// The retail map's own two refusals, from the function that answers its buttons.
+    /// Larry Chester's is refused the evening the two men have pulled into his driveway —
+    /// once they have, which is <c>TwoMenState</c> of five — and the small hours Gabriel
+    /// goes over on foot; both times he says he could pull in but had better not, parks at
+    /// Blanchefort and walks over by the château path. Riding straight in stood the moped
+    /// in the driveway while he was meant to be hiding behind a tree, which is how it was
+    /// reported. The station is refused on the two mornings Grace has nothing to do
+    /// there. Neither is a script's: nothing in the game data says either.
+    /// </remarks>
+    /// <param name="story">The game.</param>
+    /// <param name="scene">Where the player pointed, as a scene code.</param>
+    /// <returns>The line, or null.</returns>
+    public static string? Refused(GameState story, string scene)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+        ArgumentNullException.ThrowIfNull(scene);
+
+        Timeblock now = story.Timeblock;
+
+        if (string.Equals(scene, "LHE", StringComparison.OrdinalIgnoreCase) &&
+            ((now == At("106P") && story.GetVariable("TwoMenState") >= 5) || now == At("202A")))
+        {
+            return "21F4F625S1";
+        }
+
+        if (string.Equals(scene, "TR1", StringComparison.OrdinalIgnoreCase) &&
+            (now == At("307A") || now == At("312P")))
+        {
+            return "21LP362PF1";
+        }
+
+        return null;
+    }
+
     /// <summary>The places' names, from the game's own string table.</summary>
     private static Dictionary<string, string> Names(GameArchives archives)
     {

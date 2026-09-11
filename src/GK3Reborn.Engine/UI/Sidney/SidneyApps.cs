@@ -198,7 +198,7 @@ public static class SidneyApps
     /// </summary>
     private static void Mail(SidneySurface surface, SidneyMachine machine, Vector4 body)
     {
-        IReadOnlyList<SidneyMail> inbox = machine.Library.Mail();
+        IReadOnlyList<SidneyMail> inbox = machine.Mail();
 
         if (inbox.Count == 0)
         {
@@ -551,7 +551,7 @@ public static class SidneyApps
     private static void Suspects(
         SidneySurface surface, SidneyMachine machine, ScreenView view, Vector4 body)
     {
-        IReadOnlyList<SidneySuspect> people = machine.Library.Suspects();
+        IReadOnlyList<SidneySuspect> people = machine.Suspects();
 
         // Wider than it was, because a face now sits in front of every name and the names
         // are people's: "Excelsior Montreaux" elided to "Excelsior Mo..." is worse than the

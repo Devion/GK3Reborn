@@ -462,4 +462,63 @@ public sealed class DrivingTrafficTests
             ["MOP", "LHE", "PLO", "RL1", "TR1"],
             DrivingMap.Open(story).Select(s => s.Scene));
     }
+
+    /// <summary>
+    /// The retail layer leaves the map up after a chase for the player to choose from;
+    /// only Lady Howard's circuit, which goes nowhere, puts them back where they began.
+    /// Riding on to wherever the quarry stopped parked Gabriel in Larry Chester's
+    /// driveway while he was meant to be hiding from the men who had just pulled in.
+    /// </summary>
+    [Fact]
+    public void Every_chase_but_Lady_Howards_leaves_the_map_open()
+    {
+        foreach (int follow in new[] { 1, 2, 5, 6, 7 })
+        {
+            Assert.True(DrivingTraffic.Chased(follow, "PLO")!.LeavesMapOpen, $"follow {follow}");
+        }
+
+        Assert.False(DrivingTraffic.Chased(4, "PLO")!.LeavesMapOpen);
+    }
+
+    /// <summary>
+    /// Prince James's men are nobody's suspect, so their face is their own and not one of
+    /// Sidney's ten; the map drew Buchelli's for a while.
+    /// </summary>
+    [Fact]
+    public void Prince_James_men_have_a_face_of_their_own()
+    {
+        var evening = new GameState { Timeblock = Block("106P"), Location = "PLO" };
+        evening.SetVariable("TwoMenState", 4);
+
+        Traveller circling = Assert.Single(DrivingTraffic.Circling(evening));
+
+        Assert.Equal("TWO_MEN", circling.Noun);
+        Assert.Equal(DrivingTraffic.TwoMenFace, circling.Portrait);
+        Assert.Equal(DrivingTraffic.TwoMenFace, DrivingTraffic.Chased(5, "PLO")!.Portrait);
+        Assert.DoesNotContain(DrivingTraffic.TwoMenFace, GK3Reborn.Game.Sidney.SidneySuspect.Portraits);
+    }
+
+    /// <summary>
+    /// The map's own two refusals: Larry's once the men are in his driveway and the night
+    /// Gabriel walks over, and the station on Grace's two idle mornings.
+    /// </summary>
+    [Fact]
+    public void The_map_refuses_Larrys_driveway_and_Graces_station()
+    {
+        var evening = new GameState { Timeblock = Block("106P"), Location = "PLO" };
+
+        Assert.Null(DrivingMap.Refused(evening, "LHE"));
+
+        evening.SetVariable("TwoMenState", 5);
+
+        Assert.Equal("21F4F625S1", DrivingMap.Refused(evening, "LHE"));
+        Assert.Null(DrivingMap.Refused(evening, "PLO"));
+
+        Assert.Equal("21F4F625S1", DrivingMap.Refused(new GameState { Timeblock = Block("202A") }, "lhe"));
+        Assert.Null(DrivingMap.Refused(new GameState { Timeblock = Block("202P") }, "LHE"));
+
+        Assert.Equal("21LP362PF1", DrivingMap.Refused(new GameState { Timeblock = Block("307A") }, "TR1"));
+        Assert.Equal("21LP362PF1", DrivingMap.Refused(new GameState { Timeblock = Block("312P") }, "TR1"));
+        Assert.Null(DrivingMap.Refused(new GameState { Timeblock = Block("310A") }, "TR1"));
+    }
 }
