@@ -2,9 +2,7 @@
 
 namespace GK3Reborn.Platform;
 
-/// <summary>
-/// Which key and which gamepad button do which job.
-/// </summary>
+/// <summary>Which key and which gamepad button do which job.</summary>
 public sealed class InputBindings
 {
     /// <summary>What every action answers to when nobody has said otherwise.</summary>
@@ -21,8 +19,7 @@ public sealed class InputBindings
         [CameraAction.NextCamera] = [InputKey.Tab],
         [CameraAction.CycleRayTracing] = [InputKey.F2],
 
-        // The original made the inventory a small target to click at the edge of the
-        // screen. A key is what a player reaches for.
+        // The original made the inventory a small target to click at the edge of the screen.
         [CameraAction.Inventory] = [InputKey.I],
         [CameraAction.Journal] = [InputKey.J],
         [CameraAction.ShowHotspots] = [InputKey.AltLeft, InputKey.AltRight],
@@ -36,9 +33,7 @@ public sealed class InputBindings
         [CameraAction.FreeCursor] = [InputKey.C],
     };
 
-    /// <summary>
-    /// What every action answers to on a gamepad when nobody has said otherwise.
-    /// </summary>
+    /// <summary>What every action answers to on a gamepad when nobody has said otherwise.</summary>
     private static readonly Dictionary<CameraAction, GamepadButton> DefaultButtons = new()
     {
         [CameraAction.Inventory] = GamepadButton.North,
@@ -62,9 +57,7 @@ public sealed class InputBindings
     private readonly Dictionary<CameraAction, GamepadButton> _buttons;
     private readonly Dictionary<PointerButton, GamepadButton> _pointers;
 
-    private InputBindings(
-        Dictionary<CameraAction, InputKey[]> keys,
-        Dictionary<CameraAction, GamepadButton> buttons,
+    private InputBindings( Dictionary<CameraAction, InputKey[]> keys, Dictionary<CameraAction, GamepadButton> buttons,
         Dictionary<PointerButton, GamepadButton> pointers)
     {
         _keys = keys;
@@ -80,44 +73,35 @@ public sealed class InputBindings
         [.. Enum.GetValues<CameraAction>()];
 
     /// <summary>Which keys trigger an action.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>Its keys, which may be none.</returns>
-    public IReadOnlyList<InputKey> Keys(CameraAction action) =>
-        _keys.TryGetValue(action, out InputKey[]? changed)
-            ? changed
+    /// <param name="action">The action.</param>
+    public IReadOnlyList<InputKey> Keys(CameraAction action) => _keys.TryGetValue(action, out InputKey[]? changed) ? changed
             : DefaultKeys.TryGetValue(action, out InputKey[]? standard) ? standard : [];
 
     /// <summary>Which gamepad button triggers an action.</summary>
+    /// <returns>Its button, or .</returns>
     /// <param name="action">The action.</param>
-    /// <returns>Its button, or <see cref="GamepadButton.None"/>.</returns>
-    public GamepadButton Button(CameraAction action) =>
-        _buttons.TryGetValue(action, out GamepadButton changed)
-            ? changed
+    public GamepadButton Button(CameraAction action) => _buttons.TryGetValue(action, out GamepadButton changed) ? changed
             : DefaultButtons.GetValueOrDefault(action);
 
     /// <summary>Which gamepad button is a mouse button.</summary>
+    /// <returns>Its pad button, or .</returns>
     /// <param name="button">The mouse button.</param>
-    /// <returns>Its pad button, or <see cref="GamepadButton.None"/>.</returns>
-    public GamepadButton Button(PointerButton button) =>
-        _pointers.TryGetValue(button, out GamepadButton changed)
-            ? changed
+    public GamepadButton Button(PointerButton button) => _pointers.TryGetValue(button, out GamepadButton changed) ? changed
             : DefaultPointers.GetValueOrDefault(button);
 
     /// <summary>Whether an action is bound to what it was born bound to.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>True when the player has not touched it.</returns>
-    public bool IsDefault(CameraAction action) =>
-        !_keys.ContainsKey(action) && !_buttons.ContainsKey(action);
+    /// <param name="action">The action.</param>
+    public bool IsDefault(CameraAction action) => !_keys.ContainsKey(action) && !_buttons.ContainsKey(action);
 
     /// <summary>Whether anything at all has been changed.</summary>
     public bool Untouched => _keys.Count == 0 && _buttons.Count == 0 && _pointers.Count == 0;
 
-    /// <summary>
-    /// The same bindings with one action answering to one key.
-    /// </summary>
-    /// <param name="action">The action.</param>
-    /// <param name="key">The key, or <see cref="InputKey.None"/> to unbind it.</param>
+    /// <summary>The same bindings with one action answering to one key.</summary>
     /// <returns>The new bindings.</returns>
+    /// <param name="action">The action.</param>
+    /// <param name="key">The key, or to unbind it.</param>
     public InputBindings With(CameraAction action, InputKey key)
     {
         Dictionary<CameraAction, InputKey[]> keys = new(_keys);
@@ -146,9 +130,9 @@ public sealed class InputBindings
     }
 
     /// <summary>The same bindings with one action answering to one pad button.</summary>
-    /// <param name="action">The action.</param>
-    /// <param name="button">The button, or <see cref="GamepadButton.None"/> to unbind it.</param>
     /// <returns>The new bindings.</returns>
+    /// <param name="action">The action.</param>
+    /// <param name="button">The button, or to unbind it.</param>
     public InputBindings With(CameraAction action, GamepadButton button)
     {
         Dictionary<CameraAction, GamepadButton> buttons = new(_buttons);
@@ -179,9 +163,9 @@ public sealed class InputBindings
     }
 
     /// <summary>The same bindings with one mouse button answering to one pad button.</summary>
+    /// <returns>The new bindings.</returns>
     /// <param name="which">The mouse button.</param>
     /// <param name="button">The pad button, or none.</param>
-    /// <returns>The new bindings.</returns>
     public InputBindings With(PointerButton which, GamepadButton button)
     {
         Dictionary<CameraAction, GamepadButton> buttons = new(_buttons);
@@ -246,8 +230,8 @@ public sealed class InputBindings
     }
 
     /// <summary>Reads the bindings back.</summary>
-    /// <param name="stored">What was in the settings file, or null for none.</param>
     /// <returns>The bindings.</returns>
+    /// <param name="stored">What was in the settings file, or null for none.</param>
     public static InputBindings Restore(StoredBindings? stored)
     {
         if (stored is null)
@@ -265,12 +249,8 @@ public sealed class InputBindings
             {
                 keys[action] =
                 [
-                    .. bound
-                        .Split(',', StringSplitOptions.RemoveEmptyEntries |
-                                    StringSplitOptions.TrimEntries)
-                        .Select(InputKeys.Parse)
-                        .Where(k => k != InputKey.None),
-                ];
+                    .. bound .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) .Select(InputKeys.Parse)
+                        .Where(k => k != InputKey.None), ];
             }
         }
 
@@ -294,50 +274,34 @@ public sealed class InputBindings
     }
 
     /// <summary>What to print on a settings page for an action's keys.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>The keys, separated by commas, or a dash for none.</returns>
+    /// <param name="action">The action.</param>
     public string Describe(CameraAction action)
     {
         IReadOnlyList<InputKey> keys = Keys(action);
 
-        return keys.Count == 0
-            ? "—"
-            : string.Join(", ", keys.Select(InputKeys.Describe));
+        return keys.Count == 0 ? "—" : string.Join(", ", keys.Select(InputKeys.Describe));
     }
 
     /// <summary>What to call an action on a settings page.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>Its name, in words.</returns>
+    /// <param name="action">The action.</param>
     public static string Name(CameraAction action) => action switch
     {
-        CameraAction.Forward => "Camera forward",
-        CameraAction.Back => "Camera back",
-        CameraAction.Left => "Camera left",
-        CameraAction.Right => "Camera right",
-        CameraAction.Up => "Camera up",
-        CameraAction.Down => "Camera down",
-        CameraAction.Fast => "Camera faster",
-        CameraAction.Reset => "Back to the room's camera",
-        CameraAction.NextCamera => "Next camera angle",
-        CameraAction.CycleRayTracing => "Step the lighting quality",
-        CameraAction.Inventory => "Inventory",
-        CameraAction.ShowHotspots => "Show what can be clicked",
-        CameraAction.Journal => "Journal",
-        CameraAction.QuickSave => "Quick save",
-        CameraAction.QuickLoad => "Quick load",
-        CameraAction.Quit => "Menu",
-        CameraAction.FreeCursor => "Show the pointer",
-        _ => action.ToString(),
+        CameraAction.Forward => "Camera forward", CameraAction.Back => "Camera back", CameraAction.Left => "Camera left",
+        CameraAction.Right => "Camera right", CameraAction.Up => "Camera up", CameraAction.Down => "Camera down",
+        CameraAction.Fast => "Camera faster", CameraAction.Reset => "Back to the room's camera", CameraAction.NextCamera => "Next camera angle",
+        CameraAction.CycleRayTracing => "Step the lighting quality", CameraAction.Inventory => "Inventory",
+        CameraAction.ShowHotspots => "Show what can be clicked", CameraAction.Journal => "Journal", CameraAction.QuickSave => "Quick save",
+        CameraAction.QuickLoad => "Quick load", CameraAction.Quit => "Menu", CameraAction.FreeCursor => "Show the pointer", _ => action.ToString(),
     };
 
     /// <summary>What to call a mouse button on a settings page.</summary>
-    /// <param name="button">The button.</param>
     /// <returns>What clicking it means in this game.</returns>
+    /// <param name="button">The button.</param>
     public static string Name(PointerButton button) => button switch
     {
-        PointerButton.Primary => "Do the thing",
-        PointerButton.Secondary => "Ask what it does",
-        PointerButton.Middle => "Look closely",
+        PointerButton.Primary => "Do the thing", PointerButton.Secondary => "Ask what it does", PointerButton.Middle => "Look closely",
         _ => button.ToString(),
     };
 }
@@ -346,40 +310,28 @@ public sealed class InputBindings
 /// <param name="Keys">Action name to a comma-separated list of key names.</param>
 /// <param name="Buttons">Action name to a gamepad button name.</param>
 /// <param name="Pointers">Mouse button name to a gamepad button name.</param>
-public sealed record StoredBindings(
-    Dictionary<string, string> Keys,
-    Dictionary<string, string> Buttons,
-    Dictionary<string, string> Pointers)
+public sealed record StoredBindings( Dictionary<string, string> Keys, Dictionary<string, string> Buttons, Dictionary<string, string> Pointers)
 {
     /// <summary>An empty set, for a file that had none.</summary>
-    public StoredBindings()
-        : this([], [], [])
+    public StoredBindings() : this([], [], [])
     {
     }
 }
 
 /// <summary>Where a gamepad's sticks point, and how hard its triggers are pressed.</summary>
-/// <param name="Left">
-/// The left stick, each axis from -1 to 1, with y positive <em>downwards</em>.
-/// </param>
+/// <param name="Left">The left stick, each axis from -1 to 1, with y positive downwards.</param>
 /// <param name="Right">The right stick.</param>
 /// <param name="LeftTrigger">The left trigger, from nought to one.</param>
 /// <param name="RightTrigger">The right trigger.</param>
-public readonly record struct GamepadSticks(
-    System.Numerics.Vector2 Left,
-    System.Numerics.Vector2 Right,
-    float LeftTrigger,
-    float RightTrigger)
+public readonly record struct GamepadSticks( System.Numerics.Vector2 Left, System.Numerics.Vector2 Right, float LeftTrigger, float RightTrigger)
 {
     /// <summary>A pad nobody is touching.</summary>
     public static GamepadSticks Still => default;
 
     /// <summary>Whether anything is being pushed at all.</summary>
-    public bool Moving =>
-        Left != System.Numerics.Vector2.Zero || Right != System.Numerics.Vector2.Zero;
+    public bool Moving => Left != System.Numerics.Vector2.Zero || Right != System.Numerics.Vector2.Zero;
 
     /// <summary>How fast the pointer is moving, for the log.</summary>
-    public override string ToString() => string.Create(
-        CultureInfo.InvariantCulture,
+    public override string ToString() => string.Create( CultureInfo.InvariantCulture,
         $"L({Left.X:F2},{Left.Y:F2}) R({Right.X:F2},{Right.Y:F2}) T({LeftTrigger:F2},{RightTrigger:F2})");
 }

@@ -8,22 +8,11 @@ namespace GK3Reborn.UI;
 /// <param name="Noun">What the pointer is over, or null.</param>
 /// <param name="Verbs">What that answers to, most likely first.</param>
 /// <param name="Verb">The verb a plain click would perform.</param>
-/// <param name="Hotspots">
-/// Every noun in the room and where it is on screen, while the player is holding the key
-/// that asks. Empty the rest of the time.
-/// </param>
+/// <param name="Hotspots">Every noun in the room and where it is on screen, while the player is holding the key that asks.</param>
 /// <param name="At">Where the pointer is, in pixels.</param>
 /// <param name="MenuOpen">Whether the player asked for the full list of verbs.</param>
-/// <param name="MenuIndex">
-/// Which verb is chosen. The wheel moves it, the pointer moves it by being over a row, and
-/// a click takes it — one selection with three ways to move it, rather than a hover
-/// highlight that the wheel cannot reach.
-/// </param>
-/// <param name="MenuAt">
-/// Where the pointer was when the list was asked for. Separate from <paramref name="At"/>
-/// on purpose: a menu anchored to the live pointer slides away from whoever is reaching
-/// for it, so there is nothing to click.
-/// </param>
+/// <param name="MenuIndex">Which verb is chosen.</param>
+/// <param name="MenuAt">Where the pointer was when the list was asked for.</param>
 /// <param name="Speaker">Who is talking, or null.</param>
 /// <param name="Caption">What they are saying, or null.</param>
 /// <param name="Inventory">What the player is carrying.</param>
@@ -32,81 +21,25 @@ namespace GK3Reborn.UI;
 /// <param name="Place">Where this is, for the corner.</param>
 /// <param name="Console">The developer console, when it is showing.</param>
 /// <param name="Score">What the player has scored, already written out, or null.</param>
-/// <param name="Items">
-/// The things in the bag this noun answers to, which the menu offers behind one row rather
-/// than listing beside the verbs. An action file writes "use the wallet on Buthane" as a
-/// rule whose verb is <c>WALLET</c>, so without somewhere to put them the menu is a list of
-/// verbs with a player's whole inventory shuffled into it in no particular order.
-/// </param>
-/// <param name="Icons">
-/// The game's own picture of an item, by item name, for the column that lists them. Null
-/// when nothing has been loaded, and an item may answer with nothing.
-/// </param>
-/// <param name="VerbIcons">
-/// The game's own picture of a verb, by verb and by whether that verb is the one picked
-/// out. The original's ring was these icons and no words at all, so they are the shape a
-/// player who has played the game before is already looking for. Null when nothing has
-/// been loaded, and a verb may answer with nothing — three of the 287 name no picture.
-/// </param>
-/// <param name="Gps">
-/// What the handheld GPS is showing, when Grace has one out and switched on. Null in every
-/// room but the three that lend her one.
-/// </param>
-/// <param name="Pictures">
-/// The game's own art by file name, for the pieces of the interface that are a picture
-/// rather than a drawing.
-/// </param>
-/// <param name="RadioWorn">
-/// Whether Gabriel has the headset on, which is the whole of what decides that the button
-/// is drawn. True for one timeblock in the game; see <see cref="Game.Radio"/>.
-/// </param>
-/// <param name="Radio">
-/// What the room will answer to over the radio, here and now. Empty while he is wearing it
-/// with nothing to say, which draws the button dim rather than taking it away.
-/// </param>
+/// <param name="Items">The things in the bag this noun answers to, which the menu offers behind one row rather than listing beside the.</param>
+/// <param name="Icons">The game's own picture of an item, by item name, for the column that lists them.</param>
+/// <param name="VerbIcons">The game's own picture of a verb, by verb and by whether that verb is the one picked out.</param>
+/// <param name="Gps">What the handheld GPS is showing, when Grace has one out and switched on.</param>
+/// <param name="Pictures">The game's own art by file name, for the pieces of the interface that are a picture rather than a drawing.</param>
+/// <param name="RadioWorn">Whether Gabriel has the headset on, which is the whole of what decides that the button is drawn.</param>
+/// <param name="Radio">What the room will answer to over the radio, here and now.</param>
 /// <param name="RadioOpen">Whether the list of topics is showing.</param>
 /// <param name="RadioIndex">Which of them is picked out.</param>
-/// <param name="Prompt">
-/// The one control the room itself is asking for, drawn large under the picture. Null in
-/// every room but the ones whose mechanism has a move the player cannot find by pointing at
-/// the room; see <see cref="Game.Mechanisms.SceneMechanism.Offers"/>.
-/// </param>
-/// <param name="Crosshair">
-/// Whether to mark the middle of the screen, which is what the player is looking at and so
-/// what a click acts on while they are standing in the room themselves.
-/// </param>
-public readonly record struct HudState(
-    string? Noun,
-    IReadOnlyList<string> Verbs,
-    string? Verb,
-    Vector2 At,
-    bool MenuOpen,
-    int MenuIndex,
-    Vector2 MenuAt,
-    string? Speaker,
-    string? Caption,
-    IReadOnlyList<string> Inventory,
-    string? Held,
-    bool InventoryOpen,
-    string Place,
-    GameConsole? Console = null,
-    string? Score = null,
-    IReadOnlyList<string>? Items = null,
-    IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
-    Func<string, ItemIcon>? Icons = null,
-    Func<string, bool, ItemIcon>? VerbIcons = null,
-    Game.Mechanisms.GpsReading? Gps = null,
-    Func<string, ItemIcon>? Pictures = null,
-    bool RadioWorn = false,
-    IReadOnlyList<Game.RadioTopic>? Radio = null,
-    bool RadioOpen = false,
-    int RadioIndex = 0,
-    Game.Mechanisms.MechanismButton? Prompt = null,
-    bool Crosshair = false);
+/// <param name="Prompt">The one control the room itself is asking for, drawn large under the picture.</param>
+/// <param name="Crosshair">Whether to mark the middle of the screen, which is what the player is looking at and so what a click acts on.</param>
+public readonly record struct HudState( string? Noun, IReadOnlyList<string> Verbs, string? Verb, Vector2 At, bool MenuOpen, int MenuIndex,
+    Vector2 MenuAt, string? Speaker, string? Caption, IReadOnlyList<string> Inventory, string? Held, bool InventoryOpen, string Place,
+    GameConsole? Console = null, string? Score = null, IReadOnlyList<string>? Items = null, IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
+    Func<string, ItemIcon>? Icons = null, Func<string, bool, ItemIcon>? VerbIcons = null, Game.Mechanisms.GpsReading? Gps = null,
+    Func<string, ItemIcon>? Pictures = null, bool RadioWorn = false, IReadOnlyList<Game.RadioTopic>? Radio = null, bool RadioOpen = false,
+    int RadioIndex = 0, Game.Mechanisms.MechanismButton? Prompt = null, bool Crosshair = false);
 
-/// <summary>
-/// The game's interface, laid out fresh every frame.
-/// </summary>
+/// <summary>The game's interface, laid out fresh every frame.</summary>
 public sealed class GameHud
 {
     private static readonly Vector4 Panel = new(0.06f, 0.07f, 0.09f, 0.82f);
@@ -141,14 +74,10 @@ public sealed class GameHud
     /// <summary>The display list it fills in.</summary>
     public Overlay Overlay { get; private set; }
 
-    /// <summary>
-    /// What the game calls the player's things, in the player's own language.
-    /// </summary>
+    /// <summary>What the game calls the player's things, in the player's own language.</summary>
     public Game.GameStrings Names { get; set; } = Game.GameStrings.None;
 
-    /// <summary>
-    /// How much bigger everything is than the layout was written against.
-    /// </summary>
+    /// <summary>How much bigger everything is than the layout was written against.</summary>
     public float Scale => Math.Max(1f, Overlay.LineHeight / 19f);
 
     /// <summary>Draws the interface with a different font.</summary>
@@ -183,87 +112,55 @@ public sealed class GameHud
         Hotspots(state, width, height);
         Crosshair(state, width, height);
         // The bar of what the player is carrying used to live along the foot of the screen.
-        // It is gone: the right-click menu already says which of your things a noun will
-        // take, so the strip listed the same items a second time and did it across exactly
-        // the part of the screen where the floor at the player's feet is drawn — every click
-        // there had to be tested against it first. The pockets are a key away and a screen of
-        // their own, which is where a list of twelve things belongs.
         _strip = default;
 
-        // Before the captions, which are laid out from the foot of the screen upwards and
-        // have to start above it rather than under it.
+        // Before the captions, which are laid out from the foot of the screen upwards and have to start above it rather than under it.
         Prompt(state, width, height);
         Captions(state, width, height);
 
-        // Last, so it is over everything: it is attached to the pointer and the pointer is
-        // in front of the game by definition.
+        // Last, so it is over everything: it is attached to the pointer and the pointer is in front of the game by definition.
         if (state.MenuOpen && state.Verbs.Count > 0)
         {
             Menu(state, width, height);
         }
         else if (!state.RadioOpen)
         {
-            // And not while the radio's list is up, for the reason the verb menu is not
-            // drawn under one either: the label follows the pointer, the pointer is on the
-            // list, and what it names is whatever is behind the list rather than the row
-            // being pointed at.
+            // And not while the radio's list is up, for the reason the verb menu is not drawn under one either: the label follows the pointer, the.
             Pointing(state, width, height);
         }
 
-        // The radio's own list, over the room and under the console. It hangs from a
-        // button rather than from the pointer, so it does not compete with the verb menu
-        // above and cannot be open at the same time as one.
+        // The radio's own list, over the room and under the console.
         Radio(state, width, height);
 
-        // Later still. The console is a different mode rather than a part of the interface,
-        // and while it is up it is what the player is looking at.
+        // Later still.
         if (state.Console is { Open: true } console)
         {
             Terminal(console, width, height);
         }
     }
 
-    /// <summary>
-    /// The handheld GPS, when Grace has switched it on.
-    /// </summary>
+    /// <summary>The handheld GPS, when Grace has switched it on.</summary>
     /// <param name="state">What the game is doing.</param>
     /// <param name="height">Window height, which is what decides how big it is drawn.</param>
     private void Gps(HudState state, int height)
     {
-        if (state.Gps is not { } reading ||
-            state.Pictures?.Invoke(reading.Map) is not { Drawn: true } device)
+        if (state.Gps is not { } reading || state.Pictures?.Invoke(reading.Map) is not { Drawn: true } device)
         {
             return;
         }
 
-        // A third of the window's height, which is about what the original's takes on its
-        // 480 lines. Grown where it has to be: the two readings are lettered in the
-        // interface's own face rather than in the bitmap font the original shipped for
-        // them, so the device is made big enough that they fit the space its artists left
-        // between the printed labels and the right-hand edge.
+        // A third of the window's height, which is about what the original's takes on its 480 lines.
         float room = MathF.Max(1f, device.Width - reading.Reading.X - 8f);
-        float scale = MathF.Max(
-            height / 3.2f / device.Height,
-            Math.Max(
-                Overlay.Measure(reading.Latitude),
+        float scale = MathF.Max( height / 3.2f / device.Height, Math.Max( Overlay.Measure(reading.Latitude),
                 Overlay.Measure(reading.Longitude)) / room);
 
-        // Under the top bar rather than over it: the bar says where the player is and what
-        // they have scored, and the device is up for as long as they are walking about
-        // with it.
+        // Under the top bar rather than over it: the bar says where the player is and what they have scored, and the device is up for as long as.
         float margin = 8 * Scale;
         float top = Overlay.LineHeight + (10f * Scale) + margin;
 
-        Overlay.Picture(
-            device.Picture,
-            margin,
-            top,
-            device.Width * scale,
-            device.Height * scale,
-            Vector4.One);
+        Overlay.Picture( device.Picture, margin, top, device.Width * scale, device.Height * scale, Vector4.One);
 
-        // Where Grace is, as a cross the width of the screen and a box around the middle of
-        // it — the original draws the same three pieces out of three tiny bitmaps.
+        // Where Grace is, as a cross the width of the screen and a box around the middle of it — the original draws the same three pieces out of.
         float x = margin + (reading.Across * scale);
         float y = top + (reading.Down * scale);
         float box = 10 * scale;
@@ -288,26 +185,21 @@ public sealed class GameHud
     /// <summary>And what is written on it, in the same ink.</summary>
     private static readonly Vector4 Screen = new(0.04f, 0.13f, 0.06f, 1f);
 
-    /// <summary>
-    /// The developer console.
-    /// </summary>
+    /// <summary>The developer console.</summary>
     private void Terminal(GameConsole console, int width, int height)
     {
         float unit = Scale;
         float row = Overlay.LineHeight;
         float margin = 10f * unit;
 
-        // Enough for the scrollback, an input line and a full completion list, or half the
-        // screen — whichever is less. A console covering the room it is being used on is a
-        // console that has to be closed to see what it did.
+        // Enough for the scrollback, an input line and a full completion list, or half the screen — whichever is less.
         float panel = Math.Min(height * 0.5f, (row * 14) + (24f * unit));
         float input = panel - row - (10f * unit);
 
         Overlay.Rect(0, 0, width, panel, Console);
         Overlay.Rect(0, panel - 1, width, 1, Accent);
 
-        // The scrollback, newest at the bottom against the input line, which is where the
-        // eye already is.
+        // The scrollback, newest at the bottom against the input line, which is where the eye already is.
         int fits = Math.Max(0, (int)((input - margin) / row));
         int from = Math.Max(0, console.Lines.Count - fits);
 
@@ -315,16 +207,10 @@ public sealed class GameHud
         {
             ConsoleLine line = console.Lines[i];
 
-            Overlay.Text(
-                line.Kind == ConsoleLineKind.Echo ? "> " + line.Text : line.Text,
-                margin + (4 * unit),
-                margin + (row * (i - from)),
+            Overlay.Text( line.Kind == ConsoleLineKind.Echo ? "> " + line.Text : line.Text, margin + (4 * unit), margin + (row * (i - from)),
                 line.Kind switch
                 {
-                    ConsoleLineKind.Complaint => Complaint,
-                    ConsoleLineKind.Result => Answer,
-                    ConsoleLineKind.Echo => Ink,
-                    _ => Dim,
+                    ConsoleLineKind.Complaint => Complaint, ConsoleLineKind.Result => Answer, ConsoleLineKind.Echo => Ink, _ => Dim,
                 });
         }
 
@@ -333,9 +219,7 @@ public sealed class GameHud
         float caret = Overlay.Text("> ", margin + (4 * unit), input + (4 * unit), Accent);
         caret = Overlay.Text(console.Typed, caret, input + (4 * unit), Ink);
 
-        // A block rather than a bar, and not blinking. There is no clock in this layer —
-        // ADR 0004 keeps wall time in the platform — and a caret that blinks would need
-        // one.
+        // A block rather than a bar, and not blinking.
         Overlay.Rect(caret + 1, input + (4 * unit), 8 * unit, row - (6 * unit), Accent);
 
         if (console.Completions.Count == 0)
@@ -365,21 +249,16 @@ public sealed class GameHud
 
             if (chosen)
             {
-                Overlay.Rect(
-                    margin + (3 * unit), y - (2 * unit), listWidth - (3 * unit), row, PanelLit);
+                Overlay.Rect( margin + (3 * unit), y - (2 * unit), listWidth - (3 * unit), row, PanelLit);
             }
 
-            Overlay.Text(
-                console.Completions[i].Signature,
-                margin + (12 * unit),
-                y,
-                chosen ? Accent : Dim);
+            Overlay.Text( console.Completions[i].Signature, margin + (12 * unit), y, chosen ? Accent : Dim);
         }
     }
 
     /// <summary>Which verb is at a point, if the menu is open.</summary>
-    /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>The verb, or null.</returns>
+    /// <param name="point">Where the player clicked, in pixels.</param>
     public string? VerbAt(Vector2 point)
     {
         foreach ((string verb, Vector4 bounds) in _rows)
@@ -394,8 +273,8 @@ public sealed class GameHud
     }
 
     /// <summary>Which row of the open menu a point is on.</summary>
-    /// <param name="point">Where the pointer is, in pixels.</param>
     /// <returns>The row's index, or -1 when the point is not on one.</returns>
+    /// <param name="point">Where the pointer is, in pixels.</param>
     public int RowAt(Vector2 point)
     {
         for (int i = 0; i < _rows.Count; i++)
@@ -410,23 +289,21 @@ public sealed class GameHud
     }
 
     /// <summary>What the row at an index is, or null when there is no such row.</summary>
+    /// <returns>Its verb, its item, or .</returns>
     /// <param name="index">Which row.</param>
-    /// <returns>Its verb, its item, or <see cref="UseRow"/>.</returns>
-    public string? RowNamed(int index) =>
-        index >= 0 && index < _rows.Count ? _rows[index].Verb : null;
+    public string? RowNamed(int index) => index >= 0 && index < _rows.Count ? _rows[index].Verb : null;
 
     /// <summary>How many rows the menu is showing.</summary>
     public int RowCount => _rows.Count;
 
     /// <summary>The middle of a menu row, in pixels.</summary>
-    /// <param name="index">Which row.</param>
     /// <returns>Its centre, or the origin when there is no such row.</returns>
-    public Vector2 RowMiddle(int index) =>
-        index >= 0 && index < _rows.Count ? Middle(_rows[index].Bounds) : Vector2.Zero;
+    /// <param name="index">Which row.</param>
+    public Vector2 RowMiddle(int index) => index >= 0 && index < _rows.Count ? Middle(_rows[index].Bounds) : Vector2.Zero;
 
     /// <summary>The middle of an inventory slot, in pixels.</summary>
-    /// <param name="item">The item it holds.</param>
     /// <returns>Its centre, or the origin when the strip is not showing it.</returns>
+    /// <param name="item">The item it holds.</param>
     public Vector2 SlotMiddle(string item)
     {
         ArgumentNullException.ThrowIfNull(item);
@@ -442,20 +319,16 @@ public sealed class GameHud
         return Vector2.Zero;
     }
 
-    private static Vector2 Middle(Vector4 bounds) =>
-        new(bounds.X + (bounds.Z / 2f), bounds.Y + (bounds.W / 2f));
+    private static Vector2 Middle(Vector4 bounds) => new(bounds.X + (bounds.Z / 2f), bounds.Y + (bounds.W / 2f));
 
     /// <summary>Whether a point is on the interface rather than on the room behind it.</summary>
-    /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>True when the interface is what was clicked.</returns>
-    public bool OverInterface(Vector2 point) =>
-        Inside(point, _strip) ||
-        ButtonAt(point) is { Length: > 0 } ||
-        TopicAt(point) >= 0;
+    /// <param name="point">Where the player clicked, in pixels.</param>
+    public bool OverInterface(Vector2 point) => Inside(point, _strip) || ButtonAt(point) is { Length: > 0 } || TopicAt(point) >= 0;
 
     /// <summary>Which inventory item is at a point.</summary>
-    /// <param name="point">Where the player clicked, in pixels.</param>
     /// <returns>The item, or null.</returns>
+    /// <param name="point">Where the player clicked, in pixels.</param>
     public string? ItemAt(Vector2 point)
     {
         foreach ((string item, Vector4 bounds) in _slots)
@@ -469,8 +342,7 @@ public sealed class GameHud
         return null;
     }
 
-    private static bool Inside(Vector2 point, Vector4 bounds) =>
-        point.X >= bounds.X && point.X <= bounds.X + bounds.Z &&
+    private static bool Inside(Vector2 point, Vector4 bounds) => point.X >= bounds.X && point.X <= bounds.X + bounds.Z &&
         point.Y >= bounds.Y && point.Y <= bounds.Y + bounds.W;
 
     /// <summary>The corner that says where you are, and what you have scored.</summary>
@@ -494,19 +366,14 @@ public sealed class GameHud
         }
 
         // The two screens a player opens by hand, where the eye already goes for the score.
-        // Both have a key — I and J — and a key nobody is told about is a key nobody presses,
-        // which is how the quest log came to be a feature with no way in.
-        right = Button(
-            state, Text.Say("hud.journal", "Journal"), right, height, unit, "open:journal");
+        right = Button( state, Text.Say("hud.journal", "Journal"), right, height, unit, "open:journal");
 
-        Button(
-            state, Text.Say("hud.pockets", "Pockets"), right, height, unit, "open:inventory");
+        Button( state, Text.Say("hud.pockets", "Pockets"), right, height, unit, "open:inventory");
     }
 
     /// <summary>One word in the top bar that answers to a click.</summary>
     /// <returns>Where the next one to its left should end.</returns>
-    private float Button(
-        HudState state, string label, float right, float height, float unit, string id)
+    private float Button( HudState state, string label, float right, float height, float unit, string id)
     {
         float wide = Overlay.Measure(label) + (16 * unit);
         var bounds = new Vector4(right - wide, 2 * unit, wide, height - (5 * unit));
@@ -534,9 +401,7 @@ public sealed class GameHud
     /// <summary>How much of the foot of the screen the room's button took.</summary>
     private float _reserved;
 
-    /// <summary>
-    /// The one thing the room is asking the player to do, across the foot of the picture.
-    /// </summary>
+    /// <summary>The one thing the room is asking the player to do, across the foot of the picture.</summary>
     /// <param name="state">What the game is doing.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
@@ -552,9 +417,7 @@ public sealed class GameHud
         float unit = Scale;
         float row = Overlay.LineHeight;
         float h = row + (22f * unit);
-        float w = Math.Min(
-            width - (48f * unit),
-            Math.Max(220f * unit, Overlay.Measure(asked.Verb) + (72f * unit)));
+        float w = Math.Min( width - (48f * unit), Math.Max(220f * unit, Overlay.Measure(asked.Verb) + (72f * unit)));
 
         float x = (width - w) / 2f;
         float y = height - InventoryHeight - h - (24f * unit);
@@ -563,16 +426,10 @@ public sealed class GameHud
 
         Overlay.Rect(x, y, w, h, asked.Ready && under ? PanelLit : Panel);
 
-        // A rule along the top edge rather than a border all the way round: the same accent
-        // the caption panel wears, so the two read as one interface rather than as a game
-        // with a dialog box over it.
+        // A rule along the top edge rather than a border all the way round: the same accent the caption panel wears, so the two read as one.
         Overlay.Rect(x, y, w, 3 * unit, asked.Ready ? Accent : Rule);
 
-        Overlay.Text(
-            asked.Verb,
-            x + ((w - Overlay.Measure(asked.Verb)) / 2f),
-            y + (11f * unit),
-            asked.Ready ? Accent : Dim);
+        Overlay.Text( asked.Verb, x + ((w - Overlay.Measure(asked.Verb)) / 2f), y + (11f * unit), asked.Ready ? Accent : Dim);
 
         _buttons.Add((PromptButton, new Vector4(x, y, w, h)));
 
@@ -584,8 +441,8 @@ public sealed class GameHud
     private const float HeadsetSide = 44f;
 
     /// <summary>Where the headset sits, whether or not it is drawn.</summary>
-    /// <param name="unit">The scale everything here is measured in.</param>
     /// <returns>Its square.</returns>
+    /// <param name="unit">The scale everything here is measured in.</param>
     private Vector4 HeadsetBounds(float unit)
     {
         float bar = Overlay.LineHeight + (10f * unit);
@@ -594,9 +451,7 @@ public sealed class GameHud
         return new Vector4(12 * unit, bar + (10 * unit), side, side);
     }
 
-    /// <summary>
-    /// The headset Gabriel wears in the temple, under the top bar at the left.
-    /// </summary>
+    /// <summary>The headset Gabriel wears in the temple, under the top bar at the left.</summary>
     /// <param name="state">What the game is doing.</param>
     private void Headset(HudState state)
     {
@@ -611,22 +466,13 @@ public sealed class GameHud
         bool ready = state.Radio is { Count: > 0 };
         bool under = Inside(state.At, bounds);
 
-        // A ground behind it, because it stands over the room rather than over the bar, and
-        // the room it stands over is dark stone under a picture of mostly dark stone.
+        // A ground behind it, because it stands over the room rather than over the bar, and the room it stands over is dark stone under a picture of.
         float pad = 3 * unit;
 
-        Overlay.Rect(
-            bounds.X - pad,
-            bounds.Y - pad,
-            bounds.Z + (pad * 2),
-            bounds.W + (pad * 2),
-            under && ready ? PanelLit : Panel);
+        Overlay.Rect( bounds.X - pad, bounds.Y - pad, bounds.Z + (pad * 2), bounds.W + (pad * 2), under && ready ? PanelLit : Panel);
 
         // Named with the extension, because that is what reads a file out of the archives.
-        string art = !ready ? "RC_RADIO_DIS.BMP"
-            : state.RadioOpen ? "RC_RADIO_DWN.BMP"
-            : under ? "RC_RADIO_HOV.BMP"
-            : "RC_RADIO_STD.BMP";
+        string art = !ready ? "RC_RADIO_DIS.BMP" : state.RadioOpen ? "RC_RADIO_DWN.BMP" : under ? "RC_RADIO_HOV.BMP" : "RC_RADIO_STD.BMP";
 
         if (state.Pictures?.Invoke(art) is { Drawn: true } picture)
         {
@@ -636,24 +482,15 @@ public sealed class GameHud
         }
         else
         {
-            // The art is in every copy of the game, so this is not a fallback anybody should
-            // see. It is here because a button nobody can find is worse than an ugly one,
-            // and because the archives are the player's rather than ours.
-            Overlay.Text(
-                "Grace",
-                bounds.X + (4 * unit),
-                bounds.Y + ((bounds.W - Overlay.LineHeight) / 2),
-                ready ? Ink : Dim);
+            // The art is in every copy of the game, so this is not a fallback anybody should see.
+            Overlay.Text( "Grace", bounds.X + (4 * unit), bounds.Y + ((bounds.W - Overlay.LineHeight) / 2), ready ? Ink : Dim);
         }
 
-        // Registered whether or not there is anything to say. A dim button that answers a
-        // click with an empty list is a button; one that swallows the click is a bug.
+        // Registered whether or not there is anything to say.
         _buttons.Add((RadioButton, bounds));
     }
 
-    /// <summary>
-    /// The things Gabriel can raise with Grace, under the headset that opens them.
-    /// </summary>
+    /// <summary>The things Gabriel can raise with Grace, under the headset that opens them.</summary>
     /// <param name="state">What the game is doing.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
@@ -683,12 +520,10 @@ public sealed class GameHud
         float title = Overlay.LineHeight + (8f * unit);
         float h = title + (row * topics.Count) + padding;
 
-        // The same answer the verb menu gives a character with thirty topics: shorter rows
-        // rather than rows under the bottom of the screen, where they cannot be clicked.
+        // The same answer the verb menu gives a character with thirty topics: shorter rows rather than rows under the bottom of the screen, where.
         if (h > height - bar && topics.Count > 0)
         {
-            row = Math.Max(
-                Overlay.LineHeight, (height - bar - title - padding) / topics.Count);
+            row = Math.Max( Overlay.LineHeight, (height - bar - title - padding) / topics.Count);
 
             h = title + (row * topics.Count) + padding;
         }
@@ -713,19 +548,15 @@ public sealed class GameHud
                 Overlay.Rect(x, top, 2 * unit, row, Accent);
             }
 
-            Overlay.Text(
-                Thing(topics[i].Label),
-                x + padding,
-                top + ((row - Overlay.LineHeight) / 2),
-                chosen ? Accent : Ink);
+            Overlay.Text( Thing(topics[i].Label), x + padding, top + ((row - Overlay.LineHeight) / 2), chosen ? Accent : Ink);
 
             _topics.Add((topics[i].Noun, bounds));
         }
     }
 
     /// <summary>Which radio topic is at a point.</summary>
-    /// <param name="point">Where the pointer is.</param>
     /// <returns>Its index, or -1.</returns>
+    /// <param name="point">Where the pointer is.</param>
     public int TopicAt(Vector2 point)
     {
         for (int i = 0; i < _topics.Count; i++)
@@ -743,8 +574,8 @@ public sealed class GameHud
     public int TopicCount => _topics.Count;
 
     /// <summary>Which of the top bar's buttons is at a point, if any.</summary>
-    /// <param name="point">Where the pointer is.</param>
     /// <returns>What it opens, or null.</returns>
+    /// <param name="point">Where the pointer is.</param>
     public string? ButtonAt(Vector2 point)
     {
         foreach ((string id, Vector4 bounds) in _buttons)
@@ -758,13 +589,10 @@ public sealed class GameHud
         return null;
     }
 
-    /// <summary>
-    /// Every hotspot in the room at once, while the key that asks is held.
-    /// </summary>
+    /// <summary>Every hotspot in the room at once, while the key that asks is held.</summary>
     /// <param name="state">What the game is doing, including where each noun is.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
-    /// <summary>The dot in the middle: what the player is looking at is what they act on.</summary>
     private void Crosshair(HudState state, int width, int height)
     {
         if (!state.Crosshair)
@@ -774,8 +602,7 @@ public sealed class GameHud
 
         float unit = MathF.Max(1f, MathF.Round(Scale));
 
-        // Grown and lit when there is something under it, which is the only feedback a
-        // player gets that turning another degree would put them on it.
+        // Grown and lit when there is something under it, which is the only feedback a player gets that turning another degree would put them on it.
         bool over = state.Noun is { Length: > 0 };
         float dot = (over ? 4f : 3f) * unit;
         float edge = unit;
@@ -809,8 +636,7 @@ public sealed class GameHud
             float x = Math.Clamp(at.X - (wide / 2), 0, Math.Max(0, width - wide));
             float y = Math.Clamp(at.Y - (row / 2), bar, Math.Max(bar, height - row));
 
-            // Down until it clears everything already placed. Down rather than sideways
-            // because a label that moves along the wall stops pointing at the thing.
+            // Down until it clears everything already placed.
             bool room = true;
 
             while (taken.Exists(b => Overlaps(b, x, y, wide, row)))
@@ -838,13 +664,10 @@ public sealed class GameHud
     }
 
     /// <summary>Whether a proposed label would sit on one already placed.</summary>
-    private static bool Overlaps(Vector4 placed, float x, float y, float wide, float tall) =>
-        x < placed.X + placed.Z && x + wide > placed.X &&
+    private static bool Overlaps(Vector4 placed, float x, float y, float wide, float tall) => x < placed.X + placed.Z && x + wide > placed.X &&
         y < placed.Y + placed.W && y + tall > placed.Y;
 
-    /// <summary>
-    /// The label that follows the pointer.
-    /// </summary>
+    /// <summary>The label that follows the pointer.</summary>
     private void Pointing(HudState state, int width, int height)
     {
         if (state.Noun is not { Length: > 0 } noun)
@@ -855,10 +678,7 @@ public sealed class GameHud
         string subject = Thing(noun);
         string? action = state.Verb is { Length: > 0 } verb ? Verb(verb) : null;
 
-        // Two runs rather than one string with a separator in it. GK3's fonts are Latin-1
-        // and have no dash beyond the hyphen, so anything typographic comes out as the
-        // font's box-shaped stand-in — and colour separates them better than punctuation
-        // would anyway.
+        // Two runs rather than one string with a separator in it.
         float unit = Scale;
         float w = Overlay.Measure(subject) + (16f * unit);
 
@@ -869,11 +689,9 @@ public sealed class GameHud
 
         float h = Overlay.LineHeight + (10f * unit);
 
-        // Kept on screen: a label that runs off the right edge is worse than one that stops
-        // following the pointer for the last few pixels.
+        // Kept on screen: a label that runs off the right edge is worse than one that stops following the pointer for the last few pixels.
         float x = Math.Clamp(state.At.X + (18 * unit), 0, Math.Max(0, width - w));
-        // Below the top bar, never over it. The bar carries the place, the score and the two
-        // buttons, and a label that lands on them hides all three at once.
+        // Below the top bar, never over it.
         float bar = Overlay.LineHeight + (14f * unit);
 
         float y = Math.Clamp(state.At.Y + (18 * unit), bar, Math.Max(bar, height - h));
@@ -881,8 +699,7 @@ public sealed class GameHud
         Overlay.Rect(x, y, w, h, Panel);
         Overlay.Rect(x, y, 2 * unit, h, action is not null ? Accent : Rule);
 
-        float pen = Overlay.Text(
-            subject, x + (10 * unit), y + (5 * unit), action is not null ? Ink : Dim);
+        float pen = Overlay.Text( subject, x + (10 * unit), y + (5 * unit), action is not null ? Ink : Dim);
 
         if (action is not null)
         {
@@ -890,24 +707,17 @@ public sealed class GameHud
         }
     }
 
-    /// <summary>
-    /// The full list of verbs, where the pointer was when they were asked for.
-    /// </summary>
+    /// <summary>The full list of verbs, where the pointer was when they were asked for.</summary>
     private void Menu(HudState state, int width, int height)
     {
         float unit = Scale;
         float padding = 8f * unit;
 
-        // The heading counts. It is the noun the player right-clicked, and a noun is very
-        // often longer than any verb offered for it — "Coffee Pot" over Look and Pour —
-        // so measuring only the verbs sizes the panel to the wrong thing and the heading
-        // runs off the end of its own background.
+        // The heading counts.
         string heading = Thing(state.Noun ?? string.Empty);
         float w = Overlay.Measure(heading);
 
-        // The verbs, and then one row standing for everything in the bag that this noun
-        // answers to. Those are items rather than verbs and there can be thirty of them, so
-        // they go in a column of their own that opens when the row is selected.
+        // The verbs, and then one row standing for everything in the bag that this noun answers to.
         IReadOnlyList<string> items = state.Items ?? [];
         List<string> rows = [.. state.Verbs];
 
@@ -918,28 +728,21 @@ public sealed class GameHud
 
         bool opening = items.Count > 0 && state.MenuIndex >= rows.Count - 1;
 
-        // The original's verb icons are 32 pixels square, so a row with room for one at the
-        // size it was painted is the one arrangement that does not resample them. A window
-        // big enough to want a larger font gets larger icons with it, because everything
-        // here is measured in units of a line and half-sized art beside doubled letters
-        // reads as a mistake rather than as a choice.
+        // The original's verb icons are 32 pixels square, so a row with room for one at the size it was painted is the one arrangement that does not.
         float badge = state.VerbIcons is null ? 0 : 32f * unit;
         float row = Math.Max(Overlay.LineHeight + (8f * unit), badge + (6f * unit));
         float title = Overlay.LineHeight + (8f * unit);
         float h = title + (row * rows.Count) + padding;
 
-        // Somebody with thirty topics to raise gets smaller icons rather than a list whose
-        // last rows are under the bottom of the screen, where they cannot be clicked at all.
+        // Somebody with thirty topics to raise gets smaller icons rather than a list whose last rows are under the bottom of the screen, where they.
         if (h > height && rows.Count > 0)
         {
-            row = Math.Max(
-                Overlay.LineHeight + (8f * unit), (height - title - padding) / rows.Count);
+            row = Math.Max( Overlay.LineHeight + (8f * unit), (height - title - padding) / rows.Count);
             badge = Math.Min(badge, Math.Max(0, row - (6f * unit)));
             h = title + (row * rows.Count) + padding;
         }
 
-        // How far the words are pushed in to clear the picture. Every row shares it,
-        // including the ones with no picture to draw, so the verbs read as a column.
+        // How far the words are pushed in to clear the picture.
         float indent = badge > 0 ? badge + (6f * unit) : 0;
 
         foreach (string verb in rows)
@@ -970,22 +773,15 @@ public sealed class GameHud
                 Overlay.Rect(x, top, 2 * unit, row, Accent);
             }
 
-            // Lit art for the row the player has picked out. It is the second thing the
-            // original's ring did with these pictures, and it says which row a click takes
-            // in the icons themselves rather than only in the bar behind them.
-            if (badge > 0 &&
-                state.VerbIcons?.Invoke(rows[i], chosen) is { Drawn: true } picture)
+            // Lit art for the row the player has picked out.
+            if (badge > 0 && state.VerbIcons?.Invoke(rows[i], chosen) is { Drawn: true } picture)
             {
                 Vector4 at = picture.Fit(x + padding, top + ((row - badge) / 2), badge);
 
                 Overlay.Picture(picture.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
             }
 
-            Overlay.Text(
-                Label(rows[i]),
-                x + padding + indent,
-                top + ((row - Overlay.LineHeight) / 2),
-                chosen ? Accent : Ink);
+            Overlay.Text( Label(rows[i]), x + padding + indent, top + ((row - Overlay.LineHeight) / 2), chosen ? Accent : Ink);
             _rows.Add((rows[i], bounds));
         }
 
@@ -994,11 +790,7 @@ public sealed class GameHud
             return;
         }
 
-        // The second column, beside the first rather than over it, so the row that opened
-        // it stays visible and the player can see what they are choosing between.
-        // A picture beside each name, at the height of its own row. The column is where the
-        // player picks which of their things to use, and a name alone asks them to remember
-        // what "Coordinate Fixing Device" looks like.
+        // The second column, beside the first rather than over it, so the row that opened it stays visible and the player can see what they are.
         float art = state.Icons is null ? 0 : row - (6 * unit);
         float itemWidth = padding * 2;
 
@@ -1009,8 +801,7 @@ public sealed class GameHud
 
         float itemHeight = (row * items.Count) + padding;
         float itemX = Math.Clamp(x + w + (2 * unit), 0, Math.Max(0, width - itemWidth));
-        float itemY = Math.Clamp(
-            y + title + (row * (rows.Count - 1)), 0, Math.Max(0, height - itemHeight));
+        float itemY = Math.Clamp( y + title + (row * (rows.Count - 1)), 0, Math.Max(0, height - itemHeight));
 
         Overlay.Rect(itemX, itemY, itemWidth, itemHeight, PanelLit);
 
@@ -1034,11 +825,7 @@ public sealed class GameHud
                 Overlay.Picture(icon.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
             }
 
-            Overlay.Text(
-                Owned(items[i]),
-                itemX + padding + art,
-                top + ((row - Overlay.LineHeight) / 2),
-                chosen ? Accent : Ink);
+            Overlay.Text( Owned(items[i]), itemX + padding + art, top + ((row - Overlay.LineHeight) / 2), chosen ? Accent : Ink);
 
             _rows.Add((items[i], bounds));
         }
@@ -1048,39 +835,24 @@ public sealed class GameHud
     public const string UseRow = "\u0001use";
 
     /// <summary>What a menu row reads as.</summary>
-    private string Label(string verb) =>
-        verb == UseRow ? Text.Say("verb.use", "Use...") : Verb(verb);
+    private string Label(string verb) => verb == UseRow ? Text.Say("verb.use", "Use...") : Verb(verb);
 
-    /// <summary>
-    /// What one of the player's things reads as.
-    /// </summary>
-    /// <summary>
-    /// The port's own words, in the language the game is being played in.
-    /// </summary>
+    /// <summary>What one of the player's things reads as.</summary>
     public UiText Text { get; set; } = UiText.English;
 
     private string Owned(string item) => Thing(item);
 
-    /// <summary>
-    /// What a thing in the room is called.
-    /// </summary>
-    /// <param name="noun">Its noun, as the action files spell it: <c>MASKING_TAPE</c>.</param>
+    /// <summary>What a thing in the room is called.</summary>
     /// <returns>The game's own name for it, or the tidied identifier.</returns>
-    private string Thing(string noun) =>
-        Names.Item(noun) ??
-        Text.Say("noun." + noun.ToUpperInvariant(), Pretty(noun));
+    /// <param name="noun">Its noun, as the action files spell it: MASKING_TAPE.</param>
+    private string Thing(string noun) => Names.Item(noun) ?? Text.Say("noun." + noun.ToUpperInvariant(), Pretty(noun));
 
-    /// <summary>
-    /// What a verb is called under the cursor and in the menu.
-    /// </summary>
-    /// <param name="verb">Its noun, as the action files spell it: <c>PICK_UP</c>.</param>
+    /// <summary>What a verb is called under the cursor and in the menu.</summary>
     /// <returns>The word, in the player's own language where there is one.</returns>
-    private string Verb(string verb) =>
-        verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
+    /// <param name="verb">Its noun, as the action files spell it: PICK_UP.</param>
+    private string Verb(string verb) => verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
 
-    /// <summary>
-    /// The strip along the bottom, which is no longer drawn.
-    /// </summary>
+    /// <summary>The strip along the bottom, which is no longer drawn.</summary>
     private void Inventory(HudState state, int width, int height)
     {
         float unit = Scale;
@@ -1092,8 +864,7 @@ public sealed class GameHud
 
         _strip = new Vector4(0, y, width, h);
 
-        // No count and no "carrying nothing": the row of items says both, and an empty
-        // row says the empty case better than a sentence about it does.
+        // No count and no "carrying nothing": the row of items says both, and an empty row says the empty case better than a sentence about it does.
         float x = 12 * unit;
 
         foreach (string item in state.Inventory)
@@ -1143,10 +914,8 @@ public sealed class GameHud
             Overlay.Text(lines[i], margin + (14 * unit), y + (10 * unit) + (row * i), Ink);
         }
 
-        // GK3 writes UNKNOWN for a line with nobody on screen saying it — Gabriel's own
-        // narration, mostly. Writing "Unknown" over it is worse than writing nothing.
-        if (state.Speaker is { Length: > 0 } speaker &&
-            !speaker.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
+        // GK3 writes UNKNOWN for a line with nobody on screen saying it — Gabriel's own narration, mostly.
+        if (state.Speaker is { Length: > 0 } speaker && !speaker.Equals("UNKNOWN", StringComparison.OrdinalIgnoreCase))
         {
             Overlay.Text(Pretty(speaker), margin + (14 * unit), y - row - (2 * unit), Accent);
         }
@@ -1181,9 +950,7 @@ public sealed class GameHud
         return lines.Count > 0 ? lines : [text];
     }
 
-    /// <summary>
-    /// Turns an internal name into something a player can read.
-    /// </summary>
+    /// <summary>Turns an internal name into something a player can read.</summary>
     private static string Pretty(string name)
     {
         if (name.Length == 0)
@@ -1192,8 +959,6 @@ public sealed class GameHud
         }
 
         // Small talk, which the data spells Z_CHAT so that it sorts to the end of a list.
-        // Left alone it reads as "Z Chat" beside "Talk", which is two ways of saying the
-        // same thing and one of them nonsense.
         if (name.Equals("Z_CHAT", StringComparison.OrdinalIgnoreCase))
         {
             return "Chat";
@@ -1201,21 +966,11 @@ public sealed class GameHud
 
         string text = name.Replace('_', ' ').Trim();
 
-        // Something already written for a person to read is left exactly as it is. The
-        // nouns and verbs in the data are shouted — FRONT_DOOR, GO_UP — and want title
-        // case; a name out of the game's own string table is not, and recasing
-        // "Rennes-le-Chateau: Outside Church" gives it a lower-case C in the middle of a
-        // place name.
+        // Something already written for a person to read is left exactly as it is.
         if (text.Any(char.IsLower))
         {
-            // Its own casing is kept, because recasing "Rennes-le-Chateau: Outside Church"
-            // gives it a lower-case C in the middle of a place name. Only the first letter
-            // is decided here, and only when the data left it lower: the string table has
-            // "bed" in it, and a label that reads "bed" looks like a mistake whatever the
-            // reason for it.
-            return char.IsLower(text[0])
-                ? char.ToUpperInvariant(text[0]) + text[1..]
-                : text;
+            // Its own casing is kept, because recasing "Rennes-le-Chateau: Outside Church" gives it a lower-case C in the middle of a place name.
+            return char.IsLower(text[0]) ? char.ToUpperInvariant(text[0]) + text[1..] : text;
         }
 
         // A topic is a thing to talk about rather than a thing to do.

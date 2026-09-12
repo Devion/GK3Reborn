@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering.Geometry;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -241,7 +241,8 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
     public IGeometryTexture CreateTexture(
         DecodedImage image,
         GeometryTextureKind kind = GeometryTextureKind.Colour,
-        bool mipmaps = true) =>
+        bool mipmaps = true,
+        IGeometryUploads? into = null) =>
         new VulkanGeometryTexture(
             VulkanTexture.Create(
                 _context,
@@ -254,13 +255,18 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
                 kind == GeometryTextureKind.Atlas
                     ? SamplerAddressMode.ClampToEdge
                     : SamplerAddressMode.Repeat,
-                linear: kind == GeometryTextureKind.Data),
+                linear: kind == GeometryTextureKind.Data,
+                into: (into as VulkanGeometryUploads)?.Uploads),
             0,
             owned: true);
 
     /// <inheritdoc/>
-    public IGeometryTexture CreateTexture(CompressedImage image) =>
-        new VulkanGeometryTexture(VulkanTexture.Create(_context, image), 0, owned: true);
+    public IGeometryTexture CreateTexture(CompressedImage image, IGeometryUploads? into = null) =>
+        new VulkanGeometryTexture(
+            VulkanTexture.Create(
+                _context, image, into: (into as VulkanGeometryUploads)?.Uploads),
+            0,
+            owned: true);
 
     /// <inheritdoc/>
     public IGeometryMaterial CreateMaterial(

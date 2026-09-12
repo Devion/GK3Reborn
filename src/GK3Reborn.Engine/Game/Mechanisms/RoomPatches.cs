@@ -2,9 +2,7 @@
 
 namespace GK3Reborn.Game.Mechanisms;
 
-/// <summary>
-/// The four rooms whose code is a patch for a bug in the game's own data.
-/// </summary>
+/// <summary>The four rooms whose code is a patch for a bug in the game's own data.</summary>
 public sealed class RoomPatches : SceneMechanism
 {
     private readonly string _room;
@@ -13,8 +11,7 @@ public sealed class RoomPatches : SceneMechanism
     /// <param name="room">Which room, as the game names the location.</param>
     /// <param name="world">The room.</param>
     /// <param name="api">The script host.</param>
-    public RoomPatches(string room, SceneUpdate world, Gk3SheepApi api)
-        : base(world, api)
+    public RoomPatches(string room, SceneUpdate world, Gk3SheepApi api) : base(world, api)
     {
         ArgumentNullException.ThrowIfNull(room);
 
@@ -59,23 +56,17 @@ public sealed class RoomPatches : SceneMechanism
         }
     }
 
-    /// <summary>
-    /// The museum: a flag the room's own script forgets to clear.
-    /// </summary>
+    /// <summary>The museum: a flag the room's own script forgets to clear.</summary>
     private void Museum()
     {
         Story.ClearFlag("TE6Topics");
         _did = "cleared TE6Topics, which the room's own enter script should";
     }
 
-    /// <summary>
-    /// The chateau's east side: a one-pixel gap in the walk boundary.
-    /// </summary>
+    /// <summary>The chateau's east side: a one-pixel gap in the walk boundary.</summary>
     private void Chateau()
     {
-        if (World.Boundary is not { } boundary ||
-            (Story.Timeblock != new Timeblock(2, 2, true) &&
-             Story.Timeblock != new Timeblock(3, 3, true)))
+        if (World.Boundary is not { } boundary || (Story.Timeblock != new Timeblock(2, 2, true) && Story.Timeblock != new Timeblock(3, 3, true)))
         {
             return;
         }
@@ -84,9 +75,7 @@ public sealed class RoomPatches : SceneMechanism
         _did = "closed walker region 6, which is a one-pixel path through a door";
     }
 
-    /// <summary>
-    /// Chateau de Blanchefort: Emilio does not sit where the data says he sits.
-    /// </summary>
+    /// <summary>Chateau de Blanchefort: Emilio does not sit where the data says he sits.</summary>
     private void Blanchefort()
     {
         if (Story.Timeblock != new Timeblock(1, 4, true))
@@ -100,13 +89,10 @@ public sealed class RoomPatches : SceneMechanism
         }
     }
 
-    /// <summary>
-    /// The lobby: Buchelli's wine glass, left in mid-air.
-    /// </summary>
+    /// <summary>The lobby: Buchelli's wine glass, left in mid-air.</summary>
     private void Lobby()
     {
-        if (Story.Timeblock != new Timeblock(2, 5, true) ||
-            Story.GetVariable("LSRState") <= 2)
+        if (Story.Timeblock != new Timeblock(2, 5, true) || Story.GetVariable("LSRState") <= 2)
         {
             return;
         }

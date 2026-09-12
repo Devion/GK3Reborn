@@ -143,7 +143,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a texture, or keeps the one already here.</summary>
     /// <param name="name">Its name, matched without regard to case.</param>
     /// <param name="image">The decoded image.</param>
-    public void Add(string name, DecodedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void Add(string name, DecodedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -171,14 +172,15 @@ public sealed class TextureCache : IDisposable
             }
         }
 
-        _textures[name] = _device.CreateTexture(keyed);
+        _textures[name] = _device.CreateTexture(keyed, into: into);
         DeviceBytes += WithMips(keyed.Width, keyed.Height);
     }
 
     /// <summary>Uploads a block-compressed texture, or keeps the one already here.</summary>
     /// <param name="name">Its name, matched without regard to case.</param>
     /// <param name="image">The compressed levels.</param>
-    public void Add(string name, CompressedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void Add(string name, CompressedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -213,7 +215,7 @@ public sealed class TextureCache : IDisposable
             }
         }
 
-        _textures[name] = _device.CreateTexture(image);
+        _textures[name] = _device.CreateTexture(image, into);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -269,7 +271,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a block-compressed normal map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
-    public void AddNormal(string name, CompressedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddNormal(string name, CompressedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -279,7 +282,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _normals[name] = _device.CreateTexture(image);
+        _normals[name] = _device.CreateTexture(image, into);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -298,7 +301,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a normal map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
-    public void AddNormal(string name, DecodedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddNormal(string name, DecodedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -308,7 +312,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _normals[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
+        _normals[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }
@@ -337,7 +341,8 @@ public sealed class TextureCache : IDisposable
     /// <summary>Uploads a block-compressed ORM map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
-    public void AddOrm(string name, CompressedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddOrm(string name, CompressedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -347,14 +352,15 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _orms[name] = _device.CreateTexture(image);
+        _orms[name] = _device.CreateTexture(image, into);
         DeviceBytes += image.Blocks.Length;
     }
 
     /// <summary>Uploads an ORM map, or keeps the one already here.</summary>
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
-    public void AddOrm(string name, DecodedImage image)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddOrm(string name, DecodedImage image, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -364,7 +370,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _orms[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
+        _orms[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }
@@ -409,7 +415,8 @@ public sealed class TextureCache : IDisposable
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The compressed levels.</param>
     /// <param name="keepField">Whether to keep a decoded copy for the CPU to read.</param>
-    public void AddHeight(string name, CompressedImage image, bool keepField = false)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddHeight(string name, CompressedImage image, bool keepField = false, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -424,7 +431,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _heights[name] = _device.CreateTexture(image);
+        _heights[name] = _device.CreateTexture(image, into);
         DeviceBytes += image.Blocks.Length;
     }
 
@@ -432,7 +439,8 @@ public sealed class TextureCache : IDisposable
     /// <param name="name">The colour texture it belongs to.</param>
     /// <param name="image">The decoded map.</param>
     /// <param name="keepField">Whether to keep a copy for the CPU to read.</param>
-    public void AddHeight(string name, DecodedImage image, bool keepField = false)
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    public void AddHeight(string name, DecodedImage image, bool keepField = false, IGeometryUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(name);
 
@@ -447,7 +455,7 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
-        _heights[name] = _device.CreateTexture(image, GeometryTextureKind.Data);
+        _heights[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
         DeviceBytes += WithMips(image.Width, image.Height);
     }

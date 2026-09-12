@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
@@ -25,6 +25,8 @@ public sealed unsafe class D3D12Context : IDisposable
     private ulong _oneShotValue;
     private AutoResetEvent? _oneShotEvent;
     private bool _oneShotOpen;
+
+    private D3D12Pipeline? _mipChain;
 
     private bool _disposed;
 
@@ -411,6 +413,21 @@ public sealed unsafe class D3D12Context : IDisposable
         list->ResourceBarrier(1, &barrier);
     }
 
+    /// <summary>The compute pipeline that fills a texture's mip chain, built the first time one is asked for.</summary>
+    /// <remarks>
+    /// Kept for the life of the device rather than made per texture: compiling the filter
+    /// and building its root signature and pipeline state cost more than the dispatches.
+    /// </remarks>
+    internal D3D12Pipeline MipChain
+    {
+        get
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            return _mipChain ??= D3D12MipChain.CreatePipeline(this);
+        }
+    }
+
     /// <inheritdoc/>
     public void Dispose()
     {
@@ -420,6 +437,9 @@ public sealed unsafe class D3D12Context : IDisposable
         }
 
         _disposed = true;
+
+        _mipChain?.Dispose();
+        _mipChain = null;
 
         if (_queue.Handle is not null && _oneShotFence.Handle is not null)
         {

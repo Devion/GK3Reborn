@@ -314,7 +314,8 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     public IGeometryTexture CreateTexture(
         DecodedImage image,
         GeometryTextureKind kind = GeometryTextureKind.Colour,
-        bool mipmaps = true)
+        bool mipmaps = true,
+        IGeometryUploads? into = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -322,18 +323,21 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
             _context,
             image,
             mipmaps && kind != GeometryTextureKind.Atlas,
-            linear: kind == GeometryTextureKind.Data);
+            linear: kind == GeometryTextureKind.Data,
+            into: (into as D3D12GeometryUploads)?.Uploads);
 
         return new D3D12GeometryTexture(_context, texture, (long)image.Width * image.Height * 4);
     }
 
     /// <inheritdoc/>
-    public IGeometryTexture CreateTexture(CompressedImage image)
+    public IGeometryTexture CreateTexture(CompressedImage image, IGeometryUploads? into = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         return new D3D12GeometryTexture(
-            _context, D3D12TextureUpload.Create(_context, image), image.Blocks.Length);
+            _context,
+            D3D12TextureUpload.Create(_context, image, (into as D3D12GeometryUploads)?.Uploads),
+            image.Blocks.Length);
     }
 
     /// <inheritdoc/>

@@ -44,6 +44,14 @@ public sealed class SceneUpdateTests
         public void AddNormalMap(string name, CompressedImage image) =>
             AddNormalMap(name, new DecodedImage(image.Width, image.Height, [], false, "block"));
 
+        public void BeginTextures()
+        {
+        }
+
+        public void EndTextures()
+        {
+        }
+
         public void AddTexture(string name, DecodedImage image)
         {
         }

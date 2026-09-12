@@ -7,47 +7,39 @@ using Silk.NET.Windowing;
 
 namespace GK3Reborn.Platform;
 
-/// <summary>
-/// Supplies a Vulkan surface for a window.
-/// </summary>
+/// <summary>Supplies a Vulkan surface for a window.</summary>
 public interface IVulkanSurfaceSource
 {
     /// <summary>Instance extensions the window needs enabled to present.</summary>
     IReadOnlyList<string> RequiredInstanceExtensions { get; }
 
     /// <summary>Creates a surface for this window.</summary>
-    /// <param name="vulkanInstance">Handle of the Vulkan instance.</param>
     /// <returns>Handle of the created surface.</returns>
+    /// <param name="vulkanInstance">Handle of the Vulkan instance.</param>
     nint CreateSurface(nint vulkanInstance);
 }
 
-/// <summary>
-/// Supplies the native window handle a Direct3D swapchain is made against.
-/// </summary>
+/// <summary>Supplies the native window handle a Direct3D swapchain is made against.</summary>
 public interface IWin32WindowSource
 {
-    /// <summary>The window's <c>HWND</c>, or zero where there is no such thing.</summary>
+    /// <summary>The window's HWND, or zero where there is no such thing.</summary>
     nint WindowHandle { get; }
 }
 
 /// <summary>Which graphics API a window is opened for.</summary>
 public enum WindowGraphics
 {
-    /// <summary>No client API. What a Direct3D window wants.</summary>
+    /// <summary>No client API.</summary>
     None,
 
     /// <summary>Vulkan, so the window can hand out a surface.</summary>
     Vulkan,
 }
 
-/// <summary>
-/// A game window backed by Silk.NET.
-/// </summary>
+/// <summary>A game window backed by Silk.NET.</summary>
 public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput
 {
-    /// <summary>
-    /// This game's key names, resolved to Silk.NET's own.
-    /// </summary>
+    /// <summary>This game's key names, resolved to Silk.NET's own.</summary>
     private static readonly Key[] SilkKeys = BuildKeyMap();
 
     /// <summary>And back the other way, for reporting which key was just pressed.</summary>
@@ -73,20 +65,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         [ButtonName.DPadRight] = GamepadButton.DPadRight,
     };
 
-    /// <summary>
-    /// What the menu does with a pad, which is not a binding and is not meant to be.
-    /// </summary>
+    /// <summary>What the menu does with a pad, which is not a binding and is not meant to be.</summary>
     private static readonly (GamepadButton Button, EditKey Edit)[] Menu =
     [
-        (GamepadButton.DPadUp, EditKey.Up),
-        (GamepadButton.DPadDown, EditKey.Down),
-        (GamepadButton.DPadLeft, EditKey.Left),
-        (GamepadButton.DPadRight, EditKey.Right),
-        (GamepadButton.South, EditKey.Enter),
-        (GamepadButton.East, EditKey.Escape),
-        (GamepadButton.LeftShoulder, EditKey.PreviousSection),
-        (GamepadButton.RightShoulder, EditKey.NextSection),
-    ];
+        (GamepadButton.DPadUp, EditKey.Up), (GamepadButton.DPadDown, EditKey.Down), (GamepadButton.DPadLeft, EditKey.Left),
+        (GamepadButton.DPadRight, EditKey.Right), (GamepadButton.South, EditKey.Enter), (GamepadButton.East, EditKey.Escape),
+        (GamepadButton.LeftShoulder, EditKey.PreviousSection), (GamepadButton.RightShoulder, EditKey.NextSection), ];
 
     /// <summary>Builds the map from this game's key names onto Silk's.</summary>
     private static Key[] BuildKeyMap()
@@ -127,19 +111,9 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>Which key does which editing job.</summary>
     private static readonly (EditKey Edit, Key Which)[] Editing =
     [
-        (EditKey.Backspace, Key.Backspace),
-        (EditKey.Enter, Key.Enter),
-        (EditKey.Enter, Key.KeypadEnter),
-        (EditKey.Tab, Key.Tab),
-        (EditKey.Up, Key.Up),
-        (EditKey.Down, Key.Down),
-        (EditKey.Left, Key.Left),
-        (EditKey.Right, Key.Right),
-        (EditKey.Escape, Key.Escape),
-        (EditKey.Console, Key.GraveAccent),
-        (EditKey.PreviousSection, Key.PageUp),
-        (EditKey.NextSection, Key.PageDown),
-    ];
+        (EditKey.Backspace, Key.Backspace), (EditKey.Enter, Key.Enter), (EditKey.Enter, Key.KeypadEnter), (EditKey.Tab, Key.Tab),
+        (EditKey.Up, Key.Up), (EditKey.Down, Key.Down), (EditKey.Left, Key.Left), (EditKey.Right, Key.Right), (EditKey.Escape, Key.Escape),
+        (EditKey.Console, Key.GraveAccent), (EditKey.PreviousSection, Key.PageUp), (EditKey.NextSection, Key.PageDown), ];
 
     private readonly IWindow _window;
     /// <summary>How far the pointer may travel between press and release and still be a click.</summary>
@@ -192,10 +166,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>The pictures already shrunk to the size in use, one a shape.</summary>
     private readonly Dictionary<PointerShape, PointerImage?> _pointerImages = [];
 
-    /// <summary>
-    /// Whether the platform refused a picture. Once it has, the system's own arrow is left
-    /// alone rather than asked for again every frame.
-    /// </summary>
+    /// <summary>Whether the platform refused a picture.</summary>
     private bool _pointerRefused;
 
     /// <summary>Whether the mouse is pinned and hidden for looking about.</summary>
@@ -210,8 +181,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         _window.FramebufferResize += size =>
         {
-            // Minimising reports a zero-sized framebuffer. Passing that on would have the
-            // renderer build a zero-extent swapchain, so it is filtered here.
+            // Minimising reports a zero-sized framebuffer.
             if (size.X > 0 && size.Y > 0)
             {
                 Resized?.Invoke(size.X, size.Y);
@@ -229,18 +199,13 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public int FramebufferHeight => _window.FramebufferSize.Y;
 
     /// <inheritdoc/>
-    public float DpiScale => _window.Size.X > 0
-        ? (float)_window.FramebufferSize.X / _window.Size.X
-        : 1f;
+    public float DpiScale => _window.Size.X > 0 ? (float)_window.FramebufferSize.X / _window.Size.X : 1f;
 
     /// <inheritdoc/>
     public WindowMode Mode => _window.WindowState switch
     {
-        WindowState.Fullscreen => WindowMode.ExclusiveFullscreen,
-        WindowState.Maximized => WindowMode.Windowed,
-        _ => _window.WindowBorder == WindowBorder.Hidden
-            ? WindowMode.BorderlessFullscreen
-            : WindowMode.Windowed,
+        WindowState.Fullscreen => WindowMode.ExclusiveFullscreen, WindowState.Maximized => WindowMode.Windowed,
+        _ => _window.WindowBorder == WindowBorder.Hidden ? WindowMode.BorderlessFullscreen : WindowMode.Windowed,
     };
 
     /// <summary>Whether the window has been asked to close.</summary>
@@ -272,28 +237,19 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Opens a window.</summary>
+    /// <returns>The window.</returns>
     /// <param name="title">Window title.</param>
     /// <param name="width">Initial width in logical pixels.</param>
     /// <param name="height">Initial height in logical pixels.</param>
     /// <param name="graphics">Which API the window will present with.</param>
-    /// <param name="visible">
-    /// Whether to put it on screen at once. False for a window whose first frame is seconds
-    /// away — see <see cref="Show"/>, which is what puts it up.
-    /// </param>
-    /// <returns>The window.</returns>
-    public static SilkGameWindow Open(
-        string title,
-        int width = 1280,
-        int height = 720,
-        WindowGraphics graphics = WindowGraphics.Vulkan,
+    /// <param name="visible">Whether to put it on screen at once.</param>
+    public static SilkGameWindow Open( string title, int width = 1280, int height = 720, WindowGraphics graphics = WindowGraphics.Vulkan,
         bool visible = true)
     {
         WindowOptions options = WindowOptions.DefaultVulkan with
         {
-            Title = title,
-            Size = new Vector2D<int>(width, height),
-            API = graphics == WindowGraphics.Vulkan ? GraphicsAPI.DefaultVulkan : GraphicsAPI.None,
-            IsVisible = visible,
+            Title = title, Size = new Vector2D<int>(width, height),
+            API = graphics == WindowGraphics.Vulkan ? GraphicsAPI.DefaultVulkan : GraphicsAPI.None, IsVisible = visible,
         };
 
         IWindow window = Window.Create(options);
@@ -316,9 +272,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
             throw new InvalidOperationException("This window was not created for Vulkan.");
         }
 
-        return (nint)_window.VkSurface
-            .Create<nint>(new Silk.NET.Core.Native.VkHandle(vulkanInstance), null)
-            .Handle;
+        return (nint)_window.VkSurface .Create<nint>(new Silk.NET.Core.Native.VkHandle(vulkanInstance), null) .Handle;
     }
 
     /// <inheritdoc/>
@@ -354,11 +308,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         }
     }
 
-    /// <summary>
-    /// Hands the platform the picture for the shape at the size the framebuffer asks for.
-    /// A picture is shrunk once a size and kept; a new size throws the old ones away,
-    /// because a resize is rare and five pictures at every size ever seen is a leak.
-    /// </summary>
+    /// <summary>Hands the platform the picture for the shape at the size the framebuffer asks for.</summary>
     private void ShowPointer()
     {
         if (_mouse is null || _pointerRefused)
@@ -392,9 +342,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                 return;
             }
 
-            // Back to the platform's own first, so that the three properties below are
-            // three assignments rather than three rebuilds of a cursor the platform
-            // remakes every time one of them changes.
+            // Back to the platform's own first, so that the three properties below are three assignments rather than three rebuilds of a cursor the.
             cursor.Type = CursorType.Standard;
             cursor.Image = new RawImage(image.Width, image.Height, image.Pixels);
             cursor.HotspotX = image.HotspotX;
@@ -404,9 +352,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         }
         catch (Exception error) when (error is not OutOfMemoryException)
         {
-            // A platform that will not take a picture - a compositor with no cursor
-            // protocol, a size it refuses - is left with its own arrow. Said once, because
-            // a game that runs is better than one that insists.
+            // A platform that will not take a picture - a compositor with no cursor protocol, a size it refuses - is left with its own arrow.
             _pointerRefused = true;
             _pointerSize = 0;
             Log.Warning($"Pointer: the platform refused a custom cursor, keeping its own ({error.Message})");
@@ -432,9 +378,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <inheritdoc/>
     public bool WasClicked(PointerButton button) => _clicked.Contains(button);
 
-    /// <summary>
-    /// Presses a pointer button for the frame that has just begun, as if a mouse had.
-    /// </summary>
+    /// <summary>Presses a pointer button for the frame that has just begun, as if a mouse had.</summary>
     /// <param name="button">Which button.</param>
     public void Press(PointerButton button) => _clicked.Add(button);
 
@@ -451,19 +395,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public int ScrollDelta => _scroll;
 
     /// <inheritdoc/>
-    public bool IsDragging =>
-        _mouse is not null &&
-        (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
+    public bool IsDragging => _mouse is not null && (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
 
     /// <inheritdoc/>
-    public bool IsHeld(PointerButton button) =>
-        _clicked.Contains(button) ||
-        (_mouse is not null &&
-         _mouse.IsButtonPressed(button switch
+    public bool IsHeld(PointerButton button) => _clicked.Contains(button) || (_mouse is not null && _mouse.IsButtonPressed(button switch
          {
-             PointerButton.Secondary => MouseButton.Right,
-             PointerButton.Middle => MouseButton.Middle,
-             _ => MouseButton.Left,
+             PointerButton.Secondary => MouseButton.Right, PointerButton.Middle => MouseButton.Middle, _ => MouseButton.Left,
          }));
 
     /// <inheritdoc/>
@@ -499,8 +436,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <summary>Silk's key for one of ours, or a negative value where it has none.</summary>
-    private static Key Which(InputKey key) =>
-        key > InputKey.None && (int)key < SilkKeys.Length ? SilkKeys[(int)key] : (Key)(-1);
+    private static Key Which(InputKey key) => key > InputKey.None && (int)key < SilkKeys.Length ? SilkKeys[(int)key] : (Key)(-1);
 
     /// <inheritdoc/>
     public bool WasPressed(CameraAction action) => _pressed.Contains(action);
@@ -509,8 +445,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public InputBindings Bindings { get; set; } = InputBindings.Default;
 
     /// <inheritdoc/>
-    public bool HasGamepad => _input is { Gamepads.Count: > 0 } &&
-        _input.Gamepads.Any(pad => pad.IsConnected);
+    public bool HasGamepad => _input is { Gamepads.Count: > 0 } && _input.Gamepads.Any(pad => pad.IsConnected);
 
     /// <inheritdoc/>
     public GamepadSticks Sticks { get; private set; } = GamepadSticks.Still;
@@ -542,8 +477,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
             }
             catch (Exception error) when (error is not OutOfMemoryException)
             {
-                // Some platforms have no raw motion. Hiding and pinning is the whole of
-                // what is needed; a difference in position works either way.
+                // Some platforms have no raw motion.
                 try
                 {
                     _mouse.Cursor.CursorMode = value ? CursorMode.Disabled : CursorMode.Normal;
@@ -551,8 +485,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                 catch (Exception again) when (again is not OutOfMemoryException)
                 {
                     _lockRefused = true;
-                    Log.Warning(
-                        $"Pointer: the platform will not pin the cursor, so first person " +
+                    Log.Warning( $"Pointer: the platform will not pin the cursor, so first person " +
                         $"is looked around with a button held ({again.Message})");
 
                     return;
@@ -561,16 +494,14 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
             _pointerLocked = value;
 
-            // Handed back in the middle of the window, which is where the crosshair was and
-            // so where whatever has just opened is anchored.
+            // Handed back in the middle of the window, which is where the crosshair was and so where whatever has just opened is anchored.
             if (!value)
             {
                 _lastPointer = new Vector2(_window.Size.X / 2f, _window.Size.Y / 2f);
                 _mouse.Position = _lastPointer;
             }
 
-            // Wherever the mouse now reads, that is the mark the next frame's movement is
-            // measured from: pinning it moves it, and that move is not the player's.
+            // Wherever the mouse now reads, that is the mark the next frame's movement is measured from: pinning it moves it, and that move is not.
             _mouseAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
             _pointerDelta = Vector2.Zero;
         }
@@ -671,16 +602,13 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                 {
                     _window.Size = new Vector2D<int>(width, height);
 
-                    // Put back on the monitor after a resize that would otherwise leave it
-                    // half off the bottom, which is what happens when a small window is
-                    // enlarged near an edge.
+                    // Put back on the monitor after a resize that would otherwise leave it half off the bottom, which is what happens when a small.
                     if (monitor is not null)
                     {
                         Vector2D<int> bounds = monitor.Bounds.Size;
                         Vector2D<int> origin = monitor.Bounds.Origin;
 
-                        _window.Position = new Vector2D<int>(
-                            Math.Clamp(_window.Position.X, origin.X, origin.X + Math.Max(0, bounds.X - width)),
+                        _window.Position = new Vector2D<int>( Math.Clamp(_window.Position.X, origin.X, origin.X + Math.Max(0, bounds.X - width)),
                             Math.Clamp(_window.Position.Y, origin.Y, origin.Y + Math.Max(0, bounds.Y - height)));
                     }
                 }
@@ -700,16 +628,13 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         Poll();
 
-        // The pointer keeps its proportion to the framebuffer, so a window that has just
-        // been resized or moved to a sharper monitor gets it remade at the new size.
+        // The pointer keeps its proportion to the framebuffer, so a window that has just been resized or moved to a sharper monitor gets it remade.
         if (_pointerSize != 0 && _pointerSize != PointerArt.SizeFor(FramebufferHeight, _pointerScale))
         {
             ShowPointer();
         }
 
-        // Pointer movement is tracked by difference rather than through the move event,
-        // because raw motion is not delivered on every backend and a difference works the
-        // same everywhere.
+        // Pointer movement is tracked by difference rather than through the move event, because raw motion is not delivered on every backend and a.
         if (_mouse is null)
         {
             return;
@@ -717,8 +642,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         var position = new Vector2(_mouse.Position.X, _mouse.Position.Y);
 
-        // Pinned for looking about: every movement is a turn and none of it is a place on
-        // screen, so the difference is reported and the pointer itself is left standing.
+        // Pinned for looking about: every movement is a turn and none of it is a place on screen, so the difference is reported and the pointer.
         if (_pointerLocked)
         {
             _pointerDelta += position - _mouseAt;
@@ -728,9 +652,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
             return;
         }
 
-        // The mouse itself, if it has moved. It always wins: somebody who reaches for the
-        // mouse has said which device they want, and a cursor that had to be given back by
-        // putting the pad down would be a cursor with a mode in it.
+        // The mouse itself, if it has moved.
         if (!_hasPointer || (position - _mouseAt).LengthSquared() > 0.01f)
         {
             if (_hasPointer)
@@ -747,10 +669,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         _mouseAt = position;
 
-        // Otherwise the left stick, if it is being pushed. Squared, so that a small push is
-        // a small movement: a linear stick is either too slow to cross the screen with or
-        // too coarse to land on anything, and the square is what every console cursor does
-        // about that.
+        // Otherwise the left stick, if it is being pushed.
         Vector2 push = Sticks.Left;
         float reach = push.Length();
 
@@ -761,15 +680,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         Vector2 moved = push * (reach * PointerSpeed * seconds);
 
-        _lastPointer = new Vector2(
-            Math.Clamp(_lastPointer.X + moved.X, 0, Math.Max(0, _window.Size.X - 1)),
+        _lastPointer = new Vector2( Math.Clamp(_lastPointer.X + moved.X, 0, Math.Max(0, _window.Size.X - 1)),
             Math.Clamp(_lastPointer.Y + moved.Y, 0, Math.Max(0, _window.Size.Y - 1)));
 
         _pointerDelta += moved;
 
-        // Put the real cursor where the stick has driven it, so that the arrow the operating
-        // system draws is the one the game is acting on, and record it as ours - otherwise
-        // the next frame reads it as the mouse having moved and the two chase each other.
+        // Put the real cursor where the stick has driven it, so that the arrow the operating system draws is the one the game is acting on, and.
         _mouse.Position = _lastPointer;
         _mouseAt = _lastPointer;
     }
@@ -834,8 +750,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         Sticks = new GamepadSticks(left, right, leftTrigger, rightTrigger);
 
-        // What is down now, so that what has just gone down is the difference. Held is kept
-        // between frames and pressed is not, which is the same shape the keyboard has.
+        // What is down now, so that what has just gone down is the difference.
         HashSet<GamepadButton> down = [];
 
         foreach (Button button in pad.Buttons)
@@ -856,10 +771,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
             down.Add(GamepadButton.RightTrigger);
         }
 
-        // The left stick steps a menu as well as moving the cursor, because a page of
-        // settings is a list and a list is walked rather than pointed at. Held over, it is
-        // the D-pad held over, so the same edge detection covers both and neither runs down
-        // the whole page in a third of a second.
+        // The left stick steps a menu as well as moving the cursor, because a page of settings is a list and a list is walked rather than pointed at.
         if (left.Y <= -StickPress)
         {
             down.Add(GamepadButton.DPadUp);
@@ -928,16 +840,11 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         if (_mouse is not null)
         {
-            // The other four pictures are decoded off this thread, so the first time the
-            // pointer crosses a noun it changes shape at once rather than after a PNG.
-            // The arrow is wanted now and is decoded here.
+            // The other four pictures are decoded off this thread, so the first time the pointer crosses a noun it changes shape at once rather than.
             _ = Task.Run(PointerArt.Warm);
             ShowPointer();
 
-            // A click is only a click if the pointer did not travel while the button was
-            // down. Dragging to look around passes over every noun between where it
-            // started and where it stopped, and acting on the one it happens to end over
-            // is not what the player asked for.
+            // A click is only a click if the pointer did not travel while the button was down.
             _mouse.MouseDown += (_, _) =>
             {
                 _pressedAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
@@ -945,8 +852,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
             _mouse.Scroll += (_, wheel) =>
             {
-                // Rounded away from zero, so the smallest turn a trackpad reports still
-                // counts as one notch rather than being lost.
+                // Rounded away from zero, so the smallest turn a trackpad reports still counts as one notch rather than being lost.
                 _scroll += Math.Sign(wheel.Y) * (int)Math.Ceiling(Math.Abs(wheel.Y));
             };
 
@@ -961,10 +867,8 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
                 PointerButton? which = mouseButton switch
                 {
-                    MouseButton.Left => PointerButton.Primary,
-                    MouseButton.Right => PointerButton.Secondary,
-                    MouseButton.Middle => PointerButton.Middle,
-                    _ => null,
+                    MouseButton.Left => PointerButton.Primary, MouseButton.Right => PointerButton.Secondary,
+                    MouseButton.Middle => PointerButton.Middle, _ => null,
                 };
 
                 if (which is not { } button)
@@ -977,14 +881,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                 // The window's own clock, which is the one this layer is allowed to read.
                 double now = _window.Time;
 
-                if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) &&
-                    now - previous.At <= DoubleClickWindow &&
+                if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) && now - previous.At <= DoubleClickWindow &&
                     (at - previous.Where).Length() <= DoubleClickDistance)
                 {
                     _doubleClicked.Add(button);
 
-                    // Forgotten, so a third click in quick succession starts a new pair
-                    // rather than making every click after the second a double one.
+                    // Forgotten, so a third click in quick succession starts a new pair rather than making every click after the second a double one.
                     _lastClick.Remove(button);
                 }
                 else
@@ -996,9 +898,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
         if (_keyboard is not null)
         {
-            // What the player meant to write, with the layout and the shift state already
-            // applied by the platform. Reconstructing this from key codes is how a console
-            // ends up working on one keyboard layout and no others.
+            // What the player meant to write, with the layout and the shift state already applied by the platform.
             _keyboard.KeyChar += (_, c) =>
             {
                 if (c >= ' ' && c != (char)127)
@@ -1009,9 +909,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
 
             _keyboard.KeyDown += (_, key, _) =>
             {
-                // Recorded whether or not anything is reading them. Which of the two
-                // meanings a key has — a camera action or an edit — is decided by whoever
-                // is listening this frame, and a console that is open takes the keyboard.
+                // Recorded whether or not anything is reading them.
                 foreach ((EditKey edit, Key which) in Editing)
                 {
                     if (key == which)
@@ -1020,10 +918,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                     }
                 }
 
-                // Which key it was, whatever it is bound to, for a Controls page that is
-                // waiting to hear one. Recorded before the bindings are consulted, because
-                // the key somebody presses to rebind an action is very often already bound
-                // to something else — that is rather the point of rebinding it.
+                // Which key it was, whatever it is bound to, for a Controls page that is waiting to hear one.
                 if (Ours.TryGetValue(key, out InputKey ours))
                 {
                     _anyKey = ours;

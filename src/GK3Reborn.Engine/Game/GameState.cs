@@ -6,9 +6,7 @@ using GK3Reborn.UI;
 
 namespace GK3Reborn.Game;
 
-/// <summary>
-/// The game's observable state: what scripts read and write.
-/// </summary>
+/// <summary>The game's observable state: what scripts read and write.</summary>
 public sealed class GameState
 {
     private readonly Dictionary<string, int> _variables = new(StringComparer.OrdinalIgnoreCase);
@@ -24,52 +22,39 @@ public sealed class GameState
     /// <summary>Which inventory items have been through the scanner.</summary>
     private readonly HashSet<string> _sidneyScans = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// People the player is to be treated as having met, whatever the story can show.
-    /// </summary>
+    /// <summary>People the player is to be treated as having met, whatever the story can show.</summary>
     private readonly HashSet<string> _introduced = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly DeterministicRandom _random = new(DefaultRandomSeed);
 
-    /// <summary>
-    /// Where the game's luck starts.
-    /// </summary>
+    /// <summary>Where the game's luck starts.</summary>
     private const ulong DefaultRandomSeed = 0x9E3779B97F4A7C15;
 
     /// <summary>What each character is carrying.</summary>
     public Inventory Inventory { get; } = new();
 
-    /// <summary>
-    /// Which of the scene's cameras the view is at, or empty for the scene's default.
-    /// </summary>
+    /// <summary>Which of the scene's cameras the view is at, or empty for the scene's default.</summary>
     public string CameraAngle { get; set; } = string.Empty;
 
-    /// <summary>
-    /// What the view is looking at closely, or empty when it is looking at the room.
-    /// </summary>
+    /// <summary>What the view is looking at closely, or empty when it is looking at the room.</summary>
     public string Inspecting { get; set; } = string.Empty;
 
-    /// <summary>
-    /// Whether the last camera move was asked to take a moment.
-    /// </summary>
+    /// <summary>Whether the last camera move was asked to take a moment.</summary>
     public bool CameraGliding { get; set; }
 
-    /// <summary>
-    /// Whether the story may cut the camera about even with cinematics turned off.
-    /// </summary>
+    /// <summary>Whether the last camera move was one a script insisted on rather than one it merely asked for.</summary>
+    public bool CameraForced { get; set; }
+
+    /// <summary>Whether the story may cut the camera about even with cinematics turned off.</summary>
     public bool ForcedCameraCuts { get; set; }
 
-    /// <summary>
-    /// Whether the player wants the story moving the camera at all.
-    /// </summary>
+    /// <summary>Whether the player wants the story moving the camera at all.</summary>
     public bool CinematicsEnabled { get; set; } = true;
 
     /// <summary>The flag the game's own easter-egg content is written against.</summary>
     public const string EasterEggFlag = "EGG";
 
-    /// <summary>
-    /// Whether the game's easter-egg content is switched on.
-    /// </summary>
+    /// <summary>Whether the game's easter-egg content is switched on.</summary>
     public bool EasterEggs
     {
         get => GetFlag(EasterEggFlag);
@@ -87,9 +72,7 @@ public sealed class GameState
         }
     }
 
-    /// <summary>
-    /// Whether nothing the story does is allowed to kill Gabriel.
-    /// </summary>
+    /// <summary>Whether nothing the story does is allowed to kill Gabriel.</summary>
     public bool PlotArmour { get; set; }
 
     /// <summary>Whether Gabriel catches TE3's blade himself.</summary>
@@ -101,22 +84,16 @@ public sealed class GameState
     /// <summary>What is in front of the room.</summary>
     public ScreenLayers Screens { get; } = new();
 
-    /// <summary>The current timeblock, such as <c>110A</c>.</summary>
+    /// <summary>The current timeblock, such as 110A.</summary>
     public Timeblock Timeblock { get; set; } = new(1, 10, IsAfternoon: false);
 
-    /// <summary>
-    /// The camera a conversation falls back to, or null for whatever the scene names.
-    /// </summary>
+    /// <summary>The camera a conversation falls back to, or null for whatever the scene names.</summary>
     public string? DefaultDialogueCamera { get; set; }
 
-    /// <summary>
-    /// A field of view a script has asked for, in radians, or null for the scene's own.
-    /// </summary>
+    /// <summary>A field of view a script has asked for, in radians, or null for the scene's own.</summary>
     public float? CameraFieldOfView { get; set; }
 
-    /// <summary>
-    /// Hit tests a script has switched off, by name.
-    /// </summary>
+    /// <summary>Hit tests a script has switched off, by name.</summary>
     public ISet<string> BlockedHitTests { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Three-letter code of the current location.</summary>
@@ -138,16 +115,10 @@ public sealed class GameState
     /// <summary>Three-letter code of the location before this one.</summary>
     public string LastLocation { get; private set; } = string.Empty;
 
-    /// <summary>
-    /// Where the story's rules find the player: the map while it is open, and otherwise
-    /// the room.
-    /// </summary>
-    public string Whereabouts =>
-        Screens.IsOnTop(ScreenKind.Driving) ? DrivingMap.Location : Location;
+    /// <summary>Where the story's rules find the player: the map while it is open, and otherwise the room.</summary>
+    public string Whereabouts => Screens.IsOnTop(ScreenKind.Driving) ? DrivingMap.Location : Location;
 
-    /// <summary>
-    /// Rides the moped somewhere, arriving from the driving map.
-    /// </summary>
+    /// <summary>Rides the moped somewhere, arriving from the driving map.</summary>
     /// <param name="location">The room the chosen place loads.</param>
     public void RideTo(string location)
     {
@@ -170,16 +141,7 @@ public sealed class GameState
     /// <summary>The player's score.</summary>
     public int Score { get; private set; }
 
-    /// <summary>
-    /// Whether the action chooser is insisting on an answer.
-    /// </summary>
-    /// <seealso href="Plan/03-gameplay-ui-audio.md">
-    /// Section 2.1 requires that no puzzle action fire because the engine guessed, so a
-    /// chooser the player cannot leave must still offer a way out that chooses <em>nothing</em>
-    /// — a modal question is a reason to keep asking, never a reason to trap somebody in a
-    /// menu. Which of the offered actions is right is the player's to decide; whether they
-    /// may walk away and come back is not the script's.
-    /// </seealso>
+    /// <summary>Whether the action chooser is insisting on an answer.</summary>
     public bool MustChooseAnAction { get; set; }
 
     /// <summary>How many random numbers scripts have drawn.</summary>
@@ -189,7 +151,7 @@ public sealed class GameState
     public IReadOnlyList<string> SidneyFiles =>
         [.. _sidneyFiles.OrderBy(f => f, StringComparer.OrdinalIgnoreCase)];
 
-    /// <summary>Reads a game variable. Unset variables read as zero.</summary>
+    /// <summary>Reads a game variable.</summary>
     public int GetVariable(string name) => _variables.GetValueOrDefault(Key(name));
 
     /// <summary>Writes a game variable.</summary>
@@ -213,97 +175,72 @@ public sealed class GameState
     /// <summary>Clears a flag.</summary>
     public void ClearFlag(string name) => _flags.Remove(Key(name));
 
-    /// <summary>
-    /// How many times the player has done a verb to a noun.
-    /// </summary>
+    /// <summary>How many times the player has done a verb to a noun.</summary>
     public int GetNounVerbCount(string noun, string verb) => GetNounVerbCount(Ego, noun, verb);
 
     /// <summary>How many times one character has done a verb to a noun.</summary>
+    /// <returns>The count, zero if it has never been done.</returns>
     /// <param name="actor">Whose count to read.</param>
     /// <param name="noun">The thing.</param>
     /// <param name="verb">What was done to it.</param>
-    /// <returns>The count, zero if it has never been done.</returns>
-    public int GetNounVerbCount(string actor, string noun, string verb) =>
-        _nounVerbCounts.GetValueOrDefault(Triple(actor, noun, verb));
+    public int GetNounVerbCount(string actor, string noun, string verb) => _nounVerbCounts.GetValueOrDefault(Triple(actor, noun, verb));
 
     /// <summary>Sets the current character's noun/verb count.</summary>
-    public void SetNounVerbCount(string noun, string verb, int value) =>
-        SetNounVerbCount(Ego, noun, verb, value);
+    public void SetNounVerbCount(string noun, string verb, int value) => SetNounVerbCount(Ego, noun, verb, value);
 
     /// <summary>Sets one character's noun/verb count.</summary>
     /// <param name="actor">Whose count to write.</param>
     /// <param name="noun">The thing.</param>
     /// <param name="verb">What was done to it.</param>
     /// <param name="value">The new count.</param>
-    public void SetNounVerbCount(string actor, string noun, string verb, int value) =>
-        _nounVerbCounts[Triple(actor, noun, verb)] = value;
+    public void SetNounVerbCount(string actor, string noun, string verb, int value) => _nounVerbCounts[Triple(actor, noun, verb)] = value;
 
     /// <summary>Adds one to the current character's noun/verb count.</summary>
-    public void IncrementNounVerbCount(string noun, string verb) =>
-        SetNounVerbCount(Ego, noun, verb, GetNounVerbCount(Ego, noun, verb) + 1);
+    public void IncrementNounVerbCount(string noun, string verb) => SetNounVerbCount(Ego, noun, verb, GetNounVerbCount(Ego, noun, verb) + 1);
 
     /// <summary>How many times a conversation topic has come up.</summary>
-    public int GetTopicCount(string noun, string topic) =>
-        _topicCounts.GetValueOrDefault(Pair(noun, topic));
+    public int GetTopicCount(string noun, string topic) => _topicCounts.GetValueOrDefault(Pair(noun, topic));
 
     /// <summary>Sets a topic count.</summary>
-    public void SetTopicCount(string noun, string topic, int value) =>
-        _topicCounts[Pair(noun, topic)] = value;
+    public void SetTopicCount(string noun, string topic, int value) => _topicCounts[Pair(noun, topic)] = value;
 
     /// <summary>Whether one particular line of a topic has already been said.</summary>
+    /// <returns>True when it has been said before.</returns>
     /// <param name="noun">Who it was said to.</param>
     /// <param name="topic">The topic.</param>
     /// <param name="condition">The case under which that line applies.</param>
-    /// <returns>True when it has been said before.</returns>
-    public bool HasSaid(string noun, string topic, string condition) =>
-        _saidTopics.Contains(Line(noun, topic, condition));
+    public bool HasSaid(string noun, string topic, string condition) => _saidTopics.Contains(Line(noun, topic, condition));
 
     /// <summary>Records that a line of a topic has been said.</summary>
     /// <param name="noun">Who it was said to.</param>
     /// <param name="topic">The topic.</param>
     /// <param name="condition">The case under which that line applied.</param>
-    public void Said(string noun, string topic, string condition) =>
-        _saidTopics.Add(Line(noun, topic, condition));
+    public void Said(string noun, string topic, string condition) => _saidTopics.Add(Line(noun, topic, condition));
 
-    private static string Line(string noun, string topic, string condition) =>
-        $"{noun}\u0001{topic}\u0001{condition}";
+    private static string Line(string noun, string topic, string condition) => $"{noun}\u0001{topic}\u0001{condition}";
 
     /// <summary>The conversation the player is in, or null when they are not in one.</summary>
     public string? Conversation { get; set; }
 
-    /// <summary>
-    /// Whether an exchange is under way, so that its camera is chosen once.
-    /// </summary>
+    /// <summary>Whether an exchange is under way, so that its camera is chosen once.</summary>
     public bool Talking { get; set; }
 
-    /// <summary>
-    /// Whether the player is standing in the room rather than floating over it. A setting
-    /// and not a fact about the story, so it is never saved; the camera asks because a shot
-    /// cut to from somebody's own eyes has to be moved to instead, and because an authored
-    /// one frames the spot the actors were meant to be standing on.
-    /// </summary>
+    /// <summary>Whether the player is standing in the room rather than floating over it.</summary>
     public bool FirstPerson { get; set; }
 
-    /// <summary>
-    /// Whether the view is in the player's own eyes at this moment, which is a different
-    /// question from whether they are on foot: the story takes the camera for a cutscene
-    /// and gives it back. A shot cut to from somebody's own eyes is disorienting in a way
-    /// that a cut between two shots is not, so leaving them is a move and nothing else is.
-    /// </summary>
+    /// <summary>Whether the view is in the player's own eyes at this moment, which is a different question from whether they are on.</summary>
     public bool ViewIsTheirs { get; set; }
 
     /// <summary>Where an actor currently is.</summary>
-    public string GetActorLocation(string actor) =>
-        _actorLocations.GetValueOrDefault(Key(actor), string.Empty);
+    public string GetActorLocation(string actor) => _actorLocations.GetValueOrDefault(Key(actor), string.Empty);
 
     /// <summary>Moves an actor to a location.</summary>
-    public void SetActorLocation(string actor, string location) =>
-        _actorLocations[Key(actor)] = location;
+    public void SetActorLocation(string actor, string location) => _actorLocations[Key(actor)] = location;
 
     /// <summary>How many times an actor has been somewhere during this timeblock.</summary>
+    /// <returns>The count.</returns>
     /// <param name="actor">The actor.</param>
     /// <param name="location">Three-letter location code.</param>
-    /// <returns>The count.</returns>
     public int GetLocationCount(string actor, string location) =>
         _locationCounts.GetValueOrDefault(LocationKey(actor, location, Timeblock.ToString()));
 
@@ -314,9 +251,7 @@ public sealed class GameState
     public void SetLocationCount(string actor, string location, int value) =>
         _locationCounts[LocationKey(actor, location, Timeblock.ToString())] = value;
 
-    /// <summary>
-    /// Sets how many times an actor has been somewhere during a named point in the story.
-    /// </summary>
+    /// <summary>Sets how many times an actor has been somewhere during a named point in the story.</summary>
     /// <param name="actor">The actor.</param>
     /// <param name="location">Three-letter location code.</param>
     /// <param name="when">Which point in the story the visits belong to.</param>
@@ -325,8 +260,8 @@ public sealed class GameState
         _locationCounts[LocationKey(actor, location, when.ToString())] = value;
 
     /// <summary>Everywhere an actor has ever been, in any timeblock.</summary>
-    /// <param name="actor">The actor.</param>
     /// <returns>The location codes, without repeats.</returns>
+    /// <param name="actor">The actor.</param>
     public IReadOnlyList<string> VisitedLocations(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -353,20 +288,17 @@ public sealed class GameState
     }
 
     /// <summary>Whether an actor has ever been somewhere, in any timeblock.</summary>
+    /// <returns>True if the count for any timeblock is above zero.</returns>
     /// <param name="actor">The actor.</param>
     /// <param name="location">Three-letter location code.</param>
-    /// <returns>True if the count for any timeblock is above zero.</returns>
     public bool WasEverInLocation(string actor, string location)
     {
         string prefix = LocationKey(actor, location, string.Empty);
 
-        return _locationCounts.Any(
-            kv => kv.Value > 0 && kv.Key.StartsWith(prefix, StringComparison.Ordinal));
+        return _locationCounts.Any( kv => kv.Value > 0 && kv.Key.StartsWith(prefix, StringComparison.Ordinal));
     }
 
-    /// <summary>
-    /// Records an actor arriving somewhere, and makes it the current location for ego.
-    /// </summary>
+    /// <summary>Records an actor arriving somewhere, and makes it the current location for ego.</summary>
     /// <param name="actor">The actor arriving.</param>
     /// <param name="location">Three-letter location code.</param>
     public void EnterLocation(string actor, string location)
@@ -380,9 +312,7 @@ public sealed class GameState
 
         if (IsEgo(actor))
         {
-            // Which remembers where they came from, if this is a move at all. A script
-            // that already called SetLocation has moved them; this is then the arrival
-            // being counted rather than a second move.
+            // Which remembers where they came from, if this is a move at all.
             Location = location;
         }
     }
@@ -399,12 +329,10 @@ public sealed class GameState
     /// <summary>Adds to the score.</summary>
     public void ChangeScore(int by) => Score += by;
 
-    /// <summary>
-    /// Awards a named score event, once.
-    /// </summary>
+    /// <summary>Awards a named score event, once.</summary>
+    /// <returns>True when it scored, false when it had already been earned or is unknown.</returns>
     /// <param name="name">The event, as a script names it.</param>
     /// <param name="worth">What it is worth, or null when nothing knows.</param>
-    /// <returns>True when it scored, false when it had already been earned or is unknown.</returns>
     public bool AwardScore(string name, int? worth)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -418,20 +346,16 @@ public sealed class GameState
         return true;
     }
 
-    /// <summary>
-    /// Whether the clock is being moved on, and to when.
-    /// </summary>
+    /// <summary>Whether the clock is being moved on, and to when.</summary>
     public Timeblock? ChangingTo { get; private set; }
 
     /// <summary>Whether the clock is on its way somewhere.</summary>
     public bool ChangingTimeblock => ChangingTo is not null;
 
-    /// <summary>
-    /// Moves the story on to another point in the day.
-    /// </summary>
+    /// <summary>Moves the story on to another point in the day.</summary>
+    /// <returns>True when the clock actually moved.</returns>
     /// <param name="timeblock">Where the clock is going.</param>
     /// <param name="location">Where the player will be, or null to leave that to the caller.</param>
-    /// <returns>True when the clock actually moved.</returns>
     public bool ChangeTimeblock(Timeblock timeblock, string? location = null)
     {
         if (timeblock == Timeblock)
@@ -459,14 +383,12 @@ public sealed class GameState
         }
     }
 
-    /// <summary>
-    /// Whether the camera is fenced in by the room's shell.
-    /// </summary>
+    /// <summary>Whether the camera is fenced in by the room's shell.</summary>
     public bool CameraBoundaries { get; set; } = true;
 
     /// <summary>The expression somebody is wearing, or null.</summary>
-    /// <param name="actor">Their model name.</param>
     /// <returns>The mood.</returns>
+    /// <param name="actor">Their model name.</param>
     public string? MoodOf(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -498,8 +420,8 @@ public sealed class GameState
     private readonly Dictionary<string, string> _moods = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Whether a score event has been earned.</summary>
-    /// <param name="name">The event.</param>
     /// <returns>True when it has.</returns>
+    /// <param name="name">The event.</param>
     public bool HasScored(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -514,15 +436,12 @@ public sealed class GameState
 
     private readonly Dictionary<string, int> _hints = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// What is on Sidney's map: the places marked, the figures laid over them and the
-    /// ruling.
-    /// </summary>
+    /// <summary>What is on Sidney's map: the places marked, the figures laid over them and the ruling.</summary>
     public SavedMap SidneyMap { get; set; } = new([], [], 0);
 
     /// <summary>How many hints the player has asked for about one objective.</summary>
-    /// <param name="objective">What it is filed under.</param>
     /// <returns>The count, nought when they have never asked.</returns>
+    /// <param name="objective">What it is filed under.</param>
     public int HintsAsked(string objective)
     {
         ArgumentNullException.ThrowIfNull(objective);
@@ -540,12 +459,11 @@ public sealed class GameState
     }
 
     /// <summary>Every hint asked for, in a stable order.</summary>
-    public IReadOnlyDictionary<string, int> Hints =>
-        new Dictionary<string, int>(_hints);
+    public IReadOnlyDictionary<string, int> Hints => new Dictionary<string, int>(_hints);
 
     /// <summary>Whether a file has been gathered in Sidney.</summary>
-    /// <param name="file">The file's name.</param>
     /// <returns>True when the player has it.</returns>
+    /// <param name="file">The file's name.</param>
     public bool HasSidneyFile(string file) => _sidneyFiles.Contains(Key(file));
 
     /// <summary>Records that a file has been gathered in Sidney.</summary>
@@ -574,77 +492,46 @@ public sealed class GameState
     }
 
     /// <summary>Whether a save has said the player already knows somebody.</summary>
-    /// <param name="noun">The noun a scene gives them.</param>
     /// <returns>True when they are to be treated as met without asking the story.</returns>
-    public bool WasIntroduced(string? noun) =>
-        noun is { Length: > 0 } && _introduced.Contains(Key(noun));
+    /// <param name="noun">The noun a scene gives them.</param>
+    public bool WasIntroduced(string? noun) => noun is { Length: > 0 } && _introduced.Contains(Key(noun));
 
-    /// <summary>
-    /// Writes everything observable down, so that it can be put back.
-    /// </summary>
-    /// <param name="title">What to call it.</param>
+    /// <summary>Writes everything observable down, so that it can be put back.</summary>
     /// <returns>The save.</returns>
+    /// <param name="title">What to call it.</param>
     public SaveGame Capture(string title = "")
     {
         (ulong s0, ulong s1, ulong s2, ulong s3) = _random.CaptureState();
 
         return new SaveGame
         {
-            SchemaVersion = SaveGame.CurrentSchema,
-            Written = DateTimeOffset.UtcNow,
-            Title = title,
-            Day = Timeblock.Day,
-            Hour = Timeblock.Hour,
-            Afternoon = Timeblock.IsAfternoon,
-            Location = Location,
-            LastLocation = LastLocation,
-            CameraAngle = CameraAngle,
-            Ego = Ego,
-            Score = Score,
-            RandomDraws = RandomDraws,
-            RandomState = [s0, s1, s2, s3],
-            Flags = [.. _flags.OrderBy(f => f, StringComparer.Ordinal)],
-            Variables = new Dictionary<string, int>(_variables),
-            NounVerbCounts = new Dictionary<string, int>(_nounVerbCounts),
-            TopicCounts = new Dictionary<string, int>(_topicCounts),
-            SaidTopics = [.. _saidTopics.OrderBy(t => t, StringComparer.Ordinal)],
-            ChatCounts = new Dictionary<string, int>(_chatCounts),
-            LocationCounts = new Dictionary<string, int>(_locationCounts),
-            ActorLocations = new Dictionary<string, string>(_actorLocations),
-            Scored = [.. _scored.OrderBy(e => e, StringComparer.Ordinal)],
-            Hints = new Dictionary<string, int>(_hints),
-            SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
-            SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)],
-            SidneyMarks = [.. SidneyMap.Marks],
-            SidneyFigures = [.. SidneyMap.Figures],
-            SidneyGrid = SidneyMap.Grid,
-            SidneyGridFixed = SidneyMap.GridFixed,
-            Introduced = Introduced,
-            BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)],
-            Inventories =
+            SchemaVersion = SaveGame.CurrentSchema, Written = DateTimeOffset.UtcNow, Title = title, Day = Timeblock.Day, Hour = Timeblock.Hour,
+            Afternoon = Timeblock.IsAfternoon, Location = Location, LastLocation = LastLocation, CameraAngle = CameraAngle, Ego = Ego, Score = Score,
+            RandomDraws = RandomDraws, RandomState = [s0, s1, s2, s3], Flags = [.. _flags.OrderBy(f => f, StringComparer.Ordinal)],
+            Variables = new Dictionary<string, int>(_variables), NounVerbCounts = new Dictionary<string, int>(_nounVerbCounts),
+            TopicCounts = new Dictionary<string, int>(_topicCounts), SaidTopics = [.. _saidTopics.OrderBy(t => t, StringComparer.Ordinal)],
+            ChatCounts = new Dictionary<string, int>(_chatCounts), LocationCounts = new Dictionary<string, int>(_locationCounts),
+            ActorLocations = new Dictionary<string, string>(_actorLocations), Scored = [.. _scored.OrderBy(e => e, StringComparer.Ordinal)],
+            Hints = new Dictionary<string, int>(_hints), SidneyFiles = [.. _sidneyFiles.OrderBy(f => f, StringComparer.Ordinal)],
+            SidneyScans = [.. _sidneyScans.OrderBy(s => s, StringComparer.Ordinal)], SidneyMarks = [.. SidneyMap.Marks],
+            SidneyFigures = [.. SidneyMap.Figures], SidneyGrid = SidneyMap.Grid, SidneyGridFixed = SidneyMap.GridFixed, Introduced = Introduced,
+            BlockedHitTests = [.. BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)], Inventories =
             [
-                .. Inventory.Owners.Select(owner => new SavedInventory(
-                    owner,
+                .. Inventory.Owners.Select(owner => new SavedInventory( owner,
                     [.. Inventory.ItemsOf(owner)],
-                    Inventory.ActiveItemOf(owner))),
-            ],
-            Timers =
+                    Inventory.ActiveItemOf(owner))), ], Timers =
             [
-                .. Timers.Pending.Select(t => new SavedTimer(t.Noun, t.Verb, t.SecondsRemaining)),
-            ],
+                .. Timers.Pending.Select(t => new SavedTimer(t.Noun, t.Verb, t.SecondsRemaining)), ],
         };
     }
 
-    /// <summary>
-    /// Puts a saved game back, throwing away whatever was here.
-    /// </summary>
+    /// <summary>Puts a saved game back, throwing away whatever was here.</summary>
     /// <param name="save">The save.</param>
     public void Restore(SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
 
-        // Preferences rather than facts about the story, so they survive the load: see
-        // EasterEggs and PlotArmour.
+        // Preferences rather than facts about the story, so they survive the load: see EasterEggs and PlotArmour.
         bool eggs = EasterEggs;
         bool armour = PlotArmour;
         bool catches = CatchesPendulum;
@@ -676,18 +563,11 @@ public sealed class GameState
         DefaultDialogueCamera = null;
         CameraFieldOfView = null;
 
-        // And the camera goes back to the player. Both of these belong to the script that
-        // set them and are cleared by the same script a moment later — and a load throws
-        // that script away, so nothing is left to clear them. Loading during a cutscene
-        // came back with the view still held by a story that was no longer running: see
-        // SceneUpdate.Directing, which reads ForcedCameraCuts and takes the mouse for as
-        // long as it is on. A save records neither, so a restore may not assume either.
+        // And the camera goes back to the player.
         ForcedCameraCuts = false;
         CameraGliding = false;
 
-        // Straight to the fields: the Location setter keeps a history and counts a visit,
-        // and a load is neither. Where the player was is what the save says, and so is
-        // where they were before that.
+        // Straight to the fields: the Location setter keeps a history and counts a visit, and a load is neither.
         _location = save.Location;
         LastLocation = save.LastLocation;
         Score = save.Score;
@@ -695,8 +575,7 @@ public sealed class GameState
 
         if (save.RandomState.Count == 4)
         {
-            _random.RestoreState(
-                (save.RandomState[0], save.RandomState[1], save.RandomState[2], save.RandomState[3]));
+            _random.RestoreState( (save.RandomState[0], save.RandomState[1], save.RandomState[2], save.RandomState[3]));
         }
 
         foreach (string flag in save.Flags)
@@ -737,19 +616,13 @@ public sealed class GameState
         SidneyMap = new SavedMap(
             [.. save.SidneyMarks], [.. save.SidneyFigures], save.SidneyGrid, save.SidneyGridFixed);
 
-        // Who this save says the player already knows. Empty for a game played through in
-        // this engine, which answers the question out of its own topic counts, and filled
-        // for one brought across from the original, which cannot: see
-        // Story.Introductions.MetBy.
+        // Who this save says the player already knows.
         foreach (string noun in save.Introduced)
         {
             _introduced.Add(Key(noun));
         }
 
-        // Which score events have been earned. A save written before the journal existed has
-        // none of these, and there is no honest way to work out which of 382 events a player
-        // had — so they are taken from where they are recoverable and guessed nowhere. See
-        // SaveGame.Recovered.
+        // Which score events have been earned.
         foreach (string earned in save.Scored)
         {
             _scored.Add(earned);
@@ -791,9 +664,9 @@ public sealed class GameState
     }
 
     /// <summary>Draws a random number, both ends included.</summary>
+    /// <returns>The number.</returns>
     /// <param name="lower">Smallest value it may take.</param>
     /// <param name="upper">Largest value it may take.</param>
-    /// <returns>The number.</returns>
     public int NextRandom(int lower, int upper)
     {
         RandomDraws++;
@@ -801,9 +674,7 @@ public sealed class GameState
         return upper <= lower ? lower : _random.NextInt32(lower, upper + 1);
     }
 
-    /// <summary>
-    /// A hash of everything observable, for comparing runs.
-    /// </summary>
+    /// <summary>A hash of everything observable, for comparing runs.</summary>
     public string ComputeHash()
     {
         var builder = new StringBuilder();
@@ -819,12 +690,8 @@ public sealed class GameState
         builder.Append(CultureInfo.InvariantCulture, $"cinematics={CinematicsEnabled}\n");
         builder.Append(CultureInfo.InvariantCulture, $"plotarmour={PlotArmour}\n");
         builder.Append(CultureInfo.InvariantCulture, $"catchespendulum={CatchesPendulum}\n");
-        builder.Append(
-            CultureInfo.InvariantCulture,
-            $"screens={string.Join(">", Screens.Open)}\n");
-        builder.Append(
-            CultureInfo.InvariantCulture,
-            $"timers={string.Join(",", Timers.Pending)}\n");
+        builder.Append( CultureInfo.InvariantCulture, $"screens={string.Join(">", Screens.Open)}\n");
+        builder.Append( CultureInfo.InvariantCulture, $"timers={string.Join(",", Timers.Pending)}\n");
 
         Append(builder, "flag", _flags.OrderBy(f => f, StringComparer.Ordinal).Select(f => (f, "1")));
         Append(builder, "var", Ordered(_variables));
@@ -833,16 +700,12 @@ public sealed class GameState
         Append(builder, "said", _saidTopics.OrderBy(t => t, StringComparer.Ordinal).Select(t => (t, "1")));
         Append(builder, "chat", Ordered(_chatCounts));
         Append(builder, "visited", Ordered(_locationCounts));
-        Append(builder, "actor", _actorLocations
-            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
-            .Select(kv => (kv.Key, kv.Value)));
+        Append(builder, "actor", _actorLocations .OrderBy(kv => kv.Key, StringComparer.Ordinal) .Select(kv => (kv.Key, kv.Value)));
 
         Append(builder, "sidney", SidneyFiles.Select(f => (f, "1")));
         Append(builder, "scanned", SidneyScans.Select(s => (s, "1")));
 
-        // Inventory is part of the comparable state: which character holds what decides
-        // whether puzzles can be solved, and which of it is in hand decides what using it
-        // does.
+        // Inventory is part of the comparable state: which character holds what decides whether puzzles can be solved, and which of it is in hand.
         foreach (string owner in Inventory.Owners)
         {
             Append(builder, $"inv:{owner}", Inventory.ItemsOf(owner).Select(i => (i, "1")));
@@ -853,8 +716,7 @@ public sealed class GameState
         return Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
-    private static IEnumerable<(string, string)> Ordered(Dictionary<string, int> values) =>
-        values.OrderBy(kv => kv.Key, StringComparer.Ordinal)
+    private static IEnumerable<(string, string)> Ordered(Dictionary<string, int> values) => values.OrderBy(kv => kv.Key, StringComparer.Ordinal)
             .Select(kv => (kv.Key, kv.Value.ToString(CultureInfo.InvariantCulture)));
 
     private static void Append(StringBuilder builder, string prefix, IEnumerable<(string Key, string Value)> items)
@@ -866,19 +728,14 @@ public sealed class GameState
     }
 
     /// <summary>Whether a name refers to the actor the player is controlling.</summary>
-    private bool IsEgo(string actor) =>
-        Key(actor).StartsWith(Key(Ego)[..Math.Min(3, Key(Ego).Length)], StringComparison.Ordinal);
+    private bool IsEgo(string actor) => Key(actor).StartsWith(Key(Ego)[..Math.Min(3, Key(Ego).Length)], StringComparison.Ordinal);
 
     private static string Key(string name) => name.Trim().ToUpperInvariant();
 
-    /// <summary>
-    /// The key a visit is counted under.
-    /// </summary>
-    private static string LocationKey(string actor, string location, string timeblock) =>
-        $"{Key(actor)}|{Key(location)}|{timeblock}";
+    /// <summary>The key a visit is counted under.</summary>
+    private static string LocationKey(string actor, string location, string timeblock) => $"{Key(actor)}|{Key(location)}|{timeblock}";
 
     private static string Pair(string first, string second) => $"{Key(first)}|{Key(second)}";
 
-    private static string Triple(string first, string second, string third) =>
-        $"{Key(first)}|{Key(second)}|{Key(third)}";
+    private static string Triple(string first, string second, string third) => $"{Key(first)}|{Key(second)}|{Key(third)}";
 }

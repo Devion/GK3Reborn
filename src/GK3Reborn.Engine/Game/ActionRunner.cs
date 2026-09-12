@@ -82,8 +82,13 @@ public sealed class ActionRunner
     /// Whether to run the walk in front of the action rather than walk it. The player
     /// asking twice for the same thing, and nothing a script can set.
     /// </param>
+    /// <param name="approach">
+    /// Whether to take the player to the thing first. False for an action they have
+    /// already walked into — a way out taken on foot, where the approach is a last few
+    /// units shuffled at the actors' pace after the player crossed the room at their own.
+    /// </param>
     /// <returns>What it did.</returns>
-    public ActionOutcome Run(NvcAction action, bool hurry = false)
+    public ActionOutcome Run(NvcAction action, bool hurry = false, bool approach = true)
     {
         ArgumentNullException.ThrowIfNull(action);
 
@@ -104,7 +109,7 @@ public sealed class ActionRunner
         // this, the second conversation of a scene is watched from the first one's shot.
         _api.State.Talking = false;
 
-        double approaching = Approach(action, hurry);
+        double approaching = approach ? Approach(action, hurry) : 0;
 
         // Get there first. The original runs an action's script only once the player has
         // arrived, which is the difference between talking to somebody and shouting at

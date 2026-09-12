@@ -12,9 +12,7 @@ using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game;
 
-/// <summary>
-/// One of the three things a character does when nobody is telling them to do anything.
-/// </summary>
+/// <summary>One of the three things a character does when nobody is telling them to do anything.</summary>
 public enum FidgetKind
 {
     /// <summary>Waiting: breathing, shifting weight, looking about.</summary>
@@ -27,9 +25,7 @@ public enum FidgetKind
     Listen,
 }
 
-/// <summary>
-/// What happens to a scene while nobody is doing anything to it.
-/// </summary>
+/// <summary>What happens to a scene while nobody is doing anything to it.</summary>
 public sealed class SceneUpdate
 {
     /// <summary>How long a glide takes, in seconds.</summary>
@@ -39,7 +35,6 @@ public sealed class SceneUpdate
     public const float TurnRate = 3f;
 
     /// <summary>How much faster an actor moves when the player is in a hurry.</summary>
-    /// <summary>How far a walk has to be before it is run, in scene units.</summary>
     public float RunBeyond { get; set; } = 250f;
 
     /// <summary>Whether the next walk arrives at once instead of being walked.</summary>
@@ -49,8 +44,7 @@ public sealed class SceneUpdate
     {
         get => _hurryFactor;
 
-        // Clamped where it is set rather than trusted: a pace of zero is an actor who never
-        // arrives, and every wait in the game is measured against a walk that ends.
+        // Clamped where it is set rather than trusted: a pace of zero is an actor who never arrives, and every wait in the game is measured against.
         set => _hurryFactor = float.IsFinite(value) ? Math.Clamp(value, 1f, 4f) : DefaultHurryFactor;
     }
 
@@ -79,38 +73,24 @@ public sealed class SceneUpdate
     private readonly List<Scheduled<AnimationMood>> _moods = [];
     private readonly List<Scheduled<AnimationMusic>> _music = [];
     private readonly List<Turning> _actors = [];
-    private readonly Dictionary<string, Walking> _walking =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Walking> _walking = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, PlacedModel> _standing =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlacedModel> _standing = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Where each actor logically is, as against where their model is drawn.
-    /// </summary>
-    private readonly Dictionary<string, Vector3> _logical =
-        new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Where each actor logically is, as against where their model is drawn.</summary>
+    private readonly Dictionary<string, Vector3> _logical = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly Dictionary<string, PlacedModel> _models =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, PlacedModel> _models = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly List<Playing> _playing = [];
 
-    /// <summary>
-    /// A model whose clip is authored in somebody else's space, and whose space that is.
-    /// </summary>
-    private readonly Dictionary<string, (PlacedModel Held, PlacedModel Holder)> _carried =
-        new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>A model whose clip is authored in somebody else's space, and whose space that is.</summary>
+    private readonly Dictionary<string, (PlacedModel Held, PlacedModel Holder)> _carried = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// The last shift a clip asked of each model, kept for as long as the room stands.
-    /// </summary>
-    private readonly Dictionary<string, Matrix4x4> _space =
-        new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>The last shift a clip asked of each model, kept for as long as the room stands.</summary>
+    private readonly Dictionary<string, Matrix4x4> _space = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Models whose behaviour script is held while something else animates them.
-    /// </summary>
+    /// <summary>Models whose behaviour script is held while something else animates them.</summary>
     private readonly HashSet<string> _held = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Gk3SheepApi _api;
@@ -134,14 +114,8 @@ public sealed class SceneUpdate
     /// <param name="actions">What may be done to things, for timers coming due.</param>
     /// <param name="runner">How to do it.</param>
     /// <param name="scripts">Scripts that are waiting for something, if anything is.</param>
-    public SceneUpdate(
-        LoadedScene scene,
-        Gk3SheepApi api,
-        Glances glances,
-        ISceneSink geometry,
-        ActionResolver? actions = null,
-        ActionRunner? runner = null,
-        SheepScheduler? scripts = null)
+    public SceneUpdate( LoadedScene scene, Gk3SheepApi api, Glances glances, ISceneSink geometry, ActionResolver? actions = null,
+        ActionRunner? runner = null, SheepScheduler? scripts = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
         ArgumentNullException.ThrowIfNull(api);
@@ -159,9 +133,7 @@ public sealed class SceneUpdate
 
         foreach (PlacedModel placed in scene.Models)
         {
-            if (placed.Kind != PlacedModelKind.Actor ||
-                !placed.Placement.Exists ||
-                CharacterHead.Find(placed.Model) is not { } head)
+            if (placed.Kind != PlacedModelKind.Actor || !placed.Placement.Exists || CharacterHead.Find(placed.Model) is not { } head)
             {
                 continue;
             }
@@ -169,8 +141,7 @@ public sealed class SceneUpdate
             _actors.Add(new Turning(placed, head));
         }
 
-        // Everything that stands in the room, so a clip can find what it animates. A clip
-        // names its target model in its own header, which is the only reliable pairing.
+        // Everything that stands in the room, so a clip can find what it animates.
         foreach (PlacedModel placed in scene.Models)
         {
             if (placed.Placement.Exists)
@@ -179,9 +150,7 @@ public sealed class SceneUpdate
             }
         }
 
-        // Under both names. A scene places `gab` and calls him GABRIEL, and scripts use
-        // whichever they feel like — the state's ego is the noun, an action's target is
-        // usually the model. Keying by one of them means half the walks find nobody.
+        // Under both names.
         foreach (PlacedModel placed in scene.Models)
         {
             if (placed.Kind != PlacedModelKind.Actor || !placed.Placement.Exists)
@@ -203,12 +172,9 @@ public sealed class SceneUpdate
     /// <summary>Where the clips come from, when anything is to be played.</summary>
     private readonly List<Behaviour> _scenery = [];
 
-    private readonly Dictionary<string, Fidget> _fidgets =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Fidget> _fidgets = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// What the cosmetic choices are drawn from.
-    /// </summary>
+    /// <summary>What the cosmetic choices are drawn from.</summary>
     private readonly Foundation.DeterministicRandom _chance = new(0xA5F1D2C3B4E59687);
 
     public Content.ClipLibrary? Clips { get; set; }
@@ -219,8 +185,8 @@ public sealed class SceneUpdate
     /// <summary>Told where every actor stands, whenever a clip takes one or lets one go.</summary>
     public Action<string>? TraceActors { get; set; }
 
-    /// <summary>Reports where an actor stands, for <see cref="TraceActors"/>.</summary>
-    /// <param name="what">What just happened, such as <c>plays</c> or <c>ends</c>.</param>
+    /// <summary>Reports where an actor stands, for .</summary>
+    /// <param name="what">What just happened, such as plays or ends.</param>
     /// <param name="clip">The clip it happened to.</param>
     /// <param name="target">Whose it is.</param>
     /// <param name="note">Anything else worth saying, or empty.</param>
@@ -233,53 +199,33 @@ public sealed class SceneUpdate
 
         Matrix4x4 standing = _geometry.TransformOf(target.Placement);
         Vector3 where = standing.Translation;
-        float heading = Navigation.Walker.Wrapped(
-            Navigation.Walker.Rotation(MathF.Atan2(standing.M31, standing.M33)) +
+        float heading = Navigation.Walker.Wrapped( Navigation.Walker.Rotation(MathF.Atan2(standing.M31, standing.M33)) +
             (target.BuiltFacing ?? MathF.PI) - MathF.PI);
 
-        tell(string.Create(
-            CultureInfo.InvariantCulture,
-            $"{target.Name} {what} {clip}: placed ({where.X:0.#}, {where.Z:0.#}) " +
+        tell(string.Create( CultureInfo.InvariantCulture, $"{target.Name} {what} {clip}: placed ({where.X:0.#}, {where.Z:0.#}) " +
             $"facing {heading * 180f / MathF.PI:0.#}°{(note.Length > 0 ? ", " + note : string.Empty)}"));
     }
 
-    /// <summary>
-    /// The faces in the room, when there is anything that can move one.
-    /// </summary>
+    /// <summary>The faces in the room, when there is anything that can move one.</summary>
     public Actors.Faces? Faces { get; set; }
 
     /// <summary>How many clips are running.</summary>
     public int Animating => _playing.Count;
 
-    /// <summary>
-    /// Starts an animation.
-    /// </summary>
-    /// <param name="name">What the script called it, such as <c>GraCs3WrdbOpen</c>.</param>
-    /// <param name="repeat">Whether it starts again when it ends.</param>
-    /// <param name="moves">
-    /// Whether the actor keeps the ground the clip covered. GK3 calls these move
-    /// animations: an ordinary one leaves the <em>pose</em> where the clip finished but
-    /// puts the actor's position and heading back where they were, so a character who
-    /// mimes walking has not actually gone anywhere.
-    /// </param>
-    /// <param name="fromBehaviour">
-    /// Whether a model's own behaviour script asked for it rather than the story. An idle
-    /// gives way to the story and never the other way about: it is dropped where the story
-    /// is already animating that model, and it is held while the story does.
-    /// </param>
+    /// <summary>Starts an animation.</summary>
     /// <returns>How long it will take, or zero when there is nothing to play.</returns>
-    public double Play(
-        string name, bool repeat = false, bool moves = false, bool fromBehaviour = false)
+    /// <param name="name">What the script called it, such as GraCs3WrdbOpen.</param>
+    /// <param name="repeat">Whether it starts again when it ends.</param>
+    /// <param name="moves">Whether the actor keeps the ground the clip covered.</param>
+    /// <param name="fromBehaviour">Whether a model's own behaviour script asked for it rather than the story.</param>
+    public double Play( string name, bool repeat = false, bool moves = false, bool fromBehaviour = false)
     {
         ArgumentNullException.ThrowIfNull(name);
 
         if (Clips is null || Animations is null)
         {
-            Diagnostics.Add(new Diagnostic(
-                "GK3R3315", DiagnosticSeverity.Warning,
-                "Nothing can play animations here.",
-                _scene.Name, null, "a clip library and an animation library",
-                $"clips={Clips is not null}, animations={Animations is not null}",
+            Diagnostics.Add(new Diagnostic( "GK3R3315", DiagnosticSeverity.Warning, "Nothing can play animations here.",
+                _scene.Name, null, "a clip library and an animation library", $"clips={Clips is not null}, animations={Animations is not null}",
                 "The launcher sets both once the scene is standing."));
 
             return 0;
@@ -287,32 +233,25 @@ public sealed class SceneUpdate
 
         if (Animations.Read(name) is not { } animation)
         {
-            Diagnostics.Add(new Diagnostic(
-                "GK3R3312", DiagnosticSeverity.Warning,
-                "A script asked for an animation the archives do not have.",
-                _scene.Name, null, "an .ANM of that name", name,
-                "Check the name against the animation-scripts directory."));
+            Diagnostics.Add(new Diagnostic( "GK3R3312", DiagnosticSeverity.Warning, "A script asked for an animation the archives do not have.",
+                _scene.Name, null, "an .ANM of that name", name, "Check the name against the animation-scripts directory."));
 
             return 0;
         }
 
-        // The sounds first, before anything that can return. A third of the game's
-        // animations move nothing at all and exist to make a noise — a door, a match, a
-        // yawn — and the branches below let those go without playing a thing.
+        // The sounds first, before anything that can return.
         foreach (AnimationSound cue in animation.Sounds)
         {
             _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
-        // And the feet. A clip says when one lands and whose it is; what it sounds like is
-        // decided when it lands, from the floor the actor is standing on by then.
+        // And the feet.
         foreach (AnimationStep step in animation.Steps)
         {
             _steps.Add(new Footfall(step, repeat ? animation.Duration : 0, animation.Rate));
         }
 
-        // And what it repaints as it runs. Like the visibility changes, frame zero is
-        // applied now rather than in a frame's time.
+        // And what it repaints as it runs.
         foreach (AnimationTexture swap in animation.Textures)
         {
             _swaps.Add(new Swap(swap, repeat ? animation.Duration : 0, animation.Rate));
@@ -320,178 +259,113 @@ public sealed class SceneUpdate
 
         Repaint(animation.Textures.Where(t => t.Frame <= 0));
 
-        // And what it repaints about the room rather than about a model. The bar's dance
-        // floor is nine of these, cycling three checker patterns on a loop; the light
-        // coming on in Grace's office is one.
+        // And what it repaints about the room rather than about a model.
         foreach (AnimationSceneTexture swap in animation.SceneTextures)
         {
-            _roomSwaps.Add(new Scheduled<AnimationSceneTexture>(
-                swap, swap.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _roomSwaps.Add(new Scheduled<AnimationSceneTexture>( swap, swap.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
         PaintRoom(animation.SceneTextures.Where(t => t.Frame <= 0));
 
         foreach (AnimationSceneVisibility change in animation.SceneVisibility)
         {
-            _roomShowings.Add(new Scheduled<AnimationSceneVisibility>(
-                change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _roomShowings.Add(new Scheduled<AnimationSceneVisibility>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
         RevealRoom(animation.SceneVisibility.Where(v => v.Frame <= 0));
 
-        // And what it says, frames and puts on people's faces. A moment is the only kind
-        // of animation that carries these, and it is the reason it exists: the beat is a
-        // whole scripted exchange whose timing is the artist's rather than the story's.
-        //
-        // Without them the dining room's spit take played as mime — Gabriel drank, the
-        // camera stayed on the wide shot, and "Mosely? Is that YOU?" and the reply to it
-        // were never spoken, because neither line is a call in DIN110A. Both are nodes
-        // in ECOFFEEPOT.MOM, and the ContinueDialogue the script makes afterwards is a
-        // continuation *of them*, so the exchange lost its next line as well.
+        // And what it says, frames and puts on people's faces.
         foreach (AnimationDialogue spoken in animation.Dialogue)
         {
-            _lines.Add(new Scheduled<AnimationDialogue>(
-                spoken, spoken.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _lines.Add(new Scheduled<AnimationDialogue>( spoken, spoken.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
         foreach (AnimationShot shot in animation.Shots)
         {
-            _shots.Add(new Scheduled<AnimationShot>(
-                shot, shot.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _shots.Add(new Scheduled<AnimationShot>( shot, shot.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
         foreach (AnimationMood mood in animation.Moods)
         {
-            _moods.Add(new Scheduled<AnimationMood>(
-                mood, mood.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _moods.Add(new Scheduled<AnimationMood>( mood, mood.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
-        // And what it does to the music under it. Two nodes in the corpus reach here —
-        // EHANDSHAKE.MOM swaps the hotel's daytime bed for its evening one across frames
-        // 665 and 666 — where 79 more are inside lines of dialogue and reach SceneAudio.
+        // And what it does to the music under it.
         foreach (AnimationMusic change in animation.Music)
         {
-            _music.Add(new Scheduled<AnimationMusic>(
-                change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _music.Add(new Scheduled<AnimationMusic>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
         }
 
-        // Frame zero is now, as it is for the repaints and the reveals above. Eighteen of
-        // the corpus's fifty lines open their moment, and a line a frame late is a line
-        // that starts after the camera has already cut away from whoever says it.
+        // Frame zero is now, as it is for the repaints and the reveals above.
         Say(animation.Dialogue.Where(d => d.Frame <= 0));
         Film(animation.Shots.Where(s => s.Frame <= 0));
         Wear(animation.Moods.Where(m => m.Frame <= 0));
         Score(animation.Music.Where(m => m.Frame <= 0));
 
-        // Then what it shows and hides, for the same reason and one of its own: an
-        // animation that brings somebody into the room does it here, and the clip that
-        // opens the door in front of them is a separate line of the same file. Emilio
-        // walking out of the hotel is exactly that, and without this the door swings and
-        // makes its noise with nobody behind it.
+        // Then what it shows and hides, for the same reason and one of its own: an animation that brings somebody into the room does it here, and.
         foreach (AnimationVisibility change in animation.Visibility)
         {
             _showings.Add(new Showing(change, repeat ? animation.Duration : 0, animation.Rate));
         }
 
-        // Frame zero is now rather than in a frame's time. A visibility change on the
-        // opening frame states what is true while the animation runs, so waiting a tick
-        // for it shows one frame of the old state — which for a character being brought
-        // into the room is one frame of them standing at the origin.
+        // Frame zero is now rather than in a frame's time.
         Reveal(animation.Visibility.Where(v => v.Frame <= 0));
 
-        // Faces next, because an animation that only moves a face moves no geometry at
-        // all: ABEANGRY is two frames of eyebrow and nothing else. Asking about the clips
-        // first would report a third of the game's expressions as animations that do
-        // nothing.
-        bool onAFace = (animation.Faces.Count > 0 || animation.Mouths.Count > 0) &&
-                       Faces?.Perform(animation) == true;
+        // Faces next, because an animation that only moves a face moves no geometry at all: ABEANGRY is two frames of eyebrow and nothing else.
+        bool onAFace = (animation.Faces.Count > 0 || animation.Mouths.Count > 0) && Faces?.Perform(animation) == true;
 
         if (animation.Actions.Count == 0)
         {
-            // A face or a sound is still something happening, and a script that waits on
-            // one is waiting for it to finish rather than for nothing.
-            if (onAFace ||
-                animation.Sounds.Count > 0 ||
-                animation.Visibility.Count > 0 ||
-                animation.Textures.Count > 0 ||
-                animation.SceneTextures.Count > 0 ||
-                animation.SceneVisibility.Count > 0 ||
-                animation.Steps.Count > 0 ||
-                animation.Dialogue.Count > 0 ||
-                animation.Shots.Count > 0 ||
-                animation.Moods.Count > 0 ||
-                animation.Music.Count > 0)
+            // A face or a sound is still something happening, and a script that waits on one is waiting for it to finish rather than for nothing.
+            if (onAFace || animation.Sounds.Count > 0 || animation.Visibility.Count > 0 || animation.Textures.Count > 0 ||
+                animation.SceneTextures.Count > 0 || animation.SceneVisibility.Count > 0 || animation.Steps.Count > 0 ||
+                animation.Dialogue.Count > 0 || animation.Shots.Count > 0 || animation.Moods.Count > 0 || animation.Music.Count > 0)
             {
                 return animation.Duration;
             }
 
-            Diagnostics.Add(new Diagnostic(
-                "GK3R3313", DiagnosticSeverity.Info,
-                "An animation names no clips, so it moves nothing.",
-                name, null, "an [ACTIONS] section", "none",
-                "Some animations are only sounds and captions."));
+            Diagnostics.Add(new Diagnostic( "GK3R3313", DiagnosticSeverity.Info, "An animation names no clips, so it moves nothing.",
+                name, null, "an [ACTIONS] section", "none", "Some animations are only sounds and captions."));
 
             return 0;
         }
 
         double longest = 0;
 
-        // Whose space this file's other clips are authored in — the man with the
-        // binoculars, and see _carried. Worked out once, because it is a property of the
-        // animation rather than of any one of its lines.
+        // Whose space this file's other clips are authored in — the man with the binoculars, and see _carried.
         PlacedModel? holder = Holder(name, animation);
 
         foreach (AnimationAction action in animation.Actions)
         {
             if (Clips.Read(action.Name) is not { } clip)
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3314", DiagnosticSeverity.Warning,
-                    "An animation names a clip the archives do not have.",
-                    name, null, "an .ACT of that name", action.Name,
-                    "Check the [ACTIONS] line against the animations directory."));
+                Diagnostics.Add(new Diagnostic( "GK3R3314", DiagnosticSeverity.Warning, "An animation names a clip the archives do not have.",
+                    name, null, "an .ACT of that name", action.Name, "Check the [ACTIONS] line against the animations directory."));
 
                 continue;
             }
 
             if (!_models.TryGetValue(clip.ModelName, out PlacedModel? target))
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3311", DiagnosticSeverity.Info,
-                    "An animation moves a model that is not in this room.",
-                    name, null, "a model the scene placed", clip.ModelName,
-                    "Common and usually harmless: clips are shared between rooms."));
+                Diagnostics.Add(new Diagnostic( "GK3R3311", DiagnosticSeverity.Info, "An animation moves a model that is not in this room.",
+                    name, null, "a model the scene placed", clip.ModelName, "Common and usually harmless: clips are shared between rooms."));
 
                 continue;
             }
 
-            // An idle never talks over the story. GK3 gives a model one animator, and a
-            // behaviour script asking it for a clip while something else is animating it
-            // is the request being dropped — GKActor::StartAnimation returns without
-            // starting anything. Without this, Gabriel's idle and the coffee scene both
-            // pose him, every frame, and he flickers between the two.
+            // An idle never talks over the story.
             if (fromBehaviour && _playing.Any(p => Drives(p, target) && !p.FromBehaviour))
             {
                 continue;
             }
 
-            // And one clip at a time either way: starting one on a model stops whatever
-            // that model was doing, which is what VertexAnimator::Start does before it
-            // does anything else. Two clips on one model is two answers to where its mesh
-            // groups are, decided by whichever was added last.
-            // A script left waiting out a clip that is about to be stopped has to be told,
-            // or it goes on waiting for something that is no longer playing.
-            if (!fromBehaviour &&
-                _playing.Any(p => Drives(p, target) && p.FromBehaviour) &&
-                BehaviourOf(target.Name) is { } interrupted)
+            // And one clip at a time either way: starting one on a model stops whatever that model was doing, which is what VertexAnimator::Start.
+            if (!fromBehaviour && _playing.Any(p => Drives(p, target) && p.FromBehaviour) && BehaviourOf(target.Name) is { } interrupted)
             {
                 interrupted.Interrupted = true;
             }
 
-            // Cut short is still as far as it got. The reference commits a move clip's
-            // ground every frame, so stopping one part-way leaves the actor wherever it had
-            // carried them by then; here the commit happens as a clip lets go of a model,
-            // and this is one of the three ways that happens. See Adopt.
+            // Cut short is still as far as it got.
             foreach (Playing stopped in _playing.Where(p => Drives(p, target) && !p.Reverts))
             {
                 Adopt(stopped);
@@ -499,57 +373,22 @@ public sealed class SceneUpdate
 
             _playing.RemoveAll(p => Drives(p, target));
 
-            // The move flag is carried but not yet spent. Committing the ground a clip
-            // covered means writing the actor's position, and Walker already owns that —
-            // the two have to be reconciled before either may write it.
-            //
-            // The original does this explicitly: starting a vertex animation on a
-            // character cancels whatever walk was in progress. It is also what keeps the
-            // model to one driver at a time.
-            //
-            // <b>But not for a clip the model's own behaviour asked for.</b> The original
-            // exempts those by name — "we don't want to cancel the turn part of a walk due
-            // to a breathing anim", GKActor::StartAnimation — and without the exemption an
-            // idle firing mid-stride stopped the walk dead and then, being a clip that
-            // gives back the ground it covered, put the walker back where the idle started.
-            // That is what a player sees as their character resetting halfway across a room.
+            // The move flag is carried but not yet spent.
             if (!fromBehaviour)
             {
                 _walking.Remove(clip.ModelName);
                 _walking.Remove(target.Name);
             }
 
-            // Whatever the model does on its own stops here, and does not start again
-            // by itself.
-            //
-            // <b>A stop rather than a pause</b>, which is the difference between the two
-            // rules. A walk pauses an idle and gives it back on arrival — the reference
-            // says so in Walker::OnWalkToFinished — but a story animation calls
-            // StopFidget, and nothing in GKActor::OnVertexAnimationStop turns it back on
-            // again. What turns it back on is the script, by hand, once it has finished
-            // with the character: PourCoffee$ ends with StartIdleFidget("Gabriel") and
-            // that line is there for exactly this reason.
-            //
-            // Pausing instead leaves a gap between every pair of clips in a sequence, and
-            // the idle fires into it. Reported from the dining room, where Gabriel walks
-            // to the kitchen for coffee and snaps back to the table between clips — a
-            // breath is a non-move clip, so it gives back all the ground the story had
-            // just covered — and from the museum, where Lady Howard does the same after
-            // each of hers. The hold below stops an idle that is already running; this
-            // stops the script that keeps starting them.
+            // Whatever the model does on its own stops here, and does not start again by itself.
             if (!fromBehaviour)
             {
                 _held.Add(target.Name);
                 Quieten(target);
             }
 
-            // And whose space it is played in, before the clip is handed anything about
-            // where the model stands: binding it moves the model, and what a carried clip
-            // is corrected against is the holder rather than its own rest.
-            PlacedModel? carrier =
-                action.Placement is null && holder is not null && !ReferenceEquals(holder, target)
-                    ? holder
-                    : null;
+            // And whose space it is played in, before the clip is handed anything about where the model stands: binding it moves the model, and what.
+            PlacedModel? carrier = action.Placement is null && holder is not null && !ReferenceEquals(holder, target) ? holder : null;
 
             if (carrier is not null)
             {
@@ -558,41 +397,27 @@ public sealed class SceneUpdate
             }
             else
             {
-                // Starting a clip that names no holder is the original assigning fresh
-                // parameters over the old ones, and the parent goes with them.
+                // Starting a clip that names no holder is the original assigning fresh parameters over the old ones, and the parent goes with them.
                 _carried.Remove(target.Name);
             }
 
-            var started = new Playing(
-                clip, target, action, repeat, moves, Where(target.Name),
-                _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate,
-                Characters?.Of(target.Name), carrier is not null);
+            var started = new Playing( clip, target, action, repeat, moves, Where(target.Name),
+                _geometry.TransformOf(target.Placement), fromBehaviour, animation.Rate, Characters?.Of(target.Name), carrier is not null);
 
-            Trace(
-                "plays",
-                clip.Name,
-                target,
-                (started.Absolute ? "absolute" : "relative") +
-                (started.Reverts ? ", reverts" : ", keeps the ground") +
+            Trace( "plays", clip.Name, target, (started.Absolute ? "absolute" : "relative") + (started.Reverts ? ", reverts" : ", keeps the ground") +
                 (fromBehaviour ? ", from its own script" : string.Empty));
 
             _playing.Add(started);
-            longest = Math.Max(
-                longest,
-                ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
+            longest = Math.Max( longest, ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
         }
 
         return longest;
     }
 
-    /// <summary>
-    /// What plays a sound an animation asks for, or null when there is no device.
-    /// </summary>
+    /// <summary>What plays a sound an animation asks for, or null when there is no device.</summary>
     public Func<AnimationSound, Vector3?, bool>? Sound { get; set; }
 
-    /// <summary>
-    /// What speaks a line an animation asks for, or null when there is no device.
-    /// </summary>
+    /// <summary>What speaks a line an animation asks for, or null when there is no device.</summary>
     public Action<AnimationDialogue>? Line { get; set; }
 
     /// <summary>What puts the view on a camera an animation names, or null in a tool.</summary>
@@ -660,16 +485,12 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Advances a schedule and says what it has reached, oldest frame first.
-    /// </summary>
-    /// <param name="schedule">The things waiting for their frame. Spent ones are dropped.</param>
+    /// <summary>Advances a schedule and says what it has reached, oldest frame first.</summary>
+    /// <param name="schedule">The things waiting for their frame.</param>
     /// <param name="seconds">How long since the last frame.</param>
     /// <param name="frame">Which frame one of them is authored on.</param>
     /// <typeparam name="T">What is due.</typeparam>
-    private static List<T> Due<T>(
-        List<Scheduled<T>> schedule, double seconds, Func<T, int> frame)
-        where T : struct
+    private static List<T> Due<T>( List<Scheduled<T>> schedule, double seconds, Func<T, int> frame) where T : struct
     {
         if (schedule.Count == 0)
         {
@@ -716,9 +537,7 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Puts everything the scene declared an opening pose for into it.
-    /// </summary>
+    /// <summary>Puts everything the scene declared an opening pose for into it.</summary>
     /// <returns>How many were posed.</returns>
     public int Open()
     {
@@ -732,138 +551,56 @@ public sealed class SceneUpdate
 
         foreach (PlacedModel model in _scene.Models)
         {
-            if (model.InitialAnimation is not { Length: > 0 } name ||
-                !model.Placement.Exists ||
-                Animations.Read(name) is not { } animation)
+            if (model.InitialAnimation is not { Length: > 0 } name || !model.Placement.Exists || Animations.Read(name) is not { } animation)
             {
                 continue;
             }
 
-            // A performance is not a pose, and an actor the scene has already stood
-            // somewhere does not need one.
-            //
-            // POU's second morning is the case this is about. The eight people on the tour
-            // are given marks to stand on and `initanim=VanPouIN`, which is the van
-            // arriving: two hundred frames, an engine, a door, and a soundtrack under it.
-            // Sampling its first frame put every one of them in the pose they hold *inside
-            // the van* — seated, thighs horizontal — while standing upright on their marks,
-            // and nothing afterwards put them back. Their idle scripts then animated the
-            // upper body only, so the top of each of them stood and talked while the legs
-            // stayed in the van. It reads as characters cut off at the hip.
-            //
-            // Told apart by the soundtrack. It is the one thing in an animation file that
-            // only something happening has, and across the whole corpus it picks out
-            // **nine actor declarations**: these eight and Lady Howard's driver getting out
-            // of the car at LHE. Everything else keeps the behaviour exactly — Madeline
-            // stood by the van at RC1, Emilio sat in the lobby, and every prop placed by
-            // its own opening animation, none of which carry one.
-            if (model.Kind == PlacedModelKind.Actor &&
-                model.Spotted &&
-                animation.IsPerformance)
+            // A performance is not a pose, and an actor the scene has already stood somewhere does not need one.
+            if (model.Kind == PlacedModelKind.Actor && model.Spotted && animation.IsPerformance)
             {
                 continue;
             }
 
-            // Whatever the pose says about what is drawn, before the pose itself — but
-            // only about this model, for the same reason the clips below are filtered.
-            Reveal(animation.Visibility
-                .Where(v => v.Frame <= 0 && Names(model, v.Model)));
+            // Whatever the pose says about what is drawn, before the pose itself — but only about this model, for the same reason the clips below.
+            Reveal(animation.Visibility .Where(v => v.Frame <= 0 && Names(model, v.Model)));
 
             foreach (AnimationAction action in animation.Actions)
             {
-                if (Clips.Read(action.Name) is not { } clip ||
-                    !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
+                if (Clips.Read(action.Name) is not { } clip || !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
                 {
                     continue;
                 }
 
-                // <b>Only the clip belonging to the model that declared the pose.</b> An
-                // animation is a schedule for as many models as it likes, and an opening
-                // pose is one model's statement about itself: the lobby's black marker
-                // opens with GabLbyGetMarker, which is a clip for the marker and a clip
-                // for Gabriel picking it up. Sampling both put the player at the front
-                // desk before the scene had begun, and then the room's own entry script
-                // moved him again — which is what a player sees as their character
-                // starting in the wrong place. The reference passes the model's name to
-                // Animator::Sample for exactly this.
+                // Only the clip belonging to the model that declared the pose.
                 if (!ReferenceEquals(target, model))
                 {
                     continue;
                 }
 
-                // Not turned to what the clip's opening frame faces. A relative clip is
-                // played facing whichever way the actor already faces, with the turn it was
-                // authored with taken back out — see Correction — so the scene file's
-                // heading is the heading, exactly as the reference has it: it samples the
-                // init anim with the model at the scene position and syncs the actor to the
-                // result afterwards.
-                var pose = new Playing(
-                    clip,
-                    target,
-                    action with { Frame = 0 },
-                    repeat: false,
-                    moves: true,
-                    Where(target.Name),
-                    _geometry.TransformOf(target.Placement),
-                    character: Characters?.Of(target.Name));
+                // Not turned to what the clip's opening frame faces.
+                var pose = new Playing( clip, target, action with { Frame = 0 }, repeat: false, moves: true, Where(target.Name),
+                    _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
                 pose.Open(_geometry);
 
-                // Where the pose leaves them is where they now are. An opening animation
-                // is the only thing that says where several of the game's characters
-                // stand, and leaving the position the scene never set would have anything
-                // that asks — a walk, a glance, IsActorNear — answer about the origin
-                // while the character is sitting in a chair on the other side of the room.
+                // Where the pose leaves them is where they now are.
                 if (target.Kind == PlacedModelKind.Actor)
                 {
                     Vector3 settled = pose.Settled(_geometry.TransformOf(target.Placement));
 
-                    // What the clip says the character is facing, beside what the scene
-                    // file said. The two disagree wherever a scene records where somebody
-                    // ends up and states the beginning as an animation, which is most of
-                    // the game's opening poses.
-                    float? wanted =
-                        Clips is { } clips && Characters?.Of(target.Name) is { } who
-                            ? Actors.AnimationStart.Of(
-                                animation, clips, target.Name, who, target.BuiltFacing)?.Heading
-                            : null;
+                    // What the clip says the character is facing, beside what the scene file said.
+                    float? wanted = Clips is { } clips && Characters?.Of(target.Name) is { } who ? Actors.AnimationStart.Of(
+                                animation, clips, target.Name, who, target.BuiltFacing)?.Heading : null;
 
-                    // And where it leaves them has to become their <b>placement</b>, not
-                    // only a note of where they are. A placement is the whole of what a
-                    // later <em>relative</em> clip is played through — the idle fidgets
-                    // first of all, on the frame after this one — so an actor the scene
-                    // stood nowhere was posed correctly and then drawn at the world origin
-                    // for the rest of the room's life. RC3's cat is the case reported: sat
-                    // on its ledge for a single frame, and thereafter drawn, walked to and
-                    // clicked on out past the courtyard wall.
-                    //
-                    // Only for an actor the scene named no spot for. One the room did place
-                    // is standing where the room says; moving them would let a clip
-                    // authored somewhere else overrule the mark an artist gave them, which
-                    // is exactly the disagreement <see cref="Posed"/> exists to record.
+                    // And where it leaves them has to become their placement, not only a note of where they are.
                     if (!target.Spotted)
                     {
-                        Reseat(
-                            target,
-                            settled,
-                            wanted ?? Navigation.Walker.HeadingOf(
-                                _geometry.TransformOf(target.Placement)));
+                        Reseat( target, settled, wanted ?? Navigation.Walker.HeadingOf( _geometry.TransformOf(target.Placement)));
 
-                        // Sampled again, against the placement they now have. An absolute
-                        // clip is put where it was authored by a correction worked out from
-                        // the placement at the time — see Correction — so moving the
-                        // placement out from under a finished pose would carry the drawing
-                        // with it. Recomputing lands the same pixels on a model that also
-                        // knows where it is standing.
-                        pose = new Playing(
-                            clip,
-                            target,
-                            action with { Frame = 0 },
-                            repeat: false,
-                            moves: true,
-                            Where(target.Name),
-                            _geometry.TransformOf(target.Placement),
-                            character: Characters?.Of(target.Name));
+                        // Sampled again, against the placement they now have.
+                        pose = new Playing( clip, target, action with { Frame = 0 }, repeat: false, moves: true, Where(target.Name),
+                            _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
                         pose.Open(_geometry);
                         settled = pose.Settled(_geometry.TransformOf(target.Placement));
@@ -871,11 +608,7 @@ public sealed class SceneUpdate
 
                     Follow(target.Name, settled);
 
-                    _posed.Add((
-                        target.Noun ?? target.Name,
-                        settled,
-                        Navigation.Walker.HeadingOf(_geometry.TransformOf(target.Placement)),
-                        wanted));
+                    _posed.Add(( target.Noun ?? target.Name, settled, Navigation.Walker.HeadingOf(_geometry.TransformOf(target.Placement)), wanted));
                 }
 
                 posed++;
@@ -886,18 +619,15 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Who an opening pose moved, where to, and which way they ended up facing.</summary>
-    public IReadOnlyList<(string Who, Vector3 Where, float Placed, float? Wanted)> Posed =>
-        _posed;
+    public IReadOnlyList<(string Who, Vector3 Where, float Placed, float? Wanted)> Posed => _posed;
 
     private readonly List<(string Who, Vector3 Where, float Placed, float? Wanted)> _posed = [];
 
-    /// <summary>
-    /// Gives a character a different stride.
-    /// </summary>
+    /// <summary>Gives a character a different stride.</summary>
+    /// <returns>True when the room has such a character.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="start">The animation that gets them moving.</param>
     /// <param name="loop">The stride itself, looped while they walk.</param>
-    /// <returns>True when the room has such a character.</returns>
     public bool SetStride(string actor, string start, string loop)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -912,12 +642,11 @@ public sealed class SceneUpdate
     }
 
     /// <summary>What a character walks with now, when a script has changed it.</summary>
-    private readonly Dictionary<string, (string Start, string Loop)> _strides =
-        new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string Start, string Loop)> _strides = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Starts a prop's own script again.</summary>
-    /// <param name="model">Its model name or noun.</param>
     /// <returns>True when the room has such a prop with a script.</returns>
+    /// <param name="model">Its model name or noun.</param>
     public bool StartScenery(string model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -934,8 +663,8 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Stops a prop's own script.</summary>
-    /// <param name="model">Its model name or noun.</param>
     /// <returns>True when one was running.</returns>
+    /// <param name="model">Its model name or noun.</param>
     public bool StopScenery(string model)
     {
         ArgumentNullException.ThrowIfNull(model);
@@ -949,10 +678,10 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Gives a character a different script for one of the three things they do.</summary>
+    /// <returns>True when the room has such a character.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="mode">Which of the three.</param>
     /// <param name="script">The script, or null to leave them with nothing to do.</param>
-    /// <returns>True when the room has such a character.</returns>
     public bool SetBehaviour(string actor, FidgetKind mode, Formats.Animation.GasFile? script)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -977,9 +706,7 @@ public sealed class SceneUpdate
                 break;
         }
 
-        // Started rather than merely stored: a script that hands somebody a new idle means
-        // it to take effect, and the one they were running belongs to whatever they were
-        // doing before.
+        // Started rather than merely stored: a script that hands somebody a new idle means it to take effect, and the one they were running belongs.
         _fidgets[model.Name] = new Fidget(model);
         return true;
     }
@@ -1017,9 +744,7 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Puts a prop back where it lives, when the idle that was moving it is cut short.
-    /// </summary>
+    /// <summary>Puts a prop back where it lives, when the idle that was moving it is cut short.</summary>
     /// <param name="running">The clip being stopped.</param>
     private void Rest(Playing running)
     {
@@ -1037,11 +762,9 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Puts right whatever a behaviour script was in the middle of.
-    /// </summary>
-    /// <param name="fidget">The character's scripts.</param>
+    /// <summary>Puts right whatever a behaviour script was in the middle of.</summary>
     /// <returns>True when there was something to put right.</returns>
+    /// <param name="fidget">The character's scripts.</param>
     private bool Tidy(Fidget fidget)
     {
         if (fidget.Stopped || fidget.Running is not { } running)
@@ -1053,8 +776,7 @@ public sealed class SceneUpdate
 
         for (int guard = 0; guard < 8; guard++)
         {
-            if (running.Playing is not { Length: > 0 } was ||
-                running.Script.CleanupFor(was) is not { Length: > 0 } tidied)
+            if (running.Playing is not { Length: > 0 } was || running.Script.CleanupFor(was) is not { Length: > 0 } tidied)
             {
                 break;
             }
@@ -1079,9 +801,7 @@ public sealed class SceneUpdate
             return;
         }
 
-        Fidget fidget = _fidgets.TryGetValue(model.Name, out Fidget? known)
-            ? known
-            : _fidgets[model.Name] = new Fidget(model);
+        Fidget fidget = _fidgets.TryGetValue(model.Name, out Fidget? known) ? known : _fidgets[model.Name] = new Fidget(model);
 
         fidget.Stopped = false;
         fidget.Forced = mode;
@@ -1108,26 +828,14 @@ public sealed class SceneUpdate
 
         foreach (Fidget fidget in _fidgets.Values)
         {
-            // Told to stand still, standing still because the story is animating them, or
-            // busy walking. All three are a pause rather than a stop: the script is left
-            // where it is and goes on from there afterwards, which is what the original
-            // does — Walker::OnWalkToFinished starts the idle again when the walk ends.
-            //
-            // Walking is on this list because an idle and a walk are two answers to where
-            // a character's feet are. The reference keeps them apart by playing the walk
-            // through the same animator, so a fidget cannot be in the middle of one; here
-            // the stride is its own thing, and letting a fidget pose the same model at the
-            // same time is the two of them writing over each other every frame.
+            // Told to stand still, standing still because the story is animating them, or busy walking.
             if (fidget.Stopped || _held.Contains(fidget.Model.Name) || Crossing(fidget.Model))
             {
                 continue;
             }
 
-            // Who is talking decides which of the three scripts a character runs. A named
-            // fidget — StartTalkFidget and its relatives — overrides that until something
-            // sets them idling again, because the script asking for one means it.
-            FidgetKind wanted = fidget.Forced ?? (speaker is null
-                ? FidgetKind.Idle
+            // Who is talking decides which of the three scripts a character runs.
+            FidgetKind wanted = fidget.Forced ?? (speaker is null ? FidgetKind.Idle
                 : Same(fidget.Model, speaker) ? FidgetKind.Talk : FidgetKind.Listen);
 
             if (wanted != fidget.Mode)
@@ -1151,17 +859,14 @@ public sealed class SceneUpdate
     private readonly Dictionary<string, (Formats.Animation.GasFile? Talk, Formats.Animation.GasFile? Listen)> _lent =
         new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Hands the actors in a conversation the scripts written for that conversation.
-    /// </summary>
-    /// <param name="name">The conversation, as <c>SetConversation</c> names it.</param>
+    /// <summary>Hands the actors in a conversation the scripts written for that conversation.</summary>
     /// <returns>How long the actors take to get into it, in seconds.</returns>
+    /// <param name="name">The conversation, as SetConversation names it.</param>
     public double EnterConversation(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        // One at a time. Setting a second without ending the first leaves the first
-        // conversation's poses on everybody it named.
+        // One at a time.
         LeaveConversation();
 
         Conversation = name;
@@ -1170,8 +875,7 @@ public sealed class SceneUpdate
 
         foreach (SceneConversation setting in _scene.Definition.Conversations())
         {
-            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                ModelNamed(setting.Actor) is not { } model)
+            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) || ModelNamed(setting.Actor) is not { } model)
             {
                 continue;
             }
@@ -1212,8 +916,7 @@ public sealed class SceneUpdate
 
         foreach (SceneConversation setting in _scene.Definition.Conversations())
         {
-            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                ModelNamed(setting.Actor) is not { } model)
+            if (!setting.Conversation.Equals(name, StringComparison.OrdinalIgnoreCase) || ModelNamed(setting.Actor) is not { } model)
             {
                 continue;
             }
@@ -1247,9 +950,7 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Makes the noise a foot landing makes.
-    /// </summary>
+    /// <summary>Makes the noise a foot landing makes.</summary>
     /// <param name="fell">Whose foot, and whether it was dragged.</param>
     private void Tread(AnimationStep fell)
     {
@@ -1274,29 +975,22 @@ public sealed class SceneUpdate
 
         if (!Sound(new AnimationSound(0, heard, 100, who.Name), at))
         {
-            Diagnostics.Add(new Diagnostic(
-                "GK3R3343", DiagnosticSeverity.Info,
-                "A footstep names a sound the archives do not have.",
-                heard, null, "a .WAV of that name", heard,
-                "The step is silent; the walk is unaffected."));
+            Diagnostics.Add(new Diagnostic( "GK3R3343", DiagnosticSeverity.Info, "A footstep names a sound the archives do not have.",
+                heard, null, "a .WAV of that name", heard, "The step is silent; the walk is unaffected."));
         }
     }
 
     /// <summary>Whether a name is one of a model's own.</summary>
-    private static bool Names(PlacedModel model, string name) =>
-        model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+    private static bool Names(PlacedModel model, string name) => model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
         (model.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Applies an animation's texture swaps.
-    /// </summary>
+    /// <summary>Applies an animation's texture swaps.</summary>
     /// <param name="swaps">The changes due now.</param>
     private void Repaint(IEnumerable<AnimationTexture> swaps)
     {
         foreach (AnimationTexture swap in swaps)
         {
-            if (ModelNamed(swap.Model) is not { } model ||
-                swap.Mesh < 0 || swap.Mesh >= model.Model.Meshes.Count)
+            if (ModelNamed(swap.Model) is not { } model || swap.Mesh < 0 || swap.Mesh >= model.Model.Meshes.Count)
             {
                 continue;
             }
@@ -1310,10 +1004,8 @@ public sealed class SceneUpdate
 
             if (Textures?.Invoke(swap.Texture) == false)
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3344", DiagnosticSeverity.Info,
-                    "An animation repaints a surface with a texture the archives do not have.",
-                    swap.Model, null, "a .BMP of that name", swap.Texture,
+                Diagnostics.Add(new Diagnostic( "GK3R3344", DiagnosticSeverity.Info,
+                    "An animation repaints a surface with a texture the archives do not have.", swap.Model, null, "a .BMP of that name", swap.Texture,
                     "The surface keeps the picture it had."));
 
                 continue;
@@ -1323,9 +1015,7 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Applies an animation's repaints of the room itself.
-    /// </summary>
+    /// <summary>Applies an animation's repaints of the room itself.</summary>
     /// <param name="swaps">The changes due now.</param>
     private void PaintRoom(IEnumerable<AnimationSceneTexture> swaps)
     {
@@ -1333,20 +1023,16 @@ public sealed class SceneUpdate
         {
             if (Textures?.Invoke(swap.Texture) == false)
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3345", DiagnosticSeverity.Info,
+                Diagnostics.Add(new Diagnostic( "GK3R3345", DiagnosticSeverity.Info,
                     "An animation repaints part of a room with a texture the archives do not have.",
-                    swap.ObjectName, null, "a .BMP of that name", swap.Texture,
-                    "The surface keeps the picture it had."));
+                    swap.ObjectName, null, "a .BMP of that name", swap.Texture, "The surface keeps the picture it had."));
 
                 continue;
             }
 
             if (!_geometry.PaintSceneObject(swap.ObjectName, swap.Texture))
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3346", DiagnosticSeverity.Info,
-                    "An animation repaints part of a room that has no such part.",
+                Diagnostics.Add(new Diagnostic( "GK3R3346", DiagnosticSeverity.Info, "An animation repaints part of a room that has no such part.",
                     _scene.Name, null, "an object in the geometry", swap.ObjectName,
                     "Common and usually harmless: animations are shared between rooms."));
             }
@@ -1363,19 +1049,15 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Makes a texture resident, and says whether it could be.
-    /// </summary>
+    /// <summary>Makes a texture resident, and says whether it could be.</summary>
     public Func<string, bool>? Textures { get; set; }
 
-    /// <summary>
-    /// Gives the room a different bake of its own lighting, and says whether it could be.
-    /// </summary>
+    /// <summary>Gives the room a different bake of its own lighting, and says whether it could be.</summary>
     public Func<string, bool>? Relight { get; set; }
 
     /// <summary>Hands the room a second bake of its lighting, by scene-asset name.</summary>
-    /// <param name="asset">The scene asset — <c>rl2_disco_a</c>, <c>gri_b</c>.</param>
     /// <returns>True when the room is now lit by it.</returns>
+    /// <param name="asset">The scene asset — rl2_disco_a, gri_b.</param>
     public bool Relit(string asset)
     {
         ArgumentNullException.ThrowIfNull(asset);
@@ -1385,29 +1067,21 @@ public sealed class SceneUpdate
             return true;
         }
 
-        Diagnostics.Add(new Diagnostic(
-            "GK3R3347", DiagnosticSeverity.Info,
-            "A script asked for a different bake of the room and did not get one.",
-            _scene.Name, null, "a scene asset baked for this geometry", asset,
-            "The room keeps the lighting it had."));
+        Diagnostics.Add(new Diagnostic( "GK3R3347", DiagnosticSeverity.Info, "A script asked for a different bake of the room and did not get one.",
+            _scene.Name, null, "a scene asset baked for this geometry", asset, "The room keeps the lighting it had."));
 
         return false;
     }
 
     /// <summary>Whether a model is walking somewhere, under either of its names.</summary>
-    private bool Crossing(PlacedModel model) =>
-        _walking.ContainsKey(model.Name) ||
+    private bool Crossing(PlacedModel model) => _walking.ContainsKey(model.Name) ||
         (model.Noun is { Length: > 0 } noun && _walking.ContainsKey(noun));
 
     /// <summary>Whether a name is one of a model's two.</summary>
-    private static bool Same(PlacedModel model, string name) =>
-        model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-        (model.Noun is { Length: > 0 } noun &&
-         noun.Equals(name, StringComparison.OrdinalIgnoreCase));
+    private static bool Same(PlacedModel model, string name) => model.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
+        (model.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>
-    /// Runs one behaviour script forward by however much time has passed.
-    /// </summary>
+    /// <summary>Runs one behaviour script forward by however much time has passed.</summary>
     private void Step(Behaviour running, double seconds)
     {
         Notice(running);
@@ -1432,13 +1106,8 @@ public sealed class SceneUpdate
 
             switch (step.Action)
             {
-                // A script that is one animation and a jump back to it is a thing that
-                // simply turns: a fan, a fountain, a clock. Those are looped by the clip
-                // rather than by restarting the script, so the last recorded pose runs into
-                // the first instead of being held for the fifteenth of a second the script
-                // would take to come round. Started once and left.
-                case GasAction.Animate when step.Name is { Length: > 0 } spun &&
-                                            running.Script.Continuous:
+                // A script that is one animation and a jump back to it is a thing that simply turns: a fan, a fountain, a clock.
+                case GasAction.Animate when step.Name is { Length: > 0 } spun && running.Script.Continuous:
                     Play(spun, repeat: true, fromBehaviour: true);
                     running.Playing = spun;
                     running.Remaining = double.MaxValue;
@@ -1447,25 +1116,21 @@ public sealed class SceneUpdate
                 case GasAction.Animate when step.Name is { Length: > 0 } clip:
                     if (Draws(step.Chance))
                     {
-                        running.Remaining += Math.Max(
-                            Play(clip, step.Repeats, fromBehaviour: true), 1.0 / 60);
+                        running.Remaining += Math.Max( Play(clip, step.Repeats, fromBehaviour: true), 1.0 / 60);
 
                         running.Playing = clip;
                     }
 
                     break;
 
-                // A run of these is one choice, not several. Reading them as separate
-                // instructions plays every fidget a character has, in order, for ever.
+                // A run of these is one choice, not several.
                 case GasAction.OneOf:
                     running.Position--;
                     Choose(running);
                     break;
 
                 case GasAction.Wait when Draws(step.Chance):
-                    running.Remaining += step.To > step.Seconds
-                        ? step.Seconds + (_chance.NextDouble() * (step.To - step.Seconds))
-                        : step.Seconds;
+                    running.Remaining += step.To > step.Seconds ? step.Seconds + (_chance.NextDouble() * (step.To - step.Seconds)) : step.Seconds;
 
                     break;
 
@@ -1482,13 +1147,11 @@ public sealed class SceneUpdate
                     break;
 
                 case GasAction.Increment when step.Name is { Length: > 0 } counted:
-                    running.Registers[counted] =
-                        running.Registers.GetValueOrDefault(counted) + 1;
+                    running.Registers[counted] = running.Registers.GetValueOrDefault(counted) + 1;
 
                     break;
 
-                case GasAction.If when step.Name is { Length: > 0 } tested &&
-                                       step.Other is { Length: > 0 } target:
+                case GasAction.If when step.Name is { Length: > 0 } tested && step.Other is { Length: > 0 } target:
                     if (Holds(running.Registers.GetValueOrDefault(tested), step))
                     {
                         running.Position = running.Script.LabelAt(target) ?? running.Position;
@@ -1496,95 +1159,60 @@ public sealed class SceneUpdate
 
                     break;
 
-                // A character handing themselves a different idle. The script is replaced
-                // and started from the top, which is what the instruction means.
+                // A character handing themselves a different idle.
                 case GasAction.NewIdle when step.Name is { Length: > 0 } named:
                     Rescript(running, named);
                     break;
 
-                // Walking and looking go through the room's own hooks rather than being
-                // done again here: the route, the stride and the head-turn limits all
-                // belong to whatever the scene attached, and a second implementation of any
-                // of them would be a second answer.
-                case GasAction.WalkTo when step.Name is { Length: > 0 } spot &&
-                                           running.Owner is { } walker:
+                // Walking and looking go through the room's own hooks rather than being done again here: the route, the stride and the head-turn.
+                case GasAction.WalkTo when step.Name is { Length: > 0 } spot && running.Owner is { } walker:
                     running.Remaining += Send(walker.Name, spot);
                     break;
 
-                case GasAction.ChooseWalk when step.Names is { Count: > 0 } spots &&
-                                               running.Owner is { } wanderer:
-                    running.Remaining += Send(
-                        wanderer.Name, spots[_chance.NextInt32(0, spots.Count)]);
+                case GasAction.ChooseWalk when step.Names is { Count: > 0 } spots && running.Owner is { } wanderer:
+                    running.Remaining += Send( wanderer.Name, spots[_chance.NextInt32(0, spots.Count)]);
 
                     break;
 
-                case GasAction.LookAt when step.Name is { Length: > 0 } at &&
-                                           running.Owner is { } looker:
-                    _api.Invoke(
-                        "LookitModel",
+                case GasAction.LookAt when step.Name is { Length: > 0 } at && running.Owner is { } looker:
+                    _api.Invoke( "LookitModel",
                         [
-                            Sheep.SheepValue.FromString(looker.Name),
-                            Sheep.SheepValue.FromString(at),
-                            Sheep.SheepValue.FromFloat((float)step.Seconds),
-                        ]);
+                            Sheep.SheepValue.FromString(looker.Name), Sheep.SheepValue.FromString(at),
+                            Sheep.SheepValue.FromFloat((float)step.Seconds), ]);
 
                     break;
 
-                // Where the character now is. Not a guard on the script, which is what the
-                // name suggests and what this was filed under: the reference's
-                // LocationGasNode calls SetActorLocation outright.
-                //
-                // Emilio's bench script ends with LOCATION LBY, a get-up animation and a
-                // walk to the hotel door — he leaves when Gabriel comes near, and the whole
-                // of what tells the rest of the game he has gone is that one line. Dropped,
-                // the lobby goes on believing he is outside on a bench, and every
-                // IsActorAtLocation about him answers wrongly for the rest of the morning.
-                case GasAction.AtLocation when step.Name is { Length: > 0 } moved &&
-                                               running.Owner is { } who:
+                // Where the character now is.
+                case GasAction.AtLocation when step.Name is { Length: > 0 } moved && running.Owner is { } who:
                     _api.State.SetActorLocation(who.Noun ?? who.Name, moved);
                     break;
 
-                // A line, said by whoever the script drives. Two of Mosely's are the whole
-                // of what he says when he notices Gabriel in the lobby, and a fidget that
-                // speaks has to wait the line out — a script that runs on takes the model
-                // back mid-sentence.
+                // A line, said by whoever the script drives.
                 case GasAction.Speak when step.Name is { Length: > 0 } plate:
                     running.Remaining += Say(plate);
                     break;
 
-                // An expression worn until something takes it off. The Sheep function is
-                // where the pairing of an "on" animation with its "off" lives, and a
-                // second implementation here would be a second answer to which one is on.
-                case GasAction.SetMood when step.Name is { Length: > 0 } mood &&
-                                            running.Owner is { } wearer:
-                    _api.Invoke(
-                        "SetMood",
+                // An expression worn until something takes it off.
+                case GasAction.SetMood when step.Name is { Length: > 0 } mood && running.Owner is { } wearer:
+                    _api.Invoke( "SetMood",
                         [
-                            Sheep.SheepValue.FromString(wearer.Noun ?? wearer.Name),
-                            Sheep.SheepValue.FromString(mood),
-                        ]);
+                            Sheep.SheepValue.FromString(wearer.Noun ?? wearer.Name), Sheep.SheepValue.FromString(mood), ]);
 
                     break;
 
-                // Back to where the scene put them. Three scripts end with it, and what
-                // they have in common is a character who wanders — Mosely round the lobby,
-                // Vittorio round the chapel — and must not have drifted by the time the
-                // story next wants them somewhere in particular.
+                // Back to where the scene put them.
                 case GasAction.ResetPosition when running.Owner is { } strayed:
                     Restore(strayed);
                     break;
 
-                // Everything else is parsed and not run: labels and declarations, which
-                // are read where they are needed rather than stepped through.
+                // Everything else is parsed and not run: labels and declarations, which are read where they are needed rather than stepped through.
                 default:
                     break;
             }
         }
     }
 
-    /// <summary>
-    /// Lets a behaviour notice somebody coming near, or leaving.
-    /// </summary>
+    /// <summary>Lets a behaviour notice somebody coming near, or leaving.</summary>
     /// <param name="running">The script.</param>
     private void Notice(Behaviour running)
     {
@@ -1597,17 +1225,13 @@ public sealed class SceneUpdate
             bool watching = step.Action is GasAction.WhenNear or GasAction.WhenNoLongerNear;
             bool seeing = step.Action == GasAction.WhenInView;
 
-            if ((!watching && !seeing) ||
-                step.Name is not { Length: > 0 } noun ||
-                step.Other is not { Length: > 0 } label ||
+            if ((!watching && !seeing) || step.Name is not { Length: > 0 } noun || step.Other is not { Length: > 0 } label ||
                 running.Owner is not { } owner)
             {
                 continue;
             }
 
-            // From this script's own actor, unless the condition names somebody else to
-            // measure from — Estelle's whisper idle watches Gabriel against LADY_HOWARD,
-            // so the pair notice him together.
+            // From this script's own actor, unless the condition names somebody else to measure from — Estelle's whisper idle watches Gabriel.
             string from = step.Between is { Length: > 0 } other ? other : owner.Name;
 
             bool met;
@@ -1618,9 +1242,7 @@ public sealed class SceneUpdate
             }
             else
             {
-                bool near = Where(from) is { } here &&
-                            Where(noun) is { } them &&
-                            Flat(here - them) < step.Value * (float)step.Value;
+                bool near = Where(from) is { } here && Where(noun) is { } them && Flat(here - them) < step.Value * (float)step.Value;
 
                 met = step.Action == GasAction.WhenNear ? near : !near;
             }
@@ -1631,9 +1253,7 @@ public sealed class SceneUpdate
             {
                 running.Noticed.Add(index);
 
-                // The chance is spent when the condition fires rather than tested every
-                // frame, which is the difference between "sometimes notices" and "notices
-                // after a random number of frames of standing there".
+                // The chance is spent when the condition fires rather than tested every frame, which is the difference between "sometimes notices".
                 if (Draws(step.Chance) && running.Script.LabelAt(label) is { } at)
                 {
                     running.Position = at;
@@ -1648,16 +1268,13 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Whether one actor has another in front of them.</summary>
+    /// <returns>True when the second is inside the first's field of view.</returns>
     /// <param name="looker">Whose sight, by either of their names.</param>
     /// <param name="seen">Who they might see.</param>
     /// <param name="degrees">How wide their sight is, in degrees, as the script states it.</param>
-    /// <returns>True when the second is inside the first's field of view.</returns>
     private bool Sees(string looker, string seen, int degrees)
     {
-        if (degrees <= 0 ||
-            Where(looker) is not { } here ||
-            Where(seen) is not { } them ||
-            Looking(looker) is not { } gaze)
+        if (degrees <= 0 || Where(looker) is not { } here || Where(seen) is not { } them || Looking(looker) is not { } gaze)
         {
             return false;
         }
@@ -1670,22 +1287,19 @@ public sealed class SceneUpdate
             return false;
         }
 
-        float cosine = Vector2.Dot(
-            Vector2.Normalize(ahead), Vector2.Normalize(towards));
+        float cosine = Vector2.Dot( Vector2.Normalize(ahead), Vector2.Normalize(towards));
 
         return cosine >= MathF.Cos(float.DegreesToRadians(degrees) / 2f);
     }
 
     /// <summary>Says one line, and answers how long it lasts.</summary>
-    /// <param name="plate">The licence plate the line is filed under.</param>
     /// <returns>Seconds the line takes, or zero when nothing can play it.</returns>
+    /// <param name="plate">The licence plate the line is filed under.</param>
     private double Say(string plate)
     {
         Sheep.SheepValue[] arguments =
         [
-            Sheep.SheepValue.FromString(plate),
-            Sheep.SheepValue.FromInt(1),
-        ];
+            Sheep.SheepValue.FromString(plate), Sheep.SheepValue.FromInt(1), ];
 
         _api.Invoke("StartVoiceOver", arguments);
 
@@ -1720,8 +1334,7 @@ public sealed class SceneUpdate
         int last = first;
         int total = 0;
 
-        while (last < running.Script.Steps.Count &&
-               running.Script.Steps[last].Action == GasAction.OneOf)
+        while (last < running.Script.Steps.Count && running.Script.Steps[last].Action == GasAction.OneOf)
         {
             total += Math.Max(1, running.Script.Steps[last].Weight);
             last++;
@@ -1737,8 +1350,7 @@ public sealed class SceneUpdate
 
             if (draw < 0 && running.Script.Steps[i].Name is { Length: > 0 } chosen)
             {
-                running.Remaining += Math.Max(
-                    Play(chosen, fromBehaviour: true), 1.0 / 60);
+                running.Remaining += Math.Max( Play(chosen, fromBehaviour: true), 1.0 / 60);
                 return;
             }
         }
@@ -1766,23 +1378,16 @@ public sealed class SceneUpdate
     public Func<string, Formats.Animation.GasFile?>? Behaviours { get; set; }
 
     /// <summary>Sends somebody to a named spot, and says how long it takes.</summary>
-    private double Send(string actor, string spot) =>
-        _api.Walks?.Invoke(actor, spot, Approaching.Walk, false, false) ?? 0;
+    private double Send(string actor, string spot) => _api.Walks?.Invoke(actor, spot, Approaching.Walk, false, false) ?? 0;
 
     /// <summary>Whether something with a percentage chance happens this time.</summary>
-    private bool Draws(int chance) =>
-        chance is <= 0 or >= 100 || _chance.NextInt32(0, 100) < chance;
+    private bool Draws(int chance) => chance is <= 0 or >= 100 || _chance.NextInt32(0, 100) < chance;
 
     /// <summary>Whether a register compares as the instruction says.</summary>
     private static bool Holds(int value, GasStep step) => step.Comparison switch
     {
-        "=" or "==" => value == step.Value,
-        "!=" or "<>" => value != step.Value,
-        ">" => value > step.Value,
-        "<" => value < step.Value,
-        ">=" => value >= step.Value,
-        "<=" => value <= step.Value,
-        _ => false,
+        "=" or "==" => value == step.Value, "!=" or "<>" => value != step.Value, ">" => value > step.Value, "<" => value < step.Value,
+        ">=" => value >= step.Value, "<=" => value <= step.Value, _ => false,
     };
 
     /// <summary>How many scenery scripts are running.</summary>
@@ -1791,18 +1396,14 @@ public sealed class SceneUpdate
     /// <summary>How many characters have something to do when nobody is asking.</summary>
     public int Fidgeting => _fidgets.Count;
 
-    /// <summary>
-    /// The code this room needs that its data cannot express, where it declares any.
-    /// </summary>
+    /// <summary>The code this room needs that its data cannot express, where it declares any.</summary>
     public Mechanisms.SceneMechanism? Mechanism { get; set; }
 
-    /// <summary>
-    /// Stands an actor somewhere without dropping them onto the floor.
-    /// </summary>
+    /// <summary>Stands an actor somewhere without dropping them onto the floor.</summary>
+    /// <returns>True when there was somebody of that name to move.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="position">Where to stand them, in world space.</param>
     /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
-    /// <returns>True when there was somebody of that name to move.</returns>
     public bool Carry(string actor, Vector3 position, float heading)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -1829,8 +1430,8 @@ public sealed class SceneUpdate
     }
 
     /// <summary>One of the spots the scene marks out, by name.</summary>
-    /// <param name="name">What the scene file calls it.</param>
     /// <returns>The spot, or null when the room has no such name.</returns>
+    /// <param name="name">What the scene file calls it.</param>
     public Formats.Scenes.ScenePosition? PositionNamed(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -1839,21 +1440,19 @@ public sealed class SceneUpdate
     }
 
     /// <summary>The middle of anything the room names, prop or geometry.</summary>
-    /// <param name="objectName">What it is called.</param>
     /// <returns>The centre of its box in world space, or null when there is no such thing.</returns>
+    /// <param name="objectName">What it is called.</param>
     public Vector3? MiddleOf(string objectName)
     {
         ArgumentNullException.ThrowIfNull(objectName);
 
-        return SceneScripting.Bounds(_scene, objectName) is var (low, high)
-            ? (low + high) * 0.5f
-            : null;
+        return SceneScripting.Bounds(_scene, objectName) is var (low, high) ? (low + high) * 0.5f : null;
     }
 
     /// <summary>Repaints one of the room's own surfaces.</summary>
+    /// <returns>True when the room has such an object and the picture was found.</returns>
     /// <param name="objectName">The object in the geometry.</param>
     /// <param name="texture">What to paint it with; null puts its own picture back.</param>
-    /// <returns>True when the room has such an object and the picture was found.</returns>
     public bool PaintObject(string objectName, string? texture)
     {
         ArgumentNullException.ThrowIfNull(objectName);
@@ -1869,13 +1468,11 @@ public sealed class SceneUpdate
     /// <summary>Where actors may stand, when the room declares a boundary.</summary>
     public Navigation.WalkBoundary? Boundary => _scene.Walkable;
 
-    /// <summary>
-    /// Poses named models on an animation's <em>last</em> frame, without running it.
-    /// </summary>
+    /// <summary>Poses named models on an animation's last frame, without running it.</summary>
+    /// <returns>How many were posed.</returns>
     /// <param name="animation">What the animation is called.</param>
     /// <param name="models">Which of its models to pose; others in it are left alone.</param>
     /// <param name="atEnd">Whether to take the closing frame rather than the opening one.</param>
-    /// <returns>How many were posed.</returns>
     public int Pose(string animation, IReadOnlyCollection<string> models, bool atEnd = true)
     {
         ArgumentNullException.ThrowIfNull(animation);
@@ -1890,22 +1487,14 @@ public sealed class SceneUpdate
 
         foreach (AnimationAction action in read.Actions)
         {
-            if (Clips.Read(action.Name) is not { } clip ||
-                !models.Contains(clip.ModelName, StringComparer.OrdinalIgnoreCase) ||
+            if (Clips.Read(action.Name) is not { } clip || !models.Contains(clip.ModelName, StringComparer.OrdinalIgnoreCase) ||
                 !_models.TryGetValue(clip.ModelName, out PlacedModel? target))
             {
                 continue;
             }
 
-            var pose = new Playing(
-                clip,
-                target,
-                action with { Frame = 0 },
-                repeat: false,
-                moves: true,
-                Where(target.Name),
-                _geometry.TransformOf(target.Placement),
-                character: Characters?.Of(target.Name));
+            var pose = new Playing( clip, target, action with { Frame = 0 }, repeat: false, moves: true, Where(target.Name),
+                _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
             if (atEnd)
             {
@@ -1926,8 +1515,8 @@ public sealed class SceneUpdate
     public ISceneSink Geometry => _geometry;
 
     /// <summary>Finds a model the room places, by either of its names.</summary>
-    /// <param name="name">Its model name or the noun the scene gives it.</param>
     /// <returns>The model, or null when the room has nothing by that name.</returns>
+    /// <param name="name">Its model name or the noun the scene gives it.</param>
     public PlacedModel? ModelNamed(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -1939,9 +1528,7 @@ public sealed class SceneUpdate
 
         foreach (PlacedModel placed in _scene.Models)
         {
-            if (placed.Placement.Exists &&
-                placed.Noun is { Length: > 0 } noun &&
-                noun.Equals(name, StringComparison.OrdinalIgnoreCase))
+            if (placed.Placement.Exists && placed.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase))
             {
                 return placed;
             }
@@ -1961,9 +1548,7 @@ public sealed class SceneUpdate
         _geometry.SetVisible(model.Placement, visible);
     }
 
-    /// <summary>
-    /// Applies an animation's visibility changes.
-    /// </summary>
+    /// <summary>Applies an animation's visibility changes.</summary>
     /// <param name="changes">The changes due now.</param>
     private void Reveal(IEnumerable<AnimationVisibility> changes)
     {
@@ -1976,8 +1561,7 @@ public sealed class SceneUpdate
 
             if (change.Mesh >= 0 && change.Submesh >= 0)
             {
-                _geometry.SetPartVisible(
-                    model.Placement, change.Mesh, change.Submesh, change.Visible);
+                _geometry.SetPartVisible( model.Placement, change.Mesh, change.Submesh, change.Visible);
 
                 continue;
             }
@@ -1987,9 +1571,9 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Draws one of the room's own named objects, or stops drawing it.</summary>
+    /// <returns>True when the room has an object by that name.</returns>
     /// <param name="objectName">The object's name, as the geometry records it.</param>
     /// <param name="visible">Whether it is drawn.</param>
-    /// <returns>True when the room has an object by that name.</returns>
     public bool ShowObject(string objectName, bool visible)
     {
         ArgumentNullException.ThrowIfNull(objectName);
@@ -2016,42 +1600,33 @@ public sealed class SceneUpdate
         return true;
     }
 
-    /// <summary>The room's hit tests by name, read once because the scene files are merged
-    /// afresh on every call.</summary>
+    /// <summary>The room's hit tests by name, read once because the scene files are merged afresh on every call.</summary>
     private HashSet<string>? _hitTests;
 
     /// <summary>Whether the room declares this object as a hit test rather than geometry.</summary>
     private bool IsHitTest(string objectName)
     {
-        _hitTests ??= _scene.Definition.Models()
-            .Where(m => string.Equals(m.Type, "hittest", StringComparison.OrdinalIgnoreCase))
-            .Select(m => m.Name)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _hitTests ??= _scene.Definition.Models() .Where(m => string.Equals(m.Type, "hittest", StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Name) .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return _hitTests.Contains(objectName);
     }
 
-    /// <summary>
-    /// Whose space the clips of an animation are authored in, when it is not the room's.
-    /// </summary>
-    /// <param name="animation">The <c>.ANM</c> name, whose first three letters name them.</param>
-    /// <param name="file">That animation, which has to agree that they are its subject.</param>
+    /// <summary>Whose space the clips of an animation are authored in, when it is not the room's.</summary>
     /// <returns>The model to play its other clips relative to, or null for the room.</returns>
+    /// <param name="animation">The .ANM name, whose first three letters name them.</param>
+    /// <param name="file">That animation, which has to agree that they are its subject.</param>
     private PlacedModel? Holder(string animation, AnimationFile file)
     {
-        if (animation.Length < 3 ||
-            Clips is null ||
-            !_models.TryGetValue(animation[..3], out PlacedModel? owner))
+        if (animation.Length < 3 || Clips is null || !_models.TryGetValue(animation[..3], out PlacedModel? owner))
         {
             return null;
         }
 
         foreach (AnimationAction action in file.Actions)
         {
-            // An absolute clip says where in the room it happens, so it is nobody's
-            // passenger and it makes nobody else one either.
-            if (action.Placement is null &&
-                Clips.Read(action.Name) is { } clip &&
+            // An absolute clip says where in the room it happens, so it is nobody's passenger and it makes nobody else one either.
+            if (action.Placement is null && Clips.Read(action.Name) is { } clip &&
                 clip.ModelName.Equals(owner.Name, StringComparison.OrdinalIgnoreCase))
             {
                 return owner;
@@ -2074,11 +1649,9 @@ public sealed class SceneUpdate
         _geometry.MoveModel(held.Placement, ModelSpace(holder));
     }
 
-    /// <summary>
-    /// Where a model's own space sits in the room, with whatever is animating it.
-    /// </summary>
-    /// <param name="model">The model whose space is wanted.</param>
+    /// <summary>Where a model's own space sits in the room, with whatever is animating it.</summary>
     /// <returns>The transform a clip authored in that space is played through.</returns>
+    /// <param name="model">The model whose space is wanted.</param>
     private Matrix4x4 ModelSpace(PlacedModel model)
     {
         Matrix4x4 standing = _geometry.TransformOf(model.Placement);
@@ -2090,14 +1663,11 @@ public sealed class SceneUpdate
             return driving.Space * standing;
         }
 
-        return _space.TryGetValue(model.Name, out Matrix4x4 last)
-            ? last * standing
-            : standing;
+        return _space.TryGetValue(model.Name, out Matrix4x4 last) ? last * standing : standing;
     }
 
     /// <summary>Whether a clip that is playing is the one animating a model.</summary>
-    private static bool Drives(Playing playing, PlacedModel model) =>
-        ReferenceEquals(playing.Target, model) ||
+    private static bool Drives(Playing playing, PlacedModel model) => ReferenceEquals(playing.Target, model) ||
         playing.Target.Name.Equals(model.Name, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Stops everything a model is doing.</summary>
@@ -2126,82 +1696,57 @@ public sealed class SceneUpdate
             return;
         }
 
-        foreach (Playing running in _playing.Where(p =>
-            p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+        foreach (Playing running in _playing.Where(p => p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
         {
             Rest(running);
 
-            // And an actor keeps whatever ground a move clip had covered by the time it was
-            // stopped, as it would have if the clip had been left to finish. See Adopt.
+            // And an actor keeps whatever ground a move clip had covered by the time it was stopped, as it would have if the clip had been left to.
             if (!running.Reverts)
             {
                 Adopt(running);
             }
         }
 
-        _playing.RemoveAll(p =>
-            p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
+        _playing.RemoveAll(p => p.Clip.ModelName.Equals(model, StringComparison.OrdinalIgnoreCase) ||
             p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
 
-        // And the noises it was going to make. Reported from the museum: Estelle and Lady
-        // Howard stop whispering the moment they notice Gabriel, and the whispering went on
-        // being audible — the clip was stopped and its sound cues, which live in a list of
-        // their own, were not.
-        //
-        // By either name. A script stops an animation by the animation's name, and an actor
-        // is stopped by their model's; a cue can be reached from both because it remembers
-        // the first and may carry the second.
-        _cues.RemoveAll(c =>
-            c.Owner.Equals(model, StringComparison.OrdinalIgnoreCase) ||
-            c.Model.Equals(model, StringComparison.OrdinalIgnoreCase));
+        // And the noises it was going to make.
+        _cues.RemoveAll(c => c.Owner.Equals(model, StringComparison.OrdinalIgnoreCase) || c.Model.Equals(model, StringComparison.OrdinalIgnoreCase));
 
-        // And whatever it was about to be shown or hidden by. A clip that is stopped
-        // half-way should not still turn its model off four seconds later.
+        // And whatever it was about to be shown or hidden by.
         _showings.RemoveAll(v => v.Concerns(model));
 
-        // And whatever it was about to do to the room. These are stopped by the
-        // animation's own name rather than by a model's, because they name no model:
-        // `disco_flashdance_a` is nothing but a floor flashing on a loop, and
-        // `StopAnimation("disco_flashdance_a")` is the only thing that ever ends it.
+        // And whatever it was about to do to the room.
         _roomSwaps.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
         _roomShowings.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
 
-        // And whatever it was about to say, frame or put on a face, for the same reason
-        // and by the same name. A moment that is cut short should not go on speaking.
+        // And whatever it was about to say, frame or put on a face, for the same reason and by the same name.
         _lines.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
         _shots.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
         _moods.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
         _music.RemoveAll(s => s.Owner.Equals(model, StringComparison.OrdinalIgnoreCase));
 
-        // Whatever it does on its own is its own again. A hold outliving the clip that
-        // asked for it leaves a character standing perfectly still for the rest of the
-        // scene.
+        // Whatever it does on its own is its own again.
         Release(model);
     }
 
-    /// <summary>
-    /// Whether a script is animating somebody right now.
-    /// </summary>
-    /// <param name="actor">Their model name or noun.</param>
+    /// <summary>Whether a script is animating somebody right now.</summary>
     /// <returns>True while a clip the story asked for is playing on them.</returns>
+    /// <param name="actor">Their model name or noun.</param>
     public bool Performing(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
         string model = ModelNamed(actor)?.Name ?? actor;
 
-        return _playing.Any(p =>
-            !p.FromBehaviour &&
-            p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
+        return _playing.Any(p => !p.FromBehaviour && p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Gives a model back to its own script, once nothing else is animating it.</summary>
     private void Release(string model)
     {
-        if (_playing.Any(p =>
-                !p.FromBehaviour &&
-                p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
+        if (_playing.Any(p => !p.FromBehaviour && p.Target.Name.Equals(model, StringComparison.OrdinalIgnoreCase)))
         {
             return;
         }
@@ -2225,8 +1770,7 @@ public sealed class SceneUpdate
 
         foreach (Behaviour running in _scenery)
         {
-            if (running.Owner is { } owner &&
-                owner.Name.Equals(model, StringComparison.OrdinalIgnoreCase))
+            if (running.Owner is { } owner && owner.Name.Equals(model, StringComparison.OrdinalIgnoreCase))
             {
                 return running;
             }
@@ -2245,8 +1789,8 @@ public sealed class SceneUpdate
     public int OnTheMove => _walking.Count;
 
     /// <summary>Where an actor is now, if the scene has one by that name.</summary>
-    /// <param name="actor">The actor's model name.</param>
     /// <returns>Their position, or null.</returns>
+    /// <param name="actor">The actor's model name.</param>
     public Vector3? Where(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2255,8 +1799,8 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Where an actor is walking to, if they are walking anywhere.</summary>
-    /// <param name="actor">Their model name or noun.</param>
     /// <returns>The end of their route, or null when they are standing still.</returns>
+    /// <param name="actor">Their model name or noun.</param>
     public Vector3? Heading(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2266,19 +1810,14 @@ public sealed class SceneUpdate
             return walking.Walker.Destination;
         }
 
-        // Under the other name. A scene places `eml` and calls him EMILIO, and a script
-        // uses whichever it feels like.
-        return _standing.TryGetValue(actor, out PlacedModel? placed) &&
-               _walking.TryGetValue(placed.Name, out Walking? theirs)
-            ? theirs.Walker.Destination
-            : null;
+        // Under the other name.
+        return _standing.TryGetValue(actor, out PlacedModel? placed) && _walking.TryGetValue(placed.Name, out Walking? theirs)
+            ? theirs.Walker.Destination : null;
     }
 
-    /// <summary>
-    /// Which way somebody is looking.
-    /// </summary>
-    /// <param name="actor">Their model name or noun.</param>
+    /// <summary>Which way somebody is looking.</summary>
     /// <returns>A unit vector along their line of sight, or null when nobody answers.</returns>
+    /// <param name="actor">Their model name or noun.</param>
     public Vector3? Looking(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2293,56 +1832,36 @@ public sealed class SceneUpdate
             return null;
         }
 
-        return _walking.TryGetValue(placed.Name, out Walking? theirs)
-            ? Ahead(theirs.Walker.Facing)
+        return _walking.TryGetValue(placed.Name, out Walking? theirs) ? Ahead(theirs.Walker.Facing)
             : Ahead(Navigation.Walker.HeadingOf(placed.Standing));
     }
 
-    /// <summary>
-    /// Which way somebody is facing, as the game's data measures a heading.
-    /// </summary>
-    /// <param name="actor">Who, by either of their names.</param>
+    /// <summary>Which way somebody is facing, as the game's data measures a heading.</summary>
     /// <returns>The heading in degrees, or null when nobody of that name is in the room.</returns>
+    /// <param name="actor">Who, by either of their names.</param>
     public float? Facing(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        return _standing.TryGetValue(actor, out PlacedModel? placed)
-            ? Navigation.Walker.HeadingOf(placed.Standing)
-            : null;
+        return _standing.TryGetValue(actor, out PlacedModel? placed) ? Navigation.Walker.HeadingOf(placed.Standing) : null;
     }
 
-    /// <summary>
-    /// Which way an actor faces, measured the way their placement was written.
-    /// </summary>
-    /// <param name="actor">Who, by either of their names.</param>
+    /// <summary>Which way an actor faces, measured the way their placement was written.</summary>
     /// <returns>The heading in radians, or null when nobody of that name is in the room.</returns>
-    /// <remarks>
-    /// Not <see cref="Facing"/>: that reads the placement as a plain half turn, which is
-    /// what the rest of the game has always asked of it, and does not undo the model's own
-    /// built facing. The difference is invisible until something writes a heading and reads
-    /// it straight back, which is what standing behind the player's eyes does every frame.
-    /// </remarks>
+    /// <param name="actor">Who, by either of their names.</param>
     public float? Turned(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        return _standing.TryGetValue(actor, out PlacedModel? placed)
-            ? Actors.FacingArrow.HeadingOf(placed.Standing, placed.BuiltFacing)
-            : null;
+        return _standing.TryGetValue(actor, out PlacedModel? placed) ? Actors.FacingArrow.HeadingOf(placed.Standing, placed.BuiltFacing) : null;
     }
 
-    /// <summary>
-    /// The way an actor faces once they have stopped: the facing a walk under way was asked
-    /// to end on, else the way they stand.
-    /// </summary>
+    /// <summary>The way an actor faces once they have stopped: the facing a walk under way was asked to end on, else the way they stand.</summary>
     public float? SettledFacing(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        return _walking.TryGetValue(actor, out Walking? walking) && walking.Walker.ArrivalFacing is { } arriving
-            ? arriving
-            : Facing(actor);
+        return _walking.TryGetValue(actor, out Walking? walking) && walking.Walker.ArrivalFacing is { } arriving ? arriving : Facing(actor);
     }
 
     /// <summary>Where an actor's eyes are, or null when they are not standing here.</summary>
@@ -2350,92 +1869,52 @@ public sealed class SceneUpdate
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        return _standing.TryGetValue(actor, out PlacedModel? placed) && Where(actor) is { } feet
-            ? feet + (Vector3.UnitY * Eyes(placed))
-            : null;
+        return _standing.TryGetValue(actor, out PlacedModel? placed) && Where(actor) is { } feet ? feet + (Vector3.UnitY * Eyes(placed)) : null;
     }
 
     /// <summary>The direction a heading looks along.</summary>
-    private static Vector3 Ahead(float heading) =>
-        new(MathF.Sin(heading), 0f, MathF.Cos(heading));
+    private static Vector3 Ahead(float heading) => new(MathF.Sin(heading), 0f, MathF.Cos(heading));
 
-    /// <summary>
-    /// Sets an actor walking to a place on the floor.
-    /// </summary>
+    /// <summary>Sets an actor walking to a place on the floor.</summary>
+    /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
     /// <param name="actor">Their model name.</param>
     /// <param name="destination">Where to go, in world space.</param>
-    /// <param name="arriveFacing">
-    /// Which way to face on arrival, in radians, or null to keep the direction of travel.
-    /// </param>
+    /// <param name="arriveFacing">Which way to face on arrival, in radians, or null to keep the direction of travel.</param>
     /// <param name="arriveLookingAt">What to be looking at on arrival, if not a fixed heading.</param>
-    /// <param name="hurry">
-    /// Whether to go at <see cref="HurryFactor"/> times the usual pace. The player's own
-    /// impatience and nothing else: a script's timings are written against the pace the
-    /// game walks at.
-    /// </param>
-    /// <param name="mayRun">
-    /// Whether a long walk may pick up the pace by itself. True for a walk the player asked
-    /// for and false for one a script asked for, because a script's timings assume the pace
-    /// the game was authored at and this would run out from under them.
-    /// </param>
-    /// <param name="untilSeen">
-    /// The bounds of what the walk is to see, or null for an ordinary walk. Given one,
-    /// the walk stops where the thing comes into view rather than where it was aimed —
-    /// which is what <c>WalkToSee</c> means, and 2,120 of the corpus's approaches are one.
-    /// </param>
-    /// <returns>How long the walk will take, or zero when there is no walking to do.</returns>
-    public double Walk(
-        string actor,
-        Vector3 destination,
-        float? arriveFacing = null,
-        Vector3? arriveLookingAt = null,
-        bool hurry = false,
-        bool mayRun = false,
-        SightTarget? untilSeen = null)
+    /// <param name="hurry">Whether to go at times the usual pace.</param>
+    /// <param name="mayRun">Whether a long walk may pick up the pace by itself.</param>
+    /// <param name="untilSeen">The bounds of what the walk is to see, or null for an ordinary walk.</param>
+    public double Walk( string actor, Vector3 destination, float? arriveFacing = null, Vector3? arriveLookingAt = null, bool hurry = false,
+        bool mayRun = false, SightTarget? untilSeen = null)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
         if (!_standing.TryGetValue(actor, out PlacedModel? placed))
         {
-            Diagnostics.Add(new Diagnostic(
-                "GK3R3310", DiagnosticSeverity.Warning,
-                "A script asked an actor to walk who is not in the room.",
-                _scene.Name, null, "an actor the scene placed", actor,
-                "Check the name against the scene's [ACTORS] section."));
+            Diagnostics.Add(new Diagnostic( "GK3R3310", DiagnosticSeverity.Warning, "A script asked an actor to walk who is not in the room.",
+                _scene.Name, null, "an actor the scene placed", actor, "Check the name against the scene's [ACTORS] section."));
 
             return 0;
         }
 
         Vector3 from = Where(actor) ?? placed.Transform.Translation;
 
-        // Where they are facing now, not where the scene first put them. The two are the
-        // same for an actor nothing has turned, which is why this went unnoticed: with the
-        // player standing behind their own eyes and free to turn on the spot, every walk
-        // and every turn-to-look began by snapping them back to their authored heading and
-        // then turning smoothly from there. Measured as the placement was written, which
-        // Walker.HeadingOf does not do for a model whose own arrow was taken.
-        float facing = _walking.TryGetValue(actor, out Walking? already)
-            ? already.Walker.Facing
+        // Where they are facing now, not where the scene first put them.
+        float facing = _walking.TryGetValue(actor, out Walking? already) ? already.Walker.Facing
             : Actors.FacingArrow.HeadingOf(placed.Standing, placed.BuiltFacing);
 
-        // Already able to see it is not a walk at all — turn where you stand and look. The
-        // whole of what "walk to see" asks for is a line of sight, and somebody who has one
-        // crossing the room to get a better one is the behaviour this replaces.
-        if (untilSeen is { } wanted &&
-            Sight is { } sight &&
-            sight.InView(from + (Vector3.UnitY * Eyes(placed)), wanted))
+        // Already able to see it is not a walk at all — turn where you stand and look.
+        if (untilSeen is { } wanted && Sight is { } sight && sight.InView(from + (Vector3.UnitY * Eyes(placed)), wanted))
         {
             return Turn(actor, (wanted.Minimum + wanted.Maximum) * 0.5f);
         }
 
-        WalkRoute route = _scene.Walkable is { } boundary
-            ? WalkPath.Find(boundary, from, destination)
+        WalkRoute route = _scene.Walkable is { } boundary ? WalkPath.Find(boundary, from, destination)
 
             // No boundary is no obstacles, so the straight line is the route.
             : new WalkRoute(true, [destination]);
 
-        // A walk the player asked for stops where it walks onto something that acts on
-        // whoever stands there, rather than crossing it and carrying on.
+        // A walk the player asked for stops where it walks onto something that acts on whoever stands there, rather than crossing it and carrying on.
         route = ShortenedAtTrigger(actor, route);
 
         // And a walk to see something stops where it can see it.
@@ -2445,14 +1924,10 @@ public sealed class SceneUpdate
 
             route = ShortenedWhenSeen(route, placed, thing);
 
-            string outcome = route.Points.Count < whole.Points.Count
-                ? string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"seen from point {route.Points.Count} at ({route.Points[^1].X:0.#}, {route.Points[^1].Z:0.#})")
-                : "never in view";
+            string outcome = route.Points.Count < whole.Points.Count ? string.Create( CultureInfo.InvariantCulture,
+                    $"seen from point {route.Points.Count} at ({route.Points[^1].X:0.#}, {route.Points[^1].Z:0.#})") : "never in view";
 
-            TraceActors?.Invoke(string.Create(
-                CultureInfo.InvariantCulture,
+            TraceActors?.Invoke(string.Create( CultureInfo.InvariantCulture,
                 $"{placed.Name} walks to see ({thing.Minimum.X:0.#}, {thing.Minimum.Y:0.#}, " +
                 $"{thing.Minimum.Z:0.#})-({thing.Maximum.X:0.#}, {thing.Maximum.Y:0.#}, " +
                 $"{thing.Maximum.Z:0.#}) from ({from.X:0.#}, {from.Z:0.#}) aimed " +
@@ -2460,48 +1935,30 @@ public sealed class SceneUpdate
                 $"ending ({whole.Points[^1].X:0.#}, {whole.Points[^1].Z:0.#}), {outcome}"));
         }
 
-        // Asked for at once rather than walked. The route is still found, because where the
-        // walk would have *ended* is where the player belongs — the boundary may stop it
-        // short of what was asked for, and arriving somewhere the floor does not reach is
-        // worse than the walk it replaced.
+        // Asked for at once rather than walked.
         if (WarpNextWalk)
         {
             WarpNextWalk = false;
 
             if (route.Points.Count > 0)
             {
-                Place(
-                    actor,
-                    route.Points[^1],
-                    arriveFacing ?? (arriveLookingAt is { } look
-                        ? Walker.Heading(look - route.Points[^1])
-                        : facing));
+                Place( actor, route.Points[^1], arriveFacing ?? (arriveLookingAt is { } look ? Walker.Heading(look - route.Points[^1]) : facing));
 
                 return 0;
             }
         }
 
-        // Far enough to be worth running. Measured along the route rather than straight at
-        // the destination, because a walk that goes round the bed is the walk being taken —
-        // and the first leg is added because the route begins at the nearest walkable texel
-        // rather than under the actor's feet.
+        // Far enough to be worth running.
         if (mayRun && !hurry && route.Points.Count > 0)
         {
             Vector3 first = route.Points[0] - from;
 
-            hurry = MathF.Sqrt((first.X * first.X) + (first.Z * first.Z)) + route.Length()
-                    >= RunBeyond;
+            hurry = MathF.Sqrt((first.X * first.X) + (first.Z * first.Z)) + route.Length() >= RunBeyond;
         }
 
         // The stride first, because its pace is what the walk is measured at.
-        WalkCycle? stride = WalkCycle.For(
-            placed,
-            Characters,
-            Animations,
-            Clips,
-            _strides.TryGetValue(placed.Name, out (string Start, string Loop) given)
-                ? given.Loop
-                : null);
+        WalkCycle? stride = WalkCycle.For( placed, Characters, Animations, Clips,
+            _strides.TryGetValue(placed.Name, out (string Start, string Loop) given) ? given.Loop : null);
         float rate = hurry ? HurryFactor : 1f;
 
         if (stride is not null)
@@ -2509,22 +1966,12 @@ public sealed class SceneUpdate
             stride.Rate = rate;
         }
 
-        var walker = new Walker(
-            actor,
-            route,
-            Standing(from),
-            facing,
-            arriveFacing,
-            arriveLookingAt,
+        var walker = new Walker( actor, route, Standing(from), facing, arriveFacing, arriveLookingAt,
 
-            // Both multiplied by the same number, which is the whole point: the ground
-            // covered and the feet covering it have to stay in agreement, and an actor with
-            // no stride at all still has to get there faster.
+            // Both multiplied by the same number, which is the whole point: the ground covered and the feet covering it have to stay in agreement.
             (stride?.Pace ?? Walker.Speed) * rate)
         {
-            // The room's floor, not the actor's. Held as a hook rather than looked up
-            // inside the walker so that a scene which names no floor object costs nothing
-            // and behaves exactly as it did before.
+            // The room's floor, not the actor's.
             Ground = _scene.Ground is { } ground ? ground.Height : null,
         };
 
@@ -2534,8 +1981,7 @@ public sealed class SceneUpdate
             return 0;
         }
 
-        // Whatever they were doing, they are walking now. Without this a character keeps
-        // the pose of the clip that was playing and slides across the room in it.
+        // Whatever they were doing, they are walking now.
         StopAnimating(placed.Name);
 
         _walking[actor] = new Walking(placed, walker, stride);
@@ -2548,20 +1994,15 @@ public sealed class SceneUpdate
     private SceneSight? _sight;
 
     /// <summary>How high an actor's eyes are above their feet.</summary>
-    /// <param name="actor">The model.</param>
     /// <returns>The character's own height, or the walker's default.</returns>
-    private float Eyes(PlacedModel actor) =>
-        Characters?.Of(actor.Name)?.WalkerHeight is { } height && height > 0
-            ? height
-            : Walker.StandOff;
+    /// <param name="actor">The model.</param>
+    private float Eyes(PlacedModel actor) => Characters?.Of(actor.Name)?.WalkerHeight is { } height && height > 0 ? height : Walker.StandOff;
 
-    /// <summary>
-    /// Cuts a walk short at the point where what it is going to look at comes into view.
-    /// </summary>
+    /// <summary>Cuts a walk short at the point where what it is going to look at comes into view.</summary>
+    /// <returns>The route, cut where the thing is first visible.</returns>
     /// <param name="route">The route as the boundary found it.</param>
     /// <param name="actor">Who is walking, for how tall they are.</param>
     /// <param name="thing">The bounds of what they are walking to see.</param>
-    /// <returns>The route, cut where the thing is first visible.</returns>
     private WalkRoute ShortenedWhenSeen(WalkRoute route, PlacedModel actor, SightTarget thing)
     {
         if (Sight is not { } sight || route.Points.Count == 0)
@@ -2596,29 +2037,19 @@ public sealed class SceneUpdate
 
             int stop = Math.Min(i + 1, route.Points.Count - 1);
 
-            return stop >= route.Points.Count - 1
-                ? route
-                : new WalkRoute(false, [.. route.Points.Take(stop + 1)]);
+            return stop >= route.Points.Count - 1 ? route : new WalkRoute(false, [.. route.Points.Take(stop + 1)]);
         }
 
         return route;
     }
 
     /// <summary>Drops a point onto the room's floor, when the room has one.</summary>
-    private Vector3 Standing(Vector3 at) =>
-        _scene.Ground?.Height(at) is { } height ? new Vector3(at.X, height, at.Z) : at;
+    private Vector3 Standing(Vector3 at) => _scene.Ground?.Height(at) is { } height ? new Vector3(at.X, height, at.Z) : at;
 
-    /// <summary>
-    /// Writes an actor's logical position from where their pose has put them, under every
-    /// name they answer to. Refused for the actor the player is driving: their position is
-    /// the player's answer and not their pose's, and in first person the eye is at that
-    /// point, so an idle shifting its weight becomes a camera wandering off across the room.
-    /// </summary>
+    /// <summary>Writes an actor's logical position from where their pose has put them, under every name they answer to.</summary>
     private void Follow(string actor, Vector3? position)
     {
-        if (position is not { } where ||
-            !_standing.TryGetValue(actor, out PlacedModel? placed) ||
-            IsDriven(placed))
+        if (position is not { } where || !_standing.TryGetValue(actor, out PlacedModel? placed) || IsDriven(placed))
         {
             return;
         }
@@ -2637,13 +2068,11 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Stands an actor at a spot outright, without walking them there.
-    /// </summary>
+    /// <summary>Stands an actor at a spot outright, without walking them there.</summary>
+    /// <returns>True when there was somebody of that name to move.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="position">Where to stand them, in world space.</param>
     /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
-    /// <returns>True when there was somebody of that name to move.</returns>
     public bool Place(string actor, Vector3 position, float heading)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2653,10 +2082,7 @@ public sealed class SceneUpdate
             return false;
         }
 
-        // A scene's spots carry a height, but not always the floor's: several are authored
-        // at zero and rely on the room being flat there. Dropping onto the floor first
-        // means an arrival never starts a walk from the wrong storey, which is the one
-        // mistake the height query cannot recover from later.
+        // A scene's spots carry a height, but not always the floor's: several are authored at zero and rely on the room being flat there.
         position = Standing(position);
 
         // Whatever they were doing, they are standing here now.
@@ -2665,31 +2091,22 @@ public sealed class SceneUpdate
         StopAnimating(placed.Name);
 
         // The placement is scale, then a turn, then a move, and the scale has to survive.
-        float scale = new Vector3(
-            placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
+        float scale = new Vector3( placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
 
-        _geometry.MoveModel(
-            placed.Placement,
-            Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
-            Matrix4x4.CreateRotationY(
-                Actors.FacingArrow.Rotation(heading, placed.BuiltFacing)) *
-            Matrix4x4.CreateTranslation(position));
+        _geometry.MoveModel( placed.Placement, Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) * Matrix4x4.CreateRotationY(
+                Actors.FacingArrow.Rotation(heading, placed.BuiltFacing)) * Matrix4x4.CreateTranslation(position));
 
         Record(placed, position);
 
-        // Nothing to tell the heads: they read the model's own transform, which this has
-        // just written, on the frame that follows.
+        // Nothing to tell the heads: they read the model's own transform, which this has just written, on the frame that follows.
         return true;
     }
 
-    /// <summary>
-    /// Moves an actor the player is driving themselves, leaving whatever they are doing
-    /// alone: no walk is cancelled and no clip is stopped, because nothing was started.
-    /// </summary>
+    /// <summary>Moves an actor the player is driving themselves, leaving whatever they are doing alone: no walk is cancelled and no.</summary>
+    /// <returns>True when there was somebody of that name to move.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="position">Where their feet are, already on the floor.</param>
     /// <param name="heading">Which way they face, as the game's data measures a heading.</param>
-    /// <returns>True when there was somebody of that name to move.</returns>
     public bool Step(string actor, Vector3 position, float heading)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2714,11 +2131,9 @@ public sealed class SceneUpdate
         Tread(new AnimationStep(0, actor, false));
     }
 
-    /// <summary>
-    /// Puts a character into their default standing pose.
-    /// </summary>
-    /// <param name="actor">Their model name or noun.</param>
+    /// <summary>Puts a character into their default standing pose.</summary>
     /// <returns>True when there was such a character and their walk-start clip was found.</returns>
+    /// <param name="actor">Their model name or noun.</param>
     public bool Stand(string actor)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2729,9 +2144,7 @@ public sealed class SceneUpdate
             return false;
         }
 
-        // Only this character's own clip out of it, and its first frame. The walk-start
-        // animations name one model each, but filtering costs nothing and is the rule
-        // everywhere else a pose is sampled rather than played — see Open.
+        // Only this character's own clip out of it, and its first frame.
         return Pose(upright, [placed.Name], atEnd: false) > 0;
     }
 
@@ -2750,19 +2163,13 @@ public sealed class SceneUpdate
     /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
     private static Matrix4x4 Standing(PlacedModel actor, Vector3 position, float heading)
     {
-        float scale = new Vector3(
-            actor.Transform.M11, actor.Transform.M12, actor.Transform.M13).Length();
+        float scale = new Vector3( actor.Transform.M11, actor.Transform.M12, actor.Transform.M13).Length();
 
-        return
-            Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) *
-            Matrix4x4.CreateRotationY(
-                Actors.FacingArrow.Rotation(heading, actor.BuiltFacing)) *
+        return Matrix4x4.CreateScale(scale <= 0 ? 1f : scale) * Matrix4x4.CreateRotationY( Actors.FacingArrow.Rotation(heading, actor.BuiltFacing)) *
             Matrix4x4.CreateTranslation(position);
     }
 
-    /// <summary>
-    /// Takes where a clip has left an actor standing as where that actor now stands.
-    /// </summary>
+    /// <summary>Takes where a clip has left an actor standing as where that actor now stands.</summary>
     /// <param name="actor">Whoever the clip was posing.</param>
     /// <param name="position">Where its last frame put their feet, in the room.</param>
     /// <param name="heading">And which way it left them facing.</param>
@@ -2794,17 +2201,11 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// The actor the player is moving themselves, or null when nobody is. Clips may pose
-    /// them but must not relocate them: where they stand is the player's answer, and a
-    /// looping idle that adopted its own last frame walked them across the room.
-    /// </summary>
+    /// <summary>The actor the player is moving themselves, or null when nobody is.</summary>
     public string? Driven { get; set; }
 
     /// <summary>Whether a model is the one the player is moving themselves.</summary>
-    private bool IsDriven(PlacedModel model) =>
-        Driven is { Length: > 0 } who &&
-        (model.Name.Equals(who, StringComparison.OrdinalIgnoreCase) ||
+    private bool IsDriven(PlacedModel model) => Driven is { Length: > 0 } who && (model.Name.Equals(who, StringComparison.OrdinalIgnoreCase) ||
          (model.Noun is { Length: > 0 } noun && noun.Equals(who, StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>Hands a clip's last frame to the actor it was posing.</summary>
@@ -2816,33 +2217,7 @@ public sealed class SceneUpdate
             return;
         }
 
-        // <b>Not for a clip the model's own behaviour script asked for.</b> This is a
-        // deliberate narrowing of the reference's rule, which syncs the actor to the model
-        // every frame whatever is posing it, and the difference is that this happens once,
-        // as a clip lets go. For a story clip the two agree at the only moment that matters.
-        // For an <em>idle</em> they do not: the reference tracks a fidget continuously and
-        // re-snaps the model to the actor as each new relative clip starts, so the drift is
-        // bounded and cancels; taking one snapshot at the end of a fidget bakes it in
-        // permanently.
-        //
-        // And a fidget is decoration, which this engine already says everywhere else — an
-        // idle is dropped where the story is animating, paused for a walk, and cleaned up
-        // when interrupted. Letting one relocate an actor for the rest of the room is the
-        // same mistake in a new place. Madeline Buthane is the case: she is placed at
-        // BUTHANE_TALK facing Gabriel, and her idle is madMapIdle.gas, whose clips are
-        // authored absolutely at the back of her van with her turned to the map — 128° from
-        // him. Adopting that left her talking to the whole conversation over her shoulder,
-        // because the talk script that plays through her placement is relative.
-        //
-        // <b>Except an absolute clip on an actor the scene stood nowhere.</b> Buthane has a
-        // spot, and the narrowing protects it. Mosely at L'Homme Mort at 4pm has none: his
-        // [ACTORS] line carries no pos and no initanim, and the only thing that ever puts
-        // him beside his bag is his idle, whose clips are absolute (MosLhmLook1Temp2 and
-        // the rest carry the two offset triplets). When that idle switches to a relative
-        // one — WHENNEAR Gabriel ends in NEWIDLE MosIdle.gas — the fidgets play through a
-        // placement nothing had written, and he stood waist-deep in the hill by his future
-        // hole, four hundred units from the bag. The same rule the opening pose applies:
-        // where an absolute clip leaves an unspotted actor is where they now are.
+        // Not for a clip the model's own behaviour script asked for.
         if (playing.FromBehaviour && (playing.Target.Spotted || !playing.Absolute))
         {
             return;
@@ -2858,21 +2233,14 @@ public sealed class SceneUpdate
 
         Settle(playing.Target, playing.Now(standing), heading);
 
-        Trace(
-            "keeps",
-            playing.Clip.Name,
-            playing.Target,
-            Actors.AnimationStart.Stance
-                ? "taken from the stance"
+        Trace( "keeps", playing.Clip.Name, playing.Target, Actors.AnimationStart.Stance ? "taken from the stance"
                 : "from the hip mesh — this clip poses no shoes");
     }
 
-    /// <summary>
-    /// Turns an actor on the spot to face something.
-    /// </summary>
+    /// <summary>Turns an actor on the spot to face something.</summary>
+    /// <returns>How long the turn will take, or zero when there is nobody to turn.</returns>
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="target">What to face, in world space.</param>
-    /// <returns>How long the turn will take, or zero when there is nobody to turn.</returns>
     public double Turn(string actor, Vector3 target)
     {
         ArgumentNullException.ThrowIfNull(actor);
@@ -2909,10 +2277,7 @@ public sealed class SceneUpdate
         /// <summary>What to do when it is over.</summary>
         public Action Work { get; } = work;
 
-        /// <summary>
-        /// Scripts it cannot happen until, when it is waiting on scripts rather than on a
-        /// clock.
-        /// </summary>
+        /// <summary>Scripts it cannot happen until, when it is waiting on scripts rather than on a clock.</summary>
         public IReadOnlyList<SheepThread>? Until { get; init; }
     }
 
@@ -2921,12 +2286,10 @@ public sealed class SceneUpdate
     /// <summary>How many things are waiting to happen.</summary>
     public int Later => _later.Count;
 
-    /// <summary>
-    /// Holds something back for a while.
-    /// </summary>
+    /// <summary>Holds something back for a while.</summary>
+    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
     /// <param name="seconds">How long to hold it.</param>
     /// <param name="work">What to do then.</param>
-    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
     public bool After(double seconds, Action work)
     {
         ArgumentNullException.ThrowIfNull(work);
@@ -2940,9 +2303,7 @@ public sealed class SceneUpdate
         return true;
     }
 
-    /// <summary>
-    /// Holds something back until the next frame, however short that is.
-    /// </summary>
+    /// <summary>Holds something back until the next frame, however short that is.</summary>
     /// <param name="work">What to do then.</param>
     public void Next(Action work)
     {
@@ -2951,12 +2312,10 @@ public sealed class SceneUpdate
         _later.Add(new Held(double.Epsilon, work));
     }
 
-    /// <summary>
-    /// Holds something back until the scripts a call started have finished.
-    /// </summary>
+    /// <summary>Holds something back until the scripts a call started have finished.</summary>
+    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
     /// <param name="scripts">The threads it started.</param>
     /// <param name="work">What to do once none of them is still running.</param>
-    /// <returns>True when it was taken, false when there was nothing to wait for.</returns>
     public bool Until(IReadOnlyList<SheepThread> scripts, Action work)
     {
         ArgumentNullException.ThrowIfNull(scripts);
@@ -2987,8 +2346,7 @@ public sealed class SceneUpdate
         {
             held.Remaining -= seconds;
 
-            // The clock first because it is the cheap half, and then the scripts: a wait
-            // on a call into a script is over when nothing it started is parked any more.
+            // The clock first because it is the cheap half, and then the scripts: a wait on a call into a script is over when nothing it started is.
             if (held.Remaining > 0 || _scripts?.Outstanding(held.Until) == true)
             {
                 continue;
@@ -3004,9 +2362,7 @@ public sealed class SceneUpdate
 
         foreach (Held held in due)
         {
-            // Gone already, so there is nothing to run: one of the earlier ones left the
-            // room, and Cancel forgets everything it was still holding — the rest of this
-            // list included.
+            // Gone already, so there is nothing to run: one of the earlier ones left the room, and Cancel forgets everything it was still holding —.
             if (!_later.Remove(held))
             {
                 continue;
@@ -3025,11 +2381,9 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Diagnostics raised while the world went on by itself.</summary>
-    /// <summary>One scenery script, and where it has got to.</summary>
-    /// <summary>One behaviour script, and where it has got to.</summary>
     private sealed class Behaviour(Formats.Animation.GasFile script, PlacedModel? owner)
     {
-        /// <summary>The script. Settable, because <c>NEWIDLE</c> replaces it.</summary>
+        /// <summary>The script.</summary>
         public Formats.Animation.GasFile Script { get; set; } = script;
 
         /// <summary>What it drives, or null when it drives nothing in particular.</summary>
@@ -3046,18 +2400,14 @@ public sealed class SceneUpdate
         /// <summary>Whether the clip it was waiting out was stopped for something else.</summary>
         public bool Interrupted { get; set; }
 
-        /// <summary>
-        /// The animation it last asked for, which is what a cleanup is looked up by.
-        /// </summary>
+        /// <summary>The animation it last asked for, which is what a cleanup is looked up by.</summary>
         public string? Playing { get; set; }
 
         /// <summary>The language's whole state: one integer per name.</summary>
         public Dictionary<string, int> Registers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Whether it says to start again, rather than stopping at the end.</summary>
-        public bool Repeats =>
-            Script.Steps.Any(s => s.Action is Formats.Animation.GasAction.Loop
-                                            or Formats.Animation.GasAction.Goto);
+        public bool Repeats => Script.Steps.Any(s => s.Action is Formats.Animation.GasAction.Loop or Formats.Animation.GasAction.Goto);
     }
 
     /// <summary>One character's three scripts, and which of them is running.</summary>
@@ -3084,9 +2434,7 @@ public sealed class SceneUpdate
 
             Formats.Animation.GasFile? script = mode switch
             {
-                FidgetKind.Talk => owner.Talk ?? owner.Idle,
-                FidgetKind.Listen => owner.Listen ?? owner.Idle,
-                _ => owner.Idle,
+                FidgetKind.Talk => owner.Talk ?? owner.Idle, FidgetKind.Listen => owner.Listen ?? owner.Idle, _ => owner.Idle,
             };
 
             Running = script is { Steps.Count: > 0 } ? new Behaviour(script, owner) : null;
@@ -3098,20 +2446,13 @@ public sealed class SceneUpdate
     /// <summary>How many actors in the scene have a head that can turn.</summary>
     public int Movable => _actors.Count;
 
-    /// <summary>
-    /// Where the story wants the view, or null while it has not moved it.
-    /// </summary>
+    /// <summary>Where the story wants the view, or null while it has not moved it.</summary>
     public Camera? View { get; private set; }
 
     /// <summary>Whether the view is on its way somewhere.</summary>
     public bool Gliding => _to is not null && _glided < GlideSeconds;
 
-    /// <summary>
-    /// Whether the story has pointed a camera of its own since the last thing it began.
-    /// Until it has, the view is still whoever's it was: an action that walks the player
-    /// across the room and says a line names no camera at all, and taking the view off them
-    /// for it leaves them watching their own back walk away.
-    /// </summary>
+    /// <summary>Whether the story has pointed a camera of its own since the last thing it began.</summary>
     public bool Framed { get; private set; }
 
     /// <summary>Says where the view already is, so a glide has somewhere to leave from.</summary>
@@ -3124,8 +2465,8 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Lets time pass.</summary>
-    /// <param name="seconds">How much.</param>
     /// <returns>What the world did on its own, for whoever wants to say so.</returns>
+    /// <param name="seconds">How much.</param>
     public IReadOnlyList<string> Advance(double seconds)
     {
         if (seconds <= 0)
@@ -3135,13 +2476,10 @@ public sealed class SceneUpdate
 
         List<string> happened = [];
 
-        // What is left of the action that is running. Counted down here so that everything
-        // below sees one answer for the frame.
+        // What is left of the action that is running.
         _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
 
-        // What an action was waiting on, forgotten as soon as none of it is running. This
-        // is what keeps the list short: a room where nothing is happening is a room where
-        // it is empty.
+        // What an action was waiting on, forgotten as soon as none of it is running.
         if (_awaited.Count > 0 && _scripts?.Outstanding(_awaited) != true)
         {
             _awaited.Clear();
@@ -3153,36 +2491,25 @@ public sealed class SceneUpdate
             Framed = false;
         }
 
-        // The scripts first: one carrying on from a wait may cut the camera or set a
-        // timer, and it should take effect in the frame it happened rather than the next.
+        // The scripts first: one carrying on from a wait may cut the camera or set a timer, and it should take effect in the frame it happened.
         foreach (string carried in _scripts?.Advance(seconds) ?? [])
         {
             happened.Add($"{carried} carried on");
         }
 
-        // Whatever machinery the room has of its own: the laser heads swinging round to
-        // the angle they were sent to, the beams stretching to whatever is in front of
-        // them. Before the actors, because a script that reads a head's angle back this
-        // frame should read the one it has now.
+        // Whatever machinery the room has of its own: the laser heads swinging round to the angle they were sent to, the beams stretching to.
         Mechanism?.Advance(seconds);
 
         StepBehaviours(seconds);
         MoveView(seconds);
 
-        // Faces before anything that moves anybody: what a face is doing depends on the
-        // clock and not on where its owner is standing, and a mouth that is a frame behind
-        // the words is the one thing lip sync must never be.
+        // Faces before anything that moves anybody: what a face is doing depends on the clock and not on where its owner is standing, and a mouth.
         Faces?.Advance(seconds);
 
-        // Anything that was waiting for the player to get somewhere. Before the timers, so
-        // that an action which sets one is not a frame late in doing it.
+        // Anything that was waiting for the player to get somewhere.
         StepLater(seconds, happened);
 
-        // The clock moves for every timer whatever else is happening; what waits on the
-        // story being free is performing one. Taken one at a time and with the story asked
-        // again between them, because performing one is the story becoming busy — which is
-        // the whole of GameTimers::Update's own rule. See GameTimers for what firing one
-        // into the middle of an action does to CS3's attic.
+        // The clock moves for every timer whatever else is happening; what waits on the story being free is performing one.
         _api.State.Timers.Advance(seconds);
 
         while (!Occupied && _api.State.Timers.TakeDue() is { } timer)
@@ -3190,8 +2517,7 @@ public sealed class SceneUpdate
             happened.Add(Fire(timer));
         }
 
-        // The noises an animation makes, at the frames it says. Before the clips only so
-        // that a sound and the pose it belongs to land in the same frame.
+        // The noises an animation makes, at the frames it says.
         for (int i = _cues.Count - 1; i >= 0; i--)
         {
             if (_cues[i].Step(seconds) is not { } due)
@@ -3199,17 +2525,13 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            // Where it comes from: the model the cue names, if the room has it standing
-            // somewhere. Everything else is played at the listener.
+            // Where it comes from: the model the cue names, if the room has it standing somewhere.
             Vector3? at = due.Model.Length > 0 ? Where(due.Model) : null;
 
             if (Sound?.Invoke(due, at) == false)
             {
-                Diagnostics.Add(new Diagnostic(
-                    "GK3R3316", DiagnosticSeverity.Info,
-                    "An animation asks for a sound the archives do not have.",
-                    _scene.Name, null, "a .WAV of that name", due.Name,
-                    "Common in the corpus: some cues name sounds that were cut."));
+                Diagnostics.Add(new Diagnostic( "GK3R3316", DiagnosticSeverity.Info, "An animation asks for a sound the archives do not have.",
+                    _scene.Name, null, "a .WAV of that name", due.Name, "Common in the corpus: some cues name sounds that were cut."));
             }
 
             if (_cues[i].Finished)
@@ -3218,8 +2540,7 @@ public sealed class SceneUpdate
             }
         }
 
-        // The feet, which need where the actor is now rather than where the clip was
-        // authored: the sound is the floor under them at the moment the foot lands.
+        // The feet, which need where the actor is now rather than where the clip was authored: the sound is the floor under them at the moment the.
         for (int i = _steps.Count - 1; i >= 0; i--)
         {
             if (_steps[i].Step(seconds) is { } fell)
@@ -3247,8 +2568,7 @@ public sealed class SceneUpdate
             }
         }
 
-        // And what it repaints about the room. Told apart from the models' swaps above
-        // because a room object is reached by name rather than through a placement.
+        // And what it repaints about the room.
         for (int i = _roomSwaps.Count - 1; i >= 0; i--)
         {
             if (_roomSwaps[i].Step(seconds) is { } swap)
@@ -3275,21 +2595,13 @@ public sealed class SceneUpdate
             }
         }
 
-        // What a moment frames, puts on faces, scores and says — in that order, and each
-        // of them in frame order rather than in the order the nodes happen to sit in the
-        // file. The camera holding the shot a line is spoken in has to be on it by the time
-        // the line starts, and a beat that swaps the bed under itself stops the old one
-        // before it starts the new: EHANDSHAKE.MOM does exactly that across frames 665 and
-        // 666, which land in the same frame of anything but a sixty-hertz clock.
+        // What a moment frames, puts on faces, scores and says — in that order, and each of them in frame order rather than in the order the nodes.
         Film(Due(_shots, seconds, s => s.Frame));
         Wear(Due(_moods, seconds, m => m.Frame));
         Score(Due(_music, seconds, m => m.Frame));
         Say(Due(_lines, seconds, d => d.Frame));
 
-        // What an animation shows and hides as it runs, on the frames it names. Same
-        // clock as the sounds and for the same reason: a character is brought into the
-        // room by one of these and the door in front of them by a sound cue, and the two
-        // have to land together.
+        // What an animation shows and hides as it runs, on the frames it names.
         for (int i = _showings.Count - 1; i >= 0; i--)
         {
             if (_showings[i].Step(seconds) is { } change)
@@ -3303,35 +2615,19 @@ public sealed class SceneUpdate
             }
         }
 
-        // Animation before walking: a clip poses a model's meshes in the model's own space
-        // and walking moves the model, so doing it the other way round would apply this
-        // frame's poses to last frame's position.
+        // Animation before walking: a clip poses a model's meshes in the model's own space and walking moves the model, so doing it the other way.
         for (int i = _playing.Count - 1; i >= 0; i--)
         {
             Playing playing = _playing[i];
             bool running = playing.Step(_geometry, (float)seconds);
 
-            // The actor's position follows the model, every frame, as the original syncs
-            // it in LateUpdate.
-            //
-            // For a character, from where the pose actually puts their feet rather than by
-            // adding up how far the clip has carried them. The difference matters wherever
-            // the placement they started from was wrong: the dining room names Mosely's spot
-            // MOSTALK and defines TALK_MOSELY, so his placement is the origin, and a running
-            // total from there keeps him at the origin however convincingly he is drawn
-            // sitting in a chair. Every IsActorNear about him then answers about a corner of
-            // the room. The reference has no such total — GKActor::SyncActorToModelPosition-
-            // AndRotation reads the model's floor position outright.
-            Follow(
-                playing.Target.Name,
-                playing.Target.Kind == PlacedModelKind.Actor
-                    ? playing.Now(_geometry.TransformOf(playing.Target.Placement))
+            // The actor's position follows the model, every frame, as the original syncs it in LateUpdate.
+            Follow( playing.Target.Name, playing.Target.Kind == PlacedModelKind.Actor ? playing.Now(_geometry.TransformOf(playing.Target.Placement))
                     : playing.Carried);
 
             if (!running)
             {
-                // A non-move animation puts the actor back where it found them: the pose
-                // stays, the ground does not count. A move animation keeps it.
+                // A non-move animation puts the actor back where it found them: the pose stays, the ground does not count.
                 if (playing.Reverts)
                 {
                     Follow(playing.Target.Name, playing.Began);
@@ -3339,9 +2635,7 @@ public sealed class SceneUpdate
                 }
                 else
                 {
-                    // And keeping it means writing it down. See Settle: until it did, the
-                    // next clip through this actor's placement began at the spot the scene
-                    // file named, whatever this one had just done with them.
+                    // And keeping it means writing it down.
                     Adopt(playing);
                 }
 
@@ -3356,8 +2650,7 @@ public sealed class SceneUpdate
             }
         }
 
-        // Walking before turning heads: a head that is looking at something has to be
-        // aimed from where its owner is now, not from where they were a frame ago.
+        // Walking before turning heads: a head that is looking at something has to be aimed from where its owner is now, not from where they were a.
         foreach (string who in _walking.Keys.ToList())
         {
             Walking walking = _walking[who];
@@ -3368,9 +2661,7 @@ public sealed class SceneUpdate
                 happened.Add($"{who} arrived");
             }
 
-            _geometry.MoveModel(
-                walking.Placement,
-                walking.Walker.Transform(walking.Scale, walking.Built));
+            _geometry.MoveModel( walking.Placement, walking.Walker.Transform(walking.Scale, walking.Built));
 
             // The legs, in the model's own space, on top of wherever the model now is.
             walking.Stride?.Step(_geometry, (float)seconds);
@@ -3386,32 +2677,22 @@ public sealed class SceneUpdate
             }
         }
 
-        // What somebody is holding goes where they are — after their own clip has posed
-        // them and after they have walked, which is why it is here and not in either loop.
-        // The original syncs it in LateUpdate for exactly that reason. See _carried.
+        // What somebody is holding goes where they are — after their own clip has posed them and after they have walked, which is why it is here and.
         foreach ((PlacedModel held, PlacedModel holder) in _carried.Values)
         {
             Carry(held, holder);
         }
 
-        // The timed glances run out here, before the heads move: LOOKAT's five seconds
-        // are five seconds, not for ever.
+        // The timed glances run out here, before the heads move: LOOKAT's five seconds are five seconds, not for ever.
         _glances.Tick(seconds);
 
         foreach (Turning actor in _actors)
         {
-            // Where the model is now, whatever put it there. Asked of the geometry rather
-            // than remembered, so a character moved by an animation or by a script is as
-            // correct as one moved by walking.
+            // Where the model is now, whatever put it there.
             Matrix4x4 now = _geometry.TransformOf(actor.Placement);
 
-            // And while a clip has the body, from the clip. The reference turns no heads at
-            // all — every Lookit call in it is a stub — so this is the port's own feature
-            // and has to be right on its own terms: a glance is a yaw off the body, and
-            // the body is wherever the clip says, not wherever the placement is.
-            Playing? driving = _playing.Find(p =>
-                p.Target.Kind == PlacedModelKind.Actor &&
-                p.Target.Placement.Id == actor.Placement.Id);
+            // And while a clip has the body, from the clip.
+            Playing? driving = _playing.Find(p => p.Target.Kind == PlacedModelKind.Actor && p.Target.Placement.Id == actor.Placement.Id);
 
             if (driving is not null)
             {
@@ -3422,14 +2703,15 @@ public sealed class SceneUpdate
                 actor.Stands(now.Translation, actor.HeadingOf(now));
             }
 
-            if (actor.Step(_glances, (float)seconds))
-            {
-                _geometry.TurnMesh(actor.Placement, actor.Head, actor.Turn());
-            }
+            actor.Step(_glances, (float)seconds);
+
+            // Written every frame rather than only on the frames the head moved. The clips are posed first and a pose replaces the head's whole
+            // transform, turn and all, so a glance that had settled was wiped out by the next clip frame and put back by the next frame that
+            // happened to move it — a head jumping on and off its own neck for as long as anybody was looking at anything.
+            _geometry.TurnMesh(actor.Placement, actor.Head, actor.Turn());
         }
 
-        // Last, because it asks where the player is standing and this is the frame in
-        // which they have finished moving.
+        // Last, because it asks where the player is standing and this is the frame in which they have finished moving.
         Tripped(happened);
 
         return happened;
@@ -3438,9 +2720,7 @@ public sealed class SceneUpdate
     /// <summary>The patches of floor that act on whoever walks onto them.</summary>
     private readonly List<SceneTrigger> _triggers = [];
 
-    /// <summary>
-    /// Runs the action for any trigger the player is standing in.
-    /// </summary>
+    /// <summary>Runs the action for any trigger the player is standing in.</summary>
     /// <param name="happened">What to report it as.</param>
     private void Tripped(List<string> happened)
     {
@@ -3451,11 +2731,8 @@ public sealed class SceneUpdate
 
         foreach (SceneTrigger trigger in _triggers)
         {
-            // Nothing written about the noun is not a refusal to report; it is a rectangle
-            // that does nothing at this point in the story, and the player walks over it
-            // as they would over any other patch of floor.
-            if (!trigger.Rect.Contains(standing.X, standing.Z) ||
-                _actions?.Find(trigger.Noun, Walked) is null)
+            // Nothing written about the noun is not a refusal to report; it is a rectangle that does nothing at this point in the story, and the.
+            if (!trigger.Rect.Contains(standing.X, standing.Z) || _actions?.Find(trigger.Noun, Walked) is null)
             {
                 continue;
             }
@@ -3465,21 +2742,14 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// Cuts a walk short where it would step onto a trigger.
-    /// </summary>
+    /// <summary>Cuts a walk short where it would step onto a trigger.</summary>
+    /// <returns>The route, cut at the edge of the first trigger it enters.</returns>
     /// <param name="actor">Whose walk it is.</param>
     /// <param name="route">The route the boundary found.</param>
-    /// <returns>The route, cut at the edge of the first trigger it enters.</returns>
     private WalkRoute ShortenedAtTrigger(string actor, WalkRoute route)
     {
-        if (_triggers.Count == 0 ||
-            Occupied ||
-            route.Points.Count == 0 ||
-            !string.Equals(
-                ModelNamed(actor)?.Name ?? actor,
-                ModelNamed(_api.State.Ego)?.Name ?? _api.State.Ego,
-                StringComparison.OrdinalIgnoreCase))
+        if (_triggers.Count == 0 || Occupied || route.Points.Count == 0 || !string.Equals( ModelNamed(actor)?.Name ?? actor,
+                ModelNamed(_api.State.Ego)?.Name ?? _api.State.Ego, StringComparison.OrdinalIgnoreCase))
         {
             return route;
         }
@@ -3490,18 +2760,15 @@ public sealed class SceneUpdate
 
             foreach (SceneTrigger trigger in _triggers)
             {
-                // A rectangle nothing is written about does nothing, so walking over it is
-                // walking over floor.
-                if (!trigger.Rect.Contains(point.X, point.Z) ||
-                    _actions?.Find(trigger.Noun, Walked) is null)
+                // A rectangle nothing is written about does nothing, so walking over it is walking over floor.
+                if (!trigger.Rect.Contains(point.X, point.Z) || _actions?.Find(trigger.Noun, Walked) is null)
                 {
                     continue;
                 }
 
                 Vector3[] cut = [.. route.Points.Take(i + 1)];
 
-                // Where the walk crosses the edge rather than the corner the boundary
-                // happened to put inside it, so the player stops on the line.
+                // Where the walk crosses the edge rather than the corner the boundary happened to put inside it, so the player stops on the line.
                 if (i > 0 && Entry(trigger.Rect, route.Points[i - 1], point) is { } edge)
                 {
                     cut[i] = new Vector3(edge.X, point.Y, edge.Y);
@@ -3515,10 +2782,10 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Where a segment first crosses into a rectangle.</summary>
+    /// <returns>The crossing point on X and Z, or null when the segment is degenerate.</returns>
     /// <param name="rect">The rectangle, on the ground plan.</param>
     /// <param name="before">The end of the segment outside it.</param>
     /// <param name="inside">The end of the segment within it.</param>
-    /// <returns>The crossing point on X and Z, or null when the segment is degenerate.</returns>
     private static Vector2? Entry(SceneRect rect, Vector3 before, Vector3 inside)
     {
         var start = new Vector2(before.X, before.Z);
@@ -3527,10 +2794,8 @@ public sealed class SceneUpdate
         float enters = 0f;
         float leaves = 1f;
 
-        if (!Clip(-along.X, start.X - rect.MinX, ref enters, ref leaves) ||
-            !Clip(along.X, rect.MaxX - start.X, ref enters, ref leaves) ||
-            !Clip(-along.Y, start.Y - rect.MinZ, ref enters, ref leaves) ||
-            !Clip(along.Y, rect.MaxZ - start.Y, ref enters, ref leaves))
+        if (!Clip(-along.X, start.X - rect.MinX, ref enters, ref leaves) || !Clip(along.X, rect.MaxX - start.X, ref enters, ref leaves) ||
+            !Clip(-along.Y, start.Y - rect.MinZ, ref enters, ref leaves) || !Clip(along.Y, rect.MaxZ - start.Y, ref enters, ref leaves))
         {
             return null;
         }
@@ -3539,11 +2804,11 @@ public sealed class SceneUpdate
     }
 
     /// <summary>One side of the Liang-Barsky clip.</summary>
+    /// <returns>False when the segment misses the rectangle entirely.</returns>
     /// <param name="denominator">How fast the segment approaches the edge.</param>
     /// <param name="numerator">How far outside the edge the segment begins.</param>
     /// <param name="enters">The parameter at which it is inside so far.</param>
     /// <param name="leaves">The parameter at which it leaves.</param>
-    /// <returns>False when the segment misses the rectangle entirely.</returns>
     private static bool Clip(float denominator, float numerator, ref float enters, ref float leaves)
     {
         if (denominator == 0)
@@ -3584,8 +2849,7 @@ public sealed class SceneUpdate
     /// <summary>Notes what was already running, before an action adds to it.</summary>
     public void Starting()
     {
-        // A new thing to do is a new chance for the story to point a camera. Until it does,
-        // the view belongs to whoever already had it.
+        // A new thing to do is a new chance for the story to point a camera.
         Framed = false;
 
         int waiting = _scripts?.Count ?? 0;
@@ -3599,22 +2863,14 @@ public sealed class SceneUpdate
     /// <summary>Notes what the room is left holding, once an action is through.</summary>
     public void Ended() => _quiet = _scripts?.Count ?? 0;
 
-    /// <summary>
-    /// Whether the story is in the middle of something.
-    /// </summary>
+    /// <summary>Whether the story is in the middle of something.</summary>
     public bool Occupied => Acting || (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
 
     /// <summary>The scripts an action has said it is waiting on.</summary>
     private readonly List<SheepThread> _awaited = [];
 
-    /// <summary>
-    /// Whether an action is playing, by the signals that go away again.
-    /// </summary>
-    public bool Acting =>
-        _later.Count > 0 ||
-        _api.ActionSeconds > 0 ||
-        Performing(_api.State.Ego) ||
-        _scripts?.Outstanding(_awaited) == true;
+    /// <summary>Whether an action is playing, by the signals that go away again.</summary>
+    public bool Acting => _later.Count > 0 || _api.ActionSeconds > 0 || Performing(_api.State.Ego) || _scripts?.Outstanding(_awaited) == true;
 
     /// <summary>Notes the scripts an action has waited on.</summary>
     /// <param name="scripts">The threads its call started.</param>
@@ -3625,11 +2881,23 @@ public sealed class SceneUpdate
         _awaited.AddRange(scripts);
     }
 
-    /// <summary>
-    /// Whether the story is holding the camera rather than the player.
-    /// </summary>
-    public bool Directing =>
-        _api.State.ForcedCameraCuts || (Occupied && _api.State.CinematicsEnabled);
+    /// <summary>Whether the story is doing something to one person that they may not walk out of.</summary>
+    /// <returns>True while an action is running on them, a clip is posing them, or they are being walked somewhere.</returns>
+    /// <param name="actor">Their model name or noun.</param>
+    public bool Busy(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        // Asked about one person rather than about the room, because Occupied and OnTheMove are both true of a room where somebody else is doing
+        // something: RC1 has Emilio and Madeline moving about on scripts of their own all day, and taking the controls away for those left the
+        // player standing still whenever either of them changed animation.
+        string model = ModelNamed(actor)?.Name ?? actor;
+
+        return _later.Count > 0 || _api.ActionSeconds > 0 || Performing(actor) || _walking.ContainsKey(actor) || _walking.ContainsKey(model);
+    }
+
+    /// <summary>Whether the story is holding the camera rather than the player.</summary>
+    public bool Directing => _api.State.ForcedCameraCuts || (Occupied && _api.State.CinematicsEnabled);
 
     /// <summary>Gives the room back to the player when something has wedged it.</summary>
     /// <returns>What was let go of, one line each, or empty when nothing was holding it.</returns>
@@ -3645,9 +2913,7 @@ public sealed class SceneUpdate
 
         if (_api.ActionSeconds > 0)
         {
-            let.Add(string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
-                $"{_api.ActionSeconds:F0}s an action said it still needed"));
+            let.Add(string.Create( System.Globalization.CultureInfo.InvariantCulture, $"{_api.ActionSeconds:F0}s an action said it still needed"));
 
             _api.ActionSeconds = 0;
         }
@@ -3668,10 +2934,7 @@ public sealed class SceneUpdate
         {
             let.Add($"{(_scripts?.Count ?? 0) - _quiet} script(s) the room never finished");
 
-            // Reset rather than cleared. The room's own background scripts sit in the
-            // scheduler for as long as the room stands, and dropping those would stop the
-            // room living rather than unstick it; what this forgets is only that the story
-            // was counting them as something happening.
+            // Reset rather than cleared.
             _quiet = _scripts?.Count ?? 0;
         }
 
@@ -3690,34 +2953,20 @@ public sealed class SceneUpdate
         _api.State.Talking = false;
         WarpNextWalk = false;
 
-        // And onto ground they can walk on. Standing off the boundary is the other way a
-        // room ends, and it has the same symptom from the player's chair: every click on
-        // the floor finds no route and nothing moves.
-        if (_scene.Walkable is { } boundary &&
-            Where(_api.State.Ego) is { } standing &&
-            !boundary.IsWalkable(standing) &&
-            boundary.NearestWalkable(standing) is { } open &&
-            ModelNamed(_api.State.Ego) is { } player)
+        // And onto ground they can walk on.
+        if (_scene.Walkable is { } boundary && Where(_api.State.Ego) is { } standing && !boundary.IsWalkable(standing) &&
+            boundary.NearestWalkable(standing) is { } open && ModelNamed(_api.State.Ego) is { } player)
         {
-            let.Add(string.Create(
-                System.Globalization.CultureInfo.InvariantCulture,
+            let.Add(string.Create( System.Globalization.CultureInfo.InvariantCulture,
                 $"the player {Vector3.Distance(standing, open):F0} units off the floor"));
 
-            Place(
-                _api.State.Ego,
-                open,
-                Walker.HeadingOf(_geometry.TransformOf(player.Placement)));
+            Place( _api.State.Ego, open, Walker.HeadingOf(_geometry.TransformOf(player.Placement)));
         }
 
         return let;
     }
 
-    /// <summary>
-    /// Where the view actually is while somebody other than the story is holding it, or
-    /// null when the story's own answer is the right one. A move begins here, so a shot cut
-    /// to from the player's own eyes leaves from their eyes rather than from the last
-    /// camera the story happened to name.
-    /// </summary>
+    /// <summary>Where the view actually is while somebody other than the story is holding it, or null when the story's own answer is.</summary>
     public Camera? Elsewhere { get; set; }
 
     /// <summary>A shot worked out for the moment rather than named by the scene.</summary>
@@ -3726,9 +2975,7 @@ public sealed class SceneUpdate
     /// <summary>Which staged shot it is, so replacing one counts as a change of view.</summary>
     private int _stagings;
 
-    /// <summary>
-    /// Puts a shot nobody authored in front of the cameras the story names, or takes it away.
-    /// </summary>
+    /// <summary>Puts a shot nobody authored in front of the cameras the story names, or takes it away.</summary>
     /// <param name="shot">The view, or null to go back to the camera the story named.</param>
     public void Stage(Camera? shot)
     {
@@ -3744,17 +2991,47 @@ public sealed class SceneUpdate
     /// <summary>Slow out of one shot and into the next, rather than a constant sweep.</summary>
     private static float Eased(float part) => part * part * (3f - (2f * part));
 
+    /// <summary>Whether the view belongs to the player rather than to the camera the story has named.</summary>
+    /// <returns>True when the shot is to be refused and the view left in the player's own eyes.</returns>
+    /// <param name="wanted">The camera key <see cref="MoveView"/> is about to move to.</param>
+    private bool Theirs(string wanted)
+    {
+        // Nothing named is nothing to refuse, the view is only theirs on foot, and a close-up is the player's own doing.
+        if (wanted.Length == 0 || wanted[0] == ' ' || !_api.State.FirstPerson)
+        {
+            return false;
+        }
+
+        // A shot this port composed itself is refused outright: it exists to stand in for a scene camera that did not hold the pair, and in first
+        // person the player's own head holds them perfectly well.
+        if (wanted[0] == '')
+        {
+            return true;
+        }
+
+        // GK3 cuts to a room camera to watch the player open a wardrobe and to a dialogue camera for every conversation, and in first person each
+        // of those throws them out of their own body for something they are doing with their own hands. Only a cutscene still takes the view: a
+        // script that turned the forced cuts on, or one that insisted on this cut rather than merely offering it.
+        return !_api.State.ForcedCameraCuts && !_api.State.CameraForced;
+    }
+
     /// <summary>Takes the view wherever the story has put it.</summary>
     private void MoveView(double seconds)
     {
-        // What is being looked at closely outranks where the story left the view, and the
-        // two are kept apart so that letting go of the first returns to the second. A
-        // staged shot sits between: nearer than a named camera, further than a close-up.
-        string wanted = _api.State.Inspecting is { Length: > 0 } close
-            ? "\u0000" + close
-            : _staged is not null
-                ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture)
-                : _api.State.CameraAngle;
+        // What is being looked at closely outranks where the story left the view, and the two are kept apart so that letting go of the first returns.
+        string wanted = _api.State.Inspecting is { Length: > 0 } close ? "\u0000" + close : _staged is not null
+                ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture) : _api.State.CameraAngle;
+
+        // On foot the view is the player's own head, and a shot the story merely names is not taken out of it.
+        if (Theirs(wanted))
+        {
+            _angle = wanted;
+            _from = null;
+            _to = null;
+            Framed = false;
+
+            return;
+        }
 
         if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase))
         {
@@ -3779,26 +3056,17 @@ public sealed class SceneUpdate
             return;
         }
 
-        // Eased rather than linear. A camera that starts and stops dead reads as machinery
-        // being moved; the same travel over the same time with its ends smoothed reads as a
-        // shot. It matters most on the move out of the player's own eyes in first person,
-        // which is the one glide that begins with the view already being looked through.
+        // Eased rather than linear.
         float part = Eased((float)(_glided / GlideSeconds));
 
         View = Narrowed(new Camera
         {
-            Position = Vector3.Lerp(_from.Position, _to.Position, part),
-            Target = Vector3.Lerp(_from.Target, _to.Target, part),
-            Up = _to.Up,
-            FieldOfView = float.Lerp(_from.FieldOfView, _to.FieldOfView, part),
-            NearPlane = _to.NearPlane,
-            FarPlane = _to.FarPlane,
+            Position = Vector3.Lerp(_from.Position, _to.Position, part), Target = Vector3.Lerp(_from.Target, _to.Target, part), Up = _to.Up,
+            FieldOfView = float.Lerp(_from.FieldOfView, _to.FieldOfView, part), NearPlane = _to.NearPlane, FarPlane = _to.FarPlane,
         });
     }
 
-    /// <summary>
-    /// Works out the view a camera key describes.
-    /// </summary>
+    /// <summary>Works out the view a camera key describes.</summary>
     private Camera? Pointing(string wanted)
     {
         if (wanted.Length == 0)
@@ -3818,9 +3086,7 @@ public sealed class SceneUpdate
 
         string key = wanted[1..];
 
-        string? model = _scene.Models
-            .FirstOrDefault(m => string.Equals(m.Noun, key, StringComparison.OrdinalIgnoreCase))
-            ?.Name;
+        string? model = _scene.Models .FirstOrDefault(m => string.Equals(m.Noun, key, StringComparison.OrdinalIgnoreCase)) ?.Name;
 
         if (_scene.Definition.AnyCameraNamed(key) is { } named)
         {
@@ -3837,20 +3103,16 @@ public sealed class SceneUpdate
             return derived;
         }
 
-        Diagnostics.Add(new Diagnostic(
-            "GK3R3204", DiagnosticSeverity.Info,
-            "Nothing declares a close-up of this and it has no geometry to frame one from.",
-            _scene.Name, null, "an [INSPECT_CAMERAS] entry", key,
+        Diagnostics.Add(new Diagnostic( "GK3R3204", DiagnosticSeverity.Info,
+            "Nothing declares a close-up of this and it has no geometry to frame one from.", _scene.Name, null, "an [INSPECT_CAMERAS] entry", key,
             "Inspect is not offered for it, so the player is not shown a verb that does nothing."));
 
         return null;
     }
 
-    /// <summary>
-    /// A close-up worked out from what the thing actually occupies.
-    /// </summary>
-    /// <param name="noun">What is being looked at.</param>
+    /// <summary>A close-up worked out from what the thing actually occupies.</summary>
     /// <returns>A camera framing it, or null when the room has no such thing to frame.</returns>
+    /// <param name="noun">What is being looked at.</param>
     private Camera? Framing(string noun)
     {
         if (Occupies(noun) is not var (minimum, maximum))
@@ -3861,9 +3123,7 @@ public sealed class SceneUpdate
         Vector3 centre = (minimum + maximum) * 0.5f;
         float across = MathF.Max((maximum - minimum).Length(), 1f);
 
-        // Far enough that the whole of it sits inside the frame, with a quarter again for
-        // air. Half the box over the tangent of half the field of view is the distance at
-        // which it exactly fills the view.
+        // Far enough that the whole of it sits inside the frame, with a quarter again for air.
         float back = across * 0.5f / MathF.Tan(CloseUpFieldOfView * 0.5f) * 1.25f;
 
         Vector3 from = View is { } standing ? standing.Position : centre + new Vector3(0, 0, back);
@@ -3871,9 +3131,7 @@ public sealed class SceneUpdate
 
         if (line.LengthSquared() < 1f)
         {
-            line = View is { } facing
-                ? Vector3.Normalize(facing.Position - facing.Target)
-                : Vector3.UnitZ;
+            line = View is { } facing ? Vector3.Normalize(facing.Position - facing.Target) : Vector3.UnitZ;
         }
 
         Vector3 eye = centre + (Vector3.Normalize(line) * back);
@@ -3881,18 +3139,10 @@ public sealed class SceneUpdate
 
         return new Camera
         {
-            Position = eye,
-            Target = centre,
-            Up = Vector3.UnitY,
-            FieldOfView = CloseUpFieldOfView,
+            Position = eye, Target = centre, Up = Vector3.UnitY, FieldOfView = CloseUpFieldOfView,
 
-            // As far out as the framing allows, for the depth precision the room camera's
-            // eight units buy — but no further, because this close-up is the one the port
-            // works out rather than the one the artists placed, and it frames things as
-            // small as a licence plate from a couple of units away. A quarter of the way
-            // to the middle of the subject clears the near face of it whatever its size.
-            NearPlane = MathF.Min(8f, MathF.Max(0.25f, back * 0.25f)),
-            FarPlane = reach * 4f,
+            // As far out as the framing allows, for the depth precision the room camera's eight units buy — but no further, because this close-up is.
+            NearPlane = MathF.Min(8f, MathF.Max(0.25f, back * 0.25f)), FarPlane = reach * 4f,
         };
     }
 
@@ -3921,15 +3171,11 @@ public sealed class SceneUpdate
             {
                 Matrix4x4 toWorld = mesh.MeshToLocal * placement;
 
-                // Every corner of the mesh's own box, because a rotated box's extremes are
-                // not the transforms of the two corners that described it.
+                // Every corner of the mesh's own box, because a rotated box's extremes are not the transforms of the two corners that described it.
                 for (int corner = 0; corner < 8; corner++)
                 {
-                    Vector3 at = Vector3.Transform(
-                        new Vector3(
-                            (corner & 1) == 0 ? mesh.BoundsMin.X : mesh.BoundsMax.X,
-                            (corner & 2) == 0 ? mesh.BoundsMin.Y : mesh.BoundsMax.Y,
-                            (corner & 4) == 0 ? mesh.BoundsMin.Z : mesh.BoundsMax.Z),
+                    Vector3 at = Vector3.Transform( new Vector3( (corner & 1) == 0 ? mesh.BoundsMin.X : mesh.BoundsMax.X,
+                            (corner & 2) == 0 ? mesh.BoundsMin.Y : mesh.BoundsMax.Y, (corner & 4) == 0 ? mesh.BoundsMin.Z : mesh.BoundsMax.Z),
                         toWorld);
 
                     minimum = Vector3.Min(minimum, at);
@@ -3943,18 +3189,15 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Whether anything in the room can be looked at closely.</summary>
-    /// <param name="noun">What the player is pointing at.</param>
     /// <returns>True when inspecting it would move the view.</returns>
+    /// <param name="noun">What the player is pointing at.</param>
     public bool Inspectable(string noun)
     {
         ArgumentNullException.ThrowIfNull(noun);
 
-        string? model = _scene.Models
-            .FirstOrDefault(m => string.Equals(m.Noun, noun, StringComparison.OrdinalIgnoreCase))
-            ?.Name;
+        string? model = _scene.Models .FirstOrDefault(m => string.Equals(m.Noun, noun, StringComparison.OrdinalIgnoreCase)) ?.Name;
 
-        return _scene.Definition.AnyCameraNamed(noun) is not null ||
-               _scene.Definition.InspectCameraFor(noun, model) is not null ||
+        return _scene.Definition.AnyCameraNamed(noun) is not null || _scene.Definition.InspectCameraFor(noun, model) is not null ||
                Occupies(noun) is not null;
     }
 
@@ -3968,11 +3211,7 @@ public sealed class SceneUpdate
 
         return new Camera
         {
-            Position = camera.Position,
-            Target = camera.Target,
-            Up = camera.Up,
-            FieldOfView = wanted,
-            NearPlane = camera.NearPlane,
+            Position = camera.Position, Target = camera.Target, Up = camera.Up, FieldOfView = wanted, NearPlane = camera.NearPlane,
             FarPlane = camera.FarPlane,
         };
     }
@@ -3981,9 +3220,9 @@ public sealed class SceneUpdate
     private string Fire(GameTimer timer) => Fire(timer.Noun, timer.Verb);
 
     /// <summary>Performs an action the room itself asked for.</summary>
+    /// <returns>What to report happened.</returns>
     /// <param name="noun">What it is about.</param>
     /// <param name="verb">What is being done to it.</param>
-    /// <returns>What to report happened.</returns>
     private string Fire(string noun, string verb)
     {
         if (_actions is null || _runner is null)
@@ -4007,9 +3246,6 @@ public sealed class SceneUpdate
     }
 
     /// <summary>One clip running on one model.</summary>
-    /// <summary>
-    /// A sound an animation asked for, waiting for its frame.
-    /// </summary>
     private sealed class Cue
     {
         private readonly AnimationSound _sound;
@@ -4036,8 +3272,8 @@ public sealed class SceneUpdate
         public bool Finished { get; private set; }
 
         /// <summary>Advances the clock and says whether the sound is now due.</summary>
-        /// <param name="seconds">How long since the last frame.</param>
         /// <returns>The cue when it is due this frame, and null otherwise.</returns>
+        /// <param name="seconds">How long since the last frame.</param>
         public AnimationSound? Step(double seconds)
         {
             if (Finished)
@@ -4053,8 +3289,7 @@ public sealed class SceneUpdate
                 return null;
             }
 
-            // A looping animation makes its noise again every time round; anything else
-            // makes it once.
+            // A looping animation makes its noise again every time round; anything else makes it once.
             if (_period > 0)
             {
                 _elapsed -= _period;
@@ -4068,12 +3303,7 @@ public sealed class SceneUpdate
         }
     }
 
-    /// <summary>
-    /// A model an animation shows or hides, waiting for its frame.
-    /// </summary>
-    /// <summary>
-    /// A foot an animation is about to put down.
-    /// </summary>
+    /// <summary>A model an animation shows or hides, waiting for its frame.</summary>
     private sealed class Footfall
     {
         private readonly AnimationStep _step;
@@ -4172,8 +3402,7 @@ public sealed class SceneUpdate
 
     /// <summary>Something an animation does to the room, waiting for its frame.</summary>
     /// <typeparam name="T">What is due.</typeparam>
-    private sealed class Scheduled<T>
-        where T : struct
+    private sealed class Scheduled<T> where T : struct
     {
         private readonly T _what;
         private readonly double _at;
@@ -4239,8 +3468,7 @@ public sealed class SceneUpdate
             _at = Math.Max(0, change.Frame) / (double)Math.Max(1, rate);
             _period = period;
 
-            // Frame zero is applied by the caller the moment the animation starts, so
-            // this one is already spent and exists only to come round again on a loop.
+            // Frame zero is applied by the caller the moment the animation starts, so this one is already spent and exists only to come round again.
             Finished = _period <= 0 && change.Frame <= 0;
         }
 
@@ -4248,8 +3476,7 @@ public sealed class SceneUpdate
         public bool Finished { get; private set; }
 
         /// <summary>Whether this is about a named model.</summary>
-        public bool Concerns(string model) =>
-            _change.Model.Equals(model, StringComparison.OrdinalIgnoreCase);
+        public bool Concerns(string model) => _change.Model.Equals(model, StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Advances the clock and says whether the change is now due.</summary>
         public AnimationVisibility? Step(double seconds)
@@ -4293,18 +3520,8 @@ public sealed class SceneUpdate
 
         private double _elapsed;
 
-        public Playing(
-            ActFile clip,
-            PlacedModel target,
-            AnimationAction action,
-            bool repeat,
-            bool moves,
-            Vector3? began,
-            Matrix4x4 standing,
-            bool fromBehaviour = false,
-            int rate = AnimationFile.FramesPerSecond,
-            Actors.CharacterConfig? character = null,
-            bool carried = false)
+        public Playing( ActFile clip, PlacedModel target, AnimationAction action, bool repeat, bool moves, Vector3? began, Matrix4x4 standing,
+            bool fromBehaviour = false, int rate = AnimationFile.FramesPerSecond, Actors.CharacterConfig? character = null, bool carried = false)
         {
             _character = character;
             Clip = clip;
@@ -4327,9 +3544,7 @@ public sealed class SceneUpdate
         /// <summary>Where the clip has carried the actor to.</summary>
         public Vector3? Carried { get; private set; }
 
-        /// <summary>
-        /// Whether the actor gives back the ground the clip covered.
-        /// </summary>
+        /// <summary>Whether the actor gives back the ground the clip covered.</summary>
         public bool Reverts => !_moves && !_absolute;
 
         public ActFile Clip { get; }
@@ -4339,56 +3554,28 @@ public sealed class SceneUpdate
         /// <summary>Whether the model's own behaviour script asked for it.</summary>
         public bool FromBehaviour { get; }
 
-        /// <summary>
-        /// Where the clip's own space has to be moved to for it to play here.
-        /// </summary>
-        private static Matrix4x4 Correction(
-            ActFile clip,
-            PlacedModel target,
-            AnimationPlacement? placement,
-            Matrix4x4 standing,
-            Actors.CharacterConfig? character,
-            bool carried)
+        /// <summary>Where the clip's own space has to be moved to for it to play here.</summary>
+        private static Matrix4x4 Correction( ActFile clip, PlacedModel target, AnimationPlacement? placement, Matrix4x4 standing,
+            Actors.CharacterConfig? character, bool carried)
         {
             if (placement is { } spot)
             {
-                Matrix4x4 authored =
-                    Matrix4x4.CreateRotationY(spot.Heading) *
-                    Matrix4x4.CreateTranslation(spot.Position);
+                Matrix4x4 authored = Matrix4x4.CreateRotationY(spot.Heading) * Matrix4x4.CreateTranslation(spot.Position);
 
-                return Matrix4x4.Invert(standing, out Matrix4x4 back)
-                    ? authored * back
-                    : authored;
+                return Matrix4x4.Invert(standing, out Matrix4x4 back) ? authored * back : authored;
             }
 
-            // A <b>carried</b> clip is already in the space it is played in — the holder's,
-            // which the model is pinned to for as long as the binding lasts — so it plays
-            // exactly as authored and there is nothing to correct. It matters only for the
-            // handful of clips that carry a person rather than a prop, <c>DemTe6KillGabe</c>
-            // among them: a prop's correction is the identity anyway, but an actor's would
-            // shift the clip to their own rest and undo the binding.
+            // A carried clip is already in the space it is played in — the holder's, which the model is pinned to for as long as the binding lasts —.
             if (carried || target.Kind != PlacedModelKind.Actor)
             {
                 return Matrix4x4.Identity;
             }
 
-            // A relative clip plays facing whichever way the actor already faces, and the
-            // turn the clip was authored with is taken back out. That is the reference's
-            // rule — GKActor::StartAnimation and SampleAnimation both end in
-            // SetModelRotationToActorRotation, which measures the posed model's facing and
-            // rotates it to the actor's heading — and applying the clip's rotation raw on
-            // top of the placement is what stood the museum's Estelle and Lady Howard back
-            // to back: their opening clip is authored with a turn in it.
-            //
-            // Measured the way the reference measures it when nothing is animating the
-            // facing helper: the triangle of the hip and shoe mesh origins, whose normal is
-            // the facing outright. No dot product and no rare branch.
+            // A relative clip plays facing whichever way the actor already faces, and the turn the clip was authored with is taken back out.
             Matrix4x4 turn = Matrix4x4.Identity;
 
-            if (character is { Hips: { } hips, LeftShoe: { } left, RightShoe: { } right } &&
-                clip.PoseOf(hips.Mesh, 0) is { } hipPose &&
-                clip.PoseOf(left.Mesh, 0) is { } leftPose &&
-                clip.PoseOf(right.Mesh, 0) is { } rightPose)
+            if (character is { Hips: { } hips, LeftShoe: { } left, RightShoe: { } right } && clip.PoseOf(hips.Mesh, 0) is { } hipPose &&
+                clip.PoseOf(left.Mesh, 0) is { } leftPose && clip.PoseOf(right.Mesh, 0) is { } rightPose)
             {
                 Vector3 across = rightPose.Translation - leftPose.Translation;
                 Vector3 up = hipPose.Translation - leftPose.Translation;
@@ -4396,10 +3583,7 @@ public sealed class SceneUpdate
 
                 if (facing.LengthSquared() > 1e-6f)
                 {
-                    // Which way the model is built to face, which is what the placement's
-                    // rotation assumes it is looking along. The clip is turned so that its
-                    // opening frame looks that way too, and the placement then turns both
-                    // together to the actor's heading.
+                    // Which way the model is built to face, which is what the placement's rotation assumes it is looking along.
                     float built = target.BuiltFacing ?? MathF.PI;
                     float authored = Navigation.Walker.Heading(facing);
 
@@ -4407,34 +3591,17 @@ public sealed class SceneUpdate
                 }
             }
 
-            // Where the clip's opening frame stands the character, once the turn is out of
-            // it, against where the model's own rest stands them: the hips across and the
-            // lower sole up. <b>It has to be the same measure Settle takes coming out</b> —
-            // GKActor::SetModelPositionToActorPosition shifts the model by its position less
-            // GetFloorPosition(), and GetFloorPosition is exactly this — because a placement
-            // is a pair of feet on the floor and the two have to cancel.
-            //
-            // Matching the mesh averages instead, as this did, is the same answer only while
-            // a clip opens in the pose the model was built in. `mescemkneelHold` opens
-            // kneeling, and a kneeling average sits a good deal below a standing one, so the
-            // correction lifted the difference: Mesmi bowed at the tomb and spent the rest of
-            // the graveyard scene a foot above the grass. Every clip after it inherited the
-            // height, because Settle wrote it into her placement.
-            if (character is not null &&
-                Actors.Footing.Of(target.Model, character) is { } feet &&
+            // Where the clip's opening frame stands the character, once the turn is out of it, against where the model's own rest stands them: the.
+            if (character is not null && Actors.Footing.Of(target.Model, character) is { } feet &&
                 Actors.AnimationStart.Standing(clip, 0f, repeat: false, character, turn) is { } opened)
             {
                 return turn * Matrix4x4.CreateTranslation(feet - opened);
             }
 
-            // No triads to read, so the body cannot be measured and the mesh groups as a
-            // whole are what is left. Kept for the models CHARACTERS.TXT says nothing about.
+            // No triads to read, so the body cannot be measured and the mesh groups as a whole are what is left.
             Vector3 rest = Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation));
 
-            Vector3 opens = Average(Enumerable
-                .Range(0, clip.MeshCount)
-                .Select(m => clip.PoseOf(m, 0))
-                .Where(p => p is not null)
+            Vector3 opens = Average(Enumerable .Range(0, clip.MeshCount) .Select(m => clip.PoseOf(m, 0)) .Where(p => p is not null)
                 .Select(p => Vector3.Transform(p!.Value.Translation, turn)));
 
             return turn * Matrix4x4.CreateTranslation(rest - opens);
@@ -4459,18 +3626,12 @@ public sealed class SceneUpdate
             {
                 if (!_repeat)
                 {
-                    // The last frame first. A frame long enough to run past the end should
-                    // still leave the model where the clip finished, which is the whole of
-                    // what a move animation means; skipping to the stop would leave it
-                    // wherever the previous frame happened to be.
+                    // The last frame first.
                     Pose(geometry, Clip.FrameCount - 1);
                     return false;
                 }
 
-                // Back to the top, keeping whatever is left over rather than resetting to
-                // zero. Dropping the remainder loses up to a sixtieth of a second every
-                // time round, which on a loop as short as a fan's is a hitch every four
-                // seconds — exactly what this is here to get rid of.
+                // Back to the top, keeping whatever is left over rather than resetting to zero.
                 frame %= Clip.FrameCount;
                 _elapsed = _delay + (frame / _rate);
             }
@@ -4488,47 +3649,37 @@ public sealed class SceneUpdate
         public void Last(ISceneSink geometry) => Pose(geometry, Math.Max(0, Clip.FrameCount - 1));
 
         /// <summary>Where in the room the opening pose leaves the model standing.</summary>
-        /// <param name="standing">The model's own placement, which is applied on top.</param>
         /// <returns>The world position of its mesh groups' average origin.</returns>
+        /// <param name="standing">The model's own placement, which is applied on top.</param>
         public Vector3 Settled(Matrix4x4 standing) => Standing(standing, 0f);
 
         /// <summary>Where the clip has the character's feet on the frame it is on.</summary>
-        /// <param name="standing">The model's placement.</param>
         /// <returns>The spot, in the room.</returns>
+        /// <param name="standing">The model's placement.</param>
         public Vector3 Now(Matrix4x4 standing) => Standing(standing, Frame);
 
         /// <summary>Which way the clip has the character facing on the frame it is on.</summary>
-        /// <param name="standing">The model's placement.</param>
         /// <returns>The heading, or null when the clip does not pose the hips.</returns>
-        public float? Facing(Matrix4x4 standing) =>
-            _character is null
-                ? null
-                : Actors.AnimationStart.FacingAt(
+        /// <param name="standing">The model's placement.</param>
+        public float? Facing(Matrix4x4 standing) => _character is null ? null : Actors.AnimationStart.FacingAt(
                     Clip, Frame, _repeat, _character, _correction * standing, Target.BuiltFacing);
 
         private Vector3 Standing(Matrix4x4 standing, float frame)
         {
             Matrix4x4 world = _correction * standing;
 
-            // The hips, for the same reason the running pose uses them: this is a place
-            // read out of a clip rather than a distance measured across one.
-            return (_character is null
-                ? null
-                : Actors.AnimationStart.Standing(Clip, frame, _repeat, _character, world))
+            // The hips, for the same reason the running pose uses them: this is a place read out of a clip rather than a distance measured across.
+            return (_character is null ? null : Actors.AnimationStart.Standing(Clip, frame, _repeat, _character, world))
                 ?? Vector3.Transform(_opened, world);
         }
 
         /// <summary>Whether the clip says where in the room it happens.</summary>
         public bool Absolute => _absolute;
 
-        /// <summary>
-        /// The shift <see cref="Correction"/> settled on, so a held model can follow it.
-        /// </summary>
+        /// <summary>The shift settled on, so a held model can follow it.</summary>
         public Matrix4x4 Space => _correction;
 
-        /// <summary>
-        /// Puts one mesh group where the clip says, in the picture and on the model.
-        /// </summary>
+        /// <summary>Puts one mesh group where the clip says, in the picture and on the model.</summary>
         private void Put(ISceneSink geometry, int mesh, Matrix4x4 meshToLocal)
         {
             geometry.PoseMesh(Target.Placement, mesh, meshToLocal);
@@ -4536,71 +3687,42 @@ public sealed class SceneUpdate
         }
 
         /// <summary>Where the clip's mesh groups sit on its opening frame.</summary>
-        private static Vector3 Opens(ActFile clip) => Average(Enumerable
-            .Range(0, clip.MeshCount)
-            .Select(m => clip.PoseOf(m, 0))
-            .Where(p => p is not null)
-            .Select(p => p!.Value.Translation));
+        private static Vector3 Opens(ActFile clip) => Average(Enumerable .Range(0, clip.MeshCount) .Select(m => clip.PoseOf(m, 0))
+            .Where(p => p is not null) .Select(p => p!.Value.Translation));
 
         /// <summary>The frame the model was last posed on.</summary>
         public float Frame { get; private set; }
 
         /// <summary>Puts the model into one moment of the clip.</summary>
         /// <param name="geometry">Where the model stands.</param>
-        /// <param name="frame">
-        /// Which frame, with the fraction of the way to the next one. The clip records
-        /// fifteen poses a second and the screen shows sixty, so a whole number here is
-        /// four identical frames in a row; see <see cref="ActFile.PoseAt"/>.
-        /// </param>
+        /// <param name="frame">Which frame, with the fraction of the way to the next one.</param>
         private void Pose(ISceneSink geometry, double frame)
         {
             float at = (float)frame;
             Frame = at;
 
-            // Where the clip has carried the model to, in the world's terms rather than the
-            // model's. This is what the actor's position follows.
+            // Where the clip has carried the model to, in the world's terms rather than the model's.
             if (Began is { } from)
             {
-                Vector3 here = Average(Enumerable
-                    .Range(0, Clip.MeshCount)
-                    .Select(m => Clip.PoseAt(m, at, _repeat))
-                    .Where(p => p is not null)
+                Vector3 here = Average(Enumerable .Range(0, Clip.MeshCount) .Select(m => Clip.PoseAt(m, at, _repeat)) .Where(p => p is not null)
                     .Select(p => p!.Value.Translation));
 
-                // An absolute clip says where in the room it happens, so where it has got
-                // to is a place rather than a distance from wherever the actor happened to
-                // be standing. Measuring it as a distance is what left Emilio's position at
-                // the spot he was hidden at while his model walked out of the hotel — and
-                // the walk to his bench then set off from there and found no route.
+                // An absolute clip says where in the room it happens, so where it has got to is a place rather than a distance from wherever the.
                 Matrix4x4 world = _correction * geometry.TransformOf(Target.Placement);
 
-                // The hips where the character has them, and the average of the mesh
-                // origins only where nothing says. The two move together, so a difference
-                // of averages is exact and free — but a single average is that answer plus
-                // the constant between a torso's middle and the floor, and an absolute clip
-                // is read as a place rather than differenced.
-                Carried = _absolute
-                    ? (_character is null
-                        ? null
-                        : Actors.AnimationStart.Standing(Clip, at, _repeat, _character, world))
-                      ?? Vector3.Transform(here, world)
-                    : from + Vector3.TransformNormal(here - _opened, Target.Transform);
+                // The hips where the character has them, and the average of the mesh origins only where nothing says.
+                Carried = _absolute ? (_character is null ? null : Actors.AnimationStart.Standing(Clip, at, _repeat, _character, world))
+                      ?? Vector3.Transform(here, world) : from + Vector3.TransformNormal(here - _opened, Target.Transform);
             }
 
             for (int mesh = 0; mesh < Clip.MeshCount; mesh++)
             {
                 Matrix4x4? pose = Clip.PoseAt(mesh, at, _repeat);
 
-                // A refined head is drawn from geometry the clip has never heard of, so the
-                // clip's vertices are read as a motion and applied to the mesh instead of
-                // being written into it. Everything else about the frame is unchanged.
+                // A refined head is drawn from geometry the clip has never heard of, so the clip's vertices are read as a motion and applied to the.
                 if (Target.Head is { } rig && rig.Mesh == mesh)
                 {
-                    // Whatever happens, a refined head is never reshaped: the buffer being
-                    // drawn holds thousands of vertices and the clip has a few hundred to
-                    // say about them. Falling through to the ordinary path would rely on the
-                    // renderer noticing the size mismatch and dropping the write, which is a
-                    // long way from here and silent when it happens.
+                    // Whatever happens, a refined head is never reshaped: the buffer being drawn holds thousands of vertices and the clip has a few.
                     if (_head.Of(Clip, rig, at, _repeat) is { } turn)
                     {
                             if (pose is { } placed)
@@ -4609,8 +3731,7 @@ public sealed class SceneUpdate
                         }
                         else
                         {
-                            // No transform track for the head in this clip, so the mesh keeps
-                            // its own and the fit goes on top of it. TurnMesh is exactly that.
+                            // No transform track for the head in this clip, so the mesh keeps its own and the fit goes on top of it.
                             geometry.TurnMesh(Target.Placement, mesh, turn);
                         }
                     }
@@ -4627,8 +3748,7 @@ public sealed class SceneUpdate
                     Put(geometry, mesh, value * _correction);
                 }
 
-                // The shapes, where the clip has them. Without these a character is mesh
-                // groups sliding about: 3,085 of the corpus's 3,086 character clips deform.
+                // The shapes, where the clip has them.
                 foreach (int submesh in Clip.ShapedSubmeshes(mesh))
                 {
                     if (Clip.ShapeAt(mesh, submesh, at, _repeat) is { } shape)
@@ -4668,11 +3788,8 @@ public sealed class SceneUpdate
             Stride = stride;
             Built = placed.BuiltFacing;
 
-            // The placement is scale, then a turn, then a move, so the scale comes back out
-            // as the length of a basis vector. Rebuilding the transform without it would
-            // resize the actor the moment they took a step.
-            Scale = new Vector3(
-                placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
+            // The placement is scale, then a turn, then a move, so the scale comes back out as the length of a basis vector.
+            Scale = new Vector3( placed.Transform.M11, placed.Transform.M12, placed.Transform.M13).Length();
 
             if (Scale <= 0)
             {
@@ -4693,9 +3810,7 @@ public sealed class SceneUpdate
         public float? Built { get; }
     }
 
-    /// <summary>
-    /// A walking character's legs.
-    /// </summary>
+    /// <summary>A walking character's legs.</summary>
     private sealed class WalkCycle
     {
         private readonly ActFile _clip;
@@ -4707,20 +3822,12 @@ public sealed class SceneUpdate
 
         private readonly int _period;
 
-        /// <summary>
-        /// The feet the stride puts down, and where it had got to when it was last asked.
-        /// </summary>
+        /// <summary>The feet the stride puts down, and where it had got to when it was last asked.</summary>
         private readonly IReadOnlyList<AnimationStep> _steps;
 
         private int _lastFrame = -1;
 
-        private WalkCycle(
-            ActFile clip,
-            PlacedModel target,
-            Matrix4x4 rest,
-            float opens,
-            float pace,
-            IReadOnlyList<AnimationStep> steps)
+        private WalkCycle( ActFile clip, PlacedModel target, Matrix4x4 rest, float opens, float pace, IReadOnlyList<AnimationStep> steps)
         {
             _clip = clip;
             _target = target;
@@ -4729,18 +3836,12 @@ public sealed class SceneUpdate
             _steps = steps;
             Pace = pace;
 
-            // A stride is authored so that its last frame repeats its first — Gabriel's
-            // twenty-first frame is his first, agreeing to two thousandths of a unit in
-            // sway and exactly in bob. Looping over all of them shows that pose twice and
-            // the walk hitches once a stride.
+            // A stride is authored so that its last frame repeats its first — Gabriel's twenty-first frame is his first, agreeing to two thousandths.
             _period = Closes(clip) ? clip.FrameCount - 1 : clip.FrameCount;
         }
 
-        /// <summary>
-        /// Which animation this character walks with.
-        /// </summary>
-        private static string? Named(
-            PlacedModel target, Actors.CharacterLibrary? characters, string? replaced) =>
+        /// <summary>Which animation this character walks with.</summary>
+        private static string? Named( PlacedModel target, Actors.CharacterLibrary? characters, string? replaced) =>
             replaced is { Length: > 0 } ? replaced : characters?.Of(target.Name)?.WalkAnimation;
 
         /// <summary>Whether the clip's last frame is its first again.</summary>
@@ -4749,24 +3850,16 @@ public sealed class SceneUpdate
             Vector3 first = Mean(clip, 0);
             Vector3 last = Mean(clip, clip.FrameCount - 1);
 
-            return clip.FrameCount > 2 &&
-                   MathF.Abs(first.X - last.X) < 0.05f &&
-                   MathF.Abs(first.Y - last.Y) < 0.05f;
+            return clip.FrameCount > 2 && MathF.Abs(first.X - last.X) < 0.05f && MathF.Abs(first.Y - last.Y) < 0.05f;
         }
 
         /// <summary>Where the clip's mesh groups sit on a frame.</summary>
-        private static Vector3 Mean(ActFile clip, int frame) => Average(Enumerable
-            .Range(0, clip.MeshCount)
-            .Select(m => clip.PoseOf(m, frame))
-            .Where(p => p is not null)
-            .Select(p => p!.Value.Translation));
+        private static Vector3 Mean(ActFile clip, int frame) => Average(Enumerable .Range(0, clip.MeshCount) .Select(m => clip.PoseOf(m, frame))
+            .Where(p => p is not null) .Select(p => p!.Value.Translation));
 
         /// <summary>Where they sit at a moment between two frames.</summary>
-        private static Vector3 MeanAt(ActFile clip, float frame) => Average(Enumerable
-            .Range(0, clip.MeshCount)
-            .Select(m => clip.PoseAt(m, frame, cycles: true))
-            .Where(p => p is not null)
-            .Select(p => p!.Value.Translation));
+        private static Vector3 MeanAt(ActFile clip, float frame) => Average(Enumerable .Range(0, clip.MeshCount)
+            .Select(m => clip.PoseAt(m, frame, cycles: true)) .Where(p => p is not null) .Select(p => p!.Value.Translation));
 
         /// <summary>How fast the stride carries its owner, in scene units a second.</summary>
         public float Pace { get; }
@@ -4779,16 +3872,10 @@ public sealed class SceneUpdate
 
         /// <summary>Finds the stride a character walks with.</summary>
         /// <returns>The cycle, or null when this character has no walk animation here.</returns>
-        public static WalkCycle? For(
-            PlacedModel target,
-            Actors.CharacterLibrary? characters,
-            Content.AnimationLibrary? animations,
-            Content.ClipLibrary? clips,
-            string? replaced = null)
+        public static WalkCycle? For( PlacedModel target, Actors.CharacterLibrary? characters, Content.AnimationLibrary? animations,
+            Content.ClipLibrary? clips, string? replaced = null)
         {
-            if (Named(target, characters, replaced) is not { Length: > 0 } named ||
-                animations is null ||
-                clips is null)
+            if (Named(target, characters, replaced) is not { Length: > 0 } named || animations is null || clips is null)
             {
                 return null;
             }
@@ -4801,10 +3888,8 @@ public sealed class SceneUpdate
 
             foreach (AnimationAction action in animation.Actions)
             {
-                if (clips.Read(action.Name) is not { } clip ||
-                    !clip.ModelName.Equals(target.Name, StringComparison.OrdinalIgnoreCase) ||
-                    clip.FrameCount < 2 ||
-                    clip.Duration <= 0)
+                if (clips.Read(action.Name) is not { } clip || !clip.ModelName.Equals(target.Name, StringComparison.OrdinalIgnoreCase) ||
+                    clip.FrameCount < 2 || clip.Duration <= 0)
                 {
                     continue;
                 }
@@ -4812,12 +3897,9 @@ public sealed class SceneUpdate
                 float opens = Forward(clip, 0);
                 float travel = MathF.Abs(Forward(clip, clip.FrameCount - 1) - opens);
 
-                Matrix4x4 rest = Matrix4x4.CreateTranslation(
-                    Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation)) -
-                    Mean(clip, 0));
+                Matrix4x4 rest = Matrix4x4.CreateTranslation( Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation)) - Mean(clip, 0));
 
-                return new WalkCycle(
-                    clip, target, rest, opens, (float)(travel / clip.Duration), animation.Steps);
+                return new WalkCycle( clip, target, rest, opens, (float)(travel / clip.Duration), animation.Steps);
             }
 
             return null;
@@ -4828,9 +3910,7 @@ public sealed class SceneUpdate
 
         private static readonly List<AnimationStep> Nothing = [];
 
-        /// <summary>
-        /// The footstep nodes between the last frame shown and this one.
-        /// </summary>
+        /// <summary>The footstep nodes between the last frame shown and this one.</summary>
         private List<AnimationStep> Feet(int frame)
         {
             if (_steps.Count == 0 || frame == _lastFrame)
@@ -4842,9 +3922,7 @@ public sealed class SceneUpdate
 
             foreach (AnimationStep step in _steps)
             {
-                bool inside = _lastFrame < frame
-                    ? step.Frame > _lastFrame && step.Frame <= frame
-                    : step.Frame > _lastFrame || step.Frame <= frame;
+                bool inside = _lastFrame < frame ? step.Frame > _lastFrame && step.Frame <= frame : step.Frame > _lastFrame || step.Frame <= frame;
 
                 if (inside)
                 {
@@ -4862,27 +3940,20 @@ public sealed class SceneUpdate
         {
             _elapsed += Math.Max(0, seconds) * Math.Max(0.01f, Rate);
 
-            // Looped, and seamlessly: with the forward travel removed, the last frame sits
-            // exactly where the first does, so the join is invisible.
+            // Looped, and seamlessly: with the forward travel removed, the last frame sits exactly where the first does, so the join is invisible.
             float at = (float)(_elapsed * AnimationFile.FramesPerSecond % _period);
             int frame = (int)at;
 
             Landed = Feet(frame);
             _lastFrame = frame;
 
-            Matrix4x4 correction =
-                Matrix4x4.CreateTranslation(0, 0, _opens - ForwardAt(_clip, at)) * _rest;
+            Matrix4x4 correction = Matrix4x4.CreateTranslation(0, 0, _opens - ForwardAt(_clip, at)) * _rest;
 
             for (int mesh = 0; mesh < _clip.MeshCount; mesh++)
             {
                 Matrix4x4? pose = _clip.PoseAt(mesh, at, cycles: true);
 
-                // The head, exactly as Playing.Pose treats it: a refined head is drawn from
-                // geometry the clip has never heard of, so the clip's vertices are read as a
-                // motion and applied to the mesh rather than written into it. Without this a
-                // walk gave the head its transform track alone — which for a character clip
-                // is a rest pose, the turn of the head living in the vertices — and Emilio
-                // crossed the graveyard with his face pointing back the way he had come.
+                // The head, exactly as Playing.Pose treats it: a refined head is drawn from geometry the clip has never heard of, so the clip's.
                 if (_target.Head is { } rig && rig.Mesh == mesh)
                 {
                     if (_head.Of(_clip, rig, at, repeat: true) is { } turn)
@@ -4946,9 +4017,7 @@ public sealed class SceneUpdate
 
             _standing = placed.Transform.Translation;
 
-            // The placement is a turn about the up axis and then a move, so the way the
-            // actor faces can be read straight back out of it — as a heading rather than as
-            // the rotation itself, because a glance is worked out from a heading.
+            // The placement is a turn about the up axis and then a move, so the way the actor faces can be read straight back out of it — as a.
             _built = placed.BuiltFacing;
             _facing = HeadingOf(placed.Transform);
             _eyes = CharacterHead.PivotOf(placed.Model, head).Y;
@@ -4959,7 +4028,6 @@ public sealed class SceneUpdate
         public int Head { get; }
 
         /// <summary>Tells a head where its owner has got to.</summary>
-        /// <summary>Which way this model is built to face, when its arrow says.</summary>
         private readonly float? _built;
 
         /// <summary>The heading a placement of this model amounts to.</summary>
@@ -4967,9 +4035,7 @@ public sealed class SceneUpdate
         {
             float turned = MathF.Atan2(placement.M31, placement.M33);
 
-            return _built is { } forward
-                ? Navigation.Walker.Wrapped(turned + forward)
-                : Navigation.Walker.Rotation(turned);
+            return _built is { } forward ? Navigation.Walker.Wrapped(turned + forward) : Navigation.Walker.Rotation(turned);
         }
 
         /// <summary>Where the model is standing and which way it faces, this frame.</summary>
@@ -4985,9 +4051,7 @@ public sealed class SceneUpdate
         /// <returns>True when it moved, and the geometry needs telling.</returns>
         public bool Step(Glances glances, float seconds)
         {
-            (float yaw, float pitch) = glances.Of(_name) is { } glance
-                ? Glances.Turn(_standing, _facing, _eyes, glance.Point)
-                : (0f, 0f);
+            (float yaw, float pitch) = glances.Of(_name) is { } glance ? Glances.Turn(_standing, _facing, _eyes, glance.Point) : (0f, 0f);
 
             bool quick = glances.Of(_name)?.Quick ?? false;
             float most = quick ? float.MaxValue : SceneUpdate.TurnRate * seconds;
@@ -5002,8 +4066,7 @@ public sealed class SceneUpdate
         }
 
         /// <summary>Where the head is now.</summary>
-        public Matrix4x4 Turn() =>
-            Matrix4x4.CreateRotationX(-_pitch) * Matrix4x4.CreateRotationY(_yaw);
+        public Matrix4x4 Turn() => Matrix4x4.CreateRotationX(-_pitch) * Matrix4x4.CreateRotationY(_yaw);
 
         private static float Toward(float from, float to, float most)
         {

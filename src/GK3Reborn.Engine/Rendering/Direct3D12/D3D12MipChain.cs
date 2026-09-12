@@ -1,4 +1,4 @@
-using GK3Reborn.Rendering.Shaders;
+﻿using GK3Reborn.Rendering.Shaders;
 using Silk.NET.Direct3D12;
 
 namespace GK3Reborn.Rendering.Direct3D12;
@@ -73,11 +73,25 @@ public static unsafe class D3D12MipChain
     ],
     PushConstantBytes: 16);
 
+    /// <summary>Builds the compute pipeline the filter runs as.</summary>
+    /// <param name="context">The device.</param>
+    /// <returns>The pipeline, which the context keeps for the life of the device.</returns>
+    /// <exception cref="D3D12Exception">Something on the device refused.</exception>
+    internal static D3D12Pipeline CreatePipeline(D3D12Context context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        using var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory) { DxilShaderModel = context.DxilShaderModel };
+
+        return D3D12Pipeline.CreateCompute(context.Device, compiler, Source, "mip-chain", Layout);
+    }
+
     /// <summary>Fills in every level below the top one.</summary>
     /// <param name="context">The device.</param>
     /// <param name="texture">The texture, whose top level is already filled.</param>
+    /// <param name="into">An open batch to record into, or null to submit on its own.</param>
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
-    public static void Build(D3D12Context context, D3D12Texture texture)
+    public static void Build(D3D12Context context, D3D12Texture texture, D3D12Uploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(texture);
@@ -87,23 +101,32 @@ public static unsafe class D3D12MipChain
             return;
         }
 
-        using var compiler = new ShaderCompiler(ShaderCompiler.DefaultCacheDirectory) { DxilShaderModel = context.DxilShaderModel };
+        // Made once for the device rather than once for every texture: compiling the filter
+        // and building a root signature and a pipeline state cost more than the dispatches do.
+        D3D12Pipeline pipeline = context.MipChain;
 
-        using D3D12Pipeline pipeline = D3D12Pipeline.CreateCompute(
-            context.Device, compiler, Source, "mip-chain", Layout);
-
-        using D3D12DescriptorHeap views = D3D12DescriptorHeap.Create(
+        D3D12DescriptorHeap views = D3D12DescriptorHeap.Create(
             context.Device, DescriptorHeapType.CbvSrvUav, texture.Mips * 2, shaderVisible: true);
 
-        using D3D12DescriptorHeap samplers = D3D12DescriptorHeap.Create(
+        D3D12DescriptorHeap samplers = D3D12DescriptorHeap.Create(
             context.Device, DescriptorHeapType.Sampler, texture.Mips, shaderVisible: true);
+
+        bool own = into is null;
+
+        // A batch holds the heaps until it has run, because what was recorded into its list
+        // reads through them; on its own the two using blocks below are past the wait.
+        if (into is { } batch)
+        {
+            batch.Keep(views);
+            batch.Keep(samplers);
+        }
 
         // Whether the stored bytes carry an sRGB encode, which decides whether the filtered
         // result has to be given one back. Every wall and floor texture in the game does;
         // a normal map, an occlusion map and a height map do not.
         bool encoded = D3D12Texture.Linearise(texture.Format) != texture.Format;
 
-        ID3D12GraphicsCommandList4* list = context.BeginOneShot();
+        ID3D12GraphicsCommandList4* list = into is { } recording ? recording.List : context.BeginOneShot();
 
         // Whole-resource first, so every subresource is in one known state before the
         // per-subresource moves below start disagreeing with each other.
@@ -173,7 +196,16 @@ public static unsafe class D3D12MipChain
         }
 
         texture.Claim(ResourceStates.AllShaderResource);
+
+        if (!own)
+        {
+            return;
+        }
+
         context.EndOneShot();
+
+        views.Dispose();
+        samplers.Dispose();
     }
 
     /// <summary>Writes the sampler the filter reads through.</summary>

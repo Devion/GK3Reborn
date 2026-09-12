@@ -100,6 +100,16 @@ public sealed class HeadlessSceneSink : ISceneSink
     {
     }
 
+    /// <inheritdoc/>
+    public void BeginTextures()
+    {
+    }
+
+    /// <inheritdoc/>
+    public void EndTextures()
+    {
+    }
+
     /// <summary>How many normal maps the scene gave, for a sweep that wants to count.</summary>
     public int NormalMapCount { get; private set; }
 

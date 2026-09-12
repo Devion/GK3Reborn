@@ -53,10 +53,7 @@ public enum CameraAction
     /// <summary>Leave.</summary>
     Quit,
 
-    /// <summary>
-    /// Give the pointer back while held, so something off to one side can be clicked
-    /// without turning to face it.
-    /// </summary>
+    /// <summary>Give the pointer back while held, so something off to one side can be clicked without turning to face it.</summary>
     FreeCursor,
 }
 
@@ -74,7 +71,6 @@ public enum PointerButton
 }
 
 /// <summary>What the player is doing right now.</summary>
-/// <summary>A key that edits a line of text rather than adding to it.</summary>
 public enum EditKey
 {
     /// <summary>Delete the character before the caret.</summary>
@@ -114,13 +110,13 @@ public enum EditKey
 public interface IGameInput
 {
     /// <summary>Whether an action is currently held.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>True while held.</returns>
+    /// <param name="action">The action.</param>
     bool IsHeld(CameraAction action);
 
     /// <summary>Whether an action was triggered since the last poll.</summary>
-    /// <param name="action">The action.</param>
     /// <returns>True once per press.</returns>
+    /// <param name="action">The action.</param>
     bool WasPressed(CameraAction action);
 
     /// <summary>How far the pointer moved since the last poll, in pixels.</summary>
@@ -133,29 +129,29 @@ public interface IGameInput
     int ScrollDelta { get; }
 
     /// <summary>Whether the pointer was clicked since the last poll.</summary>
-    /// <param name="button">Which button.</param>
     /// <returns>True once per press.</returns>
+    /// <param name="button">Which button.</param>
     bool WasClicked(PointerButton button);
 
     /// <summary>Whether the click just reported was the second of a pair.</summary>
+    /// <returns>True on the second click of a double-click, alongside .</returns>
     /// <param name="button">Which button.</param>
-    /// <returns>True on the second click of a double-click, alongside <see cref="WasClicked"/>.</returns>
     bool WasDoubleClicked(PointerButton button);
 
     /// <summary>Whether the pointer is being dragged with a button held.</summary>
     bool IsDragging { get; }
 
     /// <summary>Whether a pointer button is down right now.</summary>
-    /// <param name="button">Which button.</param>
     /// <returns>True for as long as it is held.</returns>
+    /// <param name="button">Which button.</param>
     bool IsHeld(PointerButton button);
 
     /// <summary>The printable characters typed since the last poll.</summary>
     string Typed { get; }
 
     /// <summary>Whether an editing key was pressed since the last poll.</summary>
-    /// <param name="key">Which one.</param>
     /// <returns>True once per press.</returns>
+    /// <param name="key">Which one.</param>
     bool WasPressed(EditKey key);
 
     /// <summary>Which key and which pad button do which job.</summary>
@@ -167,27 +163,20 @@ public interface IGameInput
     /// <summary>Where the pad's sticks are pointing and how hard its triggers are pressed.</summary>
     GamepadSticks Sticks => GamepadSticks.Still;
 
-    /// <summary>
-    /// How fast a stick pushed all the way moves the pointer, in logical pixels a second.
-    /// </summary>
+    /// <summary>How fast a stick pushed all the way moves the pointer, in logical pixels a second.</summary>
     float PointerSpeed
     {
         get => 0f;
         set { }
     }
 
-    /// <summary>
-    /// The key pressed since the last poll, for a settings page that is listening for one.
-    /// </summary>
+    /// <summary>The key pressed since the last poll, for a settings page that is listening for one.</summary>
     InputKey AnyKey => InputKey.None;
 
     /// <summary>The pad button pressed since the last poll, for the same reason.</summary>
     GamepadButton AnyButton => GamepadButton.None;
 
-    /// <summary>
-    /// What the pointer is drawn as. Decided by whoever knows what is under it, which is
-    /// the game; the window only draws it.
-    /// </summary>
+    /// <summary>What the pointer is drawn as.</summary>
     PointerShape PointerShape
     {
         get => PointerShape.Default;
@@ -201,32 +190,22 @@ public interface IGameInput
         set { }
     }
 
-    /// <summary>
-    /// Whether the pointer is held for looking about rather than for pointing at things.
-    /// While it is, the mouse is hidden and pinned, every movement of it is reported
-    /// through <see cref="PointerDelta"/> with no button held, and
-    /// <see cref="PointerPosition"/> stops moving. A platform that will not pin a cursor
-    /// reads back false however this is set.
-    /// </summary>
+    /// <summary>Whether the pointer is held for looking about rather than for pointing at things.</summary>
     bool PointerLocked
     {
         get => false;
         set { }
     }
 
-    /// <summary>
-    /// Puts the pointer somewhere, without the mouse having moved.
-    /// </summary>
+    /// <summary>Puts the pointer somewhere, without the mouse having moved.</summary>
     /// <param name="position">Where, in pixels from the top-left of the window.</param>
     void MovePointer(Vector2 position)
     {
     }
 
-    /// <summary>Clears the per-frame state. Called once a frame, after reading it.</summary>
+    /// <summary>Clears the per-frame state.</summary>
     void EndFrame();
 
-    /// <summary>
-    /// Throws away input that has been gathered but not read.
-    /// </summary>
+    /// <summary>Throws away input that has been gathered but not read.</summary>
     void Forget();
 }

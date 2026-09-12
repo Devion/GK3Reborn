@@ -402,6 +402,10 @@ public sealed class SleepingFaceTests : IDisposable
 
         public int TriangleCount => _inner.TriangleCount;
 
+        public void BeginTextures() => _inner.BeginTextures();
+
+        public void EndTextures() => _inner.EndTextures();
+
         public void AddTexture(string name, DecodedImage image)
         {
             _composed[name] = image;

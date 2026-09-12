@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 using Silk.NET.DXGI;
@@ -10,6 +10,7 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// </summary>
 public static unsafe class D3D12TextureUpload
 {
+
     /// <summary>Which DXGI format a block format is.</summary>
     /// <param name="format">The block format.</param>
     /// <returns>The DXGI format.</returns>
@@ -53,11 +54,11 @@ public static unsafe class D3D12TextureUpload
 
         try
         {
-            Fill(context, texture, [source.Pixels], 1, into);
+            Fill(context, texture, [source.Pixels.AsMemory()], 1, into);
 
             if (mips > 1)
             {
-                D3D12MipChain.Build(context, texture);
+                D3D12MipChain.Build(context, texture, into);
             }
 
             return texture;
@@ -106,11 +107,11 @@ public static unsafe class D3D12TextureUpload
             // Six subresources rather than six mips of one. A texture's subresources are
             // numbered mip-fastest, so a cube with one mip a face numbers its faces nought
             // to five and the copy walks them exactly as it walks a mip chain.
-            var sides = new List<byte[]>(6);
+            var sides = new List<ReadOnlyMemory<byte>>(6);
 
             foreach (DecodedImage face in faces)
             {
-                sides.Add(face.Pixels);
+                sides.Add(face.Pixels.AsMemory());
             }
 
             Fill(context, texture, sides, 6, into);
@@ -147,7 +148,7 @@ public static unsafe class D3D12TextureUpload
 
         try
         {
-            var levels = new List<byte[]>((int)mips);
+            var levels = new List<ReadOnlyMemory<byte>>((int)mips);
 
             int bytesPerBlock = CompressedImage.BytesPerBlock(source.Format);
             int at = 0;
@@ -167,11 +168,14 @@ public static unsafe class D3D12TextureUpload
                     break;
                 }
 
-                levels.Add(source.Blocks.Slice(at, blocks).ToArray());
+                // Sliced rather than copied: the blocks are a view of a memory-mapped pack,
+                // and copying each level out of it doubled what a room's textures cost.
+                levels.Add(source.Blocks.Slice(at, blocks));
                 at += blocks;
             }
 
             Fill(context, texture, levels, mips, into);
+
             return texture;
         }
         catch
@@ -199,14 +203,14 @@ public static unsafe class D3D12TextureUpload
                 + $"{texture.Width} by {texture.Height}.");
         }
 
-        Fill(context, texture, [image.Pixels], 1, null);
+        Fill(context, texture, [image.Pixels.AsMemory()], 1, null);
     }
 
     /// <summary>Copies levels of pixels or blocks into a texture.</summary>
     private static void Fill(
         D3D12Context context,
         D3D12Texture texture,
-        List<byte[]> levels,
+        List<ReadOnlyMemory<byte>> levels,
         uint mips,
         D3D12Uploads? into)
     {
@@ -235,44 +239,52 @@ public static unsafe class D3D12TextureUpload
                     &description, 0, mips, 0, placed, rowCounts, rowSizes, &total);
             }
 
-            ComPtr<ID3D12Resource> staging = context.CreateBuffer(total, HeapType.Upload);
-            batch.Keep(staging);
+            // A range of the batch's own upload memory rather than a staging buffer each:
+            // see D3D12Uploads.Reserve. It stays mapped until the batch has run, which is
+            // what lets the copies below be recorded now and submitted together.
+            byte* mapped = batch.Reserve(total, out ID3D12Resource* staging, out ulong staged);
 
-            void* mapped;
-            var nothing = new Silk.NET.Direct3D12.Range { Begin = 0, End = 0 };
-            D3D12Exception.ThrowIfFailed(staging.Map(0, &nothing, &mapped), "map a texture staging buffer");
-
-            try
+            for (int level = 0; level < levels.Count && level < mips; level++)
             {
-                for (int level = 0; level < levels.Count && level < mips; level++)
+                PlacedSubresourceFootprint footprint = footprints[level];
+                ReadOnlySpan<byte> source = levels[level].Span;
+
+                // Row by row, because the source is packed and the destination is
+                // padded. Copying the whole level in one go is the mistake that shears
+                // every texture whose width is not a multiple of sixty-four.
+                uint sourcePitch = (uint)(rowBytes[level]);
+
+                // Unless the two pitches agree, which for a block format at a power-of-two
+                // width they nearly always do: then the level is one run of bytes and
+                // walking it a row at a time buys nothing.
+                if (sourcePitch == footprint.Footprint.RowPitch)
                 {
-                    PlacedSubresourceFootprint footprint = footprints[level];
-                    byte[] source = levels[level];
+                    int whole = (int)Math.Min((ulong)source.Length, (ulong)rows[level] * sourcePitch);
 
-                    // Row by row, because the source is packed and the destination is
-                    // padded. Copying the whole level in one go is the mistake that shears
-                    // every texture whose width is not a multiple of sixty-four.
-                    uint sourcePitch = (uint)(rowBytes[level]);
+                    source[..whole].CopyTo(new Span<byte>(mapped + footprint.Offset, whole));
+                    footprints[level].Offset += staged;
 
-                    for (uint row = 0; row < rows[level]; row++)
-                    {
-                        ulong destination = footprint.Offset + (row * footprint.Footprint.RowPitch);
-                        int from = (int)(row * sourcePitch);
-                        int count = (int)Math.Min(sourcePitch, (uint)(source.Length - from));
-
-                        if (count <= 0)
-                        {
-                            break;
-                        }
-
-                        source.AsSpan(from, count)
-                            .CopyTo(new Span<byte>((byte*)mapped + destination, count));
-                    }
+                    continue;
                 }
-            }
-            finally
-            {
-                staging.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
+
+                for (uint row = 0; row < rows[level]; row++)
+                {
+                    ulong destination = footprint.Offset + (row * footprint.Footprint.RowPitch);
+                    int from = (int)(row * sourcePitch);
+                    int count = (int)Math.Min(sourcePitch, (uint)(source.Length - from));
+
+                    if (count <= 0)
+                    {
+                        break;
+                    }
+
+                    source.Slice(from, count).CopyTo(new Span<byte>(mapped + destination, count));
+                }
+
+                // Where the range actually sits in the shared buffer, which is what the
+                // copy has to be told; the footprints above are measured from nought
+                // because that is where the host writes them.
+                footprints[level].Offset += staged;
             }
 
             texture.Transition(batch.List, ResourceStates.CopyDest);
@@ -288,7 +300,7 @@ public static unsafe class D3D12TextureUpload
 
                 var origin = new TextureCopyLocation
                 {
-                    PResource = staging.Handle,
+                    PResource = staging,
                     Type = TextureCopyType.PlacedFootprint,
                 };
                 origin.Anonymous.PlacedFootprint = footprints[level];

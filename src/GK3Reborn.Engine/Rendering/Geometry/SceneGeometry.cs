@@ -196,6 +196,57 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         return new SceneGeometry(device, textures);
     }
 
+    /// <summary>How many bytes of staging one run of texture uploads may hold before it is submitted.</summary>
+    /// <remarks>
+    /// A run keeps every staging buffer it has recorded until it is submitted, so the cap is
+    /// on what is held rather than on how many textures it is: the packs hand over a few
+    /// megabytes a texture and a loose enhanced set hands over sixteen.
+    /// </remarks>
+    private const long UploadRun = 96L * 1024 * 1024;
+
+    /// <summary>The run of texture uploads being recorded, or null when each one goes on its own.</summary>
+    private IGeometryUploads? _uploading;
+
+    /// <summary>How much staging the run is holding.</summary>
+    private long _staged;
+
+    /// <inheritdoc/>
+    public void BeginTextures()
+    {
+        EndTextures();
+
+        _uploading = _device.BeginUploads();
+        _staged = 0;
+    }
+
+    /// <inheritdoc/>
+    public void EndTextures()
+    {
+        // Disposing submits it and waits; see D3D12Uploads and BufferUploads.
+        _uploading?.Dispose();
+        _uploading = null;
+        _staged = 0;
+    }
+
+    /// <summary>Notes what a texture put in the staging, submitting the run once it is holding enough.</summary>
+    /// <param name="bytes">How much the upload just recorded has to keep until it runs.</param>
+    private void Staged(long bytes)
+    {
+        if (_uploading is null)
+        {
+            return;
+        }
+
+        _staged += bytes;
+
+        if (_staged < UploadRun)
+        {
+            return;
+        }
+
+        BeginTextures();
+    }
+
     /// <summary>Uploads a texture under a name models can reference.</summary>
     /// <param name="name">Texture name, matched case-insensitively.</param>
     /// <param name="image">The decoded image.</param>
@@ -209,7 +260,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
-        _textures.Add(name, image);
+        _textures.Add(name, image, _uploading);
+        Staged(image.Pixels?.Length ?? 0);
     }
 
     /// <summary>The six sides of the room's sky, once it has been given one.</summary>
@@ -243,7 +295,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddNormal(name, image);
+        _textures.AddNormal(name, image, _uploading);
+        Staged(image.Pixels?.Length ?? 0);
     }
 
     /// <inheritdoc/>
@@ -257,7 +310,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
-        _textures.Add(name, image);
+        _textures.Add(name, image, _uploading);
+        Staged(image.Blocks.Length);
     }
 
     /// <inheritdoc/>
@@ -265,7 +319,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddNormal(name, image);
+        _textures.AddNormal(name, image, _uploading);
+        Staged(image.Blocks.Length);
     }
 
     /// <inheritdoc/>
@@ -273,7 +328,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddOrm(name, image);
+        _textures.AddOrm(name, image, _uploading);
+        Staged(image.Pixels?.Length ?? 0);
     }
 
     /// <inheritdoc/>
@@ -281,7 +337,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddOrm(name, image);
+        _textures.AddOrm(name, image, _uploading);
+        Staged(image.Blocks.Length);
     }
 
     /// <inheritdoc/>
@@ -297,7 +354,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddHeight(name, image, _relief.Contains(name));
+        _textures.AddHeight(name, image, _relief.Contains(name), _uploading);
+        Staged(image.Pixels?.Length ?? 0);
     }
 
     /// <inheritdoc/>
@@ -305,7 +363,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        _textures.AddHeight(name, image, _relief.Contains(name));
+        _textures.AddHeight(name, image, _relief.Contains(name), _uploading);
+        Staged(image.Blocks.Length);
     }
 
     /// <inheritdoc/>
@@ -2980,6 +3039,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        // A run abandoned part-way — a load that threw — still holds the device's one-shot
+        // list, and the next thing to ask for one would fail a long way from the cause.
+        EndTextures();
+
         _device.Wait();
 
         foreach (Batch batch in _batches)

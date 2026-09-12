@@ -39,6 +39,18 @@ public interface ISceneSink
     /// <summary>Total triangles loaded.</summary>
     int TriangleCount { get; }
 
+    /// <summary>Begins a run of texture uploads to be recorded together and submitted once.</summary>
+    /// <remarks>
+    /// Every texture submitted on its own drains the queue, and a room is hundreds of them.
+    /// Whatever is added between this and <see cref="EndTextures"/> goes into one submission,
+    /// or into as few as the staging it holds allows. Nothing may present a frame while a run
+    /// is open: a frame of its own would ask the device for the list this is holding.
+    /// </remarks>
+    void BeginTextures();
+
+    /// <summary>Submits the run and waits for it, leaving nothing open.</summary>
+    void EndTextures();
+
     /// <summary>Adds a texture under a name meshes can reference.</summary>
     /// <param name="name">Texture name, matched case-insensitively.</param>
     /// <param name="image">The decoded image.</param>

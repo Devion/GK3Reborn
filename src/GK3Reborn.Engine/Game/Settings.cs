@@ -36,9 +36,7 @@ public enum Perspective
     FirstPerson,
 }
 
-/// <summary>
-/// What the player has chosen, and where it is kept.
-/// </summary>
+/// <summary>What the player has chosen, and where it is kept.</summary>
 public sealed record Settings
 {
     /// <summary>How loud everything is, over the top of the rest.</summary>
@@ -65,14 +63,10 @@ public sealed record Settings
     /// <summary>Whether to use the higher-resolution textures where they exist.</summary>
     public bool EnhancedTextures { get; init; } = true;
 
-    /// <summary>
-    /// Whether only real sources of light are allowed to light the room.
-    /// </summary>
+    /// <summary>Whether only real sources of light are allowed to light the room.</summary>
     public bool RealisticLighting { get; init; }
 
-    /// <summary>
-    /// Whether a polished floor shows the room standing on it.
-    /// </summary>
+    /// <summary>Whether a polished floor shows the room standing on it.</summary>
     public bool FloorReflections { get; init; } = true;
 
     /// <summary>How strong a reflection off a polished surface is, from zero to two.</summary>
@@ -87,10 +81,7 @@ public sealed record Settings
     /// <summary>How tall it is.</summary>
     public int DisplayHeight { get; init; }
 
-    /// <summary>
-    /// How much larger or smaller the interface's letters are than the size the window
-    /// would pick on its own.
-    /// </summary>
+    /// <summary>How much larger or smaller the interface's letters are than the size the window would pick on its own.</summary>
     public float TextScale { get; init; } = 1f;
 
     /// <summary>The smallest the interface's letters may be asked to go.</summary>
@@ -99,9 +90,7 @@ public sealed record Settings
     /// <summary>The largest.</summary>
     public const float LargestText = 1.6f;
 
-    /// <summary>
-    /// Whether the game opens on the port's own title screen rather than on the 1999 one.
-    /// </summary>
+    /// <summary>Whether the game opens on the port's own title screen rather than on the 1999 one.</summary>
     public bool ModernMenu { get; init; } = true;
 
     /// <summary>Whether frames wait for the display.</summary>
@@ -122,23 +111,19 @@ public sealed record Settings
     /// <summary>Whether frames are generated between the ones the game draws.</summary>
     public FrameGeneration FrameGeneration { get; init; } = FrameGeneration.Off;
 
-    /// <summary>How hard to work at keeping latency down. See <see cref="LatencyMode"/>.</summary>
+    /// <summary>How hard to work at keeping latency down.</summary>
     public LatencyMode Latency { get; init; } = LatencyMode.On;
 
     /// <summary>Which graphics API to draw through.</summary>
     public RenderBackend Backend { get; init; } = RenderBackend.Automatic;
 
-    /// <summary>
-    /// Whether DLSS is allowed to denoise the traced light as well as upscale it.
-    /// </summary>
+    /// <summary>Whether DLSS is allowed to denoise the traced light as well as upscale it.</summary>
     public bool RayReconstruction { get; init; } = true;
 
     /// <summary>Which of DLSS's trained models to ask for, or nought for its own choice.</summary>
     public int DlssPreset { get; init; }
 
-    /// <summary>
-    /// Whether NVIDIA's neural rendering network reworks the picture as it upscales it.
-    /// </summary>
+    /// <summary>Whether NVIDIA's neural rendering network reworks the picture as it upscales it.</summary>
     public bool NeuralUplift { get; init; }
 
     /// <summary>How much of the neural effect to apply, from nothing to all of it.</summary>
@@ -189,68 +174,40 @@ public sealed record Settings
     /// <summary>Where a lamp, a bulb or a lit window is allowed to reach.</summary>
     public float LightNits { get; init; } = 1000f;
 
-    /// <summary>
-    /// Whether a foliage card is replaced by a modelled tree where one has been grown.
-    /// </summary>
+    /// <summary>Whether a foliage card is replaced by a modelled tree where one has been grown.</summary>
     public bool ModelledTrees { get; init; } = true;
 
-    /// <summary>
-    /// Whether a scene's painted horizon is replaced by reconstructed terrain where a
-    /// set has been built for it.
-    /// </summary>
+    /// <summary>Whether a scene's painted horizon is replaced by reconstructed terrain where a set has been built for it.</summary>
     public bool TerrainBackdrop { get; init; } = true;
 
-    /// <summary>
-    /// Whether birds fly in the sky over the outdoor rooms that have them.
-    /// </summary>
+    /// <summary>Whether birds fly in the sky over the outdoor rooms that have them.</summary>
     public bool Birds { get; init; } = true;
 
-    /// <summary>
-    /// Whether ankle-high grass is grown over the ground the rooms paint as lawn.
-    /// </summary>
+    /// <summary>Whether ankle-high grass is grown over the ground the rooms paint as lawn.</summary>
     public bool Grass { get; init; } = true;
 
-    /// <summary>
-    /// Whether insects hang under the trees and dust drifts in the air.
-    /// </summary>
+    /// <summary>Whether insects hang under the trees and dust drifts in the air.</summary>
     public bool InsectsAndDust { get; init; } = true;
 
-    /// <summary>
-    /// Whether the sun draws rays through whatever stands between it and the eye, outdoors
-    /// past the trees and indoors in at the windows.
-    /// </summary>
+    /// <summary>Whether the sun draws rays through whatever stands between it and the eye, outdoors past the trees and indoors in at.</summary>
     public bool SunRays { get; init; } = true;
 
-    /// <summary>
-    /// Whether the air over distant ground wavers with heat through the hot part of the day.
-    /// </summary>
+    /// <summary>Whether the air over distant ground wavers with heat through the hot part of the day.</summary>
     public bool HeatHaze { get; init; } = true;
 
-    /// <summary>
-    /// Whether the two towns the game modelled a corner of are drawn whole.
-    /// </summary>
+    /// <summary>Whether the two towns the game modelled a corner of are drawn whole.</summary>
     public bool RebuiltTowns { get; init; } = true;
 
-    /// <summary>
-    /// Whether a room's own objects are drawn from improved geometry where any has been
-    /// built for them.
-    /// </summary>
+    /// <summary>Whether a room's own objects are drawn from improved geometry where any has been built for them.</summary>
     public bool ImprovedSceneGeometry { get; init; } = true;
 
-    /// <summary>
-    /// Whether a railing, a fence or a chain is given the thickness of the thing drawn on
-    /// it.
-    /// </summary>
+    /// <summary>Whether a railing, a fence or a chain is given the thickness of the thing drawn on it.</summary>
     public bool ThickCutoutCards { get; init; } = true;
 
-    /// <summary>
-    /// Whether the room's own surfaces are drawn only on the side they face.
-    /// </summary>
+    /// <summary>Whether the room's own surfaces are drawn only on the side they face.</summary>
     public bool CullBackFaces { get; init; } = true;
 
-    /// <summary>
-    /// How many times a character's head is subdivided, or zero to draw it as authored.
-    /// </summary>
+    /// <summary>How many times a character's head is subdivided, or zero to draw it as authored.</summary>
     public int SmoothHeads { get; init; } = 2;
 
     /// <summary>Whether the camera travels between angles or cuts.</summary>
@@ -259,9 +216,7 @@ public sealed record Settings
     /// <summary>Whether the story is allowed to move the camera for effect.</summary>
     public bool Cinematics { get; init; } = true;
 
-    /// <summary>
-    /// Whether the camera may fly out of the room and keep flying through a cutscene.
-    /// </summary>
+    /// <summary>Whether the camera may fly out of the room and keep flying through a cutscene.</summary>
     public bool FreeCamera { get; init; }
 
     /// <summary>Where the player watches the game from.</summary>
@@ -280,41 +235,28 @@ public sealed record Settings
     /// <summary>Whether pushing the mouse forward looks down rather than up.</summary>
     public bool InvertLook { get; init; }
 
-    /// <summary>
-    /// Which language the game is read, spoken and written in.
-    /// </summary>
+    /// <summary>Which language the game is read, spoken and written in.</summary>
     public string Language { get; init; } = Content.GameLanguage.Default.Code;
 
     /// <summary>Whether what is said is also written.</summary>
     public bool Captions { get; init; } = true;
 
-    /// <summary>
-    /// Whether what is said in a film is also written.
-    /// </summary>
+    /// <summary>Whether what is said in a film is also written.</summary>
     public bool MovieSubtitles { get; init; } = true;
 
-    /// <summary>
-    /// Whether every voice comes from the middle rather than from where its speaker stands.
-    /// </summary>
+    /// <summary>Whether every voice comes from the middle rather than from where its speaker stands.</summary>
     public bool CenterAllDialogue { get; init; }
 
-    /// <summary>
-    /// How much faster a double-click sends Gabriel.
-    /// </summary>
+    /// <summary>How much faster a double-click sends Gabriel.</summary>
     public float HurryFactor { get; init; } = 2f;
 
     /// <summary>Whether the intro plays on starting.</summary>
     public bool PlayIntro { get; init; } = true;
 
-    /// <summary>
-    /// Whether the game's easter-egg content is switched on.
-    /// </summary>
+    /// <summary>Whether the game's easter-egg content is switched on.</summary>
     public bool EasterEggs { get; init; }
 
-    /// <summary>
-    /// Whether Gabriel starts the moped afternoon with the moustache already made, and
-    /// wears it from then on.
-    /// </summary>
+    /// <summary>Whether Gabriel starts the moped afternoon with the moustache already made, and wears it from then on.</summary>
     public bool AlwaysWearsMoustache { get; init; }
 
     /// <summary>Whether nothing the story does is allowed to kill Gabriel.</summary>
@@ -323,14 +265,10 @@ public sealed record Settings
     /// <summary>Whether Gabriel catches the pendulum himself.</summary>
     public bool CatchesPendulum { get; init; }
 
-    /// <summary>
-    /// How much of the content the game shipped with and cannot reach is put back.
-    /// </summary>
+    /// <summary>How much of the content the game shipped with and cannot reach is put back.</summary>
     public CutContentTier RestoredContent { get; init; } = CutContentTier.None;
 
-    /// <summary>
-    /// Which key and which pad button do which job, or null where nobody has said.
-    /// </summary>
+    /// <summary>Which key and which pad button do which job, or null where nobody has said.</summary>
     public StoredBindings? Bindings { get; init; }
 
     /// <summary>Whether the gamepad's left stick moves the pointer.</summary>
@@ -349,37 +287,22 @@ public sealed record Settings
     [JsonIgnore]
     public RayTracingQuality Quality => Picture switch
     {
-        PictureQuality.Original => RayTracingQuality.None,
-        PictureQuality.Improved => RayTracingQuality.Low,
-        PictureQuality.High => RayTracingQuality.Medium,
-        _ => RayTracingQuality.High,
+        PictureQuality.Original => RayTracingQuality.None, PictureQuality.Improved => RayTracingQuality.Low,
+        PictureQuality.High => RayTracingQuality.Medium, _ => RayTracingQuality.High,
     };
 
     /// <summary>What the renderer should do about upscaling.</summary>
     [JsonIgnore]
     public UpscalePlan Upscaling => new UpscalePlan
     {
-        Kind = Upscaler,
-        Quality = UpscalerQuality,
-        Sharpen = Sharpening,
-        Sharpness = Sharpness,
-        FrameGeneration = FrameGeneration,
-        Latency = Latency,
-        RayReconstruction = RayReconstruction,
-        DlssPreset = DlssPreset,
+        Kind = Upscaler, Quality = UpscalerQuality, Sharpen = Sharpening, Sharpness = Sharpness, FrameGeneration = FrameGeneration, Latency = Latency,
+        RayReconstruction = RayReconstruction, DlssPreset = DlssPreset,
 
         Neural = new Rendering.Upscaling.NeuralUplift
         {
-            Enabled = NeuralUplift,
-            Intensity = NeuralIntensity,
-            LocalTone = NeuralLocalTone,
-            GlobalTone = NeuralGlobalTone,
-            LocalStructure = NeuralLocalStructure,
-            SkinFollowsStructure = NeuralSkinFollowsStructure,
-            SkinStructure = NeuralSkinStructure,
-            AutoSkinMask = NeuralAutoSkinMask,
-            Preset = NeuralPreset,
-            Style = NeuralStyle,
+            Enabled = NeuralUplift, Intensity = NeuralIntensity, LocalTone = NeuralLocalTone, GlobalTone = NeuralGlobalTone,
+            LocalStructure = NeuralLocalStructure, SkinFollowsStructure = NeuralSkinFollowsStructure, SkinStructure = NeuralSkinStructure,
+            AutoSkinMask = NeuralAutoSkinMask, Preset = NeuralPreset, Style = NeuralStyle,
         },
     }.Sane();
 
@@ -387,18 +310,13 @@ public sealed record Settings
     [JsonIgnore]
     public OutputPlan Output => new OutputPlan
     {
-        HighDynamicRange = HighDynamicRange,
-        Transfer = HdrTransfer,
-        ToneMap = ToneMapping,
-        PaperWhiteNits = PaperWhiteNits,
-        PeakNits = PeakNits,
-        SunNits = SunNits,
-        LightNits = LightNits,
+        HighDynamicRange = HighDynamicRange, Transfer = HdrTransfer, ToneMap = ToneMapping, PaperWhiteNits = PaperWhiteNits, PeakNits = PeakNits,
+        SunNits = SunNits, LightNits = LightNits,
     }.Sane();
 
     /// <summary>Reads the settings, or returns the defaults.</summary>
-    /// <param name="path">Where to read from, or null for this user's own.</param>
     /// <returns>The settings; never null and never out of range.</returns>
+    /// <param name="path">Where to read from, or null for this user's own.</param>
     public static Settings Load(string? path = null)
     {
         string file = path ?? DefaultPath;
@@ -410,22 +328,17 @@ public sealed record Settings
                 return new Settings();
             }
 
-            return (JsonSerializer.Deserialize<Settings>(File.ReadAllText(file), Json)
-                    ?? new Settings())
-                .Sane();
+            return (JsonSerializer.Deserialize<Settings>(File.ReadAllText(file), Json) ?? new Settings()) .Sane();
         }
-        catch (Exception error) when (error is IOException
-                                          or JsonException
-                                          or UnauthorizedAccessException
-                                          or NotSupportedException)
+        catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException or NotSupportedException)
         {
             return new Settings();
         }
     }
 
     /// <summary>Writes the settings.</summary>
-    /// <param name="path">Where to write, or null for this user's own.</param>
     /// <returns>True when they were written.</returns>
+    /// <param name="path">Where to write, or null for this user's own.</param>
     public bool Save(string? path = null)
     {
         string file = path ?? DefaultPath;
@@ -436,9 +349,7 @@ public sealed record Settings
             File.WriteAllText(file, JsonSerializer.Serialize(Sane(), Json));
             return true;
         }
-        catch (Exception error) when (error is IOException
-                                          or UnauthorizedAccessException
-                                          or NotSupportedException)
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or NotSupportedException)
         {
             return false;
         }
@@ -447,16 +358,11 @@ public sealed record Settings
     /// <summary>The same settings with every value inside its range.</summary>
     public Settings Sane() => this with
     {
-        MasterVolume = Level(MasterVolume),
-        MusicVolume = Level(MusicVolume),
-        AmbienceVolume = Level(AmbienceVolume),
-        EffectsVolume = Level(EffectsVolume),
-        DialogueVolume = Level(DialogueVolume),
+        MasterVolume = Level(MasterVolume), MusicVolume = Level(MusicVolume), AmbienceVolume = Level(AmbienceVolume),
+        EffectsVolume = Level(EffectsVolume), DialogueVolume = Level(DialogueVolume),
         Speakers = Enum.IsDefined(Speakers) ? Speakers : SpeakerLayout.Stereo,
 
-        // Normalised rather than merely checked: "FR" and " fr " are somebody editing the
-        // file by hand and mean French, and storing them as typed would make two settings
-        // files that say the same thing compare unequal.
+        // Normalised rather than merely checked: "FR" and " fr " are somebody editing the file by hand and mean French, and storing them as typed.
         Language = Content.GameLanguage.Of(Language).Code,
 
         Picture = Enum.IsDefined(Picture) ? Picture : PictureQuality.High,
@@ -465,69 +371,41 @@ public sealed record Settings
 
         Display = Enum.IsDefined(Display) ? Display : WindowMode.Windowed,
 
-        TextScale = float.IsFinite(TextScale)
-            ? Math.Clamp(TextScale, SmallestText, LargestText)
-            : 1f,
+        TextScale = float.IsFinite(TextScale) ? Math.Clamp(TextScale, SmallestText, LargestText) : 1f,
 
-        // Nought means "the monitor's own", which is the answer for a display nobody has
-        // chosen a size for. Anything else is clamped to something a swapchain can be made
-        // at; the driver clamps again to what the surface allows.
+        // Nought means "the monitor's own", which is the answer for a display nobody has chosen a size for.
         DisplayWidth = DisplayWidth <= 0 ? 0 : Math.Clamp(DisplayWidth, 320, 16_384),
         DisplayHeight = DisplayHeight <= 0 ? 0 : Math.Clamp(DisplayHeight, 240, 16_384),
 
-        Upscaler = Enum.IsDefined(Upscaler) ? Upscaler : UpscalerKind.Off,
-        UpscalerQuality = Enum.IsDefined(UpscalerQuality)
-            ? UpscalerQuality
-            : UpscalerQuality.Quality,
-        Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
+        Upscaler = Enum.IsDefined(Upscaler) ? Upscaler : UpscalerKind.Off, UpscalerQuality = Enum.IsDefined(UpscalerQuality) ? UpscalerQuality
+            : UpscalerQuality.Quality, Sharpness = float.IsFinite(Sharpness) ? Math.Clamp(Sharpness, 0f, 1f) : 0.5f,
         FrameGeneration = Enum.IsDefined(FrameGeneration) ? FrameGeneration : FrameGeneration.Off,
         Latency = Enum.IsDefined(Latency) ? Latency : LatencyMode.On,
 
-        // A machine that is not Windows cannot have Direct3D whatever the file says, and a
-        // settings file copied from one that was is not a reason to fail to start.
-        Backend = Enum.IsDefined(Backend) && RenderBackends.IsPossible(Backend)
-            ? Backend
-            : RenderBackend.Automatic,
+        // A machine that is not Windows cannot have Direct3D whatever the file says, and a settings file copied from one that was is not a reason to.
+        Backend = Enum.IsDefined(Backend) && RenderBackends.IsPossible(Backend) ? Backend : RenderBackend.Automatic,
         DlssPreset = Math.Clamp(DlssPreset, 0, DlssPresets.Highest),
 
         HdrTransfer = Enum.IsDefined(HdrTransfer) ? HdrTransfer : HdrTransfer.Automatic,
         ToneMapping = Enum.IsDefined(ToneMapping) ? ToneMapping : ToneMapping.Clip,
 
-        // The luminances are clamped in one place, by the plan that consumes them, because
-        // their bounds depend on each other — a peak below paper white is not a peak — and
-        // two implementations of that rule would be one too many.
-        PaperWhiteNits = Sensible(PaperWhiteNits, 200f),
-        PeakNits = Sensible(PeakNits, 1000f),
-        SunNits = Sensible(SunNits, 800f),
+        // The luminances are clamped in one place, by the plan that consumes them, because their bounds depend on each other — a peak below paper.
+        PaperWhiteNits = Sensible(PaperWhiteNits, 200f), PeakNits = Sensible(PeakNits, 1000f), SunNits = Sensible(SunNits, 800f),
         LightNits = Sensible(LightNits, 1000f),
 
-        Reflectivity = float.IsFinite(Reflectivity)
-            ? Math.Clamp(Reflectivity, 0f, MostReflective)
-            : 1f,
+        Reflectivity = float.IsFinite(Reflectivity) ? Math.Clamp(Reflectivity, 0f, MostReflective) : 1f,
 
-        GamepadCursorSpeed = float.IsFinite(GamepadCursorSpeed)
-            ? Math.Clamp(GamepadCursorSpeed, SlowestCursor, FastestCursor)
-            : 1200f,
+        GamepadCursorSpeed = float.IsFinite(GamepadCursorSpeed) ? Math.Clamp(GamepadCursorSpeed, SlowestCursor, FastestCursor) : 1200f,
 
-        CursorScale = float.IsFinite(CursorScale)
-            ? Math.Clamp(CursorScale, SmallestCursor, LargestCursor)
-            : 1f,
+        CursorScale = float.IsFinite(CursorScale) ? Math.Clamp(CursorScale, SmallestCursor, LargestCursor) : 1f,
 
         Perspective = Enum.IsDefined(Perspective) ? Perspective : Perspective.FreeCam,
 
-        FirstPersonSpeed = float.IsFinite(FirstPersonSpeed)
-            ? Math.Clamp(
-                FirstPersonSpeed,
-                Navigation.FirstPerson.SlowestPace,
-                Navigation.FirstPerson.FastestPace)
-            : Navigation.FirstPerson.Pace,
+        FirstPersonSpeed = float.IsFinite(FirstPersonSpeed) ? Math.Clamp( FirstPersonSpeed, Navigation.FirstPerson.SlowestPace,
+                Navigation.FirstPerson.FastestPace) : Navigation.FirstPerson.Pace,
 
-        LookSensitivity = float.IsFinite(LookSensitivity)
-            ? Math.Clamp(
-                LookSensitivity,
-                Navigation.FirstPerson.SlowestLook,
-                Navigation.FirstPerson.FastestLook)
-            : 1f,
+        LookSensitivity = float.IsFinite(LookSensitivity) ? Math.Clamp( LookSensitivity, Navigation.FirstPerson.SlowestLook,
+                Navigation.FirstPerson.FastestLook) : 1f,
     };
 
     /// <summary>The smallest the pointer may be drawn, as a multiple of its usual size.</summary>
@@ -546,8 +424,7 @@ public sealed record Settings
     public const float FastestCursor = 3000f;
 
     /// <summary>A luminance that is at least a number, before the plan bounds it.</summary>
-    private static float Sensible(float value, float fallback) =>
-        float.IsFinite(value) && value > 0f ? value : fallback;
+    private static float Sensible(float value, float fallback) => float.IsFinite(value) && value > 0f ? value : fallback;
 
     /// <summary>Hands the audio levels to the mixer.</summary>
     /// <param name="audio">The device, or null when there is none.</param>
@@ -573,12 +450,10 @@ public sealed record Settings
         audio.SetBusGain(AudioBus.DialogueCentered, DialogueVolume);
     }
 
-    private static float Level(float value) =>
-        float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 1f;
+    private static float Level(float value) => float.IsFinite(value) ? Math.Clamp(value, 0f, 1f) : 1f;
 
     private static JsonSerializerOptions Json { get; } = new()
     {
-        WriteIndented = true,
-        Converters = { new JsonStringEnumConverter() },
+        WriteIndented = true, Converters = { new JsonStringEnumConverter() },
     };
 }

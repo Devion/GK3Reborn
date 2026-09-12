@@ -3212,88 +3212,105 @@ public sealed class SceneLoader
             });
         }
 
-        for (int i = 0; i < wanted.Count; i++)
+        // How many uploads are recorded between one frame and the next. Uploading is the
+        // serial half of this — the decode above runs across every core the machine has —
+        // and it used to be the long one, at five to ten milliseconds a texture whatever
+        // its size, because each went to the queue on its own and waited for it. Recorded
+        // together they cost what the copies cost. The run is closed before every frame
+        // offered below, because presenting one asks the device for the list it is holding.
+        const int TexturesBetweenFrames = 24;
+
+        try
         {
-            // Uploading is the serial half of this and the long one: the decode above runs
-            // across every core the machine has, and everything below goes one at a time
-            // through the one queue. So this is where a transition gets most of its
-            // frames from. See Progress.
-            Within(wanted.Count + i, wanted.Count * 2);
-
-            foreach (Diagnostic diagnostic in bags[i].Items)
+            for (int i = 0; i < wanted.Count; i++)
             {
-                diagnostics.Add(diagnostic);
-            }
-
-            (DecodedImage? bumps,
-             CompressedImage? blockBumps,
-             DecodedImage? finish,
-             CompressedImage? blockFinish,
-             DecodedImage? relief,
-             CompressedImage? blockRelief,
-             DecodedImage? colour,
-             CompressedImage? blocks,
-             Source from,
-             string? missing) = read[i];
-
-            if (bumps is { } map)
-            {
-                geometry.AddNormalMap(wanted[i].Name, map);
-                _normalsUsed++;
-            }
-            else if (blockBumps is { } compressedMap)
-            {
-                geometry.AddNormalMap(wanted[i].Name, compressedMap);
-                _normalsUsed++;
-            }
-
-            if (finish is { } packed)
-            {
-                geometry.AddOrmMap(wanted[i].Name, packed);
-                _ormsUsed++;
-            }
-            else if (blockFinish is { } compressedPacked)
-            {
-                geometry.AddOrmMap(wanted[i].Name, compressedPacked);
-                _ormsUsed++;
-            }
-
-            if (relief is { } field)
-            {
-                geometry.AddHeightMap(wanted[i].Name, field);
-                _heightsUsed++;
-            }
-            else if (blockRelief is { } compressedField)
-            {
-                geometry.AddHeightMap(wanted[i].Name, compressedField);
-                _heightsUsed++;
-            }
-
-            if (missing is not null)
-            {
-                diagnostics.Add(new Diagnostic(
-                    "SCENE007",
-                    DiagnosticSeverity.Warning,
-                    $"{owner} references a texture no archive contains: {missing}."));
-
-                continue;
-            }
-
-            if (blocks is { } compressed)
-            {
-                geometry.AddTexture(wanted[i].Name, compressed);
-                _compressedUsed++;
-                _enhancedUsed++;
-            }
-            else if (colour is { } image)
-            {
-                geometry.AddTexture(wanted[i].Name, image);
-
-                if (from == Source.Enhanced)
+                if (i % TexturesBetweenFrames == 0)
                 {
+                    geometry.EndTextures();
+                    Within(wanted.Count + i, wanted.Count * 2);
+                    geometry.BeginTextures();
+                }
+
+                foreach (Diagnostic diagnostic in bags[i].Items)
+                {
+                    diagnostics.Add(diagnostic);
+                }
+
+                (DecodedImage? bumps,
+                 CompressedImage? blockBumps,
+                 DecodedImage? finish,
+                 CompressedImage? blockFinish,
+                 DecodedImage? relief,
+                 CompressedImage? blockRelief,
+                 DecodedImage? colour,
+                 CompressedImage? blocks,
+                 Source from,
+                 string? missing) = read[i];
+
+                if (bumps is { } map)
+                {
+                    geometry.AddNormalMap(wanted[i].Name, map);
+                    _normalsUsed++;
+                }
+                else if (blockBumps is { } compressedMap)
+                {
+                    geometry.AddNormalMap(wanted[i].Name, compressedMap);
+                    _normalsUsed++;
+                }
+
+                if (finish is { } packed)
+                {
+                    geometry.AddOrmMap(wanted[i].Name, packed);
+                    _ormsUsed++;
+                }
+                else if (blockFinish is { } compressedPacked)
+                {
+                    geometry.AddOrmMap(wanted[i].Name, compressedPacked);
+                    _ormsUsed++;
+                }
+
+                if (relief is { } field)
+                {
+                    geometry.AddHeightMap(wanted[i].Name, field);
+                    _heightsUsed++;
+                }
+                else if (blockRelief is { } compressedField)
+                {
+                    geometry.AddHeightMap(wanted[i].Name, compressedField);
+                    _heightsUsed++;
+                }
+
+                if (missing is not null)
+                {
+                    diagnostics.Add(new Diagnostic(
+                        "SCENE007",
+                        DiagnosticSeverity.Warning,
+                        $"{owner} references a texture no archive contains: {missing}."));
+
+                    continue;
+                }
+
+                if (blocks is { } compressed)
+                {
+                    geometry.AddTexture(wanted[i].Name, compressed);
+                    _compressedUsed++;
                     _enhancedUsed++;
                 }
+                else if (colour is { } image)
+                {
+                    geometry.AddTexture(wanted[i].Name, image);
+
+                    if (from == Source.Enhanced)
+                    {
+                        _enhancedUsed++;
+                    }
+                }
             }
+        }
+        finally
+        {
+            // Whatever the last run is still holding, and nothing left open for the frame after.
+            geometry.EndTextures();
         }
     }
 

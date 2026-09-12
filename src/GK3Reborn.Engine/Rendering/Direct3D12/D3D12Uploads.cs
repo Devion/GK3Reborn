@@ -1,4 +1,4 @@
-using Silk.NET.Core.Native;
+﻿using Silk.NET.Core.Native;
 using Silk.NET.Direct3D12;
 
 namespace GK3Reborn.Rendering.Direct3D12;
@@ -10,6 +10,13 @@ public sealed unsafe class D3D12Uploads : IDisposable
 {
     private readonly D3D12Context _context;
     private readonly List<ComPtr<ID3D12Resource>> _staging = [];
+    private readonly List<ComPtr<ID3D12Resource>> _mappings = [];
+    private readonly List<IDisposable> _held = [];
+
+    private ComPtr<ID3D12Resource> _arena;
+    private byte* _at;
+    private ulong _size;
+    private ulong _used;
     private bool _submitted;
     private bool _disposed;
 
@@ -35,6 +42,58 @@ public sealed unsafe class D3D12Uploads : IDisposable
         return new D3D12Uploads(context, context.BeginOneShot());
     }
 
+    /// <summary>How much upload memory the batch takes at a time.</summary>
+    private const ulong Block = 32UL * 1024 * 1024;
+
+    /// <summary>What an offset inside a staging buffer has to be a multiple of for a texture copy.</summary>
+    private const ulong Placement = 512;
+
+    /// <summary>Takes a range of upload memory the batch owns until it has run.</summary>
+    /// <returns>Where the range is mapped, for the host to write into.</returns>
+    /// <param name="bytes">How much is wanted.</param>
+    /// <param name="buffer">The staging buffer the range is in.</param>
+    /// <param name="offset">Where in that buffer it starts.</param>
+    /// <remarks>
+    /// One buffer handed out in pieces rather than one buffer each. A room is hundreds of
+    /// uploads and every separate staging buffer is its own committed resource — an
+    /// allocation the driver makes and then frees a moment later, which cost more than the
+    /// copies it carried.
+    /// </remarks>
+    /// <exception cref="D3D12Exception">The buffer could not be made or mapped.</exception>
+    public byte* Reserve(ulong bytes, out ID3D12Resource* buffer, out ulong offset)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
+        ulong wanted = (bytes + Placement - 1) / Placement * Placement;
+
+        if (_arena.Handle is null || _used + wanted > _size)
+        {
+            // Whatever the last one was is left mapped and kept: copies already recorded
+            // read out of it, and the submit is what waits for them.
+            ulong size = Math.Max(wanted, Block);
+            ComPtr<ID3D12Resource> next = _context.CreateBuffer(size, HeapType.Upload);
+
+            _staging.Add(next);
+            _mappings.Add(next);
+
+            void* mapped;
+            var nothing = new Silk.NET.Direct3D12.Range { Begin = 0, End = 0 };
+
+            D3D12Exception.ThrowIfFailed(next.Map(0, &nothing, &mapped), "map a staging buffer");
+
+            _arena = next;
+            _at = (byte*)mapped;
+            _size = size;
+            _used = 0;
+        }
+
+        buffer = _arena.Handle;
+        offset = _used;
+        _used += wanted;
+
+        return _at + offset;
+    }
+
     /// <summary>Puts some data in a device-local buffer, through staging.</summary>
     /// <typeparam name="T">Element type.</typeparam>
     /// <param name="destination">Where it is going.</param>
@@ -53,22 +112,9 @@ public sealed unsafe class D3D12Uploads : IDisposable
         }
 
         ulong bytes = (ulong)(data.Length * sizeof(T));
-        ComPtr<ID3D12Resource> staging = _context.CreateBuffer(bytes, HeapType.Upload);
-        _staging.Add(staging);
+        byte* at = Reserve(bytes, out ID3D12Resource* staging, out ulong offset);
 
-        void* mapped;
-        var nothing = new Silk.NET.Direct3D12.Range { Begin = 0, End = 0 };
-
-        D3D12Exception.ThrowIfFailed(staging.Map(0, &nothing, &mapped), "map a staging buffer");
-
-        try
-        {
-            data.CopyTo(new Span<T>(mapped, data.Length));
-        }
-        finally
-        {
-            staging.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
-        }
+        data.CopyTo(new Span<T>(at, data.Length));
 
         // No barriers, either side. Direct3D promotes a buffer out of Common to whatever
         // state it is first used in, automatically and on every queue, and decays it back
@@ -82,7 +128,7 @@ public sealed unsafe class D3D12Uploads : IDisposable
         // state a caller asks for is therefore taken as documentation of intent rather than
         // as something to record.
         _ = state;
-        List->CopyBufferRegion(destination, 0, staging.Handle, 0, bytes);
+        List->CopyBufferRegion(destination, 0, staging, offset, bytes);
     }
 
     /// <summary>Gives the batch a staging buffer somebody else filled.</summary>
@@ -91,6 +137,16 @@ public sealed unsafe class D3D12Uploads : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _staging.Add(staging);
+    }
+
+    /// <summary>Holds something the recorded work reads until the batch has run.</summary>
+    /// <param name="held">The descriptor heaps a mip build binds, and anything else of the kind.</param>
+    public void Keep(IDisposable held)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(held);
+
+        _held.Add(held);
     }
 
     /// <summary>Submits every copy and waits for them.</summary>
@@ -110,6 +166,18 @@ public sealed unsafe class D3D12Uploads : IDisposable
         }
 
         _submitted = true;
+
+        foreach (ComPtr<ID3D12Resource> mapped in _mappings)
+        {
+            mapped.Unmap(0, (Silk.NET.Direct3D12.Range*)null);
+        }
+
+        _mappings.Clear();
+        _arena = default;
+        _at = null;
+        _size = 0;
+        _used = 0;
+
         _context.EndOneShot();
     }
 
@@ -135,5 +203,14 @@ public sealed unsafe class D3D12Uploads : IDisposable
         }
 
         _staging.Clear();
+
+        // After the submit, because the dispatches recorded into the list read through
+        // these and the submit is what waits for them.
+        foreach (IDisposable held in _held)
+        {
+            held.Dispose();
+        }
+
+        _held.Clear();
     }
 }

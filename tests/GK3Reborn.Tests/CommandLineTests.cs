@@ -83,7 +83,9 @@ public sealed partial class CommandLineTests
     public void The_usage_and_the_source_agree_about_every_switch()
     {
         string engine = Path.Combine(RepositoryRoot(), "src", "GK3Reborn.Engine");
-        string application = File.ReadAllText(Path.Combine(engine, "Application.cs"));
+        string application = string.Concat(
+            Directory.EnumerateFiles(engine, "Application*.cs").Select(File.ReadAllText));
+
         string commandLine = File.ReadAllText(Path.Combine(engine, "CommandLine.cs"));
 
         HashSet<string> read = SwitchLiterals().Matches(application)
@@ -111,7 +113,7 @@ public sealed partial class CommandLineTests
         string[] undocumented = read.Except(documented).Order().ToArray();
         Assert.True(
             undocumented.Length == 0,
-            "read by Application.cs and missing from --help: " + string.Join(", ", undocumented));
+            "read by Application and missing from --help: " + string.Join(", ", undocumented));
 
         string[] stale = documented.Except(accepted).Order().ToArray();
         Assert.True(

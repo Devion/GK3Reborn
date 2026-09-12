@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Formats.Bitmaps;
 
 namespace GK3Reborn.Rendering.Geometry;
@@ -107,16 +107,19 @@ public interface IGeometryDevice : IDisposable
     /// <param name="image">The picture.</param>
     /// <param name="kind">What it holds, which decides how it is read.</param>
     /// <param name="mipmaps">Whether to build a mip chain for it.</param>
-    /// <returns>The texture.</returns>
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    /// <returns>The texture, whose contents are there once the batch has been submitted.</returns>
     IGeometryTexture CreateTexture(
         DecodedImage image,
         GeometryTextureKind kind = GeometryTextureKind.Colour,
-        bool mipmaps = true);
+        bool mipmaps = true,
+        IGeometryUploads? into = null);
 
     /// <summary>Puts an already-compressed picture on the device.</summary>
     /// <param name="image">The blocks, as the file holds them.</param>
-    /// <returns>The texture.</returns>
-    IGeometryTexture CreateTexture(CompressedImage image);
+    /// <param name="into">An open batch to record the copy into, or null to submit alone.</param>
+    /// <returns>The texture, whose contents are there once the batch has been submitted.</returns>
+    IGeometryTexture CreateTexture(CompressedImage image, IGeometryUploads? into = null);
 
     /// <summary>Binds five textures together as one material.</summary>
     /// <param name="diffuse">The base colour.</param>

@@ -1,4 +1,4 @@
-using GK3Reborn.Formats.Bitmaps;
+﻿using GK3Reborn.Formats.Bitmaps;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -46,13 +46,15 @@ public sealed unsafe class VulkanTexture : IDisposable
     /// True for data rather than colour — a normal map, a roughness map — so the hardware
     /// does not apply the sRGB curve to numbers that are not brightnesses.
     /// </param>
-    /// <returns>The texture.</returns>
+    /// <param name="into">An open batch to record the copy into, or null to submit on its own.</param>
+    /// <returns>The texture, whose contents are there once the batch has been submitted.</returns>
     public static VulkanTexture Create(
         VulkanContext context,
         DecodedImage source,
         bool mipmaps = true,
         SamplerAddressMode addressMode = SamplerAddressMode.Repeat,
-        bool linear = false)
+        bool linear = false,
+        BufferUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(source.Pixels);
@@ -71,7 +73,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             : 1;
 
         (Image image, DeviceMemory memory) = CreateImage(context, source.Width, source.Height, mips, TextureFormat);
-        Upload(context, image, source, mips);
+        Upload(context, image, source, mips, into);
 
         ImageView view = CreateView(context, image, TextureFormat, mips);
         Sampler sampler = CreateSampler(context, mips, addressMode);
@@ -85,11 +87,13 @@ public sealed unsafe class VulkanTexture : IDisposable
     /// <param name="context">Device context.</param>
     /// <param name="source">The compressed levels, as the file holds them.</param>
     /// <param name="addressMode">How the sampler behaves outside 0..1.</param>
-    /// <returns>The texture.</returns>
+    /// <param name="into">An open batch to record the copy into, or null to submit on its own.</param>
+    /// <returns>The texture, whose contents are there once the batch has been submitted.</returns>
     public static VulkanTexture Create(
         VulkanContext context,
         CompressedImage source,
-        SamplerAddressMode addressMode = SamplerAddressMode.Repeat)
+        SamplerAddressMode addressMode = SamplerAddressMode.Repeat,
+        BufferUploads? into = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ObjectDisposedException.ThrowIf(source.Blocks.IsEmpty, typeof(CompressedImage));
@@ -116,11 +120,11 @@ public sealed unsafe class VulkanTexture : IDisposable
 
         if (expand)
         {
-            UploadExpanded(context, image, source, mips);
+            UploadExpanded(context, image, source, mips, into);
         }
         else
         {
-            UploadBlocks(context, image, source, mips);
+            UploadBlocks(context, image, source, mips, into);
         }
 
         ImageView view = CreateView(context, image, format, mips);
@@ -204,7 +208,7 @@ public sealed unsafe class VulkanTexture : IDisposable
     }
 
     private static void UploadBlocks(
-        VulkanContext context, Image image, CompressedImage source, uint mips)
+        VulkanContext context, Image image, CompressedImage source, uint mips, BufferUploads? into = null)
     {
         ulong size = (ulong)source.Blocks.Length;
 
@@ -225,6 +229,8 @@ public sealed unsafe class VulkanTexture : IDisposable
 
         context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
 
+        bool kept = false;
+
         try
         {
             void* mapped;
@@ -232,7 +238,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             source.Blocks.Span.CopyTo(new Span<byte>(mapped, source.Blocks.Length));
             context.Api.UnmapMemory(context.Device, stagingMemory);
 
-            CommandBuffer command = context.BeginOneShot();
+            CommandBuffer command = into?.Commands ?? context.BeginOneShot();
 
             TransitionRange(context, command, image, 0, mips,
                 ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
@@ -266,12 +272,25 @@ public sealed unsafe class VulkanTexture : IDisposable
             TransitionRange(context, command, image, 0, mips,
                 ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
-            context.EndOneShot(command);
+            if (into is { } batch)
+            {
+                // Handed over rather than freed here: nothing has run yet, and the copy
+                // recorded above reads this buffer when the batch is submitted.
+                batch.Keep(staging, stagingMemory);
+                kept = true;
+            }
+            else
+            {
+                context.EndOneShot(command);
+            }
         }
         finally
         {
-            context.Api.DestroyBuffer(context.Device, staging, null);
-            context.Api.FreeMemory(context.Device, stagingMemory, null);
+            if (!kept)
+            {
+                context.Api.DestroyBuffer(context.Device, staging, null);
+                context.Api.FreeMemory(context.Device, stagingMemory, null);
+            }
         }
     }
 
@@ -280,8 +299,9 @@ public sealed unsafe class VulkanTexture : IDisposable
     /// <param name="image">The image to fill.</param>
     /// <param name="source">The compressed levels.</param>
     /// <param name="mips">How many levels there are.</param>
+    /// <param name="into">An open batch to record the copy into, or null to submit on its own.</param>
     private static void UploadExpanded(
-        VulkanContext context, Image image, CompressedImage source, uint mips)
+        VulkanContext context, Image image, CompressedImage source, uint mips, BufferUploads? into = null)
     {
         int[] offsets = new int[mips];
         int total = 0;
@@ -310,6 +330,8 @@ public sealed unsafe class VulkanTexture : IDisposable
 
         context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
 
+        bool kept = false;
+
         try
         {
             void* mapped;
@@ -329,7 +351,7 @@ public sealed unsafe class VulkanTexture : IDisposable
 
             context.Api.UnmapMemory(context.Device, stagingMemory);
 
-            CommandBuffer command = context.BeginOneShot();
+            CommandBuffer command = into?.Commands ?? context.BeginOneShot();
 
             TransitionRange(context, command, image, 0, mips,
                 ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
@@ -360,12 +382,25 @@ public sealed unsafe class VulkanTexture : IDisposable
             TransitionRange(context, command, image, 0, mips,
                 ImageLayout.TransferDstOptimal, ImageLayout.ShaderReadOnlyOptimal);
 
-            context.EndOneShot(command);
+            if (into is { } batch)
+            {
+                // Handed over rather than freed here: nothing has run yet, and the copy
+                // recorded above reads this buffer when the batch is submitted.
+                batch.Keep(staging, stagingMemory);
+                kept = true;
+            }
+            else
+            {
+                context.EndOneShot(command);
+            }
         }
         finally
         {
-            context.Api.DestroyBuffer(context.Device, staging, null);
-            context.Api.FreeMemory(context.Device, stagingMemory, null);
+            if (!kept)
+            {
+                context.Api.DestroyBuffer(context.Device, staging, null);
+                context.Api.FreeMemory(context.Device, stagingMemory, null);
+            }
         }
     }
 
@@ -641,7 +676,8 @@ public sealed unsafe class VulkanTexture : IDisposable
         return (image, memory);
     }
 
-    private static void Upload(VulkanContext context, Image image, DecodedImage source, uint mips)
+    private static void Upload(
+        VulkanContext context, Image image, DecodedImage source, uint mips, BufferUploads? into = null)
     {
         ulong size = (ulong)source.Pixels.Length;
 
@@ -661,6 +697,8 @@ public sealed unsafe class VulkanTexture : IDisposable
 
         context.Api.BindBufferMemory(context.Device, staging, stagingMemory, 0);
 
+        bool kept = false;
+
         try
         {
             void* mapped;
@@ -668,7 +706,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             source.Pixels.AsSpan().CopyTo(new Span<byte>(mapped, source.Pixels.Length));
             context.Api.UnmapMemory(context.Device, stagingMemory);
 
-            CommandBuffer command = context.BeginOneShot();
+            CommandBuffer command = into?.Commands ?? context.BeginOneShot();
 
             TransitionRange(context, command, image, 0, mips,
                 ImageLayout.Undefined, ImageLayout.TransferDstOptimal);
@@ -689,12 +727,25 @@ public sealed unsafe class VulkanTexture : IDisposable
 
             GenerateMips(context, command, image, source.Width, source.Height, mips);
 
-            context.EndOneShot(command);
+            if (into is { } batch)
+            {
+                // Handed over rather than freed here: nothing has run yet, and the copy
+                // recorded above reads this buffer when the batch is submitted.
+                batch.Keep(staging, stagingMemory);
+                kept = true;
+            }
+            else
+            {
+                context.EndOneShot(command);
+            }
         }
         finally
         {
-            context.Api.DestroyBuffer(context.Device, staging, null);
-            context.Api.FreeMemory(context.Device, stagingMemory, null);
+            if (!kept)
+            {
+                context.Api.DestroyBuffer(context.Device, staging, null);
+                context.Api.FreeMemory(context.Device, stagingMemory, null);
+            }
         }
     }
 

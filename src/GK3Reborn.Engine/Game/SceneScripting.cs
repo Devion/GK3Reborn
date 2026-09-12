@@ -10,9 +10,7 @@ using GK3Reborn.Sheep;
 
 namespace GK3Reborn.Game;
 
-/// <summary>
-/// The script functions that need a scene rather than a story.
-/// </summary>
+/// <summary>The script functions that need a scene rather than a story.</summary>
 public static class SceneScripting
 {
     /// <summary>Registers a scene's own functions on a host.</summary>
@@ -21,16 +19,8 @@ public static class SceneScripting
     /// <param name="glances">Where to record who is looking at what, if anywhere.</param>
     /// <param name="audio">The room's audio, or null to leave the sound calls recorded.</param>
     /// <param name="world">What moves actors, or null to leave the walking calls recorded.</param>
-    /// <param name="behaviours">
-    /// Where a behaviour script named by another one is read from, or null to leave the
-    /// fidget calls recorded. Only a caller with the archives can answer it.
-    /// </param>
-    public static void Attach(
-        Gk3SheepApi api,
-        LoadedScene scene,
-        Glances? glances = null,
-        SceneAudio? audio = null,
-        SceneUpdate? world = null,
+    /// <param name="behaviours">Where a behaviour script named by another one is read from, or null to leave the fidget calls recorded.</param>
+    public static void Attach( Gk3SheepApi api, LoadedScene scene, Glances? glances = null, SceneAudio? audio = null, SceneUpdate? world = null,
         Func<string, GasFile?>? behaviours = null)
     {
         ArgumentNullException.ThrowIfNull(api);
@@ -60,9 +50,7 @@ public static class SceneScripting
 
         api.Register("WalkerBoundaryBlockModel", arguments =>
         {
-            if (scene.Walkable is { } boundary &&
-                arguments.Count > 0 &&
-                Footprint(scene, arguments[0].AsString()) is var (minimum, maximum))
+            if (scene.Walkable is { } boundary && arguments.Count > 0 && Footprint(scene, arguments[0].AsString()) is var (minimum, maximum))
             {
                 boundary.Block(arguments[0].AsString(), minimum, maximum);
             }
@@ -80,31 +68,22 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // Two indices, because a scriptable region on these bitmaps is painted as an area
-        // and the border around it, and opening one without the other leaves a wall a
-        // texel thick where the doorway was.
-        api.Register("WalkerBoundaryBlockRegion", arguments =>
-            SetRegions(scene.Walkable, arguments, open: false));
+        // Two indices, because a scriptable region on these bitmaps is painted as an area and the border around it, and opening one without the.
+        api.Register("WalkerBoundaryBlockRegion", arguments => SetRegions(scene.Walkable, arguments, open: false));
 
-        api.Register("WalkerBoundaryUnblockRegion", arguments =>
-            SetRegions(scene.Walkable, arguments, open: true));
+        api.Register("WalkerBoundaryUnblockRegion", arguments => SetRegions(scene.Walkable, arguments, open: true));
 
         AttachCameras(api, scene);
         AttachGlances(api, scene, glances);
 
-        // What a moment does on its own. These are animation nodes rather than script
-        // calls — a beat like the dining room's spit take carries its own camera cuts and
-        // its own faces — so the world schedules them and hands them back here, where the
-        // camera and the moods are already known how to do.
+        // What a moment does on its own.
         if (world is not null)
         {
             world.Shot = shot => Cut(api, scene, shot.Camera, forced: false, gliding: shot.Glide);
 
             world.Mood = mood =>
             {
-                // A mood is worn until something takes it off; an expression is played and
-                // is over. The second is the animation named by the face's own three
-                // letters and the expression, which is what SetMood puts on and off again.
+                // A mood is worn until something takes it off; an expression is played and is over.
                 if (mood.Worn)
                 {
                     Mood(api, scene, world, mood.Actor, mood.Name);
@@ -117,12 +96,7 @@ public static class SceneScripting
         }
     }
 
-    /// <summary>
-    /// Pointing the camera at one of the angles the scene names.
-    /// </summary>
-    /// <summary>
-    /// Makes a conversation change what its participants do while it lasts.
-    /// </summary>
+    /// <summary>Pointing the camera at one of the angles the scene names.</summary>
     /// <param name="api">The host, which keeps the story's own record of it.</param>
     /// <param name="world">The room, which owns the actors and their scripts.</param>
     private static void Conversing(Gk3SheepApi api, SceneUpdate world)
@@ -150,47 +124,28 @@ public static class SceneScripting
 
     private static void AttachCameras(Gk3SheepApi api, LoadedScene scene)
     {
-        api.Register("CutToCameraAngle", arguments =>
-            CutTo(api, scene, arguments, forced: false, gliding: false));
+        api.Register("CutToCameraAngle", arguments => CutTo(api, scene, arguments, forced: false, gliding: false));
 
-        api.Register("ForceCutToCameraAngle", arguments =>
-            CutTo(api, scene, arguments, forced: true, gliding: false));
+        api.Register("ForceCutToCameraAngle", arguments => CutTo(api, scene, arguments, forced: true, gliding: false));
 
-        // Waitable in the original because the travelling takes time. Nothing waits on it
-        // yet; the flag is kept so a script's recorded order does not change when it does.
-        api.Register(
-            "GlideToCameraAngle",
-            arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
-            waitable: true);
+        // Waitable in the original because the travelling takes time.
+        api.Register( "GlideToCameraAngle", arguments => CutTo(api, scene, arguments, forced: false, gliding: true), waitable: true);
 
-        // The same glide with a duration the caller chooses. The duration is read past —
-        // GlideSeconds is what a glide takes here, and two calls in the whole corpus is
-        // not enough to justify a second answer to how long a camera move lasts.
-        api.Register(
-            "GlideToCameraAngleX",
-            arguments => CutTo(api, scene, arguments, forced: false, gliding: true),
-            waitable: true);
+        // The same glide with a duration the caller chooses.
+        api.Register( "GlideToCameraAngleX", arguments => CutTo(api, scene, arguments, forced: false, gliding: true), waitable: true);
 
-        // Inspecting is a camera, and only a standing scene has the cameras — which is why
-        // these are registered over the recorded ones here rather than with the rest of the
-        // API. The recorded ones set a screen state that nothing draws, so REGISTER,
-        // INSPECT, whose whole script is `wait InspectObject()`, appeared to do nothing.
+        // Inspecting is a camera, and only a standing scene has the cameras — which is why these are registered over the recorded ones here rather.
         api.Register("InspectObject", arguments =>
         {
-            api.State.Inspecting = arguments.Count > 0
-                ? arguments[0].AsString()
-                : api.ActingOn;
+            api.State.Inspecting = arguments.Count > 0 ? arguments[0].AsString() : api.ActingOn;
 
             return SheepValue.FromInt(0);
         }, waitable: true);
 
         api.Register("InspectModelUsingAngle", arguments =>
         {
-            // The camera, not the model: the second argument is a camera the scene names,
-            // and naming one is the whole point of this form.
-            api.State.Inspecting = arguments.Count > 1
-                ? arguments[1].AsString()
-                : arguments.Count > 0 ? arguments[0].AsString() : string.Empty;
+            // The camera, not the model: the second argument is a camera the scene names, and naming one is the whole point of this form.
+            api.State.Inspecting = arguments.Count > 1 ? arguments[1].AsString() : arguments.Count > 0 ? arguments[0].AsString() : string.Empty;
 
             return SheepValue.FromInt(0);
         }, waitable: true);
@@ -225,27 +180,20 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // Whether a camera change travels or cuts. The story already reads this to decide
-        // between the two; the scripts that ask about it were being told nothing.
-        api.Register("IsCameraGlideEnabled", _ =>
-            SheepValue.FromInt(api.State.CameraGliding ? 1 : 0));
+        // Whether a camera change travels or cuts.
+        api.Register("IsCameraGlideEnabled", _ => SheepValue.FromInt(api.State.CameraGliding ? 1 : 0));
 
-        // A field of view in degrees, which the scene files also give per camera. Zero or
-        // less means "put the scene's own back" rather than "look through a pinhole".
+        // A field of view in degrees, which the scene files also give per camera.
         api.Register("SetCameraFOV", a =>
         {
             float degrees = a.Count > 0 ? a[0].AsFloat() : 0;
 
-            api.State.CameraFieldOfView =
-                degrees is > 0 and < 180 ? degrees * MathF.PI / 180f : null;
+            api.State.CameraFieldOfView = degrees is > 0 and < 180 ? degrees * MathF.PI / 180f : null;
 
             return SheepValue.FromInt(0);
         });
 
-        // The shell the camera may not leave. The scene's artists draw one and a script
-        // adds to it — a van parked in the square, a door that has swung open — or turns
-        // the whole thing off for a shot that needs to be outside it. 102 calls between
-        // the four.
+        // The shell the camera may not leave.
         api.Register("EnableCameraBoundaries", _ =>
         {
             api.State.CameraBoundaries = true;
@@ -271,44 +219,24 @@ public static class SceneScripting
         });
     }
 
-    /// <summary>
-    /// Questions a script asks about what is in the room.
-    /// </summary>
+    /// <summary>Questions a script asks about what is in the room.</summary>
     /// <param name="api">The host.</param>
     /// <param name="scene">The room.</param>
     private static void Asking(Gk3SheepApi api, LoadedScene scene)
     {
-        bool Placed(string name, PlacedModelKind? kind) =>
-            scene.Models.Any(m =>
-                (kind is null || m.Kind == kind) &&
-                (m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) ||
-                 (m.Noun is { Length: > 0 } noun &&
+        bool Placed(string name, PlacedModelKind? kind) => scene.Models.Any(m => (kind is null || m.Kind == kind) &&
+                (m.Name.Equals(name, StringComparison.OrdinalIgnoreCase) || (m.Noun is { Length: > 0 } noun &&
                   noun.Equals(name, StringComparison.OrdinalIgnoreCase))));
 
-        api.Register("DoesModelExist", a =>
-            SheepValue.FromInt(a.Count > 0 && Placed(a[0].AsString(), null) ? 1 : 0));
+        api.Register("DoesModelExist", a => SheepValue.FromInt(a.Count > 0 && Placed(a[0].AsString(), null) ? 1 : 0));
 
-        api.Register("DoesActorExist", a =>
-            SheepValue.FromInt(
-                a.Count > 0 && Placed(a[0].AsString(), PlacedModelKind.Actor) ? 1 : 0));
+        api.Register("DoesActorExist", a => SheepValue.FromInt( a.Count > 0 && Placed(a[0].AsString(), PlacedModelKind.Actor) ? 1 : 0));
 
-        api.Register("DoesSceneModelExist", a =>
-            SheepValue.FromInt(
-                a.Count > 0 &&
-                (Placed(a[0].AsString(), null) ||
-                 (scene.Geometry is { } bsp &&
-                  bsp.ObjectNames.Any(o =>
-                      o.Equals(a[0].AsString(), StringComparison.OrdinalIgnoreCase))))
-                    ? 1
-                    : 0));
+        api.Register("DoesSceneModelExist", a => SheepValue.FromInt( a.Count > 0 && (Placed(a[0].AsString(), null) || (scene.Geometry is { } bsp &&
+                  bsp.ObjectNames.Any(o => o.Equals(a[0].AsString(), StringComparison.OrdinalIgnoreCase)))) ? 1 : 0));
     }
 
-    private static SheepValue CutTo(
-        Gk3SheepApi api,
-        LoadedScene scene,
-        IReadOnlyList<SheepValue> arguments,
-        bool forced,
-        bool gliding)
+    private static SheepValue CutTo( Gk3SheepApi api, LoadedScene scene, IReadOnlyList<SheepValue> arguments, bool forced, bool gliding)
     {
         if (arguments.Count == 0)
         {
@@ -320,33 +248,29 @@ public static class SceneScripting
     }
 
     /// <summary>Puts the view on a camera the scene names.</summary>
-    private static void Cut(
-        Gk3SheepApi api, LoadedScene scene, string name, bool forced, bool gliding)
+    private static void Cut( Gk3SheepApi api, LoadedScene scene, string name, bool forced, bool gliding)
     {
         if (scene.Definition.AnyCameraNamed(name) is null)
         {
-            api.Diagnostics.Add(new Diagnostic(
-                "GK3R3202", DiagnosticSeverity.Warning,
-                $"'{name}' is not a camera this scene names.",
-                scene.Name, null, "a room, cinematic or dialogue camera", name,
-                "The view stays where it was, as it does in the original."));
+            api.Diagnostics.Add(new Diagnostic( "GK3R3202", DiagnosticSeverity.Warning, $"'{name}' is not a camera this scene names.",
+                scene.Name, null, "a room, cinematic or dialogue camera", name, "The view stays where it was, as it does in the original."));
 
             return;
         }
 
         if (forced || api.State.CinematicsEnabled || api.State.ForcedCameraCuts)
         {
-            // Out of the player's own eyes is always a move, whatever the script asked for
-            // — except where it forced the cut, which is a script saying it means this one.
+            // Out of the player's own eyes is always a move, whatever the script asked for — except where it forced the cut, which is a script.
             api.State.CameraGliding = gliding || (api.State.ViewIsTheirs && !forced);
+
+            // Noted for first person, where a cut a script merely asked for is refused and one it insisted on is not: see SceneUpdate.Theirs.
+            api.State.CameraForced = forced || api.State.ForcedCameraCuts;
             api.State.CameraAngle = name;
         }
     }
 
 
-    /// <summary>
-    /// Turning a head to look at something.
-    /// </summary>
+    /// <summary>Turning a head to look at something.</summary>
     private static void AttachGlances(Gk3SheepApi api, LoadedScene scene, Glances? glances)
     {
         if (glances is null)
@@ -359,9 +283,7 @@ public static class SceneScripting
         api.Register("LookitModel", a => Look(a, quick: false));
         api.Register("LookitModelQuick", a => Look(a, quick: true));
 
-        // The same, aimed at something in the geometry rather than at a prop standing in
-        // it - CS2's script points Grace at a hit test, which is a slab nobody can see and
-        // a perfectly good thing to look at.
+        // The same, aimed at something in the geometry rather than at a prop standing in it - CS2's script points Grace at a hit test, which is a.
         api.Register("LookitSceneModel", a => Look(a, quick: false));
         api.Register("LookitSceneModelQuick", a => Look(a, quick: true));
 
@@ -375,8 +297,7 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // TurnHead takes angles rather than a target: an actor looking at nothing in
-        // particular, which is most of what a person does with their head.
+        // TurnHead takes angles rather than a target: an actor looking at nothing in particular, which is most of what a person does with their head.
         api.Register("TurnHead", a =>
         {
             if (a.Count >= 3 && Placed(scene, a[0].AsString()) is { } who)
@@ -385,8 +306,7 @@ public static class SceneScripting
                 float pitch = float.DegreesToRadians(a[2].AsInt());
 
                 Vector3 eye = who.Standing.Translation + new Vector3(0, 60, 0);
-                Vector3 ahead = Vector3.Transform(
-                    new Vector3(MathF.Sin(yaw), MathF.Tan(pitch), MathF.Cos(yaw)) * 100f,
+                Vector3 ahead = Vector3.Transform( new Vector3(MathF.Sin(yaw), MathF.Tan(pitch), MathF.Cos(yaw)) * 100f,
                     Matrix4x4.CreateRotationY(Heading(scene, a[0].AsString())));
 
                 glances.Look(new Glance(a[0].AsString(), null, eye + ahead, Quick: false));
@@ -407,26 +327,17 @@ public static class SceneScripting
 
             if (Where(scene, target) is not { } point)
             {
-                string standing = string.Join(
-                    ", ",
-                    scene.Models
-                        .Select(m => m.Noun is { Length: > 0 } noun ? $"{m.Name} ({noun})" : m.Name)
+                string standing = string.Join( ", ", scene.Models .Select(m => m.Noun is { Length: > 0 } noun ? $"{m.Name} ({noun})" : m.Name)
                         .Take(12));
 
-                api.Diagnostics.Add(new Diagnostic(
-                    "GK3R3203", DiagnosticSeverity.Warning,
-                    $"{actor} was told to look at '{target}', which is not in this scene.",
-                    scene.Name, null,
-                    $"one of: {standing}, or an object in the geometry",
-                    target,
-                    "Nobody turns; the original does nothing here either."));
+                api.Diagnostics.Add(new Diagnostic( "GK3R3203", DiagnosticSeverity.Warning,
+                    $"{actor} was told to look at '{target}', which is not in this scene.", scene.Name, null,
+                    $"one of: {standing}, or an object in the geometry", target, "Nobody turns; the original does nothing here either."));
 
                 return SheepValue.FromInt(0);
             }
 
-            // A third argument is how long for, in seconds. The GAS scripts say it
-            // outright — LOOKAT GABRIEL EH 5 — and a call without one is a look that
-            // holds until cancelled, which is how the sheep scripts use these.
+            // A third argument is how long for, in seconds.
             double seconds = arguments.Count >= 3 ? arguments[2].AsFloat() : 0;
 
             glances.Look(new Glance(actor, target, point, quick), seconds);
@@ -442,13 +353,10 @@ public static class SceneScripting
             // An actor is looked at in the face, which is the one mesh worth finding.
             if (CharacterHead.Find(placed.Model) is { } head)
             {
-                return Vector3.Transform(
-                    CharacterHead.PivotOf(placed.Model, head), placed.Standing);
+                return Vector3.Transform( CharacterHead.PivotOf(placed.Model, head), placed.Standing);
             }
 
-            // Anything else, in the middle. A prop's transform is the identity - its
-            // position is baked into its vertices, which is how the original ships them -
-            // so where it stands has to be measured rather than read off.
+            // Anything else, in the middle.
             return Middle(placed);
         }
 
@@ -461,17 +369,10 @@ public static class SceneScripting
         Vector3 minimum = new(float.MaxValue);
         Vector3 maximum = new(float.MinValue);
 
-        // Where it is standing now, not where the scene first put it: an actor who has
-        // walked is looked at where they went, and asking the placement would aim
-        // everybody at the spot they were on when the room loaded.
+        // Where it is standing now, not where the scene first put it: an actor who has walked is looked at where they went, and asking the placement.
         Matrix4x4 standing = placed.Standing;
 
-        // The pose a clip has put each group in, rather than the shape the model was
-        // authored in. A character animated into a chair is where the chair is, and their
-        // placement may be nowhere near it: the dining room names Mosely's spot MOSTALK and
-        // defines TALK_MOSELY, so his placement is the origin and he is drawn in his seat by
-        // his idle. Aiming at the authored shape walked Gabriel into the corner of the room
-        // to describe a man sitting behind him.
+        // The pose a clip has put each group in, rather than the shape the model was authored in.
         for (int index = 0; index < placed.Model.Meshes.Count; index++)
         {
             ModMesh mesh = placed.Model.Meshes[index];
@@ -492,8 +393,8 @@ public static class SceneScripting
     }
 
     /// <summary>How far a placed model reaches, where it is now standing.</summary>
-    /// <param name="placed">The model.</param>
     /// <returns>Its corners, or null when it has no geometry at all.</returns>
+    /// <param name="placed">The model.</param>
     private static (Vector3 Minimum, Vector3 Maximum)? Extent(PlacedModel placed)
     {
         var minimum = new Vector3(float.MaxValue);
@@ -539,8 +440,7 @@ public static class SceneScripting
     {
         foreach (SceneActor placed in scene.Definition.Actors())
         {
-            if (string.Equals(placed.Name, actor, StringComparison.OrdinalIgnoreCase) &&
-                scene.Definition.PositionNamed(placed.Position) is { } spot)
+            if (string.Equals(placed.Name, actor, StringComparison.OrdinalIgnoreCase) && scene.Definition.PositionNamed(placed.Position) is { } spot)
             {
                 return spot.Heading;
             }
@@ -549,8 +449,7 @@ public static class SceneScripting
         return 0f;
     }
 
-    private static SheepValue SetRegions(
-        WalkBoundary? boundary, IReadOnlyList<SheepValue> arguments, bool open)
+    private static SheepValue SetRegions( WalkBoundary? boundary, IReadOnlyList<SheepValue> arguments, bool open)
     {
         foreach (SheepValue argument in arguments)
         {
@@ -560,9 +459,7 @@ public static class SceneScripting
         return SheepValue.FromInt(0);
     }
 
-    /// <summary>
-    /// The ground a named object stands on, as a rectangle.
-    /// </summary>
+    /// <summary>The ground a named object stands on, as a rectangle.</summary>
     private static (Vector2 Minimum, Vector2 Maximum)? Footprint(LoadedScene scene, string name)
     {
         if (Bounds(scene, name) is not var (low, high))
@@ -573,9 +470,7 @@ public static class SceneScripting
         return (new Vector2(low.X, low.Z), new Vector2(high.X, high.Z));
     }
 
-    /// <summary>
-    /// The box round everything named that, whether it is a prop or part of the room.
-    /// </summary>
+    /// <summary>The box round everything named that, whether it is a prop or part of the room.</summary>
     internal static (Vector3 Minimum, Vector3 Maximum)? Bounds(LoadedScene scene, string name)
     {
         Vector3 minimum = new(float.MaxValue);
@@ -589,11 +484,7 @@ public static class SceneScripting
                 continue;
             }
 
-            // As it is posed and standing now, which is the reference's live AABB
-            // (WalkerBoundaryBlockModel reads GetMeshRenderer()->GetAABB()). Measuring the
-            // authored shape at the scene's placement put L'Homme Mort's blocked patch at
-            // the world origin: Mosely's bag is placed by an initanim sampled at frame 0,
-            // which moves the mesh groups and leaves the placement alone.
+            // As it is posed and standing now, which is the reference's live AABB (WalkerBoundaryBlockModel reads GetMeshRenderer()->GetAABB()).
             if (Extent(placed) is var (low, high))
             {
                 Grow(low);
@@ -607,10 +498,8 @@ public static class SceneScripting
 
             foreach (BspPolygon polygon in bsp.Polygons)
             {
-                if (polygon.SurfaceIndex < 0 ||
-                    polygon.SurfaceIndex >= bsp.Surfaces.Count ||
-                    bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex != index ||
-                    index < 0)
+                if (polygon.SurfaceIndex < 0 || polygon.SurfaceIndex >= bsp.Surfaces.Count ||
+                    bsp.Surfaces[polygon.SurfaceIndex].ObjectIndex != index || index < 0)
                 {
                     continue;
                 }
@@ -646,15 +535,12 @@ public static class SceneScripting
 
         return -1;
     }
-    /// <summary>
-    /// Makes the calls that were recorded actually make a sound.
-    /// </summary>
+    /// <summary>Makes the calls that were recorded actually make a sound.</summary>
     /// <param name="api">The host.</param>
     /// <param name="audio">The room's audio.</param>
     /// <param name="scene">The room, for the cameras a conversation may be watched from.</param>
     /// <param name="world">Where the speakers are standing.</param>
-    private static void Speak(
-        Gk3SheepApi api, SceneAudio audio, LoadedScene scene, SceneUpdate world)
+    private static void Speak( Gk3SheepApi api, SceneAudio audio, LoadedScene scene, SceneUpdate world)
     {
         api.Register("PlaySound", arguments =>
         {
@@ -670,21 +556,13 @@ public static class SceneScripting
         {
             if (arguments.Count > 0)
             {
-                audio.Speak(
-                    arguments[0].AsString(),
-                    arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                audio.Speak( arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
             }
 
             return SheepValue.FromInt(0);
         });
 
-        // What a conversation is actually said with. A topic's script does not call
-        // StartVoiceOver — it calls into the location's compiled script, which calls these.
-        // Left recorded, a topic runs, its camera cuts, the topic is used up, and nobody
-        // says anything: the reported "the screen flashes but nothing happens".
-        //
-        // The fidget forms differ only in whether the speakers play their talking and
-        // listening idles, which nothing here does yet, so the four are the same two calls.
+        // What a conversation is actually said with.
         foreach (string start in new[] { "StartDialogue", "StartDialogueNoFidgets" })
         {
             api.Register(start, arguments =>
@@ -693,9 +571,7 @@ public static class SceneScripting
 
                 if (arguments.Count > 0)
                 {
-                    audio.Speak(
-                        arguments[0].AsString(),
-                        arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                    audio.Speak( arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
                 }
 
                 return SheepValue.FromInt(0);
@@ -714,22 +590,10 @@ public static class SceneScripting
             });
         }
 
-        // And what an animation does to the music. Seventy-nine of the corpus's 81
-        // soundtrack changes are written inside a line of dialogue's own YAK, which SceneAudio runs
-        // against the recording's clock; the other two are in a moment and arrive here.
-        // Both end at the same call, because both mean the same thing.
+        // And what an animation does to the music.
         world.Music = change => audio.Cue(change);
 
-        // And what an *animation* says. A moment carries its lines as nodes of its own
-        // rather than as calls in the script that started it, so this is the only path by
-        // which fifty of the game's lines are ever spoken — among them both halves of
-        // "Mosely? Is that YOU?" / "No, it's my evil twin!" in the dining room.
-        //
-        // One line, no fidgets and no camera of its own: the moment frames itself with a
-        // CAMERA node, and cutting again here would fight it. The plate carries the
-        // language letter the file wrote it with, which is kept — the animation library
-        // resolves a name with or without one, and keeping it means a ContinueDialogue the
-        // script makes afterwards carries on from the same stem.
+        // And what an *animation* says.
         world.Line = spoken => audio.Speak(spoken.Plate, 1);
 
         // A yak names one line outright where a voice-over names a run of them.
@@ -743,14 +607,10 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // The argument is a soundtrack — a list of sounds and waits — rather than a sound,
-        // which is why looping it by name played the file's own name as though it were an
-        // audio asset and found nothing. Read through a hook because a .STK lives in the
-        // archives and the audio layer has no idea where those are.
+        // The argument is a soundtrack — a list of sounds and waits — rather than a sound, which is why looping it by name played the file's own.
         api.Register("PlaySoundTrack", arguments =>
         {
-            if (arguments.Count > 0 &&
-                audio.Soundtracks?.Invoke(arguments[0].AsString()) is { } track)
+            if (arguments.Count > 0 && audio.Soundtracks?.Invoke(arguments[0].AsString()) is { } track)
             {
                 audio.Play(track);
             }
@@ -771,9 +631,7 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // Stopping sounds. The effects bus is what a one-shot plays on, so silencing it is
-        // what both of these mean; stopping one sound by name would need the device to
-        // remember which voice was which, which it does not.
+        // Stopping sounds.
         api.Register("StopAllSounds", _ =>
         {
             audio.Quiet();
@@ -787,9 +645,7 @@ public static class SceneScripting
         });
     }
 
-    /// <summary>
-    /// Points the camera at whoever is about to talk.
-    /// </summary>
+    /// <summary>Points the camera at whoever is about to talk.</summary>
     /// <param name="api">The game, for who is speaking to whom.</param>
     /// <param name="scene">The room, for the cameras it names.</param>
     /// <param name="world">Where the speakers are standing.</param>
@@ -802,24 +658,24 @@ public static class SceneScripting
 
         api.State.Talking = true;
 
+        // On foot the pair are watched from the player's own head, which is where the conversation is happening: the room's own two-shot and the
+        // composed fallback are both refused, so nobody is taken out of their body to be shown a conversation they are standing in.
+        if (api.State.FirstPerson && !api.State.ForcedCameraCuts)
+        {
+            world.Stage(null);
+
+            return;
+        }
+
         List<Vector3> speakers = Speakers(api, world);
         List<Vector3> facing = Looking(api, world);
 
-        string? wanted =
-            (api.State.Conversation is { Length: > 0 } about
-                ? scene.Definition.DialogueCameras()
-                    .FirstOrDefault(c => c.IsInitial && Named(c, about))?.Name
-                    ?? scene.Definition.DialogueCameras()
-                        .FirstOrDefault(c => Named(c, about))?.Name
-                : null)
-            ?? api.State.DefaultDialogueCamera
+        string? wanted = (api.State.Conversation is { Length: > 0 } about ? scene.Definition.DialogueCameras()
+                    .FirstOrDefault(c => c.IsInitial && Named(c, about))?.Name ?? scene.Definition.DialogueCameras()
+                        .FirstOrDefault(c => Named(c, about))?.Name : null) ?? api.State.DefaultDialogueCamera
             ?? ConversationCamera.Framing(scene.Definition.Cameras(), speakers, facing);
 
-        // A shot the room names is the shot, in first person as much as anywhere else: its
-        // artists framed these conversations and a composed replacement is a different film.
-        // What changes on foot is only how the view gets there — moved rather than cut,
-        // because cutting out of your own head is disorienting in a way that cutting
-        // between two shots is not.
+        // A shot the room names is the shot, in first person as much as anywhere else: its artists framed these conversations and a composed.
         if (wanted is { Length: > 0 } named)
         {
             world.Stage(null);
@@ -829,32 +685,21 @@ public static class SceneScripting
             return;
         }
 
-        // The room names nothing that holds this pair — not the conversation's own cameras,
-        // not the default, and nothing among its room cameras frames them both. The
-        // original's answer is to stay where it is, which from inside the player's head is
-        // two people talking to a wall, so a shot is built for them: square on to the line
-        // between the two, on the side the view is already on, far enough back to hold
-        // both. Only on foot; with the camera where the story left it, staying put is fine.
+        // The room names nothing that holds this pair — not the conversation's own cameras, not the default, and nothing among its room cameras.
         if (api.State.FirstPerson && world.View is { } standing)
         {
             Log.Info("Conversation: the room names no shot that holds the pair, so composing one");
 
-            world.Stage(ConversationCamera.Composed(
-                speakers,
-                standing.Position,
-                standing,
+            world.Stage(ConversationCamera.Composed( speakers, standing.Position, standing,
                 scene.CameraShell is { IsEmpty: false } shell ? shell.Contains : null));
         }
     }
 
     /// <summary>Whether a dialogue camera belongs to a conversation.</summary>
-    private static bool Named(SceneCamera camera, string conversation) =>
-        camera.Conversation is { Length: > 0 } about &&
+    private static bool Named(SceneCamera camera, string conversation) => camera.Conversation is { Length: > 0 } about &&
         about.Equals(conversation, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>
-    /// Where the people in a conversation are standing.
-    /// </summary>
+    /// <summary>Where the people in a conversation are standing.</summary>
     private static List<Vector3> Speakers(Gk3SheepApi api, SceneUpdate world)
     {
         List<Vector3> where = [];
@@ -886,42 +731,27 @@ public static class SceneScripting
         return ahead;
     }
 
-    /// <summary>
-    /// Makes the walking calls move somebody.
-    /// </summary>
+    /// <summary>Makes the walking calls move somebody.</summary>
     /// <param name="api">The host.</param>
     /// <param name="scene">The room being crossed.</param>
     /// <param name="world">What moves them.</param>
     private static void Walking(Gk3SheepApi api, LoadedScene scene, SceneUpdate world)
     {
-        api.Walks = (actor, place, how, hurry, mayRun) => Send(
-            scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn,
-            hurry,
-            mayRun,
-            seeing: how == Approaching.WalkToSee);
+        api.Walks = (actor, place, how, hurry, mayRun) => Send( scene, world, actor, place, how != Approaching.Walk, how == Approaching.Turn, hurry,
+            mayRun, seeing: how == Approaching.WalkToSee);
 
-        api.Register("WalkTo", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
+        api.Register("WalkTo", a => SheepValue.FromInt( (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false)));
 
-        // The second argument is an <b>animation</b>, not a place: walk to where that
-        // animation begins, so the clip plays where it was authored to. Reading it as a
-        // spot or a model finds neither, which is what 165 calls across the corpus were
-        // quietly doing — Emilio came out of the hotel and then stood in the doorway for
-        // the rest of the morning instead of walking to his bench.
-        api.Register("WalkToAnimation", a => SheepValue.FromInt(
-            (int)ToAnimationStart(scene, world, Actor(api, a, 0), Name(a, 1), hurry: false)));
+        // The second argument is an animation, not a place: walk to where that animation begins, so the clip plays where it was authored to.
+        api.Register("WalkToAnimation", a => SheepValue.FromInt( (int)ToAnimationStart(scene, world, Actor(api, a, 0), Name(a, 1), hurry: false)));
 
-        api.Register("WalkToSeeModel", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, seeing: true)));
+        api.Register("WalkToSeeModel", a => SheepValue.FromInt( (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, seeing: true)));
 
-        api.Register("TurnToModel", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, turnOnly: true)));
+        api.Register("TurnToModel", a => SheepValue.FromInt( (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: true, turnOnly: true)));
 
-        api.Register("TurnTo", a => SheepValue.FromInt(
-            (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false, turnOnly: true)));
+        api.Register("TurnTo", a => SheepValue.FromInt( (int)Send(scene, world, Actor(api, a, 0), Name(a, 1), toModel: false, turnOnly: true)));
 
-        api.WalksToAnimationStart = (actor, animation, hurry) =>
-            ToAnimationStart(scene, world, actor, animation, hurry);
+        api.WalksToAnimationStart = (actor, animation, hurry) => ToAnimationStart(scene, world, actor, animation, hurry);
 
         api.Register("WalkerBoundaryBlockRegion", _ => SheepValue.FromInt(0));
 
@@ -931,19 +761,14 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // Getting out of the way. The walk boundary is a palette-indexed bitmap and a
-        // region is one of its indices, so "are you in region 5" is a lookup: if they are,
-        // walk them to the spot named; if they are not, there is nothing to do. 112 calls
-        // — a character standing where a cutscene is about to happen, asked to move.
+        // Getting out of the way.
         SheepValue Clear(IReadOnlyList<SheepValue> a)
         {
             string actor = Actor(api, a, 0);
             int region = a.Count > 1 ? a[1].AsInt() : -1;
             string exit = Name(a, 3);
 
-            if (scene.Walkable is not { } boundary ||
-                world.Where(actor) is not { } standing ||
-                boundary.RegionAt(standing) != region)
+            if (scene.Walkable is not { } boundary || world.Where(actor) is not { } standing || boundary.RegionAt(standing) != region)
             {
                 return SheepValue.FromInt(0);
             }
@@ -954,10 +779,7 @@ public static class SceneScripting
         api.Register("ActionWaitClearRegion", Clear);
         api.Register("ClearRegion", Clear);
 
-        // A character's stride, replaced. 42 calls, and they are the ones where somebody
-        // walks differently for a while: carrying something, limping, in a hurry. The
-        // start and the loop are what the walker actually uses; the two turn animations
-        // are read and kept for when it turns on the spot.
+        // A character's stride, replaced.
         api.Register("SetWalkAnim", a =>
         {
             if (a.Count > 2)
@@ -968,47 +790,25 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // A momentary animation: a shrug, a glance up, a hand to the chin. The name is
-        // localised — the asset is the language's letter and the name, in the mom directory
-        // — and the game waits on it. 37 calls.
-        //
-        // The letter comes from the animation library rather than being written here,
-        // because it is the same letter that finds a line of dialogue's .YAK and a rule
-        // spelled out in two places is a rule that will one day be French in one of them.
-        api.Register("StartMom", a => SheepValue.FromInt(
-            a.Count > 0
-                ? (int)(world.Play(
-                    (world.Animations?.Language ?? 'E') + a[0].AsString()) * 1000)
-                : 0),
-            waitable: true);
+        // A momentary animation: a shrug, a glance up, a hand to the chin.
+        api.Register("StartMom", a => SheepValue.FromInt( a.Count > 0 ? (int)(world.Play(
+                    (world.Animations?.Language ?? 'E') + a[0].AsString()) * 1000) : 0), waitable: true);
 
-        // How far somebody is from a named spot, which the background scripts poll
-        // constantly and were being told "not near" about every time. The answer decides
-        // whether the room's own life happens: RC1 waits for Gabriel to walk away from the
-        // hotel door before sending Emilio out of it, and 96 conditions across the corpus
-        // are one of these two.
-        api.Register("IsActorNear", a => SheepValue.FromInt(
-            Near(scene, world.Where(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
+        // How far somebody is from a named spot, which the background scripts poll constantly and were being told "not near" about every time.
+        api.Register("IsActorNear", a => SheepValue.FromInt( Near(scene, world.Where(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
 
-        // The same question about where they are going rather than where they are. A
-        // script that wants to know whether somebody is on their way over cannot ask about
-        // their feet, because at the moment it asks they have not moved yet.
-        api.Register("IsWalkingActorNear", a => SheepValue.FromInt(
-            Near(scene, world.Heading(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
+        // The same question about where they are going rather than where they are.
+        api.Register("IsWalkingActorNear", a => SheepValue.FromInt( Near(scene, world.Heading(Actor(api, a, 0)), Name(a, 1), Distance(a, 2))));
     }
 
     /// <summary>The radius an argument asks about, in scene units.</summary>
     private static float Distance(IReadOnlyList<SheepValue> arguments, int index) =>
-        arguments.Count > index && arguments[index].AsFloat() is > 0 and { } given
-            ? given
-            : 0f;
+        arguments.Count > index && arguments[index].AsFloat() is > 0 and { } given ? given : 0f;
 
     /// <summary>Whether a point is within a distance of one of the scene's named spots.</summary>
     private static int Near(LoadedScene scene, Vector3? who, string spot, float distance)
     {
-        if (who is not { } here ||
-            distance <= 0 ||
-            scene.Definition.PositionNamed(spot) is not { } named)
+        if (who is not { } here || distance <= 0 || scene.Definition.PositionNamed(spot) is not { } named)
         {
             return 0;
         }
@@ -1018,19 +818,9 @@ public static class SceneScripting
         return (apart.X * apart.X) + (apart.Z * apart.Z) < distance * distance ? 1 : 0;
     }
 
-    /// <summary>
-    /// Starts a walk or a turn, and says how long it will take.
-    /// </summary>
-    private static double Send(
-        LoadedScene scene,
-        SceneUpdate world,
-        string actor,
-        string place,
-        bool toModel,
-        bool turnOnly = false,
-        bool hurry = false,
-        bool mayRun = false,
-        bool seeing = false)
+    /// <summary>Starts a walk or a turn, and says how long it will take.</summary>
+    private static double Send( LoadedScene scene, SceneUpdate world, string actor, string place, bool toModel, bool turnOnly = false,
+        bool hurry = false, bool mayRun = false, bool seeing = false)
     {
         if (Aim(scene, place, toModel) is not { } aim)
         {
@@ -1042,28 +832,15 @@ public static class SceneScripting
             return world.Turn(actor, aim.Look ?? aim.Destination);
         }
 
-        // A named spot says which way to stand. A thing says to look at it — from wherever
-        // the walk actually ends, which the boundary decides, not from where it was aimed.
-        return world.Walk(
-            actor,
-            seeing && aim.Room && aim.Bounds is { } box
-                ? VantageFor(scene, box)
-                : Approach(world, actor, aim),
-            aim.Heading,
-            aim.Look,
-            hurry,
-            mayRun,
-            seeing && aim.Bounds is { } seen
-                ? new SightTarget(aim.Room ? place : null, seen.Minimum, seen.Maximum)
-                : null);
+        // A named spot says which way to stand.
+        return world.Walk( actor, seeing && aim.Room && aim.Bounds is { } box ? VantageFor(scene, box) : Approach(world, actor, aim), aim.Heading,
+            aim.Look, hurry, mayRun, seeing && aim.Bounds is { } seen ? new SightTarget(aim.Room ? place : null, seen.Minimum, seen.Maximum) : null);
     }
 
-    /// <summary>
-    /// Where a walk to see part of the room is aimed.
-    /// </summary>
+    /// <summary>Where a walk to see part of the room is aimed.</summary>
+    /// <returns>The point to walk towards.</returns>
     /// <param name="scene">The room.</param>
     /// <param name="box">The object's bounds.</param>
-    /// <returns>The point to walk towards.</returns>
     internal static Vector3 VantageFor(LoadedScene scene, (Vector3 Minimum, Vector3 Maximum) box)
     {
         Vector3 middle = (box.Minimum + box.Maximum) * 0.5f;
@@ -1095,20 +872,11 @@ public static class SceneScripting
         return vantage;
     }
 
-    /// <summary>
-    /// Walks an actor to the spot an animation expects them to start from.
-    /// </summary>
-    private static double ToAnimationStart(
-        LoadedScene scene,
-        SceneUpdate world,
-        string actor,
-        string animation,
-        bool hurry)
+    /// <summary>Walks an actor to the spot an animation expects them to start from.</summary>
+    private static double ToAnimationStart( LoadedScene scene, SceneUpdate world, string actor, string animation, bool hurry)
     {
-        void Cannot(string wanted, string got) => world.Diagnostics.Add(new Diagnostic(
-            "GK3R3320", DiagnosticSeverity.Info,
-            "An approach names an animation nothing can be walked to the start of.",
-            animation, null, wanted, got,
+        void Cannot(string wanted, string got) => world.Diagnostics.Add(new Diagnostic( "GK3R3320", DiagnosticSeverity.Info,
+            "An approach names an animation nothing can be walked to the start of.", animation, null, wanted, got,
             "The action still runs; the actor simply plays it from where they stand."));
 
         if (world.Animations?.Read(animation) is not { } read)
@@ -1123,10 +891,7 @@ public static class SceneScripting
             return 0;
         }
 
-        // The model, not the actor. An actor answers to two names — gab and GABRIEL — and
-        // both a clip and a character's own settings are filed under the model's, so
-        // everything below asks about what the scene actually placed rather than about what
-        // the script called it.
+        // The model, not the actor.
         string model = Modelled(scene, actor);
 
         if (world.Characters?.Of(model) is not { } character || character.Hips is null)
@@ -1135,20 +900,14 @@ public static class SceneScripting
             return 0;
         }
 
-        if (AnimationStart.Of(
-                read, clips, model, character, Placed(scene, actor)?.BuiltFacing) is not { } start)
+        if (AnimationStart.Of( read, clips, model, character, Placed(scene, actor)?.BuiltFacing) is not { } start)
         {
             Cannot("a clip in it that poses " + model, "none of its " + read.Actions.Count);
             return 0;
         }
 
-        // And it may be run, exactly as the other approaches may. Every one of them passes
-        // mayRun; this one did not, by omission alone, so the third most common approach in
-        // the game was the only one taken at a stroll however far it went. RC3's cat is a
-        // walk of 3,208 units from the door — ninety seconds of a camera the story is
-        // holding and a player who cannot click.
-        return world.Walk(
-            actor, start.Position, start.Heading, null, hurry, mayRun: true);
+        // And it may be run, exactly as the other approaches may.
+        return world.Walk( actor, start.Position, start.Heading, null, hurry, mayRun: true);
     }
 
     /// <summary>Stops an actor short of the thing they were sent to.</summary>
@@ -1160,39 +919,27 @@ public static class SceneScripting
         }
 
         float stand = world.Characters?.Of(Modelled(world, actor))?.WalkerHeight is
-            { } height && height > 0
-                ? height
-                : Navigation.Walker.StandOff;
+            { } height && height > 0 ? height : Navigation.Walker.StandOff;
 
         return Navigation.Walker.StandingOff(thing, from, stand);
     }
 
-    /// <summary>
-    /// The model name behind whichever of an actor's two names a script used.
-    /// </summary>
+    /// <summary>The model name behind whichever of an actor's two names a script used.</summary>
+    /// <returns>The model's own name, or the name given when the room has nobody by it.</returns>
     /// <param name="scene">The room, which is what knows the pairing.</param>
     /// <param name="actor">The name the script used.</param>
-    /// <returns>The model's own name, or the name given when the room has nobody by it.</returns>
-    private static string Modelled(LoadedScene scene, string actor) =>
-        scene.Models
-            .FirstOrDefault(m =>
-                string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(m.Noun, actor, StringComparison.OrdinalIgnoreCase))
+    private static string Modelled(LoadedScene scene, string actor) => scene.Models .FirstOrDefault(m =>
+                string.Equals(m.Name, actor, StringComparison.OrdinalIgnoreCase) || string.Equals(m.Noun, actor, StringComparison.OrdinalIgnoreCase))
             ?.Name ?? actor;
 
     /// <summary>The same, for a caller that has the world rather than the scene.</summary>
-    private static string Modelled(SceneUpdate world, string actor) =>
-        world.ModelNamed(actor)?.Name ?? actor;
+    private static string Modelled(SceneUpdate world, string actor) => world.ModelNamed(actor)?.Name ?? actor;
 
     /// <summary>Standing somebody at a named spot, without walking them there.</summary>
-    /// <summary>
-    /// Makes the fidget calls do something.
-    /// </summary>
     /// <param name="api">The host.</param>
     /// <param name="world">Where the characters are.</param>
     /// <param name="behaviours">Where a named script is read from.</param>
-    private static void Fidgeting(
-        Gk3SheepApi api, SceneUpdate world, Func<string, GasFile?> behaviours)
+    private static void Fidgeting( Gk3SheepApi api, SceneUpdate world, Func<string, GasFile?> behaviours)
     {
         void Assign(IReadOnlyList<SheepValue> a, FidgetKind mode)
         {
@@ -1246,8 +993,7 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         }, waitable: true);
 
-        // A prop's own script, which is the same machinery as a character's idle: the
-        // lobby's fans, a fountain, a clock. Started and stopped by name.
+        // A prop's own script, which is the same machinery as a character's idle: the lobby's fans, a fountain, a clock.
         api.Register("StartPropFidget", a =>
         {
             if (a.Count > 0)
@@ -1275,9 +1021,7 @@ public static class SceneScripting
         });
     }
 
-    /// <summary>
-    /// Makes a scene's hidden staging appear and disappear.
-    /// </summary>
+    /// <summary>Makes a scene's hidden staging appear and disappear.</summary>
     /// <param name="api">The host.</param>
     /// <param name="scene">The room the models stand in.</param>
     /// <param name="world">Where they are drawn.</param>
@@ -1294,11 +1038,8 @@ public static class SceneScripting
 
             if (world.ModelNamed(named) is not { } model)
             {
-                api.Diagnostics.Add(new Diagnostic(
-                    "GK3R3340", DiagnosticSeverity.Info,
-                    "A script showed or hid a model this room does not place.",
-                    scene.Name, null, "a model in the room", named,
-                    "Common and usually harmless: scripts are shared between rooms."));
+                api.Diagnostics.Add(new Diagnostic( "GK3R3340", DiagnosticSeverity.Info, "A script showed or hid a model this room does not place.",
+                    scene.Name, null, "a model in the room", named, "Common and usually harmless: scripts are shared between rooms."));
 
                 return;
             }
@@ -1306,10 +1047,7 @@ public static class SceneScripting
             world.Show(model, visible);
         }
 
-        // The room's own named objects, which are a different thing from a model the
-        // scene loaded out of a file. A curtain, a van, a door: runs of surfaces inside
-        // one mesh with a name over them. 287 calls across the corpus, every one of them
-        // recorded and dropped until the geometry could be cut along those names.
+        // The room's own named objects, which are a different thing from a model the scene loaded out of a file.
         void SetObject(IReadOnlyList<SheepValue> arguments, bool visible)
         {
             if (arguments.Count == 0)
@@ -1324,26 +1062,18 @@ public static class SceneScripting
                 return;
             }
 
-            // A model the scene loaded rather than part of the room. The corpus is not
-            // consistent about which call it uses for which, and the original looks in
-            // both places too.
+            // A model the scene loaded rather than part of the room.
             if (world.ModelNamed(named) is { } model)
             {
                 world.Show(model, visible);
                 return;
             }
 
-            api.Diagnostics.Add(new Diagnostic(
-                "GK3R3341", DiagnosticSeverity.Info,
-                "A script showed or hid part of a room that has no such part.",
-                scene.Name, null, "an object in the geometry", named,
-                "Common and usually harmless: scripts are shared between rooms."));
+            api.Diagnostics.Add(new Diagnostic( "GK3R3341", DiagnosticSeverity.Info, "A script showed or hid part of a room that has no such part.",
+                scene.Name, null, "an object in the geometry", named, "Common and usually harmless: scripts are shared between rooms."));
         }
 
-        // A mood is an expression held until something clears it, and it is two animations
-        // rather than a state: `gabangryon` puts it on and `gabangryoff` takes it off. 2,442
-        // calls across the corpus — the largest single thing the scripts asked for and did
-        // not get — and the whole of it is knowing the two names.
+        // A mood is an expression held until something clears it, and it is two animations rather than a state: `gabangryon` puts it on and.
         api.Register("SetMood", a =>
         {
             if (a.Count > 1)
@@ -1366,9 +1096,7 @@ public static class SceneScripting
 
         api.Register("CameraBoundaryBlockModel", a =>
         {
-            if (a.Count > 0 &&
-                scene.CameraShell is { } shell &&
-                world.ModelNamed(a[0].AsString()) is { } model)
+            if (a.Count > 0 && scene.CameraShell is { } shell && world.ModelNamed(a[0].AsString()) is { } model)
             {
                 shell.Block(model.Name, model.Model, model.Standing);
             }
@@ -1398,19 +1126,12 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // Construction mode: a script putting something into the room the scene file never
-        // mentioned. What it names has already been read and placed, hidden, while the room
-        // was loading — see SceneLoader.StageConstructed — so all that is left here is to
-        // say whether the thing the script asked for is actually in the room, because a
-        // model that is not is a moment that will not happen and nothing else would say so.
+        // Construction mode: a script putting something into the room the scene file never mentioned.
         api.Register("AddModel", a =>
         {
-            if (a.Count > 0 &&
-                SceneLoader.ConstructedProp(a[0].AsString()) is { } model &&
-                world.ModelNamed(model) is null)
+            if (a.Count > 0 && SceneLoader.ConstructedProp(a[0].AsString()) is { } model && world.ModelNamed(model) is null)
             {
-                api.Diagnostics.Add(new Diagnostic(
-                    "GK3R3348", DiagnosticSeverity.Warning,
+                api.Diagnostics.Add(new Diagnostic( "GK3R3348", DiagnosticSeverity.Warning,
                     "A script built a model into the room that was not staged for it.",
                     scene.Name, null, "a prop staged from this scene's scripts", model,
                     "Scripts are found by name: this one's does not begin with the scene's."));
@@ -1419,8 +1140,7 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
-        // The same room lit a second way. Grace's office has a light switch and the bar has
-        // a disco ball, and both are one geometry with two bakes.
+        // The same room lit a second way.
         SheepValue Relight(IReadOnlyList<SheepValue> arguments)
         {
             if (arguments.Count > 0)
@@ -1434,20 +1154,10 @@ public static class SceneScripting
         api.Register("SetScene", Relight);
         api.Register("SetSceneNoPreloadTextures", Relight);
 
-        // <c>SetModelLighting(model, ambientRange, r, g, b)</c>. The reference sets the
-        // model's ambient to that colour and its light colour to black, so the room stops
-        // lighting it — and white is the case that matters, being the scene file's
-        // `fulllighting` said again from a script. TE4's Restart$ says it of the bowl of
-        // fire, the temple's flames and its fountains, all at 255,255,255.
-        //
-        // A colour that is not white would need a per-model tint the geometry does not
-        // carry — TE4 asks for the angel's hand at 38,26,6 — and those are left lit by the
-        // room, which is what they were before this existed.
+        // SetModelLighting(model, ambientRange, r, g, b).
         api.Register("SetModelLighting", a =>
         {
-            if (a.Count >= 5 &&
-                world.ModelNamed(a[0].AsString()) is { } lit &&
-                a[2].AsInt() >= 255 && a[3].AsInt() >= 255 && a[4].AsInt() >= 255)
+            if (a.Count >= 5 && world.ModelNamed(a[0].AsString()) is { } lit && a[2].AsInt() >= 255 && a[3].AsInt() >= 255 && a[4].AsInt() >= 255)
             {
                 lit.SelfLit = true;
                 world.SelfLit(lit, true);
@@ -1469,19 +1179,15 @@ public static class SceneScripting
         });
     }
 
-    /// <summary>
-    /// Puts an expression on somebody, or takes the one they are wearing off.
-    /// </summary>
+    /// <summary>Puts an expression on somebody, or takes the one they are wearing off.</summary>
     /// <param name="api">The host, for the mood the actor is currently wearing.</param>
     /// <param name="scene">The room, for turning a noun into a model name.</param>
     /// <param name="world">What plays the animations.</param>
     /// <param name="actor">Whose face, by either of their names.</param>
     /// <param name="mood">The mood, or null to clear whatever is on.</param>
-    private static void Mood(
-        Gk3SheepApi api, LoadedScene scene, SceneUpdate world, string actor, string? mood)
+    private static void Mood( Gk3SheepApi api, LoadedScene scene, SceneUpdate world, string actor, string? mood)
     {
-        // The face's own three letters, not the model's name: the lobby places Simone as
-        // `sim_` and her animations are `simsleepon` and `simsleepoff`.
+        // The face's own three letters, not the model's name: the lobby places Simone as `sim_` and her animations are `simsleepon` and.
         string model = Modelled(scene, actor);
         string code = world.Faces?.CodeFor(model) ?? model;
 
@@ -1496,17 +1202,11 @@ public static class SceneScripting
             return;
         }
 
-        // Only if the pair exists. A mood a character has no face for is left off rather
-        // than half applied, which is what the original does — it looks for both and
-        // returns without one.
-        if (world.Animations?.Read(code + wanted + "on") is null ||
-            world.Animations?.Read(code + wanted + "off") is null)
+        // Only if the pair exists.
+        if (world.Animations?.Read(code + wanted + "on") is null || world.Animations?.Read(code + wanted + "off") is null)
         {
-            world.Diagnostics.Add(new Diagnostic(
-                "GK3R3342", DiagnosticSeverity.Info,
-                "A script put a mood on somebody who has no face for it.",
-                scene.Name, null, $"{code}{wanted}on and off", "neither",
-                "The expression is left off; the line still plays."));
+            world.Diagnostics.Add(new Diagnostic( "GK3R3342", DiagnosticSeverity.Info, "A script put a mood on somebody who has no face for it.",
+                scene.Name, null, $"{code}{wanted}on and off", "neither", "The expression is left off; the line still plays."));
 
             return;
         }
@@ -1531,82 +1231,54 @@ public static class SceneScripting
         {
             if (arguments.Count > 1)
             {
-                At(api, scene, world,
-                    arguments[0].AsString(), arguments[1].AsString(), moveCamera: false);
+                At(api, scene, world, arguments[0].AsString(), arguments[1].AsString(), moveCamera: false);
             }
 
             return SheepValue.FromInt(0);
         });
 
-        // A development answer, not a game function: where somebody is right now and
-        // which way they are pointed, for a headless run that cannot see the room.
+        // A development answer, not a game function: where somebody is right now and which way they are pointed, for a headless run that cannot see.
         api.Register("DumpActor", arguments =>
         {
-            if (arguments.Count > 0 &&
-                arguments[0].AsString() is { Length: > 0 } named &&
-                world.Where(named) is { } at)
+            if (arguments.Count > 0 && arguments[0].AsString() is { Length: > 0 } named && world.Where(named) is { } at)
             {
                 Vector3 ahead = world.Looking(named) ?? Vector3.Zero;
 
-                return SheepValue.FromString(string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"at ({at.X:0.0}, {at.Y:0.0}, {at.Z:0.0}), " +
+                return SheepValue.FromString(string.Create( CultureInfo.InvariantCulture, $"at ({at.X:0.0}, {at.Y:0.0}, {at.Z:0.0}), " +
                     $"ahead ({ahead.X:0.00}, {ahead.Y:0.00}, {ahead.Z:0.00})"));
             }
 
             return SheepValue.FromString("no such actor here");
         });
 
-        // The menu's Get Unstuck row, reachable from the console as well. Not a game
-        // function either — no shipped script calls it — but a wedged room is exactly the
-        // thing a headless run has to be able to reproduce and then undo, and the console
-        // is the only way in. See SceneUpdate.Unstick.
+        // The menu's Get Unstuck row, reachable from the console as well.
         api.Register("Unstick", _ =>
         {
             IReadOnlyList<string> let = world.Unstick();
 
-            return SheepValue.FromString(let.Count == 0
-                ? "nothing was holding the room"
-                : "let go of " + string.Join(", ", let));
+            return SheepValue.FromString(let.Count == 0 ? "nothing was holding the room" : "let go of " + string.Join(", ", let));
         });
     }
 
-    private static void At(
-        Gk3SheepApi api,
-        LoadedScene scene,
-        SceneUpdate world,
-        string actor,
-        string spot,
-        bool moveCamera)
+    private static void At( Gk3SheepApi api, LoadedScene scene, SceneUpdate world, string actor, string spot, bool moveCamera)
     {
         if (scene.Definition.PositionNamed(spot) is not { } named)
         {
-            api.Diagnostics.Add(new Diagnostic(
-                "GK3R3320", DiagnosticSeverity.Warning,
-                $"'{spot}' is not a position this scene names.",
-                scene.Name, null, "a spot in the POSITIONS section", spot,
-                "The actor stays where the scene put them."));
+            api.Diagnostics.Add(new Diagnostic( "GK3R3320", DiagnosticSeverity.Warning, $"'{spot}' is not a position this scene names.",
+                scene.Name, null, "a spot in the POSITIONS section", spot, "The actor stays where the scene put them."));
 
             return;
         }
 
         if (!world.Place(actor, named.Position, named.Heading))
         {
-            api.Diagnostics.Add(new Diagnostic(
-                "GK3R3321", DiagnosticSeverity.Info,
-                "A script stood somebody somewhere who is not in the room.",
-                scene.Name, null, "an actor the scene placed", actor,
-                "Common when a room is entered as one character and scripted for another."));
+            api.Diagnostics.Add(new Diagnostic( "GK3R3321", DiagnosticSeverity.Info, "A script stood somebody somewhere who is not in the room.",
+                scene.Name, null, "an actor the scene placed", actor, "Common when a room is entered as one character and scripted for another."));
 
             return;
         }
 
-        // Standing them somewhere says nothing about how they are standing, and Place has
-        // just stopped whatever clip was posing them — which leaves that clip's last frame
-        // written into the model. Both of the calls that come through here put the actor
-        // upright afterwards in the reference, and the comment on the one in
-        // SetActorPosition names the room this was reported from: "if we don't do this, the
-        // characters are sometimes positioned incorrectly (e.g. 207A Poussin's Tomb)".
+        // Standing them somewhere says nothing about how they are standing, and Place has just stopped whatever clip was posing them — which leaves.
         world.Stand(actor);
 
         if (moveCamera && named.Camera is { Length: > 0 } camera)
@@ -1620,16 +1292,9 @@ public static class SceneScripting
     /// <param name="Destination">The spot on the floor to stand on.</param>
     /// <param name="Heading">The authored heading of a named spot, if it is one.</param>
     /// <param name="Look">What to look at, if the target is a thing rather than a spot.</param>
-    /// <param name="Bounds">
-    /// How far that thing reaches, for deciding when it can be seen. Null for a named
-    /// spot, which is a point on the floor and not a thing anybody looks at.
-    /// </param>
+    /// <param name="Bounds">How far that thing reaches, for deciding when it can be seen.</param>
     /// <param name="Room">Whether the thing is part of the room's geometry rather than placed in it.</param>
-    private readonly record struct Aiming(
-        Vector3 Destination,
-        float? Heading,
-        Vector3? Look,
-        (Vector3 Minimum, Vector3 Maximum)? Bounds = null,
+    private readonly record struct Aiming( Vector3 Destination, float? Heading, Vector3? Look, (Vector3 Minimum, Vector3 Maximum)? Bounds = null,
         bool Room = false);
 
     /// <summary>Where a walking call is pointing.</summary>
@@ -1661,65 +1326,43 @@ public static class SceneScripting
             return new Aiming(named.Position, named.Heading, null);
         }
 
-        // Most of what a script points at is part of the room rather than something
-        // standing in it — a door, a rack, a noticeboard.
-        return scene.MiddleOf(place) is { } middleOf
-            ? new Aiming(middleOf, null, middleOf, scene.ExtentOf(place), Room: true)
-            : null;
+        // Most of what a script points at is part of the room rather than something standing in it — a door, a rack, a noticeboard.
+        return scene.MiddleOf(place) is { } middleOf ? new Aiming(middleOf, null, middleOf, scene.ExtentOf(place), Room: true) : null;
     }
 
-    /// <summary>
-    /// The actor a walking call is about.
-    /// </summary>
+    /// <summary>The actor a walking call is about.</summary>
     private static string Actor(Gk3SheepApi api, IReadOnlyList<SheepValue> arguments, int index) =>
-        index < arguments.Count && arguments[index].AsString() is { Length: > 0 } named
-            ? named
-            : api.State.Ego;
+        index < arguments.Count && arguments[index].AsString() is { Length: > 0 } named ? named : api.State.Ego;
 
     private static string Name(IReadOnlyList<SheepValue> arguments, int index) =>
         index < arguments.Count ? arguments[index].AsString() : string.Empty;
 
-    /// <summary>
-    /// Makes the animation calls move something.
-    /// </summary>
+    /// <summary>Makes the animation calls move something.</summary>
     /// <param name="api">The host.</param>
     /// <param name="world">What plays them.</param>
     private static void Animating(Gk3SheepApi api, SceneUpdate world)
     {
         api.Plays = (name, repeat) => world.Play(name, repeat);
 
-        // What lets an action's approach finish before its script runs. The room is where
-        // the clock is, so this is the room saying so; a tool leaves it null and every
-        // action runs where it was asked for.
+        // What lets an action's approach finish before its script runs.
         api.Defers = world.After;
 
-        // And the same for the wait whose length is another script rather than a number of
-        // seconds. Both are the room saying it has a clock; a tool leaves them null.
+        // And the same for the wait whose length is another script rather than a number of seconds.
         api.DefersUntil = world.Until;
 
-        // And what an action tells about every script it waits on, deferring or not. Without
-        // it a waited call with no statement after it is invisible: the runner has nothing
-        // to hold back, so it returns, and the room reads as idle for the whole of an
-        // arrival cutscene.
+        // And what an action tells about every script it waits on, deferring or not.
         api.Awaits = world.Awaiting;
 
-        // And what makes an action that waits on a script count as the story being busy for
-        // as long as that script runs. The room is where the scheduler is, so the room is
-        // the only thing that can tell.
+        // And what makes an action that waits on a script count as the story being busy for as long as that script runs.
         api.Starts = world.Starting;
         api.Ends = world.Ended;
 
-        api.Register("StartAnimation", a => SheepValue.FromInt(
-            (int)world.Play(Name(a, 0))));
+        api.Register("StartAnimation", a => SheepValue.FromInt( (int)world.Play(Name(a, 0))));
 
-        // A move animation leaves the thing it moved where it ended; an ordinary one puts
-        // it back. That distinction is GK3's and it is the whole difference between a
-        // character who has walked somewhere and one who has mimed walking.
-        api.Register("StartMoveAnimation", a => SheepValue.FromInt(
-            (int)world.Play(Name(a, 0), repeat: false, moves: true)));
+        // A move animation leaves the thing it moved where it ended; an ordinary one puts it back.
+        api.Register("StartMoveAnimation", a => SheepValue.FromInt( (int)world.Play(Name(a, 0), repeat: false, moves: true)));
 
-        api.Register("LoopAnimation", a => SheepValue.FromInt(
-            (int)world.Play(Name(a, 0), repeat: true)));
+        api.Register("LoopAnimation", a => SheepValue.FromInt( (int)world.Play(Name(a, 0), repeat: true)));
 
         api.Register("StopAnimation", a =>
         {

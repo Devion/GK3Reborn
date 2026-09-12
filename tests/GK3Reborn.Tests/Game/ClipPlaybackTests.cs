@@ -38,6 +38,10 @@ public sealed class ClipPlaybackTests
 
         public Dictionary<(int Placement, int Mesh), Matrix4x4> Poses { get; } = [];
 
+        public void BeginTextures() => _inner.BeginTextures();
+
+        public void EndTextures() => _inner.EndTextures();
+
         public void AddTexture(string name, DecodedImage image) => _inner.AddTexture(name, image);
 
         public void AddTexture(string name, CompressedImage image) =>

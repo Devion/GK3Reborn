@@ -1,16 +1,14 @@
 ﻿namespace GK3Reborn;
 
-/// <summary>
-/// What can be typed after the executable's name, and what each thing means.
-/// </summary>
+/// <summary>What can be typed after the executable's name, and what each thing means.</summary>
 public static class CommandLine
 {
     /// <summary>The spellings that ask for the usage text.</summary>
     private static readonly string[] HelpSwitches = ["--help", "-h", "-?", "/?"];
 
     /// <summary>Whether the command line asks for the usage text and nothing else.</summary>
-    /// <param name="args">The command line.</param>
     /// <returns>True if it does.</returns>
+    /// <param name="args">The command line.</param>
     public static bool WantsHelp(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -19,9 +17,9 @@ public static class CommandLine
     }
 
     /// <summary>Reads a switch's value from the command line.</summary>
+    /// <returns>The word after it, or null if the switch is absent or has no word.</returns>
     /// <param name="args">The command line.</param>
     /// <param name="name">The switch, with its dashes.</param>
-    /// <returns>The word after it, or null if the switch is absent or has no word.</returns>
     public static string? Value(string[] args, string name)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -39,12 +37,8 @@ public static class CommandLine
     }
 
     /// <summary>Which graphics API the command line asks for, by name.</summary>
+    /// <returns>What --backend was given, or what a shorthand stands for, or null when neither was typed.</returns>
     /// <param name="args">The command line.</param>
-    /// <returns>
-    /// What <c>--backend</c> was given, or what a shorthand stands for, or null when neither
-    /// was typed. Not parsed: <see cref="Rendering.RenderBackends.TryParse"/> does that, so
-    /// that a typo is reported rather than resolved.
-    /// </returns>
     public static string? BackendAsked(string[] args)
     {
         ArgumentNullException.ThrowIfNull(args);
@@ -68,7 +62,7 @@ public static class CommandLine
     }
 
     /// <summary>The usage text, in full.</summary>
-    /// <returns>What <c>--help</c> prints.</returns>
+    /// <returns>What --help prints.</returns>
     public static string Usage() =>
         """
         GK3Reborn — Gabriel Knight 3, rebuilt
@@ -199,6 +193,5 @@ public static class CommandLine
 
         """;
 
-    private static bool Has(string[] args, params string[] spellings) =>
-        args.Any(a => spellings.Contains(a, StringComparer.OrdinalIgnoreCase));
+    private static bool Has(string[] args, params string[] spellings) => args.Any(a => spellings.Contains(a, StringComparer.OrdinalIgnoreCase));
 }

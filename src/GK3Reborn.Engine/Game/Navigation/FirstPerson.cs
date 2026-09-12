@@ -1,8 +1,4 @@
 // Copyright (C) 2026 the GK3Reborn authors.
-//
-// This program is free software: you can redistribute it and/or modify it under the terms
-// of the GNU General Public License as published by the Free Software Foundation, either
-// version 3 of the License, or (at your option) any later version.
 
 using System.Numerics;
 
@@ -20,18 +16,10 @@ public readonly record struct FirstPersonInput(Vector2 Move, Vector2 Look, bool 
 /// <param name="Blocked">Whether something refused part of the step.</param>
 public readonly record struct FirstPersonStep(Vector3 Position, float Travelled, bool Blocked);
 
-/// <summary>
-/// The player as a body in the room: the keys and the left stick move it, the mouse and the
-/// right stick turn it, and the walk boundary and the floor decide where it may go.
-/// </summary>
+/// <summary>The player as a body in the room, fenced by the walk boundary and stood on the floor.</summary>
 public sealed class FirstPerson
 {
-    /// <summary>
-    /// How far above the floor the eye sits, in scene units. The reference engine's own
-    /// GameCamera::kDefaultHeight, which is what the game's rooms are furnished against;
-    /// a character's WalkerHeight is the top of their head and puts the view a head too
-    /// high over every table in the game.
-    /// </summary>
+    /// <summary>How far above the floor the eye sits, in scene units.</summary>
     public const float Eyes = 60f;
 
     /// <summary>How fast the player walks, in scene units a second.</summary>
@@ -69,12 +57,10 @@ public sealed class FirstPerson
 
     private const float PitchLimit = (MathF.PI / 2f) - 0.02f;
 
-    // The boundary is a bitmap, so a step longer than a texel can start and end on open
-    // floor with a wall between. A quarter of the narrowest texel any room uses.
+    // The boundary is a bitmap, so a step longer than a texel can start and end on open floor with a wall between.
     private const float LongestStep = 10f;
 
-    // A stair tread is climbed; the balcony above the room is not. Falls are the
-    // boundary's business, or nobody could walk down a flight of steps.
+    // A stair tread is climbed; the balcony above the room is not.
     private const float Climb = 32f;
 
     private float _sinceStep;
@@ -102,20 +88,14 @@ public sealed class FirstPerson
     public Func<Vector3, float?>? Ground { get; set; }
 
     /// <summary>Which way the player is looking, as a unit vector.</summary>
-    public Vector3 Forward => new(
-        MathF.Cos(Pitch) * MathF.Sin(Yaw),
-        MathF.Sin(Pitch),
-        MathF.Cos(Pitch) * MathF.Cos(Yaw));
+    public Vector3 Forward => new( MathF.Cos(Pitch) * MathF.Sin(Yaw), MathF.Sin(Pitch), MathF.Cos(Pitch) * MathF.Cos(Yaw));
 
     /// <summary>Which way they are walking: the heading, with the tilt taken out.</summary>
     public Vector3 Ahead => new(MathF.Sin(Yaw), 0f, MathF.Cos(Yaw));
 
     /// <summary>Which way in the room a push of the controls asks them to walk.</summary>
+    /// <returns>A direction on the ground plan whose length is how hard the controls were pushed, and zero when they were not.</returns>
     /// <param name="move">X to their right, Y ahead of them.</param>
-    /// <returns>
-    /// A direction on the ground plan whose length is how hard the controls were pushed,
-    /// and zero when they were not.
-    /// </returns>
     public Vector3 Direction(Vector2 move)
     {
         float reach = move.Length();
@@ -125,20 +105,18 @@ public sealed class FirstPerson
             return Vector3.Zero;
         }
 
-        // Normalised rather than clamped, so a diagonal is not half as fast again. A stick
-        // pushed halfway still asks for half.
+        // Normalised rather than clamped, so a diagonal is not half as fast again.
         Vector2 wanted = reach > 1f ? move / reach : move;
 
-        // cross(up, forward), the left-handed order the rest of the port uses; see
-        // FreeCamera, where the choice is argued out.
+        // cross(up, forward), the left-handed order the rest of the port uses; see FreeCamera, where the choice is argued out.
         var right = new Vector3(MathF.Cos(Yaw), 0f, -MathF.Sin(Yaw));
 
         return (Ahead * wanted.Y) + (right * wanted.X);
     }
 
     /// <summary>Where the player's eyes are.</summary>
-    /// <param name="height">How far above the feet the eyes sit, in scene units.</param>
     /// <returns>The point to put the camera at.</returns>
+    /// <param name="height">How far above the feet the eyes sit, in scene units.</param>
     public Vector3 Eye(float height) => Position + (Vector3.UnitY * height);
 
     /// <summary>Puts the player somewhere, without walking them there.</summary>
@@ -154,10 +132,7 @@ public sealed class FirstPerson
     /// <summary>Whether the view is still on its way back to the player's eyes.</summary>
     public bool Returning => _returning < ReturnSeconds;
 
-    /// <summary>
-    /// Starts the view moving back from wherever the story was holding it to the player's
-    /// own eyes, rather than snapping into them.
-    /// </summary>
+    /// <summary>Starts the view moving back from wherever the story was holding it to the player's own eyes, rather than snapping into.</summary>
     /// <param name="position">Where the view is now.</param>
     /// <param name="yaw">Which way it is pointed, in radians.</param>
     /// <param name="pitch">And how far up or down.</param>
@@ -170,9 +145,9 @@ public sealed class FirstPerson
     }
 
     /// <summary>Where the camera goes this frame, and which way it points.</summary>
+    /// <returns>The viewpoint, its heading and its tilt, all in radians.</returns>
     /// <param name="height">How far above the feet the eyes sit.</param>
     /// <param name="seconds">How long the frame lasted.</param>
-    /// <returns>The viewpoint, its heading and its tilt, all in radians.</returns>
     public (Vector3 Position, float Yaw, float Pitch) Shot(float height, float seconds)
     {
         Vector3 eye = Eye(height);
@@ -186,17 +161,13 @@ public sealed class FirstPerson
 
         float part = Math.Clamp(_returning / ReturnSeconds, 0f, 1f);
 
-        // The same easing the story's own glides use, so a move out to a shot and the move
-        // back from it are the same gesture in reverse.
+        // The same easing the story's own glides use, so a move out to a shot and the move back from it are the same gesture in reverse.
         part = part * part * (3f - (2f * part));
 
-        return (
-            Vector3.Lerp(_fromPosition, eye, part),
+        return ( Vector3.Lerp(_fromPosition, eye, part),
 
-            // The short way round, or a view that is turned a hair past half a turn comes
-            // back the long way and spins the room.
-            Walker.Wrapped(_fromYaw + (Walker.Wrapped(Yaw - _fromYaw) * part)),
-            float.Lerp(_fromPitch, Pitch, part));
+            // The short way round, or a view that is turned a hair past half a turn comes back the long way and spins the room.
+            Walker.Wrapped(_fromYaw + (Walker.Wrapped(Yaw - _fromYaw) * part)), float.Lerp(_fromPitch, Pitch, part));
     }
 
     /// <summary>Turns the view without moving.</summary>
@@ -208,9 +179,9 @@ public sealed class FirstPerson
     }
 
     /// <summary>Walks the player for one frame.</summary>
+    /// <returns>Where they ended up, and how the room treated the attempt.</returns>
     /// <param name="input">What they are asking for.</param>
     /// <param name="seconds">How long the frame lasted.</param>
-    /// <returns>Where they ended up, and how the room treated the attempt.</returns>
     public FirstPersonStep Advance(FirstPersonInput input, float seconds)
     {
         Turn(input.Look);
@@ -252,9 +223,7 @@ public sealed class FirstPerson
 
             blocked = true;
 
-            // Up to the wall rather than a whole step short of it. The boundary is a bitmap
-            // and a step is a length, so without this how near a wall a player may stand
-            // would depend on the frame rate.
+            // Up to the wall rather than a whole step short of it.
             if ((Step(step * 0.5f) ?? Step(step * 0.25f)) is { } nearer)
             {
                 Position = nearer;
@@ -262,8 +231,7 @@ public sealed class FirstPerson
             }
 
             // Along the wall rather than into it: whichever single axis is still open.
-            Vector3? across = Step(new Vector3(step.X, 0f, 0f)) ??
-                              Step(new Vector3(0f, 0f, step.Z));
+            Vector3? across = Step(new Vector3(step.X, 0f, 0f)) ?? Step(new Vector3(0f, 0f, step.Z));
 
             if (across is not { } slid)
             {
@@ -280,9 +248,8 @@ public sealed class FirstPerson
     }
 
     /// <summary>What a stick is asking for, with the dead zone taken out.</summary>
+    /// <returns>The same direction, rescaled so the first movement out of the middle is a small one rather than a jump to a fifth of.</returns>
     /// <param name="stick">Where it is pushed, each axis from -1 to 1.</param>
-    /// <returns>The same direction, rescaled so the first movement out of the middle is
-    /// a small one rather than a jump to a fifth of full speed.</returns>
     public static Vector2 Pushed(Vector2 stick)
     {
         float reach = stick.Length();
@@ -296,8 +263,8 @@ public sealed class FirstPerson
     }
 
     /// <summary>Whether a foot lands now, taking the stride off the tally when it does.</summary>
-    /// <param name="every">How far apart footfalls are, in scene units.</param>
     /// <returns>True once per stride walked.</returns>
+    /// <param name="every">How far apart footfalls are, in scene units.</param>
     public bool Footfall(float every = Stride)
     {
         if (every <= 0f || _sinceStep < every)
@@ -334,16 +301,11 @@ public sealed class FirstPerson
 
         if (under(to) is { } height)
         {
-            // Ground that has risen more than a stair under this step is a wall from below,
-            // whatever the boundary bitmap says.
+            // Ground that has risen more than a stair under this step is a wall from below, whatever the boundary bitmap says.
             return height > to.Y + Climb ? null : new Vector3(to.X, height, to.Z);
         }
 
-        // Off the end of the floor the room did name. Refused while they are standing on
-        // it, or a boundary bitmap that reaches further than the floor — most of the
-        // outdoor ones do — lets the player walk out over open country at the height of
-        // the last thing they were standing on. Allowed when they are already off it, so
-        // that a room whose floor falls short of its boundary never traps anybody.
+        // Off the end of the floor the room did name.
         return under(Position) is null ? to : null;
     }
 }
