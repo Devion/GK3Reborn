@@ -288,4 +288,39 @@ public sealed class ActionResolverTests
         Assert.NotNull(resolver.Find("GRACE", "EMILIO_TIMER"));
         Assert.NotNull(resolver.Find("SCENE", "ENTER"));
     }
+
+    [Fact]
+    public void An_item_is_offered_under_the_name_the_bag_keeps_it_under()
+    {
+        // Real: CEM210A writes OFFICE_WINDOW, PREPARATION_H, and the tube the verb needs
+        // is called PREPARATION_H_TUBE in the bag. Reported as the Abbé's window refusing
+        // the tube, which leaves his office unsearchable.
+        var resolver = new ActionResolver(new Gk3SheepApi(new GameState()))
+        {
+            Verbs = VerbLibrary.Parse(
+                """
+                [VERBS]
+                OPEN, up=i_open_std, type=Normal
+                PREPARATION_H, up=i_preph_std, type=Inventory
+                """),
+        };
+
+        resolver.Add(NvcFile.Parse(
+            """
+            OFFICE_WINDOW, OPEN,          ALL, script={}
+            OFFICE_WINDOW, PREPARATION_H, ALL, script={}
+            """,
+            "TEST.NVC",
+            new DiagnosticBag()));
+
+        Assert.Equal(
+            ["OPEN", "PREPARATION_H"],
+            resolver.Resolve("OFFICE_WINDOW", "GABRIEL", ["PREPARATION_H_TUBE"])
+                .Select(a => a.LocalizedVerb));
+
+        // And an empty bag still refuses it.
+        Assert.Equal(
+            ["OPEN"],
+            resolver.Resolve("OFFICE_WINDOW", "GABRIEL", []).Select(a => a.LocalizedVerb));
+    }
 }

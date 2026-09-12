@@ -92,7 +92,8 @@ public sealed class ActionResolver
         {
             if (Verbs?.KindOf(verb) == Actions.VerbKind.Inventory &&
                 carrying is not null &&
-                !carrying.Contains(verb, StringComparer.OrdinalIgnoreCase))
+                !carrying.Contains(verb, StringComparer.OrdinalIgnoreCase) &&
+                !carrying.Contains(ItemFor(verb), StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -198,6 +199,30 @@ public sealed class ActionResolver
             }
         }
     }
+
+    /// <summary>
+    /// What a thing is called in the bag, when that is not what it is called as a verb.
+    /// </summary>
+    /// <param name="verb">The inventory verb a rule is written for.</param>
+    /// <returns>The item's own name, or the verb itself when the two agree.</returns>
+    private static string ItemFor(string verb) => Renamed.GetValueOrDefault(verb, verb);
+
+    /// <summary>
+    /// The two inventory items <c>VERBS.TXT</c> and <c>INVENTORYSPRITES.TXT</c> disagree
+    /// about. Everything else in the bag is used on the world under its own name, so an
+    /// item verb is offered to whoever is carrying an item of that name — but the tube in
+    /// Gabriel's pocket is <c>PREPARATION_H_TUBE</c> and the only rule in the game written
+    /// for it, <c>OFFICE_WINDOW</c> in CEM210A, is written for the verb
+    /// <c>PREPARATION_H</c>. Without this the verb is never offered, the Abbé's window
+    /// never comes unstuck, and his office cannot be searched at all: the tier is
+    /// unfinishable. The reference hard-codes the same two, and finds no table anywhere in
+    /// the shipped data either — see ActionBar::Show.
+    /// </summary>
+    private static readonly Dictionary<string, string> Renamed = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["PREPARATION_H"] = "PREPARATION_H_TUBE",
+        ["FINGERPRINT_KIT"] = "FINGERPRINT_KIT_GRACES",
+    };
 
     /// <summary>Which nouns share a page with which.</summary>
     private static readonly (string[] Any, string Shared)[] Together =
