@@ -1229,6 +1229,11 @@ public static class Application
         // frame for a file that is not there is a search of every archive per frame.
         Dictionary<string, UI.ItemIcon> artwork = new(StringComparer.OrdinalIgnoreCase);
 
+        // The loose picture layer, once a room has built one. The interface's own pieces go
+        // through it like everything else does, so a repainted brush or a redrawn kit in
+        // enhanced/ or in overrides/ is what gets drawn.
+        EnhancedTextures? loose = null;
+
         UI.ItemIcon Artwork(string file)
         {
             if (artwork.TryGetValue(file, out UI.ItemIcon already))
@@ -1238,22 +1243,33 @@ public static class Application
 
             UI.ItemIcon art = default;
 
-            if (archives.Read(file) is { } bytes)
+            try
             {
-                try
-                {
-                    Formats.Bitmaps.DecodedImage picture =
-                        Formats.Bitmaps.BitmapDecoder.Decode(bytes, file);
+                // The game's own, with its transparency put back where it keeps it apart.
+                Formats.Bitmaps.DecodedImage? original = archives.Read(file) is { } bytes
+                    ? Masked(archives, file, Formats.Bitmaps.BitmapDecoder.Decode(bytes, file))
+                    : null;
 
+                // A replacement out of enhanced/ or overrides/ is drawn instead, and carries
+                // its own transparency — laying the 1999 mask over it would undo it.
+                if ((loose?.Read(file) ?? original) is { } picture)
+                {
+                    // Laid out at the game's own size whatever the replacement's resolution
+                    // is: the kit places its prints in the art's pixels, and a picture at
+                    // four times the resolution belongs in the same place, not four times
+                    // the size.
                     art = renderer.AddOverlayPicture("art:" + file.ToUpperInvariant(), picture)
                         is > 0 and { } number
-                        ? new UI.ItemIcon(number, picture.Width, picture.Height)
+                        ? new UI.ItemIcon(
+                            number,
+                            original?.Width ?? picture.Width,
+                            original?.Height ?? picture.Height)
                         : default;
                 }
-                catch (Formats.FormatParseException)
-                {
-                    // Drawn without it, which for everything here means not drawn at all.
-                }
+            }
+            catch (Formats.FormatParseException)
+            {
+                // Drawn without it, which for everything here means not drawn at all.
             }
 
             artwork[file] = art;
@@ -2057,6 +2073,11 @@ public static class Application
 
                 loader.Enhanced = enhanced;
 
+                // And the interface's own pictures come from the same layer, so the kit and
+                // its brush are replaceable like anything else. Any already drawn keep the
+                // picture they were built with; nothing here changes between rooms.
+                loose = enhanced;
+
                 // Normal maps sit beside the colour textures rather than among them: a
                 // surface may have a better colour and no normal map, or the other way
                 // round, and they are judged separately.
@@ -2687,6 +2708,25 @@ public static class Application
 
             // Whatever was waiting was waiting on the room that has gone.
             host.Scheduler.Clear();
+
+            // And so was whatever the last room's scripts had switched off. Hiding part of
+            // a room, or disabling its hit test, is a statement about the room that is
+            // loaded: the retail engine keeps it on the scene's own objects and the next
+            // load builds them again from the scene files. Kept across rooms instead, one
+            // call reached forward for the rest of the run — HAL102P hides hal_33_door
+            // when Gabriel walks into Mosely's room on the first afternoon, and Mosely's
+            // door was still unclickable on the second morning, which is the knock 207A
+            // needs to start the Magdala tour. Cleared here, before the new room's own
+            // scene-enter scripts run, so anything a room switches off on entry stands.
+            if (api.State.BlockedHitTests.Count > 0)
+            {
+                Log.Info(
+                    "Hit tests: live again, with the room that switched them off — " +
+                    string.Join(
+                        ", ", api.State.BlockedHitTests.OrderBy(h => h, StringComparer.Ordinal)));
+
+                api.State.BlockedHitTests.Clear();
+            }
 
             var update = new SceneUpdate(
                 scene,
@@ -4269,6 +4309,15 @@ public static class Application
         // out here rather than in the frame because it has to survive one.
         Game.WaterAiming? aiming = null;
 
+        // The fingerprint kit, while one is open. Beside the stack for the hose's reason:
+        // how far the powder has brought each print out moves under the brush every frame,
+        // and the stack is game state.
+        Game.FingerprintDusting? dusting = null;
+
+        // Where the pointer was last frame, so the kit knows how far the brush travelled.
+        // The kit is the one screen that measures that rather than where the pointer is.
+        Vector2 brushWas = default;
+
         // Who is out on the roads while the map is open, and how far along their roads they
         // have got. Beside the stack for the hose's reason: everyone on the map moves every
         // frame and the stack is part of the state hash.
@@ -5231,7 +5280,12 @@ public static class Application
             // Whoever has the keyboard, not just the console: W, A, S and D are movement
             // keys and they are also four letters, so a subject typed into Sidney's search
             // box flew the camera off across the room behind it and left it there.
-            if (!typing && !(update.Directing && !Flying()))
+            //
+            // And whoever has the mouse. A screen in front of the room is worked with the
+            // pointer, and the camera reads the same drag: sweeping the fingerprint brush
+            // turned the room round behind the kit, so putting it away left the player
+            // facing somewhere they never chose to look.
+            if (!typing && story.Screens.InTheRoom && !(update.Directing && !Flying()))
             {
                 camera.Update(window, delta);
             }
@@ -5610,6 +5664,50 @@ public static class Application
                     aiming = null;
                 }
 
+                // The kit. Opened over whatever the script named, and worked with the
+                // pointer: a print comes out under the brush and no faster, which is the
+                // difference between dusting for prints and being told what is on a thing.
+                if (panel.Kind == ScreenKind.Fingerprint)
+                {
+                    if (dusting is null || !string.Equals(
+                            dusting.Noun, panel.Subject, StringComparison.OrdinalIgnoreCase))
+                    {
+                        dusting = new Game.FingerprintDusting(panel.Subject ?? string.Empty, story);
+                        brushWas = pointer;
+
+                        Log.Info(
+                            $"fingerprints: dusting {dusting.Noun}, " +
+                            $"{dusting.Prints.Count} print(s) on it");
+                    }
+
+                    float moved = Vector2.Distance(pointer, brushWas);
+                    brushWas = pointer;
+
+                    if (!update.Acting && glassAsked is null &&
+                        window.IsHeld(Platform.PointerButton.Primary) &&
+                        screens.HitAt(pointer) is { Length: > 0 } under &&
+                        (under == "fp:panel" || under.StartsWith("fp:print:", StringComparison.Ordinal)))
+                    {
+                        int on = under.StartsWith("fp:print:", StringComparison.Ordinal) &&
+                            int.TryParse(under[9..], CultureInfo.InvariantCulture, out int which)
+                                ? which
+                                : -1;
+
+                        glassAsked =
+                            Kitted(dusting.Brushed(on, moved, (float)delta), dusting, story, api)
+                            ?? glassAsked;
+
+                        if (dusting.Sweeping)
+                        {
+                            room?.Play(dusting.SweepSound);
+                        }
+                    }
+                }
+                else
+                {
+                    dusting = null;
+                }
+
                 // The map's traffic, built once per opening and moved on every frame. A
                 // chase carries its number in the screen's own subject — follow:2 — which
                 // is what makes it survive a save and what tells this that the map showing
@@ -5775,49 +5873,86 @@ public static class Application
                 {
                     // Leaning in is a camera and, often, another room, so it is handled
                     // here where both are in reach rather than in OnScreen.
-                    // The fingerprint kit. Brushing counts what the surface has and keeps
-                    // the count in the screen's own subject, so there is no state to clean
-                    // up however the screen is left; lifting awards the prints — the score,
-                    // the flag and the item each one carries — which is the step the
-                    // original does from its own code and no script anywhere names.
-                    if (chose == "fp:brush" &&
-                        panel.Kind == ScreenKind.Fingerprint &&
-                        panel.Subject is { Length: > 0 } dusting)
+                    // The fingerprint kit: the brush, the powder, the tape, the cloth and
+                    // the prints themselves, each a piece of the box the player works. What
+                    // any of it does is Game.FingerprintDusting's; this is which was hit.
+                    if (dusting is not null && panel.Kind == ScreenKind.Fingerprint &&
+                        chose.StartsWith("fp:", StringComparison.Ordinal))
                     {
-                        int found =
-                            Game.FingerprintKit.On(dusting, story.Timeblock)?.Count ?? 0;
-
-                        story.Screens.Replace(
-                            new Screen(ScreenKind.Fingerprint, $"{dusting}|{found}"));
-                    }
-                    else if (chose == "fp:lift" &&
-                             panel.Kind == ScreenKind.Fingerprint &&
-                             panel.Subject is { Length: > 0 } lifting)
-                    {
-                        string bare = lifting.Split('|')[0];
-
-                        // The lobby's two glasses are the one surface whose print is not
-                        // simply whose the file says: see Game.DirtyGlasses.
-                        if (Game.DirtyGlasses.Dust(bare, story) is { } glass)
+                        switch (chose)
                         {
-                            Dusted(glass, bare, story, api);
+                            case "fp:exit":
+                                story.Screens.Back();
+                                break;
 
-                            if (glass.Asks is { } question)
-                            {
-                                glassAsked = new GlassQuestion(bare, question);
-                            }
+                            case "fp:brush":
+                                dusting.TouchBrush();
+                                room?.Play(Game.DustingSounds.TakeBrush);
+                                break;
+
+                            case "fp:dust":
+                                dusting.TouchDust();
+                                break;
+
+                            case "fp:tape":
+                                if (dusting.Holding == Game.InHand.Nothing)
+                                {
+                                    room?.Play(Game.DustingSounds.TakeTape);
+                                }
+
+                                dusting.TouchTape();
+                                break;
+
+                            case "fp:cloth":
+                                if (dusting.Holding == Game.InHand.TapeWithPrint)
+                                {
+                                    room?.Play(Game.DustingSounds.Keep);
+                                }
+
+                                glassAsked =
+                                    Kitted(dusting.TouchCloth(api.Scores), dusting, story, api)
+                                    ?? glassAsked;
+                                break;
+
+                            case "fp:base":
+                                // Anywhere in the box that is not a piece of it puts a held
+                                // brush back, which is what the original does with a click
+                                // that means nothing.
+                                if (dusting.Holding is Game.InHand.Brush or Game.InHand.DustedBrush)
+                                {
+                                    dusting.PutDown();
+                                }
+
+                                break;
+
+                            case "fp:panel":
+                                // Except on the thing itself, where a dusted brush is being
+                                // worked rather than put down — the press that starts a drag
+                                // must not drop what the drag is for.
+                                if (dusting.Holding == Game.InHand.Brush)
+                                {
+                                    dusting.PutDown();
+                                }
+
+                                break;
+
+                            default:
+                                if (chose.StartsWith("fp:print:", StringComparison.Ordinal) &&
+                                    int.TryParse(
+                                        chose[9..], CultureInfo.InvariantCulture, out int pressed))
+                                {
+                                    Game.InHand was = dusting.Holding;
+                                    dusting.PressOn(pressed);
+
+                                    if (was != dusting.Holding &&
+                                        dusting.Holding == Game.InHand.TapeWithPrint)
+                                    {
+                                        room?.Play(Game.DustingSounds.Press);
+                                    }
+                                }
+
+                                break;
                         }
-                        else
-                        {
-                            IReadOnlyList<string> gained =
-                                Game.FingerprintKit.Lift(bare, story, api.Scores);
-
-                            Log.Info(gained.Count > 0
-                                ? $"fingerprints: {bare} gave {string.Join(", ", gained)}"
-                                : $"fingerprints: {bare} lifted");
-                        }
-
-                        story.Screens.Back();
                     }
                     else
                     // Asking for help. One line of the walkthrough per press, always the
@@ -6160,11 +6295,7 @@ public static class Application
                         camera.Aim,
                         ItemVerbs(panel, scene, story),
                         panel.Kind == ScreenKind.Journal ? journal.Read() : null,
-                        panel.Kind == ScreenKind.Fingerprint &&
-                        panel.Subject?.Split('|') is [_, string counted] &&
-                        int.TryParse(counted, out int prints)
-                            ? prints
-                            : -1,
+                        dusting,
                         icons,
                         closeUps,
                         verbIcons,
@@ -8268,6 +8399,189 @@ public static class Application
 
         /// <summary>How often Buchelli had been named before the bar opened.</summary>
         public int Buchelli { get; init; }
+    }
+
+    /// <summary>
+    /// Puts a picture's transparency back, where the game keeps it in a second bitmap.
+    /// </summary>
+    /// <remarks>
+    /// GK3 stores a mask as its own file beside the picture, named with an <c>A</c> on the
+    /// end: <c>C_FPBRUSH.BMP</c> and <c>C_FPBRUSHA.BMP</c>. Keying magenta gets most of the
+    /// way there and leaves a magenta fringe wherever the artist anti-aliased an edge, which
+    /// on the fingerprint brush is a purple halo around the whole thing. Where no companion
+    /// exists — which is most of them — the picture is returned exactly as it was decoded.
+    /// </remarks>
+    /// <param name="archives">The game's data.</param>
+    /// <param name="file">The picture's file name.</param>
+    /// <param name="picture">The picture, decoded.</param>
+    /// <returns>The picture, with the mask applied where there is one.</returns>
+    private static Formats.Bitmaps.DecodedImage Masked(
+        GameArchives archives, string file, Formats.Bitmaps.DecodedImage picture)
+    {
+        // Only the game's own art reaches this: a replacement carries its own transparency
+        // and never wants the 1999 mask over it. Keying magenta has already run and is not
+        // a reason to stop — it is exactly what leaves the fringe this is here to remove.
+        string beside = Path.GetFileNameWithoutExtension(file) + "A" + Path.GetExtension(file);
+
+        if (archives.Read(beside) is not { } bytes)
+        {
+            return picture;
+        }
+
+        Formats.Bitmaps.DecodedImage mask;
+
+        try
+        {
+            mask = Formats.Bitmaps.BitmapDecoder.Decode(bytes, beside);
+        }
+        catch (Formats.FormatParseException)
+        {
+            return picture;
+        }
+
+        if (mask.Width != picture.Width || mask.Height != picture.Height)
+        {
+            return picture;
+        }
+
+        byte[] pixels = new byte[picture.Pixels.Length];
+        picture.Pixels.CopyTo(pixels, 0);
+
+        // The mask is painted white where the picture shows and black where it does not,
+        // so any one of its channels is the alpha.
+        for (int i = 3; i < pixels.Length; i += 4)
+        {
+            pixels[i] = mask.Pixels[i - 3];
+        }
+
+        Bleed(pixels, picture.Width, picture.Height);
+
+        return picture with { Pixels = pixels, HasAlpha = true };
+    }
+
+    /// <summary>
+    /// Gives every transparent pixel the colour of its nearest visible neighbour.
+    /// </summary>
+    /// <remarks>
+    /// What is behind a masked picture is still magenta, and drawing one larger than it was
+    /// painted blends the two: the fingerprint brush at twice its size came out with a
+    /// purple halo everywhere the filter mixed an invisible magenta pixel into a visible
+    /// one. Carrying the edge colour outwards leaves the filter nothing but the picture to
+    /// mix, and changes nothing at all about what is drawn — those pixels are invisible.
+    /// </remarks>
+    /// <param name="pixels">The picture, RGBA, changed in place.</param>
+    /// <param name="width">Its width in pixels.</param>
+    /// <param name="height">Its height.</param>
+    private static void Bleed(byte[] pixels, int width, int height)
+    {
+        if (width <= 0 || height <= 0 || pixels.Length < width * height * 4)
+        {
+            return;
+        }
+
+        byte[] was = (byte[])pixels.Clone();
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                int at = ((y * width) + x) * 4;
+
+                if (was[at + 3] != 0)
+                {
+                    continue;
+                }
+
+                int red = 0, green = 0, blue = 0, seen = 0;
+
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        int nx = x + dx;
+                        int ny = y + dy;
+
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                        {
+                            continue;
+                        }
+
+                        int near = ((ny * width) + nx) * 4;
+
+                        if (was[near + 3] == 0)
+                        {
+                            continue;
+                        }
+
+                        red += was[near];
+                        green += was[near + 1];
+                        blue += was[near + 2];
+                        seen++;
+                    }
+                }
+
+                if (seen == 0)
+                {
+                    continue;
+                }
+
+                pixels[at] = (byte)(red / seen);
+                pixels[at + 1] = (byte)(green / seen);
+                pixels[at + 2] = (byte)(blue / seen);
+            }
+        }
+    }
+
+    /// <summary>
+    /// What the fingerprint kit just did, carried out: a line said over the screen, the
+    /// lobby's glass question, the kit put away.
+    /// </summary>
+    /// <param name="step">What the kit says follows.</param>
+    /// <param name="kit">The dusting it came from.</param>
+    /// <param name="story">The game.</param>
+    /// <param name="api">The room, for the line and the score sheet.</param>
+    /// <returns>The glass question this raised, or null when it raised none.</returns>
+    private static GlassQuestion? Kitted(
+        Game.DustingStep step, Game.FingerprintDusting kit, GameState story, Gk3SheepApi api)
+    {
+        if (!step.Anything)
+        {
+            return null;
+        }
+
+        if (step.Say is { Length: > 0 } line)
+        {
+            new ActionRunner(api).Run(new Formats.Actions.NvcAction
+            {
+                Noun = kit.Noun,
+                Verb = "FINGERPRINT_KIT",
+                Case = "DUSTED",
+                Script = string.Create(
+                    CultureInfo.InvariantCulture, $"wait StartDialogue(\"{line}\", 1)"),
+                Source = "the fingerprint kit",
+            });
+        }
+
+        // The lobby's two glasses: whose print it is is not in the table, and asking is a
+        // conversation in the room rather than anything the kit can show.
+        GlassQuestion? asked = null;
+
+        if (step.Glass && Game.DirtyGlasses.Dust(kit.Noun, story) is { } glass)
+        {
+            Dusted(glass, kit.Noun, story, api);
+
+            if (glass.Asks is { } question)
+            {
+                asked = new GlassQuestion(kit.Noun, question);
+            }
+        }
+
+        if (step.Close)
+        {
+            story.Screens.Back();
+        }
+
+        return asked;
     }
 
     /// <summary>

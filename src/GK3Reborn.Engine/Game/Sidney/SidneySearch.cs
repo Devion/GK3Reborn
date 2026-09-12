@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -23,21 +23,42 @@ public sealed record SearchLine(string Text, bool Heading = false, bool Rule = f
 public sealed record SearchPage(string Id, string Title, IReadOnlyList<SearchLine> Lines);
 
 /// <summary>
+/// A line Grace says the first time she reads one of the encyclopedia's pages, and what
+/// has to be true for her to say it.
+/// </summary>
+/// <param name="Plates">The dialogue licence plates, in order.</param>
+/// <param name="Flag">The flag set once it has been said, which is also what stops it twice.</param>
+/// <param name="Requires">Flags that must hold, each optionally prefixed <c>!</c> for must not.</param>
+/// <param name="LeastStep">The earliest verse of Le Serpent Rouge it fits, or -1 for any.</param>
+/// <param name="MostStep">The latest verse it fits, inclusive, or -1 for any.</param>
+public sealed record SearchRemark(
+    IReadOnlyList<string> Plates,
+    string Flag,
+    IReadOnlyList<string> Requires,
+    int LeastStep,
+    int MostStep);
+
+/// <summary>
 /// Sidney's search: 391 pages of encyclopedia and the words that reach them.
 /// </summary>
 public sealed class SidneySearch
 {
     private readonly Dictionary<string, string> _subjects;
+    private readonly Dictionary<string, SearchRemark> _remarks;
     private readonly Func<string, string?> _pages;
 
-    private SidneySearch(Dictionary<string, string> subjects, Func<string, string?> pages)
+    private SidneySearch(
+        Dictionary<string, string> subjects,
+        Dictionary<string, SearchRemark> remarks,
+        Func<string, string?> pages)
     {
         _subjects = subjects;
+        _remarks = remarks;
         _pages = pages;
     }
 
     /// <summary>Nothing to search, for a run with no game data.</summary>
-    public static SidneySearch Empty { get; } = new([], _ => null);
+    public static SidneySearch Empty { get; } = new([], [], _ => null);
 
     /// <summary>How many spellings reach a page.</summary>
     public int Count => _subjects.Count;
@@ -51,15 +72,30 @@ public sealed class SidneySearch
 
         return new SidneySearch(
             Index(archives.ReadText("SIDSEARCH.TXT")),
+            Remarks(archives.ReadText("SIDNEYDIALOG.TXT")),
             name => archives.ReadText(name));
     }
 
     /// <summary>Reads the index from a string, for tests.</summary>
     /// <param name="index">The contents of <c>SIDSEARCH.TXT</c>.</param>
     /// <param name="pages">Where a page's markup comes from.</param>
+    /// <param name="dialog">The contents of <c>SIDNEYDIALOG.TXT</c>, or null for none.</param>
     /// <returns>The search.</returns>
-    public static SidneySearch From(string index, Func<string, string?> pages) =>
-        new(Index(index), pages);
+    public static SidneySearch From(
+        string index, Func<string, string?> pages, string? dialog = null) =>
+        new(Index(index), Remarks(dialog), pages);
+
+    /// <summary>
+    /// What Grace says on reading a page, when the file names one.
+    /// </summary>
+    /// <param name="page">The page's name without its extension.</param>
+    /// <returns>The remark, or null when that page has none.</returns>
+    public SearchRemark? RemarkOn(string page)
+    {
+        ArgumentNullException.ThrowIfNull(page);
+
+        return _remarks.GetValueOrDefault(page);
+    }
 
     /// <summary>
     /// Looks something up.
@@ -100,6 +136,134 @@ public sealed class SidneySearch
 
     /// <summary>Every spelling that finds something, for a hint or a test.</summary>
     public IReadOnlyList<string> Subjects => [.. _subjects.Keys.OrderBy(s => s, StringComparer.Ordinal)];
+
+    /// <summary>
+    /// Reads <c>SIDNEYDIALOG.TXT</c>: which pages Grace has something to say about.
+    /// </summary>
+    /// <remarks>
+    /// One section per page, keyed by the page's name without its extension, because that
+    /// is how the pages link to each other. <c>ME</c> is one or more licence plates,
+    /// <c>Flag</c> the flag set once it is said, <c>Flags</c> what must already hold, and
+    /// <c>LSR</c>/<c>LSRMax</c> the window of Le Serpent Rouge it belongs to. The file's
+    /// <c>Onetime</c> is not read: the flag it sets is what stops it a second time, which
+    /// is how the retail engine does it and what every section in the file relies on.
+    /// </remarks>
+    private static Dictionary<string, SearchRemark> Remarks(string? text)
+    {
+        var remarks = new Dictionary<string, SearchRemark>(StringComparer.OrdinalIgnoreCase);
+
+        if (text is not { Length: > 0 })
+        {
+            return remarks;
+        }
+
+        string? page = null;
+        List<string> plates = [];
+        string flag = string.Empty;
+        List<string> requires = [];
+        int least = -1;
+        int most = -1;
+
+        void Flush()
+        {
+            if (page is { Length: > 0 } && plates.Count > 0 && flag.Length > 0)
+            {
+                remarks[page] = new SearchRemark([.. plates], flag, [.. requires], least, most);
+            }
+
+            plates = [];
+            flag = string.Empty;
+            requires = [];
+            least = -1;
+            most = -1;
+        }
+
+        foreach (string raw in text.Split('\n'))
+        {
+            // Every one of these lines may carry a trailing comment, and half of them do.
+            string line = raw.Split("//")[0].Trim();
+
+            if (line.Length == 0)
+            {
+                continue;
+            }
+
+            if (line[0] == '[')
+            {
+                Flush();
+
+                int close = line.IndexOf(']');
+                page = close > 1 ? PageKey(line[1..close].Trim()) : null;
+
+                continue;
+            }
+
+            if (page is null || line.IndexOf('=') is not (> 0 and { } equals))
+            {
+                continue;
+            }
+
+            string key = line[..equals].Trim();
+            string value = line[(equals + 1)..].Trim();
+
+            switch (key.ToUpperInvariant())
+            {
+                case "ME":
+                    plates = [.. value.Split(',').Select(p => p.Trim()).Where(p => p.Length > 0)];
+                    break;
+
+                case "FLAG":
+                    flag = value;
+                    break;
+
+                case "FLAGS":
+                    requires = [.. value.Split(',').Select(f => f.Trim()).Where(f => f.Length > 0)];
+                    break;
+
+                case "LSR":
+                    least = Number(value);
+                    break;
+
+                case "LSRMAX":
+                    most = Number(value);
+                    break;
+
+                default:
+                    break;
+            }
+        }
+
+        Flush();
+
+        return remarks;
+    }
+
+    private static int Number(string text) =>
+        int.TryParse(text, System.Globalization.NumberStyles.Integer,
+            System.Globalization.CultureInfo.InvariantCulture, out int value) ? value : -1;
+
+    /// <summary>A page's name without its path or any of its extensions.</summary>
+    /// <param name="file">The file name, as a section or a link spells it.</param>
+    /// <returns>The name.</returns>
+    public static string PageKey(string file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+
+        string name = file;
+
+        if (name.LastIndexOfAny(['/', '\\']) is var slash and >= 0)
+        {
+            name = name[(slash + 1)..];
+        }
+
+        // Some links carry two extensions, and HTM and HTML are both used.
+        while (Path.GetExtension(name) is { Length: > 0 })
+        {
+            name = Path.GetFileNameWithoutExtension(name);
+        }
+
+        return name;
+    }
 
     /// <summary>The spelling-to-page index.</summary>
     private static Dictionary<string, string> Index(string? text)

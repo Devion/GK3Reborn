@@ -76,6 +76,38 @@ public sealed class SidneyScreensTests
 
         [Cathars.html]
         text=cathars,cathar
+
+        [VAMPIRE.html]
+        text=vampire,vamp,vampires
+        """;
+
+    private const string Dialog = """
+        [alchemytiltedsquare.html]
+        ME=02osu586w1
+        flag=KnowTiltedSquare
+        Flags=!LockedSquare,!KnowTiltedSquare
+        LSR=2
+        LSRMax=3
+        Onetime=1
+
+        [vampire.html]
+        ME=02VA1,02VA2
+        Flag=vampire_dlg
+        Onetime=1
+        """;
+
+    private const string Vampires = """
+        <HTML><HEAD><TITLE>Vampires</TITLE></HEAD><BODY>
+        <P><FONT SIZE=+2>Vampires</FONT><HR ALIGN=LEFT>
+        A vampire is a creature of folklore said to subsist on blood.
+        </BODY></HTML>
+        """;
+
+    private const string Square = """
+        <HTML><HEAD><TITLE>Alchemy: Tilting the Square</TITLE></HEAD><BODY>
+        <P><FONT SIZE=+2>Alchemy: Tilting the Square</FONT><HR ALIGN=LEFT>
+        The square is tilted to forty-five degrees.
+        </BODY></HTML>
         """;
 
     private const string Page = """
@@ -93,8 +125,134 @@ public sealed class SidneyScreensTests
 
         return new SidneyMachine(SidneyLibrary.From(Text), state)
         {
-            Search = SidneySearch.From(Index, name => name == "Arcadia.html" ? Page : null),
+            Search = SidneySearch.From(Index, Markup, Dialog),
         };
+    }
+
+    // The archives resolve a name without its path, its extension or its case, which is
+    // what lets one page link to another in whatever spelling it pleases.
+    private static string? Markup(string name) => SidneySearch.PageKey(name).ToUpperInvariant()
+        switch
+        {
+            "ARCADIA" => Page,
+            "VAMPIRE" => Vampires,
+            "ALCHEMYTILTEDSQUARE" => Square,
+            _ => null,
+        };
+
+    [Fact]
+    public void Reading_the_vampire_page_sets_the_flag_the_tour_waits_on()
+    {
+        // 207A will not let Grace knock on Mosely's door to start the Magdala tour until
+        // the "vampire" flag is set, and nothing in the game data sets it: the retail
+        // engine sets it on reading the page, and sixteen pages work the same way.
+        SidneyMachine sidney = Machine(out GameState state);
+
+        Assert.False(state.GetFlag("vampire"));
+
+        sidney.Typed = "vampires";
+        sidney.Look();
+
+        Assert.True(state.GetFlag("vampire"));
+    }
+
+    [Fact]
+    public void Reading_a_page_the_game_scores_is_worth_its_point_once()
+    {
+        ScoreEvents scores = ScoreEvents.Open();
+        GameState state = new() { Ego = "GRACE" };
+
+        var sidney = new SidneyMachine(SidneyLibrary.From(Text), state)
+        {
+            Search = SidneySearch.From(Index, Markup, Dialog),
+            Scores = scores,
+        };
+
+        sidney.Typed = "vampire";
+        sidney.Look();
+
+        int earned = state.Score;
+
+        Assert.Equal(scores.Worth("e_sidney_search_vampires"), earned);
+
+        sidney.Look();
+
+        Assert.Equal(earned, state.Score);
+    }
+
+    [Fact]
+    public void A_page_with_no_flag_of_its_own_changes_nothing()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.Typed = "arcadia";
+        sidney.Look();
+
+        Assert.False(state.GetFlag("Arcadia"));
+        Assert.False(state.GetFlag("vampire"));
+    }
+
+    [Fact]
+    public void Following_a_link_to_a_page_counts_as_reading_it()
+    {
+        // The pages link to each other, and arriving that way is the same arrival.
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.Follow("vampire.html");
+
+        Assert.Equal("Vampires", sidney.Page?.Title);
+        Assert.True(state.GetFlag("vampire"));
+    }
+
+    [Fact]
+    public void Grace_says_her_piece_over_a_page_once()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.Typed = "vampire";
+        sidney.Look();
+
+        Assert.Equal(["02VA1", "02VA2"], Said(sidney));
+        Assert.True(state.GetFlag("vampire_dlg"));
+
+        sidney.Look();
+
+        Assert.Empty(Said(sidney));
+    }
+
+    [Fact]
+    public void A_remark_waits_for_the_verse_and_the_flags_its_file_names()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        // Before Pisces, the tilted square has nothing to say.
+        sidney.Follow("alchemytiltedsquare.html");
+        Assert.Empty(Said(sidney));
+
+        state.SetFlag("Aquarius");
+        state.SetFlag("Pisces");
+
+        // And not while the square is already locked down, which the file forbids.
+        state.SetFlag("LockedSquare");
+        sidney.Follow("alchemytiltedsquare.html");
+        Assert.Empty(Said(sidney));
+
+        state.ClearFlag("LockedSquare");
+        sidney.Follow("alchemytiltedsquare.html");
+
+        Assert.Equal(["02osu586w1"], Said(sidney));
+    }
+
+    private static List<string> Said(SidneyMachine sidney)
+    {
+        List<string> plates = [];
+
+        while (sidney.TakeCue() is { } cue)
+        {
+            plates.Add(cue.Plate);
+        }
+
+        return plates;
     }
 
     [Fact]

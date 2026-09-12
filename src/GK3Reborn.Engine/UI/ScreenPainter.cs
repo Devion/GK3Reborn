@@ -35,9 +35,10 @@ namespace GK3Reborn.UI;
 /// The quest log, by day, when that is what is being shown. Read fresh each frame from the
 /// score events the story already records, so nothing here can drift out of step with it.
 /// </param>
-/// <param name="Prints">
-/// How many prints the fingerprint kit has revealed on what it is dusting, or minus one
-/// while nothing has been brushed yet.
+/// <param name="Dusting">
+/// The fingerprint kit, where one is open: what is in hand and how far the powder has
+/// brought each print out. Live state like the hose, because it moves under the brush
+/// every frame and is not the screen stack's business.
 /// </param>
 /// <param name="Verbs">
 /// What can be done to whatever the screen is about. Only the close-up of one thing uses
@@ -90,7 +91,7 @@ public readonly record struct ScreenView(
     Vector2 Aim = default,
     IReadOnlyList<string>? Verbs = null,
     IReadOnlyList<JournalDay>? Journal = null,
-    int Prints = -1,
+    Game.FingerprintDusting? Dusting = null,
     Func<string, ItemIcon>? Icons = null,
     Func<string, ItemIcon>? CloseUps = null,
     Func<string, bool, ItemIcon>? VerbIcons = null,
@@ -113,6 +114,9 @@ public sealed class ScreenPainter
     private static readonly Vector4 Dim = new(0.55f, 0.55f, 0.52f, 1f);
     private static readonly Vector4 Accent = new(0.95f, 0.76f, 0.35f, 1f);
     private static readonly Vector4 Rule = new(0.30f, 0.32f, 0.36f, 0.9f);
+
+    /// <summary>What a picture is tinted by to leave it exactly as it was painted.</summary>
+    private static readonly Vector4 White = new(1f, 1f, 1f, 1f);
 
     /// <summary>A shape the marked places confirm, told apart from one merely laid.</summary>
     private static readonly Vector4 Locked = new(0.45f, 0.90f, 0.55f, 1f);
@@ -203,6 +207,16 @@ public sealed class ScreenPainter
             return;
         }
 
+        // Nor is the fingerprint kit. It is a box of equipment with the thing propped up
+        // beside it, and where the print is on that thing is the whole puzzle — so it is
+        // the game's own art at the game's own coordinates, as large as the window carries.
+        if (view.Screen.Kind == ScreenKind.Fingerprint)
+        {
+            Kit(view, width, height, unit);
+
+            return;
+        }
+
         // The room stays visible behind everything but the driving map, which is the one
         // screen where the player is somewhere else entirely. Drawn with the body below,
         // because how much of the window the body takes decides where it goes.
@@ -210,13 +224,9 @@ public sealed class ScreenPainter
         // everything the player owns and wants the room — and one item held up to the light
         // is not. Asked for: a close-up of a single thing filling the screen reads as a
         // modal error box rather than as looking at something.
-        bool page = view.Screen.Kind != ScreenKind.Fingerprint;
-
         float margin = 40f * unit;
 
-        var body = page
-            ? new Vector4(margin, margin, width - (margin * 2), height - (margin * 2))
-            : Card(width, height, unit);
+        var body = new Vector4(margin, margin, width - (margin * 2), height - (margin * 2));
 
         Overlay.Rect(0, 0, width, height, view.Screen.TakesOverInput ? Panel : Shade);
 
@@ -243,10 +253,6 @@ public sealed class ScreenPainter
 
             case ScreenKind.Journal:
                 JournalPage(view, body, top, unit);
-                break;
-
-            case ScreenKind.Fingerprint:
-                Fingerprint(view, body, top, unit);
                 break;
 
             case ScreenKind.Water:
@@ -565,67 +571,318 @@ public sealed class ScreenPainter
         _hits.Add(("water:away", button));
     }
 
+    /// <summary>The kit's own art is drawn at this size, and everything in it is placed
+    /// against it.</summary>
+    private const float KitWidth = 640f;
+
+    /// <summary>And this.</summary>
+    private const float KitHeight = 480f;
+
     /// <summary>
-    /// The fingerprint kit, over one surface.
+    /// Where each part of the kit is on that art: the way out, the brush lying in its
+    /// recess, the well of powder, the tape dispenser, the cloth prints are kept on, and
+    /// the panel the thing being dusted is propped in. Measured from the top left, in the
+    /// art's own pixels, and read out of the reference engine's own layout.
     /// </summary>
-    /// <param name="view">What to draw, including how many prints the brush has found.</param>
-    /// <param name="body">The card it goes in.</param>
-    /// <param name="top">Where the chrome ends.</param>
+    private static readonly (string Id, Vector4 Where)[] KitParts =
+    [
+        ("fp:brush", new Vector4(128, 345, 171, 45)),
+        ("fp:dust", new Vector4(149, 229, 127, 108)),
+        ("fp:tape", new Vector4(278, 223, 106, 154)),
+        ("fp:cloth", new Vector4(0, 226, 140, 160)),
+    ];
+
+    /// <summary>The panel the dusted thing is propped in, in the same pixels.</summary>
+    private static readonly Vector4 KitPanel = new(389, 2, 249, 476);
+
+    /// <summary>Where the pictures of the prints ended up, so a click can reach one.</summary>
+    private readonly List<Vector4> _printsDrawn = [];
+
+    /// <summary>
+    /// The fingerprint kit: the box, and the thing being dusted propped up beside it.
+    /// </summary>
+    /// <param name="view">What to draw, including the dusting in progress.</param>
+    /// <param name="width">Window width in pixels.</param>
+    /// <param name="height">Its height.</param>
     /// <param name="unit">The interface's scale.</param>
-    private void Fingerprint(ScreenView view, Vector4 body, float top, float unit)
+    private void Kit(ScreenView view, int width, int height, float unit)
     {
-        float x = body.X + (20 * unit);
-        float y = top + (8 * unit);
-        float line = Overlay.LineHeight;
+        _printsDrawn.Clear();
 
-        Overlay.Text(
-            view.Prints < 0
-                ? Text.Say("prints.ready", "A fine brush, and a roll of tape.")
-                : view.Prints == 0
-                    ? Text.Say("prints.none", "The powder settles. Nothing shows up.")
-                    : view.Prints == 1
-                        ? Text.Say("prints.one", "The powder settles on a clear print.")
-                        : Text.Say(
-                            "prints.many",
-                            "The powder settles on {0} distinct prints.",
-                            view.Prints.ToString(CultureInfo.InvariantCulture)),
-            x,
-            y,
-            Ink);
+        // The kit fills the window the way the game's own screens did: its whole 4:3 face,
+        // as large as fits, with the room dark behind it rather than merely dimmed.
+        Overlay.Rect(0, 0, width, height, new Vector4(0.01f, 0.01f, 0.012f, 0.92f));
 
-        y += (line * 2) + (6 * unit);
+        float scale = MathF.Min(width / KitWidth, height / KitHeight);
+        var origin = new Vector2(
+            MathF.Round((width - (KitWidth * scale)) / 2f),
+            MathF.Round((height - (KitHeight * scale)) / 2f));
 
-        (string id, string label) = view.Prints < 0
-            ? ("fp:brush", Text.Say("prints.brush", "Brush for prints"))
-            : view.Prints > 0
-                ? ("fp:lift", Text.Say("prints.lift", "Lift with tape"))
-                : ("close", Text.Say("prints.away", "Put the kit away"));
+        Vector4 On(Vector4 box) => new(
+            origin.X + (box.X * scale),
+            origin.Y + (box.Y * scale),
+            box.Z * scale,
+            box.W * scale);
 
-        float wide = Overlay.Measure(label) + (24 * unit);
-        var button = new Vector4(x, y, wide, line + (12 * unit));
+        Vector4 face = On(new Vector4(0, 0, KitWidth, KitHeight));
 
-        Overlay.Rect(button.X, button.Y, button.Z, button.W, PanelLit);
-        Overlay.Rect(button.X, button.Y, button.Z, 1, Accent);
-        Overlay.Text(label, button.X + (12 * unit), button.Y + (6 * unit), Accent);
+        if (view.Artwork?.Invoke("FP_BASE.BMP") is { Drawn: true } art)
+        {
+            Overlay.Picture(art.Picture, face.X, face.Y, face.Z, face.W, White);
+        }
+        else
+        {
+            // No art, no kit — but still a frame to put the thing in and a way out, so a
+            // run with no game data does not trap the player behind a black screen.
+            Overlay.Rect(face.X, face.Y, face.Z, face.W, Panel);
+        }
 
-        _hits.Add((id, button));
+        // Anywhere on the face that is not one of the pieces puts a held brush back, which
+        // is what the original does. Registered first so every piece drawn over it wins.
+        _hits.Add(("fp:base", face));
+
+        Game.FingerprintDusting? kit = view.Dusting;
+
+        Vector4 panel = On(KitPanel);
+        _hits.Add(("fp:panel", panel));
+
+        Overlay.PushClip(panel);
+        Propped(view, kit, panel, scale);
+        Overlay.PopClip();
+
+        foreach ((string id, Vector4 where) in KitParts)
+        {
+            Vector4 box = On(where);
+
+            // The brush is drawn where it lies until it is picked up, and then it is in
+            // the player's hand instead.
+            if (id == "fp:brush")
+            {
+                if (kit is { Holding: Game.InHand.Brush or Game.InHand.DustedBrush })
+                {
+                    _hits.Add((id, box));
+
+                    continue;
+                }
+
+                if (view.Artwork?.Invoke("FP_BRUSH.BMP") is { Drawn: true } brush)
+                {
+                    Overlay.Picture(brush.Picture, box.X, box.Y, box.Z, box.W, White);
+                }
+            }
+
+            // A thin outline under the pointer, because the kit's own art gives no sign
+            // that any of it can be clicked and the original relied on the cursor for it.
+            if (Over(box))
+            {
+                Outline(box, Accent);
+            }
+
+            _hits.Add((id, box));
+        }
+
+        Held(view, kit, scale);
+
+        // The way out and the line saying what the kit wants share the strip of dark wood
+        // along the bottom of the box, which is the only part of the art with nothing in it.
+        Vector4 button = Away(face, unit);
+        Instruction(kit, button, unit);
     }
 
-    /// <summary>A panel for one thing rather than a page for everything.</summary>
-    /// <param name="width">Window width.</param>
-    /// <param name="height">Window height.</param>
-    /// <param name="unit">The interface's scale.</param>
-    /// <returns>Where to draw it.</returns>
-    private static Vector4 Card(int width, int height, float unit)
+    /// <summary>The way out, in the port's own button rather than the game's worn one.</summary>
+    /// <returns>Where it was drawn, so the line beside it can start clear of it.</returns>
+    private Vector4 Away(Vector4 face, float unit)
     {
-        float wide = MathF.Min(width - (80 * unit), MathF.Max(320 * unit, width * 0.38f));
-        float tall = MathF.Min(height - (80 * unit), MathF.Max(200 * unit, height * 0.46f));
+        string label = Text.Say("screen.close", "CLOSE");
 
-        return new Vector4(
-            MathF.Round((width - wide) / 2f),
-            MathF.Round((height - tall) / 2.4f),
-            MathF.Round(wide),
-            MathF.Round(tall));
+        float wide = Overlay.Measure(label) + (28 * unit);
+        float tall = Overlay.LineHeight + (12 * unit);
+
+        var button = new Vector4(
+            face.X + (14 * unit), face.Y + face.W - tall - (14 * unit), wide, tall);
+
+        Overlay.Rect(button.X, button.Y, button.Z, button.W, Over(button) ? PanelLit : Panel);
+        Outline(button, Accent);
+        Overlay.Text(label, button.X + (14 * unit), button.Y + (6 * unit), Accent);
+
+        _hits.Add(("fp:exit", button));
+
+        return button;
+    }
+
+    /// <summary>Draws the thing being dusted, and whatever the powder has brought out.</summary>
+    private void Propped(
+        ScreenView view, Game.FingerprintDusting? kit, Vector4 panel, float scale)
+    {
+        if (kit?.Thing is not { } thing ||
+            view.Artwork?.Invoke(thing.Picture) is not { Drawn: true } picture)
+        {
+            return;
+        }
+
+        float wide = picture.Width * scale;
+        float tall = picture.Height * scale;
+
+        float left = thing.Anchor == Game.FingerprintAnchor.Centre
+            ? panel.X + ((panel.Z - wide) / 2f)
+            : panel.X;
+
+        left += thing.OffsetX * scale;
+
+        float top = panel.Y + ((panel.W - tall) / 2f) + (thing.OffsetY * scale);
+
+        Overlay.Picture(picture.Picture, left, top, wide, tall, White);
+
+        // The prints, which are white powder on black: drawn lightening what is under them,
+        // so the black around each one contributes nothing and no mask is needed. How far
+        // out a print is is its opacity, which is what the brush is moving.
+        for (int i = 0; i < kit.Prints.Count; i++)
+        {
+            Game.RevealedPrint print = kit.Prints[i];
+
+            if (view.Artwork?.Invoke(print.Print.Picture) is not { Drawn: true } powder)
+            {
+                _printsDrawn.Add(default);
+
+                continue;
+            }
+
+            var box = new Vector4(
+                panel.X + (print.Print.X * scale),
+                panel.Y + panel.W - ((print.Print.Y + powder.Height) * scale),
+                powder.Width * scale,
+                powder.Height * scale);
+
+            _printsDrawn.Add(box);
+
+            // Registered whether or not anything of it is showing: this is what tells the
+            // brush which print it is over, and a print that only exists once it is out
+            // could never be brought out at all.
+            _hits.Add(($"fp:print:{i}", box));
+
+            if (print.Shown <= 0f)
+            {
+                continue;
+            }
+
+            Overlay.Picture(
+                powder.Picture,
+                box.X,
+                box.Y,
+                box.Z,
+                box.W,
+                new Vector4(1f, 1f, 1f, print.Shown),
+                blend: OverlayBlend.Screen);
+
+            // Once it is fully out it can be taken, and a print already on the cloth is
+            // marked so rather than offered again.
+            if (print.Ready)
+            {
+                Outline(box, print.Taken ? Dim : Accent);
+            }
+        }
+    }
+
+    /// <summary>Draws whatever is in the player's hand, at the pointer.</summary>
+    private void Held(ScreenView view, Game.FingerprintDusting? kit, float scale)
+    {
+        string? file = kit?.Holding switch
+        {
+            Game.InHand.Brush => "C_FPBRUSH.BMP",
+            Game.InHand.DustedBrush => "C_FPBRUSH_WDUST.BMP",
+            Game.InHand.Tape => "C_FPTAPE_NOFP.BMP",
+            Game.InHand.TapeWithPrint => "C_FPTAPE_FP.BMP",
+            _ => null,
+        };
+
+        if (file is null || view.Artwork?.Invoke(file) is not { Drawn: true } tool)
+        {
+            return;
+        }
+
+        // A dusted brush being worked sweeps: it leans one way and back about its tip, a
+        // stroke every ninety pixels of travel. It is the only thing that tells a player
+        // the button has to stay down — a brush that sits still under a held button looks
+        // like a brush that is doing nothing.
+        float lean = kit is { Holding: Game.InHand.DustedBrush }
+            ? MathF.Sin(kit.Stroke * MathF.Tau) * 0.18f
+            : 0f;
+
+        // The game's own cursor art, drawn where the pointer is rather than handed to the
+        // platform as a cursor: the port's pointers are its own set and this is one screen
+        // rather than a sixth shape. The brush points with its tip and the tape with its
+        // top edge, which is where each one's hotspot is.
+        var size = new Vector2(tool.Width * scale, tool.Height * scale);
+        var tip = new Vector2(_pointer.X - (12 * scale), _pointer.Y - (2 * scale));
+
+        if (lean == 0f)
+        {
+            Overlay.Picture(tool.Picture, tip.X, tip.Y, size.X, size.Y, White);
+
+            return;
+        }
+
+        // Turned about the tip rather than the middle, which is where a brush pivots: the
+        // sprite is placed by its centre, so the centre goes where turning the offset from
+        // the tip puts it.
+        var offset = new Vector2(size.X / 2f, size.Y / 2f);
+        var turned = new Vector2(
+            (offset.X * MathF.Cos(lean)) - (offset.Y * MathF.Sin(lean)),
+            (offset.X * MathF.Sin(lean)) + (offset.Y * MathF.Cos(lean)));
+
+        Overlay.Sprite(tool.Picture, tip + turned, size, White, lean);
+    }
+
+    /// <summary>One line saying what the kit is waiting for.</summary>
+    private void Instruction(Game.FingerprintDusting? kit, Vector4 button, float unit)
+    {
+        // The original said none of this and left the player to work the box out. The port
+        // owes them a sentence — see the rule in docs/screens.md — but never one that says
+        // what is on the thing: whether there is a print, and where, is the puzzle.
+        string say = kit?.Holding switch
+        {
+            null => Text.Say("prints.ready", "A fine brush, and a roll of tape."),
+            Game.InHand.Nothing when kit.Finished =>
+                Text.Say("prints.done", "That is everything off it."),
+            Game.InHand.Nothing when kit.Prints.Any(p => p.Ready && !p.Taken) =>
+                Text.Say("prints.tape", "Take a strip of tape."),
+            Game.InHand.Nothing =>
+                Text.Say("prints.ready", "A fine brush, and a roll of tape."),
+            Game.InHand.Brush => Text.Say("prints.dip", "Dip the brush in the powder."),
+
+            // Nothing: the brush is sweeping in the player's hand and says it better than a
+            // sentence does. A line here read as an instruction manual over a picture.
+            Game.InHand.DustedBrush => string.Empty,
+            Game.InHand.Tape => Text.Say("prints.press", "Press the tape onto a print."),
+            Game.InHand.TapeWithPrint =>
+                Text.Say("prints.cloth", "Put the tape on the cloth."),
+            _ => string.Empty,
+        };
+
+        if (say.Length == 0)
+        {
+            return;
+        }
+
+        Overlay.Text(
+            say,
+            button.X + button.Z + (14 * unit),
+            button.Y + (6 * unit),
+            Ink);
+    }
+
+    /// <summary>Whether the pointer is inside a rectangle.</summary>
+    private bool Over(Vector4 box) =>
+        _pointer.X >= box.X && _pointer.X <= box.X + box.Z &&
+        _pointer.Y >= box.Y && _pointer.Y <= box.Y + box.W;
+
+    /// <summary>A one-pixel frame, for marking what the pointer is on.</summary>
+    private void Outline(Vector4 box, Vector4 colour)
+    {
+        Overlay.Rect(box.X, box.Y, box.Z, 1, colour);
+        Overlay.Rect(box.X, box.Y + box.W - 1, box.Z, 1, colour);
+        Overlay.Rect(box.X, box.Y, 1, box.W, colour);
+        Overlay.Rect(box.X + box.Z - 1, box.Y, 1, box.W, colour);
     }
 
     /// <summary>

@@ -714,6 +714,8 @@ public sealed class SidneyMachine
         Showing = new SidneyResult(
             Page is null ? Ask("NotFound", "Search Screen") : Page.Title);
 
+        Visited(Page);
+
         return Showing;
     }
 
@@ -727,7 +729,130 @@ public sealed class SidneyMachine
         {
             Page = found;
             Typed = found.Title;
+
+            Visited(found);
         }
+    }
+
+    /// <summary>
+    /// The flags sixteen of the encyclopedia's pages set when Grace reads them.
+    /// </summary>
+    /// <remarks>
+    /// <b>Reading a page is a puzzle step.</b> Nothing in the game data says so — not
+    /// <c>SIDSEARCH.TXT</c>, not the pages — but the action files ask about the flags:
+    /// 207A will not start the Magdala tour until <c>vampire</c> is set, and the same
+    /// pattern gates Asmodeus in the church and the temple diagram on the third morning.
+    /// The retail engine holds this table in code, and it is read out of the reference
+    /// engine's <c>SidneySearch.h</c>. Keyed by page name without its extension, because
+    /// the pages link to each other in whatever spelling and case they please.
+    /// </remarks>
+    private static readonly Dictionary<string, string> PageFlags =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Vampire"] = "Vampire",
+            ["RA"] = "RA",
+            ["Asmodeus"] = "Asmodeus",
+            ["Quaternity"] = "Quaternity",
+            ["StMichael"] = "StMichael",
+            ["Pythagoras"] = "Pythagoras",
+            ["Chessboard"] = "Chessboard",
+            ["Duality"] = "Duality",
+            ["Solomon"] = "Solomon",
+            ["StVincent"] = "StVincent",
+            ["TempleEntry"] = "SolomonTemple",
+            ["Soul"] = "Soul",
+            ["Hexagram"] = "Hexagram",
+            ["Seal"] = "Seal",
+            ["AlchemyTiltedSquare"] = "AlchemyTiltedSquare",
+            ["TempleFloorplan"] = "TempleFloorplan",
+        };
+
+    /// <summary>
+    /// The score fifteen of the pages are worth the first time they are read.
+    /// </summary>
+    /// <remarks>Also the retail engine's own table rather than anything in the data.</remarks>
+    private static readonly Dictionary<string, string> PageScores =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Vampire"] = "e_sidney_search_vampires",
+            ["HolyGrail"] = "e_sidney_search_grail",
+            ["Quaternity"] = "e_sidney_search_quaternity",
+            ["StMichael"] = "e_sidney_search_st_michael",
+            ["Pythagoras"] = "e_sidney_search_pythagoras",
+            ["Asmodeus"] = "e_sidney_search_asmodeus",
+            ["Chessboard"] = "e_sidney_search_chessboard",
+            ["Duality"] = "e_sidney_search_duality",
+            ["Solomon"] = "e_sidney_search_solomon",
+            ["StVincent"] = "e_sidney_search_st_vincent",
+            ["TempleEntry"] = "e_sidney_search_temple_solomon",
+            ["TempleFloorPlan"] = "e_sidney_analysis_send_email_for_floor_plan",
+            ["Soul"] = "e_sidney_search_soul",
+            ["Hexagram"] = "e_sidney_search_hexagram",
+            ["Seal"] = "e_sidney_search_seal",
+        };
+
+    /// <summary>
+    /// What reading one of the encyclopedia's pages does to the story.
+    /// </summary>
+    /// <param name="page">The page, or null when the search found nothing.</param>
+    private void Visited(SearchPage? page)
+    {
+        if (page is null)
+        {
+            return;
+        }
+
+        string name = SidneySearch.PageKey(page.Id);
+
+        if (PageFlags.TryGetValue(name, out string? flag))
+        {
+            _state.SetFlag(flag);
+        }
+
+        if (PageScores.TryGetValue(name, out string? score))
+        {
+            _state.AwardScore(score, Scores?.Worth(score));
+        }
+
+        Remark(name);
+    }
+
+    /// <summary>
+    /// The line Grace says over a page she has just read, when the story is at the point
+    /// the game's own <c>SIDNEYDIALOG.TXT</c> wants it at.
+    /// </summary>
+    /// <param name="page">The page's name without its extension.</param>
+    private void Remark(string page)
+    {
+        if (Search.RemarkOn(page) is not { } remark || _state.GetFlag(remark.Flag))
+        {
+            return;
+        }
+
+        int step = DrivingMap.SerpentRougeSigns(_state);
+
+        if ((remark.LeastStep >= 0 && step < remark.LeastStep) ||
+            (remark.MostStep >= 0 && step > remark.MostStep))
+        {
+            return;
+        }
+
+        foreach (string required in remark.Requires)
+        {
+            bool wanted = required[0] != '!';
+
+            if (_state.GetFlag(wanted ? required : required[1..]) != wanted)
+            {
+                return;
+            }
+        }
+
+        foreach (string plate in remark.Plates)
+        {
+            Speak(plate);
+        }
+
+        _state.SetFlag(remark.Flag);
     }
 
     /// <summary>Opens somebody's file on the suspects screen.</summary>

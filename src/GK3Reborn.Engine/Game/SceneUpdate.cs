@@ -1987,6 +1987,12 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Draws one of the room's own named objects, or stops drawing it.</summary>
+    /// <remarks>
+    /// Hiding an ordinary object takes it out of the pointer's reach as well as off the
+    /// screen, which is what the retail engine does. A hit test is the exception: it is
+    /// never drawn in the first place, and hiding one leaves it clickable — the calls that
+    /// switch a hit test off are <c>DisableHitTestModel</c> and nothing else.
+    /// </remarks>
     /// <param name="objectName">The object's name, as the geometry records it.</param>
     /// <param name="visible">Whether it is drawn.</param>
     /// <returns>True when the room has an object by that name.</returns>
@@ -1999,6 +2005,11 @@ public sealed class SceneUpdate
             return false;
         }
 
+        if (IsHitTest(objectName))
+        {
+            return true;
+        }
+
         if (visible)
         {
             _api.State.BlockedHitTests.Remove(objectName);
@@ -2009,6 +2020,21 @@ public sealed class SceneUpdate
         }
 
         return true;
+    }
+
+    /// <summary>The room's hit tests by name, read once because the scene files are merged
+    /// afresh on every call.</summary>
+    private HashSet<string>? _hitTests;
+
+    /// <summary>Whether the room declares this object as a hit test rather than geometry.</summary>
+    private bool IsHitTest(string objectName)
+    {
+        _hitTests ??= _scene.Definition.Models()
+            .Where(m => string.Equals(m.Type, "hittest", StringComparison.OrdinalIgnoreCase))
+            .Select(m => m.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return _hitTests.Contains(objectName);
     }
 
     /// <summary>

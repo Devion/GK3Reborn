@@ -87,9 +87,9 @@ Follow the two men | score:e_106p_map_follow_two_men,e_106p_lhe_hide_behind_tree
 Tell Mosely what you saw | score:e_106p_r25_talk_grace_about_prince_james_men,e_106p_r25_talk_grace_about_abbe,e_106p_r25_handshake_correct | 13,14,15,16,17,18,19
 
 [207A]
-Collect your things | score:e_207a_r25_pickup_fingerprint_kit | 1,2
+Collect your things | score:e_207a_r25_pickup_fingerprint_kit | 1
 Find out what was left outside your door | score:e_207a_hal_pickup_book | 3,4
-Get yourself onto the tour | score:e_207a_din_talk_buthan_tour_group,e_207a_ma3_talk_abbe_introduce | 5,6,7,8,9
+Get yourself onto the tour | score:e_207a_din_talk_buthan_tour_group,e_207a_ma3_talk_abbe_introduce,e_sidney_search_vampires | 2,5,6,7,8,9
 Listen at the Poussin tomb | score:e_207a_pou_madeline_pulls_postcard,e_207a_pou_madeline_mentions_et_in_arcadia_ego | 10,11
 Copy down what Emilio is writing | score:e_207a_pou_sketchpad_emilio_doodle | 12
 Listen at Blanchefort | score:e_207a_cd1_madeline_mentions_chateau_templar,e_207a_cd1_overhear_buthane_wilkes,e_207a_cd1_overhear_howard_estelle | 13,14,15
