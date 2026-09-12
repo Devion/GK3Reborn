@@ -97,7 +97,15 @@ public sealed class SceneInteraction
     {
         ArgumentNullException.ThrowIfNull(camera);
 
-        if (_picker.Pick(camera, x, y, width, height) is not { } pick)
+        return At(camera.RayThrough(x, y, width, height));
+    }
+
+    /// <summary>Asks what a ray is pointed at, and what that answers to.</summary>
+    /// <param name="ray">Where from and which way.</param>
+    /// <returns>What is there and what it answers to.</returns>
+    public Hover At(Rendering.Ray ray)
+    {
+        if (_picker.Pick(ray) is not { } pick)
         {
             return Hover.Nothing;
         }
@@ -425,7 +433,7 @@ public sealed class SceneInteraction
     ];
 
     /// <summary>Does something to what is under the pointer.</summary>
-    /// <param name="hover">What was under it, from <see cref="At"/>.</param>
+    /// <param name="hover">What was under it, from <see cref="At(Rendering.Camera, int, int, int, int)"/>.</param>
     /// <param name="verb">Which verb, or null for the default one.</param>
     /// <param name="hurry">
     /// Whether the player asked twice. A double-click means the same thing as a click and
@@ -487,7 +495,7 @@ public sealed class SceneInteraction
     /// <summary>
     /// Where a click would send the player, when it landed on the floor and nothing else.
     /// </summary>
-    /// <param name="hover">What was under the pointer, from <see cref="At"/>.</param>
+    /// <param name="hover">What was under the pointer, from <see cref="At(Rendering.Camera, int, int, int, int)"/>.</param>
     /// <returns>
     /// A spot to walk to, or null when the click was not a click on open floor.
     /// </returns>
@@ -518,6 +526,32 @@ public sealed class SceneInteraction
 
         return boundary.NearestWalkable(pick.Point) is { } stand
             ? new Vector3(stand.X, pick.Point.Y, stand.Z)
+            : null;
+    }
+
+    /// <summary>How near a way out has to be to count as being walked into, in units.</summary>
+    public const float WithinReach = 90f;
+
+    /// <summary>And how near, once the player is pressed up against something.</summary>
+    public const float ReachWhenBlocked = 190f;
+
+    /// <summary>
+    /// The way out the player is walking into, if they are walking into one.
+    /// </summary>
+    /// <param name="along">From their eyes, the way they are travelling.</param>
+    /// <param name="blocked">
+    /// Whether the room refused the step. Being stopped by the edge of the ground is what
+    /// separates walking into a way out from walking past one, so it buys extra reach.
+    /// </param>
+    /// <returns>What to act on, or null when there is no way out ahead.</returns>
+    public Hover? WayOut(Rendering.Ray along, bool blocked)
+    {
+        Hover hover = At(along);
+
+        return hover.Pick is { } pick &&
+               pick.Distance <= (blocked ? ReachWhenBlocked : WithinReach) &&
+               PointerChoice.IsWayOut(hover, _actions?.Verbs)
+            ? hover
             : null;
     }
 }

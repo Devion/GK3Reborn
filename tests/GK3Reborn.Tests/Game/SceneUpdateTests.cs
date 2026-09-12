@@ -977,6 +977,153 @@ public sealed class SceneUpdateTests
     }
 
     [Fact]
+    public void A_glide_eases_out_of_the_shot_it_leaves()
+    {
+        // Linear would put the view a third of the way along after a third of the time.
+        // Eased, it has barely left, which is what makes a move read as a shot rather than
+        // as a camera being pushed across the room on a trolley.
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+
+        state.CameraGliding = true;
+        state.CameraAngle = "FAR";
+
+        update.Advance(SceneUpdate.GlideSeconds / 3);
+
+        Assert.InRange(update.View!.Position.Z, 1f, 200f / 3f);
+    }
+
+    [Fact]
+    public void A_pose_does_not_move_the_player_who_is_driving()
+    {
+        // An actor's position follows their model's pose every frame, as the reference
+        // syncs it. Right for the rest of the game and fatal in first person, where the eye
+        // is that point: an idle shifting its weight walked the camera off across the room.
+        (SceneUpdate update, _, _, _) = World();
+
+        update.Place("GABRIEL", new Vector3(10f, 0f, 20f), 0f);
+        update.Driven = "GABRIEL";
+
+        Assert.True(update.Step("GABRIEL", new Vector3(30f, 0f, 40f), 1f));
+        Assert.Equal(new Vector3(30f, 0f, 40f), update.Where("GABRIEL")!.Value);
+
+        // Whatever the room does to them now, where they are is the player's answer.
+        for (int i = 0; i < 120; i++)
+        {
+            update.Advance(1.0 / 60);
+        }
+
+        Assert.Equal(new Vector3(30f, 0f, 40f), update.Where("GABRIEL")!.Value);
+    }
+
+    [Fact]
+    public void A_move_leaves_from_where_the_view_actually_is()
+    {
+        // The player is holding the camera, so the story's own idea of where it is — the
+        // camera the room opened on — is a room away from the truth. Leaving from there is
+        // what made the view jump across the room and then glide politely to the shot.
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        update.Elsewhere = new Camera
+        {
+            Position = new Vector3(0f, 0f, 180f),
+            Target = new Vector3(0f, 0f, 181f),
+        };
+
+        state.CameraGliding = true;
+        state.CameraAngle = "FAR";
+
+        update.Advance(1.0 / 60);
+
+        // A shade past 180 rather than a shade past nought.
+        Assert.InRange(update.View!.Position.Z, 180f, 185f);
+    }
+
+    [Fact]
+    public void The_story_has_the_camera_only_once_it_has_pointed_one()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+
+        Assert.False(update.Framed);
+
+        // An action that names no camera is an action the view sits out.
+        update.Starting();
+        update.Advance(1.0 / 60);
+
+        Assert.False(update.Framed);
+
+        state.CameraAngle = "FAR";
+        update.Advance(1.0 / 60);
+
+        Assert.True(update.Framed);
+
+        // And the next thing to do is a fresh chance, not an inheritance.
+        update.Starting();
+
+        Assert.False(update.Framed);
+    }
+
+    [Fact]
+    public void A_shot_nobody_named_can_be_staged_in_front_of_the_rest()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        state.CameraAngle = "FAR";
+
+        update.Advance(1.0 / 60);
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+
+        update.Stage(new Camera { Position = new Vector3(50f, 0f, 0f), Target = Vector3.Zero });
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(50f, update.View!.Position.X, 1);
+
+        // And taking it away goes back to the camera the story named.
+        update.Stage(null);
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
+    public void Staging_a_second_shot_is_a_move_to_it()
+    {
+        (SceneUpdate update, _, _, _) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+
+        update.Stage(new Camera { Position = new Vector3(10f, 0f, 0f), Target = Vector3.Zero });
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(10f, update.View!.Position.X, 1);
+
+        update.Stage(new Camera { Position = new Vector3(90f, 0f, 0f), Target = Vector3.Zero });
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(90f, update.View!.Position.X, 1);
+    }
+
+    [Fact]
+    public void Taking_away_a_shot_nobody_staged_changes_nothing()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        state.CameraAngle = "FAR";
+
+        update.Advance(1.0 / 60);
+        update.Stage(null);
+        update.Advance(1.0 / 60);
+
+        Assert.Equal(200f, update.View!.Position.Z, 1);
+    }
+
+    [Fact]
     public void A_glide_with_nowhere_to_leave_from_is_a_cut()
     {
         // The scene has only just opened and nobody has said where the view is, so there is

@@ -157,6 +157,8 @@ public static class CommandLine
           --eye X,Y,Z           Put the camera there.
           --aim H,P             Aim it. Heading and pitch, in degrees.
           --free-camera         Let the camera be flown.
+          --first-person        Stand in the room and walk it with WASD.
+          --push X,Y            Hold the movement controls: X sideways, Y ahead.
           --console TEXT        Open the console and type that.
           --run CMD[;CMD]       Run console commands first. @N runs one on frame N.
           --do NOUN:VERB[;..]   Perform actions on arrival.

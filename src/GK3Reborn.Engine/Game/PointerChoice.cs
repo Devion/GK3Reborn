@@ -45,7 +45,7 @@ public static class PointerChoice
             return PointerShape.Default;
         }
 
-        if (GameStrings.IsNumberedExit(hover.Noun) || LeadsOut(verb, verbs))
+        if (IsWayOut(hover, verbs))
         {
             return PointerShape.Exit;
         }
@@ -59,6 +59,15 @@ public static class PointerChoice
             ? PointerShape.Look
             : PointerShape.Interact;
     }
+
+    /// <summary>Whether what is under the pointer is a way out of the room.</summary>
+    /// <param name="hover">What is under it, and what that answers to.</param>
+    /// <param name="verbs">The game's verbs, for the cursor column. May be null.</param>
+    /// <returns>True when a click there would leave.</returns>
+    public static bool IsWayOut(Hover hover, VerbLibrary? verbs) =>
+        hover.Actionable &&
+        hover.Default is { Length: > 0 } verb &&
+        (GameStrings.IsNumberedExit(hover.Noun) || LeadsOut(verb, verbs));
 
     /// <summary>Whether a verb takes the player out of the room.</summary>
     private static bool LeadsOut(string verb, VerbLibrary? verbs) =>

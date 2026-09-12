@@ -4647,6 +4647,35 @@ public static class Application
 
         bool Flying() => onTheCommandLine || front.Settings.FreeCamera;
 
+        // The player as a body in the room rather than a camera over it. The walk boundary
+        // is what fences them in, which is the same bitmap that fences Gabriel in when the
+        // player clicks the floor; a room that declares none falls back to the camera's own
+        // shell, tested at head height because that is what the shell was drawn around.
+        var walker = new Game.Navigation.FirstPerson
+        {
+            CanStand = scene.Walkable is { } floor
+                ? floor.IsWalkable
+                : scene.CameraShell is { IsEmpty: false } fence
+                    ? at => fence.Contains(at + (Vector3.UnitY * Game.Navigation.Walker.StandOff))
+                    : null,
+
+            Ground = scene.Ground is { } underfoot ? underfoot.Height : null,
+        };
+
+        bool onFootFromTheCommandLine =
+            options.Contains("--first-person", StringComparer.OrdinalIgnoreCase);
+
+        // --push X,Y holds the movement controls for the whole run, which is the only way a
+        // run with no keyboard can walk anywhere: the way out of a room, the edge of a
+        // terrain and a footstep on gravel are all things that only happen while walking.
+        Vector2 pushed = Pushed(options);
+
+        // Asked every frame for the reason the free camera is: it is a row on the Playing
+        // page, and a setting a player can only see work by leaving the room is a setting
+        // they will take to be broken. Never while flying — that switch is for looking at
+        // the room from outside it, which is the opposite of standing in it.
+        bool OnFoot() => (onFootFromTheCommandLine || front.Settings.FirstPerson) && !Flying();
+
         // The shell the scene's artists drew around the space the camera may occupy. Without
         // it the player can walk the view out through a wall and look at the room from
         // behind, which is a picture no part of the game was built to survive. The free
@@ -4683,6 +4712,23 @@ public static class Application
 
         camera.CopyFrom(template);
 
+        // And the body looks where the room's own camera looks, so that arriving on foot
+        // faces whatever the scene was composed to show.
+        void Aim(FreeCamera at)
+        {
+            walker.Yaw = at.Aim.X * MathF.PI / 180f;
+            walker.Pitch = at.Aim.Y * MathF.PI / 180f;
+        }
+
+        Aim(camera);
+
+        // Except that in first person the view is the ego's own head: the room is entered
+        // looking the way they are facing, not the way its opening shot points.
+        if (update.Turned(story.Ego) is { } entered)
+        {
+            walker.Yaw = entered;
+        }
+
         // A room reached by leaning in through the binoculars starts at the camera the
         // binoculars named rather than at the room's own, and a room come back to from one
         // the game never had starts at the view the player left it with. Taken once,
@@ -4710,11 +4756,23 @@ public static class Application
             if (standing is { } eye)
             {
                 camera.Position = eye;
+                walker.Position = eye - (Vector3.UnitY * Game.Navigation.FirstPerson.Eyes);
             }
 
             if (looking is { } look)
             {
                 camera.Aim = look;
+                Aim(camera);
+            }
+
+            // On foot the camera is worked out from the body every frame, so putting it
+            // somewhere means standing the player there and pointing them that way. Only
+            // when the command line actually asked: this runs again every time the story
+            // moves the camera, and with nothing to place it stamped the ego at whatever
+            // the walker held — on arrival in a room, the origin.
+            if (OnFoot() && (standing is not null || looking is not null))
+            {
+                update.Step(story.Ego, walker.Position, walker.Yaw);
             }
         }
 
@@ -4746,6 +4804,37 @@ public static class Application
         Hover? menu = null;
         Vector2 menuAt = Vector2.Zero;
         int menuIndex = 0;
+
+        // Whether the ego's model is being stood in rather than looked at, so it is taken
+        // out of the picture and put back exactly once each way.
+        bool embodied = false;
+
+        // How near their own eyes the view has to be for that to be true, in scene units.
+        const float InsideTheHead = 45f;
+
+        // And whether the view was in the player's own eyes last frame, so that coming back
+        // to them is a move rather than an arrival — and whether it has ever been, which
+        // is what tells arriving in the room from coming back to it.
+        bool afoot = false;
+        bool everAfoot = false;
+
+        // How long the player has been pushing into something and getting nowhere, so that
+        // a doorframe is told from an ego nothing ever placed anywhere.
+        float stuck = 0f;
+        const float StrandedFor = 1f;
+
+        // Which way the story last had the ego facing, so that a turn it makes is told
+        // apart from the player turning their own head.
+        float turned = float.NaN;
+
+        // The last way out walked into, and when, so that one which answers with a line
+        // rather than a door is not run again on every frame the player leans on it.
+        string? tried = null;
+        double triedAt = double.NegativeInfinity;
+        const double ExitAgainAfter = 3.0;
+
+        // How long a room is safe to arrive in before a way out will take.
+        const double ExitNotAtOnce = 1.0;
 
         // The lobby's glass whose print is waiting on an answer; see Game.DirtyGlasses.
         GlassQuestion? glassAsked = null;
@@ -4915,6 +5004,21 @@ public static class Application
             float delta = (float)Math.Min(0.1, now - previous);
             previous = now;
 
+            // Told before anything the story does this frame, because which camera a
+            // conversation picks and whether it is moved to both depend on them; see
+            // SceneScripting.Watching. The view is the player's as of the frame just drawn,
+            // which is the only answer available before the story has had its turn.
+            story.FirstPerson = OnFoot();
+            story.ViewIsTheirs = story.FirstPerson && afoot;
+
+            // On foot the player is the ego, whoever has the camera, and where they stand
+            // is their answer rather than their pose's. Said before the world moves, so the
+            // sync cannot drag them off the spot a room has just put them on. A walk and a
+            // Place still write through; only a pose is refused, and only while nothing is
+            // animating them, so a clip meant to carry them somewhere still can.
+            update.Driven =
+                OnFoot() && !update.Performing(story.Ego) ? story.Ego : null;
+
             // A window that goes fullscreen doubles in height. An outline is re-cut at
             // the new size; a bitmap sheet can only step up the ladder and be magnified.
             if (hud is not null &&
@@ -5059,6 +5163,11 @@ public static class Application
                 // menu reads that one to close itself. Cleared here, or the menu opens and
                 // shuts within the frame.
                 window.EndFrame();
+
+                // The menu is a screen and screens are pointed at. Given back here rather
+                // than by the rule above, because the menu runs its own loop inside this
+                // frame and would otherwise be walked through with no cursor.
+                window.PointerLocked = false;
 
                 front.InGame = true;
 
@@ -5209,6 +5318,7 @@ public static class Application
                 cameraIndex = (cameraIndex + 1) % scene.Cameras.Count;
                 template = SceneLoader.CameraFor(scene, geometry, scene.Cameras[cameraIndex].Name);
                 camera.CopyFrom(template);
+                Aim(camera);
 
                 Log.Info($"camera: {scene.Cameras[cameraIndex].Name}");
             }
@@ -5216,6 +5326,7 @@ public static class Application
             if (!typing && window.WasPressed(Platform.CameraAction.Reset))
             {
                 camera.CopyFrom(template);
+                Aim(camera);
             }
 
             // Pockets, from a key rather than from a small target at the edge of the
@@ -5355,12 +5466,204 @@ public static class Application
             // pointer, and the camera reads the same drag: sweeping the fingerprint brush
             // turned the room round behind the kit, so putting it away left the player
             // facing somewhere they never chose to look.
-            if (!typing && story.Screens.InTheRoom && !(update.Directing && !Flying()))
+            bool theirs = !typing && story.Screens.InTheRoom && !(update.Directing && !Flying());
+
+            // The mouse is taken for looking about only while the player is in the room
+            // with nothing in front of it. Every screen, the verb bar, a film, the console
+            // and the key that asks give it straight back, so the whole of the interface is
+            // still worked with the pointer.
+            window.PointerLocked =
+                OnFoot() &&
+                !typing &&
+                story.Screens.InTheRoom &&
+                menu is null &&
+                !movies.Playing &&
+                !window.IsHeld(Platform.CameraAction.FreeCursor);
+
+            // Standing in the room rather than floating over it. The body walks first and
+            // the camera is taken from its eyes afterwards, so everything below — the
+            // picking, the billboards, the listener, the mirrors — sees one view and needs
+            // to know nothing about which of the two moved it.
+            //
+            // The story has the camera only once it has actually pointed one. An action
+            // that walks the player across the room and says a line names none at all, and
+            // taking the view off them for it left them watching their own back walk away.
+            // The free camera keeps the older, blunter rule: see `theirs`.
+            bool onFoot = OnFoot() && !typing && story.Screens.InTheRoom && !Flying() &&
+                          !update.Framed;
+            bool walking = false;
+            bool shouldered = false;
+
+            Vector3 travelling = walker.Ahead;
+
+            // Coming back from a shot the story was holding, the view travels back into the
+            // player's own eyes instead of arriving in them. Started here, from where the
+            // camera actually is, because this is the last frame on which that is known.
+            //
+            // Not on the way into a room. Sliding into the player's head at every door
+            // would be a thing to sit through a hundred times an evening; going into a
+            // conversation and coming out of one is worth the moment, and arriving is not.
+            if (onFoot && !afoot && everAfoot)
+            {
+                Vector2 was = camera.Aim;
+
+                walker.ReturnFrom(
+                    camera.Position, was.X * MathF.PI / 180f, was.Y * MathF.PI / 180f);
+            }
+
+            afoot = onFoot;
+            everAfoot |= onFoot;
+
+            if (onFoot)
+            {
+                // Whatever shot was built for a conversation is the story's, and the story
+                // has let go of the camera.
+                update.Stage(null);
+
+                // Where the story has left the player. Read every frame, because a script
+                // may have walked them, turned them, or put them down somewhere else.
+                walker.Position = update.Where(story.Ego) ??
+                    update.ModelNamed(story.Ego)?.Standing.Translation ?? walker.Position;
+
+
+                // The controls are the player's only while nothing else is happening. A
+                // screen in front of the room, a verb bar, a line being spoken or a walk a
+                // script asked for all take them away, as they take away a click.
+                bool free = menu is null && !movies.Playing;
+                bool driving = free && !update.Occupied && update.OnTheMove == 0;
+
+                // Which way the story has them facing. Taken only as it changes: reading
+                // it every frame would undo the player's own looking about while a line is
+                // being spoken, which is the one thing they can still do then.
+                float facing = update.Turned(story.Ego) ?? walker.Yaw;
+
+                if (!driving &&
+                    MathF.Abs(Game.Navigation.Walker.Wrapped(facing - turned)) > 0.001f)
+                {
+                    walker.Yaw = facing;
+                }
+
+                walker.Speed = front.Settings.FirstPersonSpeed;
+
+                var asked = new Game.Navigation.FirstPersonInput(
+                    Pushing(window) + pushed,
+                    Looking(window, front.Settings, delta),
+                    window.IsHeld(Platform.CameraAction.Fast));
+
+                if (driving)
+                {
+                    Game.Navigation.FirstPersonStep went = walker.Advance(asked, delta);
+
+                    walking = went.Travelled > 0f || went.Blocked;
+                    shouldered = went.Blocked;
+
+                    // What they were asking for, not what they got: pressed into the edge
+                    // of the ground, the step slides along it and the way out is ahead.
+                    Vector3 meant = walker.Direction(asked.Move);
+
+                    if (meant.LengthSquared() > 1e-6f)
+                    {
+                        travelling = Vector3.Normalize(meant);
+                    }
+
+                    // Only once they have actually moved or turned. Until the player
+                    // touches the controls, where they stand is the room's answer: a room
+                    // arrived at places them a frame or two after it opens, and writing
+                    // before that stamped them at the coordinates of the room they came
+                    // from — reported as walking down to the lobby and arriving in the
+                    // wrong corner of it.
+                    if (went.Travelled > 0f || asked.Look != Vector2.Zero)
+                    {
+                        update.Step(story.Ego, walker.Position, walker.Yaw);
+                    }
+
+                    // Pressing into something that will not give, and getting nowhere at
+                    // all: an ego nothing ever placed is at the world origin, which is
+                    // outside every boundary there is, so every step from there is refused
+                    // and the player is a statue. Given a moment, because a doorframe
+                    // refuses a step too and gives it back the instant they turn.
+                    stuck = went.Blocked && went.Travelled <= 0f ? stuck + delta : 0f;
+
+                    if (stuck > StrandedFor &&
+                        scene.Walkable is { } fenced &&
+                        !fenced.IsWalkable(walker.Position) &&
+                        fenced.NearestWalkable(walker.Position) is { } patch)
+                    {
+                        stuck = 0f;
+                        walker.Position = patch with
+                        {
+                            Y = scene.Ground?.Height(patch) ?? walker.Position.Y,
+                        };
+
+                        update.Step(story.Ego, walker.Position, walker.Yaw);
+
+                        Log.Info(string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{story.Ego}: nothing had put them anywhere they could move " +
+                            $"from, so they are standing at " +
+                            $"{walker.Position.X:F0}, {walker.Position.Z:F0}"));
+                    }
+
+                    // Nothing is animating these legs, so the feet are counted rather than
+                    // heard from a walk cycle's own landings.
+                    if (walker.Footfall())
+                    {
+                        update.Footstep(story.Ego);
+                    }
+                }
+                else if (free)
+                {
+                    walker.Turn(asked.Look);
+                }
+
+                turned = update.Turned(story.Ego) ?? walker.Yaw;
+
+                (Vector3 eye, float yaw, float pitch) =
+                    walker.Shot(Game.Navigation.FirstPerson.Eyes, delta);
+
+                camera.Position = eye;
+                camera.Aim = new Vector2(yaw * 180f / MathF.PI, pitch * 180f / MathF.PI);
+            }
+            else if (theirs && !OnFoot())
             {
                 camera.Update(window, delta);
             }
 
             Camera view = camera.ToCamera(template);
+
+            // Nobody sees the inside of their own head. Asked of the view rather than of
+            // who is holding it, because the two moves between the player's eyes and a shot
+            // take a moment each: hiding the ego the instant the view became theirs made a
+            // character vanish while the camera was still across the room from him.
+            //
+            // Only as the answer changes, so a script that hides or shows the ego for its
+            // own reasons is not fought sixty times a second.
+            // While the view is the player's own, and while it is on its way back to their
+            // eyes or still leaving them. A shot the story has settled on draws them
+            // wherever it stands: a cutscene that frames Gabriel and finds him missing is
+            // worse than a glimpse of the inside of his head.
+            bool behindTheEyes = OnFoot() &&
+                (onFoot ||
+                 walker.Returning ||
+                 (update.Gliding &&
+                  update.EyesOf(story.Ego) is { } head &&
+                  Vector3.DistanceSquared(view.Position, head) < InsideTheHead * InsideTheHead));
+
+            if (behindTheEyes != embodied)
+            {
+                embodied = behindTheEyes;
+
+                if (update.ModelNamed(story.Ego) is { } body)
+                {
+                    update.Show(body, !behindTheEyes);
+                }
+            }
+
+            // Where the view actually is, while the player is the one holding it. Without
+            // this a shot the story cuts to next moves out of the last camera it happened
+            // to name — usually the one the room opened on — so the player watched the view
+            // jump across the room and then glide politely to the conversation.
+            update.Elsewhere = onFoot ? view : null;
 
             // What GK3's billboard flag has always meant, done here because here is where
             // the frame's camera is finally known — the free camera and the story's own
@@ -5377,15 +5680,47 @@ public static class Application
                 Vector3.Normalize(view.Target - view.Position),
                 view.Up);
 
+            // Walking into the way out takes it, which is what a way out means to somebody
+            // who is walking rather than clicking. Along the way they are travelling rather
+            // than the way they are looking: crossing a doorway sideways with your head
+            // turned must not leave the room. The rest of the click's path is untouched, so
+            // the exit's approach walk, its line and its SetLocation all happen as usual.
+            // Not in the first moment of a room: a player who walks through a door with
+            // the key still held arrives facing the way they came, and would be sent
+            // straight back out again.
+            if (onFoot && walking && !update.Occupied &&
+                stopwatch.Elapsed.TotalSeconds > ExitNotAtOnce &&
+                string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) &&
+                interaction.WayOut(
+                    new Rendering.Ray(view.Position, travelling), shouldered) is { } leaving &&
+                leaving.Noun is { Length: > 0 } way &&
+                (!string.Equals(way, tried, StringComparison.OrdinalIgnoreCase) ||
+                 stopwatch.Elapsed.TotalSeconds - triedAt > ExitAgainAfter))
+            {
+                tried = way;
+                triedAt = stopwatch.Elapsed.TotalSeconds;
+
+                if (interaction.Do(leaving) is { } took)
+                {
+                    Log.Info($"{story.Ego}: walked into {took.Noun}:{took.Verb}");
+                }
+            }
+
             // What the pointer is over. Asked every frame and free of consequences by
             // design — the resolver evaluates conditions to answer, so anything that wrote
             // to the story here would advance the game by moving the mouse across it.
             // The pointer is in window pixels and the viewport is in framebuffer pixels,
             // which are not the same on a scaled display. Picking in the wrong one puts the
             // ray somewhere the player is not looking, and only on some machines.
-            Vector2 aimed = pinned ?? new Vector2(
-                window.PointerPosition.X * window.DpiScale,
-                window.PointerPosition.Y * window.DpiScale);
+            // On foot with the mouse taken for looking, what the player is acting on is
+            // what they are looking at: the middle of the screen, where the crosshair is.
+            bool crosshair = onFoot && window.PointerLocked;
+
+            Vector2 aimed = pinned ?? (crosshair
+                ? new Vector2(window.FramebufferWidth / 2f, window.FramebufferHeight / 2f)
+                : new Vector2(
+                    window.PointerPosition.X * window.DpiScale,
+                    window.PointerPosition.Y * window.DpiScale));
 
             Hover hover = interaction.At(
                 view,
@@ -6872,7 +7207,8 @@ public static class Application
                         topics,
                         radioOpen,
                         radioIndex,
-                        api.Mechanism?.Offers),
+                        api.Mechanism?.Offers,
+                        crosshair),
                     window.FramebufferWidth,
                     window.FramebufferHeight);
 
@@ -8808,6 +9144,71 @@ public static class Application
         float.TryParse(p, CultureInfo.InvariantCulture, out float pitch)
             ? new Vector2(heading, pitch)
             : null;
+
+    /// <summary>Which way <c>--push X,Y</c> holds the movement controls.</summary>
+    /// <param name="args">The command line.</param>
+    /// <returns>X to the player's right, Y ahead of them, or nothing.</returns>
+    private static Vector2 Pushed(string[] args) =>
+        Option(args, "--push")?.Split(',') is [string x, string y] &&
+        float.TryParse(x, CultureInfo.InvariantCulture, out float across) &&
+        float.TryParse(y, CultureInfo.InvariantCulture, out float ahead)
+            ? new Vector2(across, ahead)
+            : Vector2.Zero;
+
+    /// <summary>Which way the player is asking to walk, in their own frame.</summary>
+    /// <param name="input">What they are doing.</param>
+    /// <returns>X to their right, Y ahead of them.</returns>
+    private static Vector2 Pushing(Platform.IGameInput input)
+    {
+        var move = Vector2.Zero;
+
+        if (input.IsHeld(Platform.CameraAction.Forward))
+        {
+            move.Y += 1f;
+        }
+
+        if (input.IsHeld(Platform.CameraAction.Back))
+        {
+            move.Y -= 1f;
+        }
+
+        if (input.IsHeld(Platform.CameraAction.Right))
+        {
+            move.X += 1f;
+        }
+
+        if (input.IsHeld(Platform.CameraAction.Left))
+        {
+            move.X -= 1f;
+        }
+
+        // The stick's Y grows downwards, so pushing it away from you is walking forward.
+        Vector2 stick = Game.Navigation.FirstPerson.Pushed(input.Sticks.Left);
+
+        return move + new Vector2(stick.X, -stick.Y);
+    }
+
+    /// <summary>How far the player is asking to turn this frame, in radians.</summary>
+    /// <param name="input">What they are doing.</param>
+    /// <param name="settings">How fast they asked looking to be, and which way up.</param>
+    /// <param name="seconds">How long the frame lasted, for the stick.</param>
+    /// <returns>X across, Y up.</returns>
+    private static Vector2 Looking(Platform.IGameInput input, Settings settings, float seconds)
+    {
+        // The mouse turns the view with nothing held while it is pinned for looking; with
+        // the pointer back it is a drag, which is how the camera has always been turned.
+        Vector2 look = input.PointerLocked || input.IsDragging
+            ? new Vector2(input.PointerDelta.X, -input.PointerDelta.Y) *
+              (Game.Navigation.FirstPerson.Sensitivity * settings.LookSensitivity)
+            : Vector2.Zero;
+
+        Vector2 stick = Game.Navigation.FirstPerson.Pushed(input.Sticks.Right);
+
+        look += new Vector2(stick.X, -stick.Y) *
+            (Game.Navigation.FirstPerson.StickRate * settings.LookSensitivity * seconds);
+
+        return settings.InvertLook ? new Vector2(look.X, -look.Y) : look;
+    }
 
     /// <summary>How far to subdivide a character's head.</summary>
     /// <param name="args">The command line.</param>

@@ -1813,7 +1813,7 @@ public sealed class SceneUpdate
         }
 
         _geometry.MoveModel(placed.Placement, Standing(placed, position, heading));
-        Follow(actor, position);
+        Record(placed, position);
 
         return true;
     }
@@ -2313,6 +2313,26 @@ public sealed class SceneUpdate
     }
 
     /// <summary>
+    /// Which way an actor faces, measured the way their placement was written.
+    /// </summary>
+    /// <param name="actor">Who, by either of their names.</param>
+    /// <returns>The heading in radians, or null when nobody of that name is in the room.</returns>
+    /// <remarks>
+    /// Not <see cref="Facing"/>: that reads the placement as a plain half turn, which is
+    /// what the rest of the game has always asked of it, and does not undo the model's own
+    /// built facing. The difference is invisible until something writes a heading and reads
+    /// it straight back, which is what standing behind the player's eyes does every frame.
+    /// </remarks>
+    public float? Turned(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        return _standing.TryGetValue(actor, out PlacedModel? placed)
+            ? Actors.FacingArrow.HeadingOf(placed.Standing, placed.BuiltFacing)
+            : null;
+    }
+
+    /// <summary>
     /// The way an actor faces once they have stopped: the facing a walk under way was asked
     /// to end on, else the way they stand.
     /// </summary>
@@ -2387,9 +2407,16 @@ public sealed class SceneUpdate
         }
 
         Vector3 from = Where(actor) ?? placed.Transform.Translation;
+
+        // Where they are facing now, not where the scene first put them. The two are the
+        // same for an actor nothing has turned, which is why this went unnoticed: with the
+        // player standing behind their own eyes and free to turn on the spot, every walk
+        // and every turn-to-look began by snapping them back to their authored heading and
+        // then turning smoothly from there. Measured as the placement was written, which
+        // Walker.HeadingOf does not do for a model whose own arrow was taken.
         float facing = _walking.TryGetValue(actor, out Walking? already)
             ? already.Walker.Facing
-            : Walker.HeadingOf(placed.Transform);
+            : Actors.FacingArrow.HeadingOf(placed.Standing, placed.BuiltFacing);
 
         // Already able to see it is not a walk at all — turn where you stand and look. The
         // whole of what "walk to see" asks for is a line of sight, and somebody who has one
@@ -2581,14 +2608,27 @@ public sealed class SceneUpdate
     private Vector3 Standing(Vector3 at) =>
         _scene.Ground?.Height(at) is { } height ? new Vector3(at.X, height, at.Z) : at;
 
-    /// <summary>Writes an actor's logical position, under every name they answer to.</summary>
+    /// <summary>
+    /// Writes an actor's logical position from where their pose has put them, under every
+    /// name they answer to. Refused for the actor the player is driving: their position is
+    /// the player's answer and not their pose's, and in first person the eye is at that
+    /// point, so an idle shifting its weight becomes a camera wandering off across the room.
+    /// </summary>
     private void Follow(string actor, Vector3? position)
     {
-        if (position is not { } where || !_standing.TryGetValue(actor, out PlacedModel? placed))
+        if (position is not { } where ||
+            !_standing.TryGetValue(actor, out PlacedModel? placed) ||
+            IsDriven(placed))
         {
             return;
         }
 
+        Record(placed, where);
+    }
+
+    /// <summary>Writes it down whoever is asking, for a move the player or a script made.</summary>
+    private void Record(PlacedModel placed, Vector3 where)
+    {
         _logical[placed.Name] = where;
 
         if (placed.Noun is { Length: > 0 } noun)
@@ -2635,11 +2675,43 @@ public sealed class SceneUpdate
                 Actors.FacingArrow.Rotation(heading, placed.BuiltFacing)) *
             Matrix4x4.CreateTranslation(position));
 
-        Follow(actor, position);
+        Record(placed, position);
 
         // Nothing to tell the heads: they read the model's own transform, which this has
         // just written, on the frame that follows.
         return true;
+    }
+
+    /// <summary>
+    /// Moves an actor the player is driving themselves, leaving whatever they are doing
+    /// alone: no walk is cancelled and no clip is stopped, because nothing was started.
+    /// </summary>
+    /// <param name="actor">Their model name or noun.</param>
+    /// <param name="position">Where their feet are, already on the floor.</param>
+    /// <param name="heading">Which way they face, as the game's data measures a heading.</param>
+    /// <returns>True when there was somebody of that name to move.</returns>
+    public bool Step(string actor, Vector3 position, float heading)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (!_standing.TryGetValue(actor, out PlacedModel? placed))
+        {
+            return false;
+        }
+
+        _geometry.MoveModel(placed.Placement, Standing(placed, position, heading));
+        Record(placed, position);
+
+        return true;
+    }
+
+    /// <summary>Makes the noise a foot landing makes, for a walk nothing is animating.</summary>
+    /// <param name="actor">Whose foot.</param>
+    public void Footstep(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        Tread(new AnimationStep(0, actor, false));
     }
 
     /// <summary>
@@ -2722,11 +2794,24 @@ public sealed class SceneUpdate
         }
     }
 
+    /// <summary>
+    /// The actor the player is moving themselves, or null when nobody is. Clips may pose
+    /// them but must not relocate them: where they stand is the player's answer, and a
+    /// looping idle that adopted its own last frame walked them across the room.
+    /// </summary>
+    public string? Driven { get; set; }
+
+    /// <summary>Whether a model is the one the player is moving themselves.</summary>
+    private bool IsDriven(PlacedModel model) =>
+        Driven is { Length: > 0 } who &&
+        (model.Name.Equals(who, StringComparison.OrdinalIgnoreCase) ||
+         (model.Noun is { Length: > 0 } noun && noun.Equals(who, StringComparison.OrdinalIgnoreCase)));
+
     /// <summary>Hands a clip's last frame to the actor it was posing.</summary>
     /// <param name="playing">The clip, on the frame it stopped.</param>
     private void Adopt(Playing playing)
     {
-        if (playing.Target.Kind != PlacedModelKind.Actor)
+        if (playing.Target.Kind != PlacedModelKind.Actor || IsDriven(playing.Target))
         {
             return;
         }
@@ -3021,6 +3106,14 @@ public sealed class SceneUpdate
     /// <summary>Whether the view is on its way somewhere.</summary>
     public bool Gliding => _to is not null && _glided < GlideSeconds;
 
+    /// <summary>
+    /// Whether the story has pointed a camera of its own since the last thing it began.
+    /// Until it has, the view is still whoever's it was: an action that walks the player
+    /// across the room and says a line names no camera at all, and taking the view off them
+    /// for it leaves them watching their own back walk away.
+    /// </summary>
+    public bool Framed { get; private set; }
+
     /// <summary>Says where the view already is, so a glide has somewhere to leave from.</summary>
     /// <param name="camera">Where the scene opened.</param>
     public void StartAt(Camera camera)
@@ -3052,6 +3145,12 @@ public sealed class SceneUpdate
         if (_awaited.Count > 0 && _scripts?.Outstanding(_awaited) != true)
         {
             _awaited.Clear();
+        }
+
+        // Nothing is running, so nothing is holding the camera either.
+        if (!Directing)
+        {
+            Framed = false;
         }
 
         // The scripts first: one carrying on from a wait may cut the camera or set a
@@ -3281,7 +3380,10 @@ public sealed class SceneUpdate
                 Tread(fell);
             }
 
-            Follow(who, walking.Walker.Position);
+            if (_standing.TryGetValue(who, out PlacedModel? walker))
+            {
+                Record(walker, walking.Walker.Position);
+            }
         }
 
         // What somebody is holding goes where they are — after their own clip has posed
@@ -3482,6 +3584,10 @@ public sealed class SceneUpdate
     /// <summary>Notes what was already running, before an action adds to it.</summary>
     public void Starting()
     {
+        // A new thing to do is a new chance for the story to point a camera. Until it does,
+        // the view belongs to whoever already had it.
+        Framed = false;
+
         int waiting = _scripts?.Count ?? 0;
 
         if (_quiet < 0 || waiting <= _quiet)
@@ -3606,21 +3712,58 @@ public sealed class SceneUpdate
         return let;
     }
 
+    /// <summary>
+    /// Where the view actually is while somebody other than the story is holding it, or
+    /// null when the story's own answer is the right one. A move begins here, so a shot cut
+    /// to from the player's own eyes leaves from their eyes rather than from the last
+    /// camera the story happened to name.
+    /// </summary>
+    public Camera? Elsewhere { get; set; }
+
+    /// <summary>A shot worked out for the moment rather than named by the scene.</summary>
+    private Camera? _staged;
+
+    /// <summary>Which staged shot it is, so replacing one counts as a change of view.</summary>
+    private int _stagings;
+
+    /// <summary>
+    /// Puts a shot nobody authored in front of the cameras the story names, or takes it away.
+    /// </summary>
+    /// <param name="shot">The view, or null to go back to the camera the story named.</param>
+    public void Stage(Camera? shot)
+    {
+        if (shot is null && _staged is null)
+        {
+            return;
+        }
+
+        _staged = shot;
+        _stagings++;
+    }
+
+    /// <summary>Slow out of one shot and into the next, rather than a constant sweep.</summary>
+    private static float Eased(float part) => part * part * (3f - (2f * part));
+
     /// <summary>Takes the view wherever the story has put it.</summary>
     private void MoveView(double seconds)
     {
         // What is being looked at closely outranks where the story left the view, and the
-        // two are kept apart so that letting go of the first returns to the second.
+        // two are kept apart so that letting go of the first returns to the second. A
+        // staged shot sits between: nearer than a named camera, further than a close-up.
         string wanted = _api.State.Inspecting is { Length: > 0 } close
             ? "\u0000" + close
-            : _api.State.CameraAngle;
+            : _staged is not null
+                ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture)
+                : _api.State.CameraAngle;
 
         if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase))
         {
             _angle = wanted;
-            _from = View;
+            _from = Elsewhere ?? View;
             _to = Pointing(wanted);
             _glided = _api.State.CameraGliding && _from is not null ? 0 : GlideSeconds;
+
+            Framed = _to is not null;
         }
 
         if (_to is null)
@@ -3636,7 +3779,11 @@ public sealed class SceneUpdate
             return;
         }
 
-        float part = (float)(_glided / GlideSeconds);
+        // Eased rather than linear. A camera that starts and stops dead reads as machinery
+        // being moved; the same travel over the same time with its ends smoothed reads as a
+        // shot. It matters most on the move out of the player's own eyes in first person,
+        // which is the one glide that begins with the view already being looked through.
+        float part = Eased((float)(_glided / GlideSeconds));
 
         View = Narrowed(new Camera
         {
@@ -3657,6 +3804,11 @@ public sealed class SceneUpdate
         if (wanted.Length == 0)
         {
             return null;
+        }
+
+        if (wanted[0] == '\u0001')
+        {
+            return _staged;
         }
 
         if (wanted[0] != '\u0000')

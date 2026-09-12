@@ -316,4 +316,29 @@ public sealed class WalkerTests
 
         Assert.Equal(ground + turning, walker.Seconds, 3);
     }
+
+    [Fact]
+    public void A_heading_written_into_a_placement_reads_straight_back()
+    {
+        // Standing behind the player's eyes writes a heading every frame and reads it back
+        // the next, so the two have to be the same measurement. They were not: a placement
+        // is written with the model's own built facing taken off it and was read back as a
+        // plain half turn, and the view spun round by the difference the moment the story
+        // took the controls.
+        foreach (float? built in (float?[])[null, 0f, MathF.PI, 1.2f, -2.1f])
+        {
+            foreach (float heading in (float[])[0f, 0.7f, 2f, -2.5f, 3f])
+            {
+                Matrix4x4 placement =
+                    Matrix4x4.CreateRotationY(
+                        GK3Reborn.Game.Actors.FacingArrow.Rotation(heading, built)) *
+                    Matrix4x4.CreateTranslation(new Vector3(10f, 0f, 20f));
+
+                Assert.Equal(
+                    heading,
+                    GK3Reborn.Game.Actors.FacingArrow.HeadingOf(placement, built),
+                    3);
+            }
+        }
+    }
 }

@@ -52,6 +52,12 @@ public enum CameraAction
 
     /// <summary>Leave.</summary>
     Quit,
+
+    /// <summary>
+    /// Give the pointer back while held, so something off to one side can be clicked
+    /// without turning to face it.
+    /// </summary>
+    FreeCursor,
 }
 
 /// <summary>The pointer buttons the game reads.</summary>
@@ -192,6 +198,19 @@ public interface IGameInput
     float PointerScale
     {
         get => 1f;
+        set { }
+    }
+
+    /// <summary>
+    /// Whether the pointer is held for looking about rather than for pointing at things.
+    /// While it is, the mouse is hidden and pinned, every movement of it is reported
+    /// through <see cref="PointerDelta"/> with no button held, and
+    /// <see cref="PointerPosition"/> stops moving. A platform that will not pin a cursor
+    /// reads back false however this is set.
+    /// </summary>
+    bool PointerLocked
+    {
+        get => false;
         set { }
     }
 

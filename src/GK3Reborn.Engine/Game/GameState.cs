@@ -276,6 +276,22 @@ public sealed class GameState
     /// </summary>
     public bool Talking { get; set; }
 
+    /// <summary>
+    /// Whether the player is standing in the room rather than floating over it. A setting
+    /// and not a fact about the story, so it is never saved; the camera asks because a shot
+    /// cut to from somebody's own eyes has to be moved to instead, and because an authored
+    /// one frames the spot the actors were meant to be standing on.
+    /// </summary>
+    public bool FirstPerson { get; set; }
+
+    /// <summary>
+    /// Whether the view is in the player's own eyes at this moment, which is a different
+    /// question from whether they are on foot: the story takes the camera for a cutscene
+    /// and gives it back. A shot cut to from somebody's own eyes is disorienting in a way
+    /// that a cut between two shots is not, so leaving them is a move and nothing else is.
+    /// </summary>
+    public bool ViewIsTheirs { get; set; }
+
     /// <summary>Where an actor currently is.</summary>
     public string GetActorLocation(string actor) =>
         _actorLocations.GetValueOrDefault(Key(actor), string.Empty);

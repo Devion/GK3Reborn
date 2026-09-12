@@ -114,6 +114,9 @@ public sealed class FrontEnd
     private static readonly HdrTransfer[] Transfers =
         [HdrTransfer.Automatic, HdrTransfer.PerceptualQuantiser, HdrTransfer.ExtendedLinear];
 
+    private static readonly Perspective[] Perspectives =
+        [Perspective.FreeCam, Perspective.FirstPerson];
+
     private static readonly ToneMapping[] Curves =
         [ToneMapping.Clip, ToneMapping.Reinhard, ToneMapping.Filmic];
 
@@ -1212,13 +1215,51 @@ public sealed class FrontEnd
             Text.Say("general.cinematics", "Let the story move the camera"),
             Settings.Cinematics),
 
-        // Named for what it does rather than for what it is for. "Free camera" is a word
-        // somebody already looking for it will find, and "leave the room" is the half that
-        // tells everybody else what turning it on will look like.
+        // Not the perspective row above: this one is about the camera passing through the
+        // walls rather than about where the player watches from, and the two were both
+        // called "free camera" until they ended up on the same page.
         Toggle(
             "freecamera",
-            Text.Say("general.freecamera", "Free camera (may leave the room)"),
+            Text.Say("general.freecamera", "No-clip camera"),
             Settings.FreeCamera),
+
+        MenuItem.Choice(
+            "perspective", Text.Say("general.perspective", "Perspective"), Describe(Settings.Perspective)),
+
+        MenuItem.Slider(
+            "walkpace",
+            Text.Say("general.walkpace", "Walking pace"),
+            Fraction(
+                Settings.FirstPersonSpeed,
+                GK3Reborn.Game.Navigation.FirstPerson.SlowestPace,
+                GK3Reborn.Game.Navigation.FirstPerson.FastestPace),
+            MenuPage.Percent(Fraction(
+                Settings.FirstPersonSpeed,
+                GK3Reborn.Game.Navigation.FirstPerson.SlowestPace,
+                GK3Reborn.Game.Navigation.FirstPerson.FastestPace))) with
+        {
+            Enabled = Settings.FirstPerson,
+        },
+
+        MenuItem.Slider(
+            "looksense",
+            Text.Say("general.looksense", "Looking about"),
+            Fraction(
+                Settings.LookSensitivity,
+                GK3Reborn.Game.Navigation.FirstPerson.SlowestLook,
+                GK3Reborn.Game.Navigation.FirstPerson.FastestLook),
+            Times(Settings.LookSensitivity)) with
+        {
+            Enabled = Settings.FirstPerson,
+        },
+
+        Toggle(
+            "invertlook",
+            Text.Say("general.invertlook", "Invert looking up and down"),
+            Settings.InvertLook) with
+        {
+            Enabled = Settings.FirstPerson,
+        },
 
         Toggle(
             "captions", Text.Say("general.captions", "Write out what is said"), Settings.Captions),
@@ -1637,6 +1678,32 @@ public sealed class FrontEnd
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide },
             "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
             "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera },
+            "perspective" => Settings with
+            {
+                Perspective = Step(Perspectives, Settings.Perspective, action.Step),
+            },
+            "invertlook" => Settings with { InvertLook = !Settings.InvertLook },
+
+            // Rounded to a whole unit a second, so the row reads as a number and two
+            // players who set it to the same thing walk at the same pace.
+            "walkpace" => Settings with
+            {
+                FirstPersonSpeed = MathF.Round(Between(
+                    Settings.FirstPersonSpeed,
+                    GK3Reborn.Game.Navigation.FirstPerson.SlowestPace,
+                    GK3Reborn.Game.Navigation.FirstPerson.FastestPace,
+                    action)),
+            },
+
+            "looksense" => Settings with
+            {
+                LookSensitivity = MathF.Round(
+                    Between(
+                        Settings.LookSensitivity,
+                        GK3Reborn.Game.Navigation.FirstPerson.SlowestLook,
+                        GK3Reborn.Game.Navigation.FirstPerson.FastestLook,
+                        action) * 20f) / 20f,
+            },
             "captions" => Settings with { Captions = !Settings.Captions },
             "intro" => Settings with { PlayIntro = !Settings.PlayIntro },
             "eggs" => Settings with { EasterEggs = !Settings.EasterEggs },
@@ -1919,6 +1986,12 @@ public sealed class FrontEnd
             : $"{language.Native} ({language.Name})";
 
     /// <summary>What each cut-content tier is called in the menu.</summary>
+    private string Describe(Perspective perspective) => perspective switch
+    {
+        Perspective.FirstPerson => Text.Say("general.perspective.first", "First person"),
+        _ => Text.Say("general.perspective.free", "Free cam"),
+    };
+
     private string Describe(CutContentTier tier) => tier switch
     {
         CutContentTier.Observation => Text.Say("general.restored.look", "Things to look at"),

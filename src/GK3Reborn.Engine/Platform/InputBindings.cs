@@ -31,6 +31,9 @@ public sealed class InputBindings
         [CameraAction.QuickSave] = [InputKey.F5],
         [CameraAction.QuickLoad] = [InputKey.F9],
         [CameraAction.Quit] = [InputKey.Escape],
+
+        // Under the hand that is already on WASD.
+        [CameraAction.FreeCursor] = [InputKey.C],
     };
 
     /// <summary>
@@ -323,6 +326,7 @@ public sealed class InputBindings
         CameraAction.QuickSave => "Quick save",
         CameraAction.QuickLoad => "Quick load",
         CameraAction.Quit => "Menu",
+        CameraAction.FreeCursor => "Show the pointer",
         _ => action.ToString(),
     };
 

@@ -71,6 +71,10 @@ namespace GK3Reborn.UI;
 /// every room but the ones whose mechanism has a move the player cannot find by pointing at
 /// the room; see <see cref="Game.Mechanisms.SceneMechanism.Offers"/>.
 /// </param>
+/// <param name="Crosshair">
+/// Whether to mark the middle of the screen, which is what the player is looking at and so
+/// what a click acts on while they are standing in the room themselves.
+/// </param>
 public readonly record struct HudState(
     string? Noun,
     IReadOnlyList<string> Verbs,
@@ -97,7 +101,8 @@ public readonly record struct HudState(
     IReadOnlyList<Game.RadioTopic>? Radio = null,
     bool RadioOpen = false,
     int RadioIndex = 0,
-    Game.Mechanisms.MechanismButton? Prompt = null);
+    Game.Mechanisms.MechanismButton? Prompt = null,
+    bool Crosshair = false);
 
 /// <summary>
 /// The game's interface, laid out fresh every frame.
@@ -110,6 +115,9 @@ public sealed class GameHud
     private static readonly Vector4 Dim = new(0.55f, 0.55f, 0.52f, 1f);
     private static readonly Vector4 Accent = new(0.95f, 0.76f, 0.35f, 1f);
     private static readonly Vector4 Rule = new(0.30f, 0.32f, 0.36f, 0.8f);
+
+    /// <summary>What the crosshair is outlined in, so it survives a light wall.</summary>
+    private static readonly Vector4 Shadow = new(0.02f, 0.02f, 0.03f, 0.65f);
 
     /// <summary>The console's own ground, darker and more opaque than the rest.</summary>
     private static readonly Vector4 Console = new(0.03f, 0.04f, 0.06f, 0.97f);
@@ -173,6 +181,7 @@ public sealed class GameHud
         Headset(state);
         Gps(state, height);
         Hotspots(state, width, height);
+        Crosshair(state, width, height);
         // The bar of what the player is carrying used to live along the foot of the screen.
         // It is gone: the right-click menu already says which of your things a noun will
         // take, so the strip listed the same items a second time and did it across exactly
@@ -755,6 +764,30 @@ public sealed class GameHud
     /// <param name="state">What the game is doing, including where each noun is.</param>
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
+    /// <summary>The dot in the middle: what the player is looking at is what they act on.</summary>
+    private void Crosshair(HudState state, int width, int height)
+    {
+        if (!state.Crosshair)
+        {
+            return;
+        }
+
+        float unit = MathF.Max(1f, MathF.Round(Scale));
+
+        // Grown and lit when there is something under it, which is the only feedback a
+        // player gets that turning another degree would put them on it.
+        bool over = state.Noun is { Length: > 0 };
+        float dot = (over ? 4f : 3f) * unit;
+        float edge = unit;
+
+        float x = MathF.Round((width - dot) / 2f);
+        float y = MathF.Round((height - dot) / 2f);
+
+        // A dark square under a light one, so the mark survives a white wall and a night sky.
+        Overlay.Rect(x - edge, y - edge, dot + (2 * edge), dot + (2 * edge), Shadow);
+        Overlay.Rect(x, y, dot, dot, over ? Accent : Ink);
+    }
+
     private void Hotspots(HudState state, int width, int height)
     {
         if (state.Hotspots is not { Count: > 0 } spots)

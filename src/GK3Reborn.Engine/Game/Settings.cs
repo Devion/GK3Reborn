@@ -26,6 +26,16 @@ public enum PictureQuality
     Highest,
 }
 
+/// <summary>Where the player watches the game from.</summary>
+public enum Perspective
+{
+    /// <summary>Over the room, as the original plays: click the floor to walk there.</summary>
+    FreeCam,
+
+    /// <summary>Behind the eyes, walking it yourself.</summary>
+    FirstPerson,
+}
+
 /// <summary>
 /// What the player has chosen, and where it is kept.
 /// </summary>
@@ -253,6 +263,22 @@ public sealed record Settings
     /// Whether the camera may fly out of the room and keep flying through a cutscene.
     /// </summary>
     public bool FreeCamera { get; init; }
+
+    /// <summary>Where the player watches the game from.</summary>
+    public Perspective Perspective { get; init; } = Perspective.FreeCam;
+
+    /// <summary>Whether the player is behind their own eyes.</summary>
+    [JsonIgnore]
+    public bool FirstPerson => Perspective == Perspective.FirstPerson;
+
+    /// <summary>How fast they walk in first person, in scene units a second.</summary>
+    public float FirstPersonSpeed { get; init; } = Navigation.FirstPerson.Pace;
+
+    /// <summary>How fast looking about is, as a multiple of the usual.</summary>
+    public float LookSensitivity { get; init; } = 1f;
+
+    /// <summary>Whether pushing the mouse forward looks down rather than up.</summary>
+    public bool InvertLook { get; init; }
 
     /// <summary>
     /// Which language the game is read, spoken and written in.
@@ -485,6 +511,22 @@ public sealed record Settings
 
         CursorScale = float.IsFinite(CursorScale)
             ? Math.Clamp(CursorScale, SmallestCursor, LargestCursor)
+            : 1f,
+
+        Perspective = Enum.IsDefined(Perspective) ? Perspective : Perspective.FreeCam,
+
+        FirstPersonSpeed = float.IsFinite(FirstPersonSpeed)
+            ? Math.Clamp(
+                FirstPersonSpeed,
+                Navigation.FirstPerson.SlowestPace,
+                Navigation.FirstPerson.FastestPace)
+            : Navigation.FirstPerson.Pace,
+
+        LookSensitivity = float.IsFinite(LookSensitivity)
+            ? Math.Clamp(
+                LookSensitivity,
+                Navigation.FirstPerson.SlowestLook,
+                Navigation.FirstPerson.FastestLook)
             : 1f,
     };
 

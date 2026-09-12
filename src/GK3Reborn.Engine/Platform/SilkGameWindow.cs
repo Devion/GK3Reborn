@@ -198,6 +198,12 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// </summary>
     private bool _pointerRefused;
 
+    /// <summary>Whether the mouse is pinned and hidden for looking about.</summary>
+    private bool _pointerLocked;
+
+    /// <summary>Whether the platform refused to pin it, in which case nothing is asked again.</summary>
+    private bool _lockRefused;
+
     private SilkGameWindow(IWindow window)
     {
         _window = window;
@@ -519,6 +525,58 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public float PointerSpeed { get; set; } = 1200f;
 
     /// <inheritdoc/>
+    public bool PointerLocked
+    {
+        get => _pointerLocked;
+
+        set
+        {
+            if (_pointerLocked == value || _mouse is null || _lockRefused)
+            {
+                return;
+            }
+
+            try
+            {
+                _mouse.Cursor.CursorMode = value ? CursorMode.Raw : CursorMode.Normal;
+            }
+            catch (Exception error) when (error is not OutOfMemoryException)
+            {
+                // Some platforms have no raw motion. Hiding and pinning is the whole of
+                // what is needed; a difference in position works either way.
+                try
+                {
+                    _mouse.Cursor.CursorMode = value ? CursorMode.Disabled : CursorMode.Normal;
+                }
+                catch (Exception again) when (again is not OutOfMemoryException)
+                {
+                    _lockRefused = true;
+                    Log.Warning(
+                        $"Pointer: the platform will not pin the cursor, so first person " +
+                        $"is looked around with a button held ({again.Message})");
+
+                    return;
+                }
+            }
+
+            _pointerLocked = value;
+
+            // Handed back in the middle of the window, which is where the crosshair was and
+            // so where whatever has just opened is anchored.
+            if (!value)
+            {
+                _lastPointer = new Vector2(_window.Size.X / 2f, _window.Size.Y / 2f);
+                _mouse.Position = _lastPointer;
+            }
+
+            // Wherever the mouse now reads, that is the mark the next frame's movement is
+            // measured from: pinning it moves it, and that move is not the player's.
+            _mouseAt = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+            _pointerDelta = Vector2.Zero;
+        }
+    }
+
+    /// <inheritdoc/>
     public void MovePointer(Vector2 position)
     {
         _lastPointer = position;
@@ -658,6 +716,17 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         }
 
         var position = new Vector2(_mouse.Position.X, _mouse.Position.Y);
+
+        // Pinned for looking about: every movement is a turn and none of it is a place on
+        // screen, so the difference is reported and the pointer itself is left standing.
+        if (_pointerLocked)
+        {
+            _pointerDelta += position - _mouseAt;
+            _mouseAt = position;
+            _hasPointer = true;
+
+            return;
+        }
 
         // The mouse itself, if it has moved. It always wins: somebody who reaches for the
         // mouse has said which device they want, and a cursor that had to be given back by

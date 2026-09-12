@@ -336,7 +336,9 @@ public static class SceneScripting
 
         if (forced || api.State.CinematicsEnabled || api.State.ForcedCameraCuts)
         {
-            api.State.CameraGliding = gliding;
+            // Out of the player's own eyes is always a move, whatever the script asked for
+            // — except where it forced the cut, which is a script saying it means this one.
+            api.State.CameraGliding = gliding || (api.State.ViewIsTheirs && !forced);
             api.State.CameraAngle = name;
         }
     }
@@ -800,6 +802,9 @@ public static class SceneScripting
 
         api.State.Talking = true;
 
+        List<Vector3> speakers = Speakers(api, world);
+        List<Vector3> facing = Looking(api, world);
+
         string? wanted =
             (api.State.Conversation is { Length: > 0 } about
                 ? scene.Definition.DialogueCameras()
@@ -808,15 +813,37 @@ public static class SceneScripting
                         .FirstOrDefault(c => Named(c, about))?.Name
                 : null)
             ?? api.State.DefaultDialogueCamera
-            ?? ConversationCamera.Framing(
-                scene.Definition.Cameras(),
-                Speakers(api, world),
-                Looking(api, world));
+            ?? ConversationCamera.Framing(scene.Definition.Cameras(), speakers, facing);
 
+        // A shot the room names is the shot, in first person as much as anywhere else: its
+        // artists framed these conversations and a composed replacement is a different film.
+        // What changes on foot is only how the view gets there — moved rather than cut,
+        // because cutting out of your own head is disorienting in a way that cutting
+        // between two shots is not.
         if (wanted is { Length: > 0 } named)
         {
-            api.State.CameraGliding = false;
+            world.Stage(null);
+            api.State.CameraGliding = api.State.ViewIsTheirs;
             api.State.CameraAngle = named;
+
+            return;
+        }
+
+        // The room names nothing that holds this pair — not the conversation's own cameras,
+        // not the default, and nothing among its room cameras frames them both. The
+        // original's answer is to stay where it is, which from inside the player's head is
+        // two people talking to a wall, so a shot is built for them: square on to the line
+        // between the two, on the side the view is already on, far enough back to hold
+        // both. Only on foot; with the camera where the story left it, staying put is fine.
+        if (api.State.FirstPerson && world.View is { } standing)
+        {
+            Log.Info("Conversation: the room names no shot that holds the pair, so composing one");
+
+            world.Stage(ConversationCamera.Composed(
+                speakers,
+                standing.Position,
+                standing,
+                scene.CameraShell is { IsEmpty: false } shell ? shell.Contains : null));
         }
     }
 

@@ -76,4 +76,17 @@ public static class FacingArrow
         built is { } forward
             ? Navigation.Walker.Wrapped(heading - forward)
             : Navigation.Walker.Rotation(heading);
+
+    /// <summary>
+    /// Reads a heading back out of a placement <see cref="Rotation"/> built, which is not
+    /// what <see cref="Navigation.Walker.HeadingOf"/> answers: that one inverts the half
+    /// turn and knows nothing about a model whose own arrow was measured.
+    /// </summary>
+    /// <param name="transform">The placement: a turn about the vertical and a move.</param>
+    /// <param name="built">Which way the model is built to face, or null for the half turn.</param>
+    /// <returns>The heading, as the game's data measures one.</returns>
+    public static float HeadingOf(System.Numerics.Matrix4x4 transform, float? built) =>
+        built is { } forward
+            ? Navigation.Walker.Wrapped(MathF.Atan2(transform.M31, transform.M33) + forward)
+            : Navigation.Walker.HeadingOf(transform);
 }
