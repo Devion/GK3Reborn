@@ -319,6 +319,121 @@ public sealed class IntroductionTests
     }
 
     /// <summary>Something for the noun to answer to, so the picker offers it at all.</summary>
+    [Fact]
+    public void A_moped_is_anybody_s_until_the_story_says_whose_it_is()
+    {
+        // The same leak on the other half of the cast. Five suspects hire mopeds and the
+        // scene files name each one after its owner, so the port's label handed the licence
+        // plate puzzle over on day one: MOSELYS_MOPED reads back as "Mosely's moped" while
+        // it is standing in the hire shop's yard with nobody yet on it.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var sink = new HeadlessSceneSink();
+
+        PlacedModel bike = Standing(sink, "ves_01", "MOSELYS_MOPED");
+        PlacedModel plate = Standing(sink, "ves_01_liscense_plate", "MOSELYS_MOPED_LICENSE");
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse("[MODELS]", "TEST.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 2,
+            Walkable: null,
+            Geometry: null,
+            Placed: [bike, plate],
+            Actions: Rules());
+
+        var interaction = new SceneInteraction(scene, api)
+        {
+            Introductions = Introductions.Open(),
+            Watcher = new SceneUpdate(scene, api, new Glances(), sink),
+        };
+
+        Assert.Equal("Moped", interaction.NameOf("MOSELYS_MOPED"));
+        Assert.Equal("Moped number plate", interaction.NameOf("MOSELYS_MOPED_LICENSE"));
+
+        // SeenMoselyMop, which L'Homme Mort sets the first time Gabriel looks at him
+        // standing beside it. MOP_ALL.NVC's KNOW_MOSELYS_MOPED is this flag and nothing
+        // else.
+        state.SetFlag("SeenMoselyMop");
+
+        Assert.Equal("MOSELYS_MOPED", interaction.NameOf("MOSELYS_MOPED"));
+        Assert.Equal("MOSELYS_MOPED_LICENSE", interaction.NameOf("MOSELYS_MOPED_LICENSE"));
+    }
+
+    [Fact]
+    public void A_moped_nobody_ever_rides_past_is_named_once_Sidney_identifies_it()
+    {
+        // Wilkes, Buchelli and Emilio have no "seen them on it" flag: the only way to work
+        // out whose those three are is to copy the plate and let Grace link it to a suspect,
+        // which is what IDedWilkesVehicle and its two siblings record.
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var sink = new HeadlessSceneSink();
+
+        PlacedModel bike = Standing(sink, "ves_03", "WILKES_MOPED");
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse("[MODELS]", "TEST.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Walkable: null,
+            Geometry: null,
+            Placed: [bike],
+            Actions: Rules());
+
+        var interaction = new SceneInteraction(scene, api)
+        {
+            Introductions = Introductions.Open(),
+            Watcher = new SceneUpdate(scene, api, new Glances(), sink),
+        };
+
+        Assert.Equal("Moped", interaction.NameOf("WILKES_MOPED"));
+
+        state.SetFlag("IDedWilkesVehicle");
+
+        Assert.Equal("WILKES_MOPED", interaction.NameOf("WILKES_MOPED"));
+    }
+
+    [Fact]
+    public void Gabriel_s_own_moped_is_his_once_he_has_hired_it()
+    {
+        // It is his because he hired it, so the label says so from the moment he has the
+        // keys — and not a moment before. The hire shop stands it in its yard under this
+        // very noun at two o'clock on day one, hours before he has paid for it.
+        var api = new Gk3SheepApi(new GameState());
+        var sink = new HeadlessSceneSink();
+
+        PlacedModel bike = Standing(sink, "bikebody", "GABES_MOPED");
+
+        var scene = new LoadedScene(
+            "TEST",
+            new SceneDefinition(SceneInitFile.Parse("[MODELS]", "TEST.SIF")),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 1,
+            Walkable: null,
+            Geometry: null,
+            Placed: [bike],
+            Actions: Rules());
+
+        var interaction = new SceneInteraction(scene, api)
+        {
+            Introductions = Introductions.Open(),
+            Watcher = new SceneUpdate(scene, api, new Glances(), sink),
+        };
+
+        Assert.Equal(
+            "Harley for hire", interaction.NameOf("GABES_MOPED"));
+
+        api.State.Inventory.Add("GABRIEL", "MOPED_KEYS");
+
+        Assert.Equal("GABES_MOPED", interaction.NameOf("GABES_MOPED"));
+    }
+
     private static ActionResolver Rules()
     {
         var resolver = new ActionResolver(new Gk3SheepApi(new GameState()));

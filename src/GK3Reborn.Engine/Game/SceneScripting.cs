@@ -1034,13 +1034,6 @@ public static class SceneScripting
     /// <summary>
     /// Where a walk to see part of the room is aimed.
     /// </summary>
-    /// <remarks>
-    /// The retail engine's own rule: half the object's horizontal diagonal out from the
-    /// middle of its box, along +Z, and then onwards in three-unit steps until the floor
-    /// is walkable. It is arbitrary, and it is what every WalkToSee in the game was tuned
-    /// against — aiming at the middle sends the walk *into* a hollow object, which is how
-    /// Gabriel came to look at Larry's study from inside Larry's house.
-    /// </remarks>
     /// <param name="scene">The room.</param>
     /// <param name="box">The object's bounds.</param>
     /// <returns>The point to walk towards.</returns>

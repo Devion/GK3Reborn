@@ -37,20 +37,6 @@ public readonly record struct TitleLayer(int Picture, int Width, int Height, Vec
 /// <summary>
 /// The title screen the port opens with: a lit statue in front of a wall that moves.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Six layers, drawn into the interface's own display list under the menu's rows, so that
-/// what reaches the screen is one frame rather than a picture with a page laid over it.
-/// Nothing here reads the clock: the menu's loop hands it how long the last frame took,
-/// for the reason ADR 0004 gives.
-/// </para>
-/// <para>
-/// Everything moves and nothing moves quickly. On a 1080-line display the wall travels
-/// about eight pixels a second and the light about six; both are far below what reads as
-/// motion, which is the point — a screen that is not still, rather than a screen with
-/// something happening on it. See <c>docs/main-menu.md</c>.
-/// </para>
-/// </remarks>
 public sealed class TitleScene : IDisposable
 {
     /// <summary>How far down the window the wall starts.</summary>
@@ -65,41 +51,15 @@ public sealed class TitleScene : IDisposable
     /// <summary>
     /// How long the light out of frame takes to swing across the statue and back.
     /// </summary>
-    /// <remarks>
-    /// Not just longer than <see cref="WallSeconds"/>: the two travel different distances,
-    /// so what has to be compared is pixels a second. At 1080 lines the wall does about
-    /// eight and the light about six, which is the order they were asked for.
-    /// </remarks>
     private const float LightSeconds = 600f;
 
     /// <summary>How many upright slices one width of the wall is drawn in.</summary>
-    /// <remarks>
-    /// <para>
-    /// Opacity would want a dozen: each slice fades from its left edge's value to its right
-    /// edge's, so the count only decides how closely a run of straight lines follows a sine.
-    /// <b>The wave decides this number.</b> Each slice also hangs a few pixels above or
-    /// below its neighbour, and that is a step in the picture itself, which no amount of
-    /// blending hides. Ninety-six keeps the step under half a pixel at every window size
-    /// the game opens at — see <see cref="Wave"/>, which is where the arithmetic is.
-    /// </para>
-    /// <para>
-    /// <b>They abut exactly and never overlap.</b> Under a screen blend a slice drawn half
-    /// a pixel into its neighbour is screened twice, which is a bright upright line every
-    /// slice — the first version of this had ninety-six of them.
-    /// </para>
-    /// </remarks>
     private const int WallSlices = 96;
 
     /// <summary>How many upright slices the light is drawn in.</summary>
     private const int LightSlices = 16;
 
     /// <summary>How many level slices the cast shadow is sheared in.</summary>
-    /// <remarks>
-    /// The same rule as the wall's, and a stricter one: a shear moves every slice sideways
-    /// by a different amount, so the step between two of them is the whole lean divided by
-    /// this. At forty-eight it was thirteen pixels and the shadow was a staircase; at two
-    /// hundred and fifty-six it is under two, which on a silhouette this soft is nothing.
-    /// </remarks>
     private const int ShadowSlices = 256;
 
     /// <summary>The least the wall fades to at the sides of the window.</summary>
@@ -140,39 +100,16 @@ public sealed class TitleScene : IDisposable
     private const float SigilTurn = 0.18f;
 
     /// <summary>What a sigil is burned into the wall in.</summary>
-    /// <remarks>
-    /// <b>Not its own colour.</b> The sigils are painted a saturated red and the wall they
-    /// surface in is a saturated red, and multiplying one into the other changes almost
-    /// nothing: the green and the blue of the wall are near nought already, so scaling them
-    /// moves a pixel by a step or two, and the red is scaled by the sigil's own red, which
-    /// is nearly one. Photoshop's Colour Burn has the same trouble with the same two
-    /// pictures — it drives the green and the blue to nought, which they nearly are.
-    /// <para>
-    /// So what is multiplied in is the sigil's shape in a dark warm ink rather than the
-    /// sigil's shape in its own paint. It reads as a scorch in the wall, which is what a
-    /// mark burned into something looks like.
-    /// </para>
-    /// </remarks>
     private static readonly Vector3 SigilInk = new(0.30f, 0.18f, 0.16f);
 
     /// <summary>
     /// What the sigils' order is drawn from when nobody has said otherwise.
     /// </summary>
-    /// <remarks>
-    /// A stated number rather than the clock, so that two runs of <c>--frames</c> photograph
-    /// the same screen. Nothing about which sigil is up is worth being unpredictable about
-    /// from one launch to the next; what matters is that it is not the same one twice.
-    /// </remarks>
     private const int Seed = 0x6B3352;
 
     /// <summary>
     /// Which sigil comes next, and how long the wait before it is.
     /// </summary>
-    /// <remarks>
-    /// The engine's own generator rather than <c>System.Random</c>, which ADR 0004 forbids
-    /// anywhere in the engine. This one draws nothing the story can see -- but a second
-    /// source of randomness that is fine "just here" is how the first one gets in.
-    /// </remarks>
     private readonly DeterministicRandom _random;
     private readonly TitleLayer _statue;
     private readonly TitleLayer _wall;
@@ -231,10 +168,6 @@ public sealed class TitleScene : IDisposable
     /// has the archives and the device; left null, spelling the word lights the letters
     /// and nothing more.
     /// </summary>
-    /// <remarks>
-    /// Handed the wall as painted, so the party can hang it behind its floor. Called once:
-    /// a party that could not be built is not asked for again.
-    /// </remarks>
     public Func<DecodedImage?, DiscoParty?>? PartyMaker { get; set; }
 
     /// <summary>The party, or null while the word is unspelled.</summary>
@@ -317,11 +250,6 @@ public sealed class TitleScene : IDisposable
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <returns>Whether the click landed on a letter of the title.</returns>
-    /// <remarks>
-    /// The letters spell <see cref="TitleLetters.Word"/>, one click each, and the last of
-    /// them starts the party. A click anywhere else on the screen is nothing: the title is
-    /// a small part of a large screen, and somebody clicking about it is not spelling.
-    /// </remarks>
     public bool Click(Vector2 point, float width, float height)
     {
         if (width <= 0f || height <= 0f)
@@ -534,12 +462,6 @@ public sealed class TitleScene : IDisposable
     }
 
     /// <summary>Lights the letters that have been clicked.</summary>
-    /// <remarks>
-    /// Each is the same piece of the sheet drawn again, screened over itself in a colour,
-    /// three times at growing sizes and falling opacities, which is a glow without a blur.
-    /// The colours go round the wheel, each letter a fifth of a turn behind the last;
-    /// once the party is on they pulse on its beat.
-    /// </remarks>
     private void Glow(Overlay overlay, Vector4 name, DiscoParty? party)
     {
         if (_code.Lit.Count == 0)
@@ -675,17 +597,6 @@ public sealed class TitleScene : IDisposable
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <returns>Left, top, width and height.</returns>
-    /// <remarks>
-    /// Bottom-anchored and a little off the left edge, so that the far wing runs out of the
-    /// window rather than floating inside it. Taller than the wall's band on purpose: the
-    /// statue stands in front of the wall with its feet in the dark below it, which is what
-    /// makes the band read as a wall rather than as a stripe.
-    /// <para>
-    /// Laid out by the whole sheet rather than by the painted part of it, because the
-    /// statue is cut out to its own edges and the shadow and the light slice the same
-    /// rectangle up. A replacement with transparent margins would stand too small.
-    /// </para>
-    /// </remarks>
     private Vector4 Statue(float width, float height)
     {
         float tall = height * 0.98f;
@@ -716,15 +627,6 @@ public sealed class TitleScene : IDisposable
     }
 
     /// <summary>Draws the wall, scrolling, screened onto the statue and the black.</summary>
-    /// <remarks>
-    /// <b>Never drawn smaller than it was painted.</b> The band is 820 lines of a 1080-line
-    /// window and the picture is 1195 tall, so fitting the whole of it into the band would
-    /// shrink it by half again — and the interface's pictures carry no mip chain, because
-    /// everything else it draws is a map or a thumbnail at about its own size. A picture
-    /// minified without one crawls as it moves, which is exactly what a slow scroll is for
-    /// noticing. So the band takes a band *out of* the picture instead, at one texel to one
-    /// pixel, and only magnifies it on a display tall enough to need it.
-    /// </remarks>
     private void Wall(Overlay overlay, float width, float bandTop, float band)
     {
         float scale = MathF.Max(1f, band / MathF.Max(1, _wall.Height));
@@ -845,13 +747,6 @@ public sealed class TitleScene : IDisposable
     /// <summary>How far this part of the wall hangs below where the band is.</summary>
     /// <param name="part">Where across the window, from nought to one.</param>
     /// <returns>A part of the band's height, up or down.</returns>
-    /// <remarks>
-    /// Two waves again, and the shorter of them is what sets <see cref="WallSlices"/>. Its
-    /// slope is at most <c>0.4 × 9.1 × WaveDepth</c> of the band per unit of window, which
-    /// over one ninety-sixth of a window is a third of a pixel on a 1080-line display and
-    /// less on anything larger. A step of a third of a pixel is what bilinear filtering is
-    /// for; a step of three, which sixteen slices gave, is an upright line.
-    /// </remarks>
     private float Wave(float part) =>
         ((MathF.Sin((part * 4.7f) + (_elapsed * 0.090f)) * 0.6f) +
          (MathF.Sin((part * 9.1f) - (_elapsed * 0.055f)) * 0.4f)) * WaveDepth;
@@ -861,13 +756,6 @@ public sealed class TitleScene : IDisposable
         0.5f - (0.62f * MathF.Cos(_elapsed * 2f * MathF.PI / LightSeconds));
 
     /// <summary>Draws the statue's shadow on the wall behind it.</summary>
-    /// <remarks>
-    /// The statue is a cut-out, so its shadow is the same cut-out laid down again: darker,
-    /// leaning away from wherever the light is, and sheared so that it leans further the
-    /// further it is from the ground. Level slices rather than a transform, because the
-    /// interface draws rectangles — and thirty-two of them is finer than a step can be
-    /// found in at any size a window comes in.
-    /// </remarks>
     private void Shadow(Overlay overlay, Vector4 statue, float bandTop, float band)
     {
         // Away from the light, and never further than a good part of the statue's own
@@ -908,12 +796,6 @@ public sealed class TitleScene : IDisposable
     }
 
     /// <summary>Draws the light the statue is standing in.</summary>
-    /// <remarks>
-    /// The same cut-out again, screened over itself in a soft upright band that crosses it.
-    /// Screened rather than drawn over, so that what it does is lift the stone that is
-    /// already there rather than paint a colour onto it — the shadowed side of a fold stays
-    /// a shadowed side.
-    /// </remarks>
     private void Light(Overlay overlay, Vector4 statue)
     {
         // Where the lamp is, in the statue's own width. It runs off both ends, which is
@@ -1015,12 +897,6 @@ public sealed class TitleScene : IDisposable
     }
 
     /// <summary>Sinks the statue's feet into the black the rows are drawn on.</summary>
-    /// <remarks>
-    /// The statue runs past the bottom of the wall and the rows are laid across the black
-    /// under it, so without this "Play" is written over a lit marble hem. One rectangle
-    /// fading from nothing at the wall's edge to black at the bottom of the window: the
-    /// statue walks into the dark rather than being cut off by a panel.
-    /// </remarks>
     private static void Feet(Overlay overlay, float width, float height, float bandBottom)
     {
         float depth = height - bandBottom;

@@ -84,11 +84,6 @@ public sealed record SaveGame
     /// Which reader brought this across from an original save, or null for a game the
     /// player saved here.
     /// </summary>
-    /// <remarks>
-    /// An import is not the player's work, so it may be replaced: a build that reads more of
-    /// an original save than the one before it redoes the imports the older reader left. See
-    /// OriginalSaves.Import, which is the only thing that writes this.
-    /// </remarks>
     public string? Imported { get; init; }
 
     /// <summary>When, in UTC.</summary>

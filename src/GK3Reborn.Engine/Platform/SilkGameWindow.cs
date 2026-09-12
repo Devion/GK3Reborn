@@ -450,12 +450,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
 
     /// <inheritdoc/>
-    /// <remarks>
-    /// A synthesized press counts as held for the frame it lands on. With a real mouse the
-    /// two already agree — the frame a click is reported is a frame the button is down —
-    /// and without it a headless run cannot work anything that is dragged rather than
-    /// clicked, which is how the fingerprint kit's brush is used.
-    /// </remarks>
     public bool IsHeld(PointerButton button) =>
         _clicked.Contains(button) ||
         (_mouse is not null &&

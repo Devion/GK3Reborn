@@ -69,14 +69,6 @@ public sealed record DustedThing(
 /// <summary>
 /// What the fingerprint kit finds on each thing it can be used on.
 /// </summary>
-/// <remarks>
-/// <b>None of this is in the game data.</b> No script says what a surface has on it, where
-/// on it the print is, or what is said about it: the retail engine holds the whole table in
-/// code, and this is it, read out of the reference engine's <c>FingerprintScreen.cpp</c>.
-/// The pictures and the coordinates are as much a part of it as the items are — a kit that
-/// knows what it will find without the player dusting for it is not the puzzle the game
-/// shipped. See <see cref="FingerprintDusting"/> for the dusting itself.
-/// </remarks>
 public static class FingerprintKit
 {
     /// <summary>"I've already done that." — a print taken twice.</summary>

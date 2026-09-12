@@ -108,11 +108,14 @@ public static class CommandLine
           --flat-heads          The same as --heads 0.
           --round N             How far round objects are rounded.
           --relief N            Displacement budget. 0 displaces nothing.
+          --no-weather          Outdoor ground as modelled, with nothing weathered off.
+          --flat-ground         Outdoor ground exactly as painted, with no variation.
           --no-thick-cards      Railings and fences stay flat cards.
           --no-card-shadows     Thick cards cast no shadow.
           --no-cull             Draw both sides of every room surface.
           --no-birds            No birds render in the sky.
           --no-insects          No insects and no dust in the air.
+          --no-spray            No spray where a fountain's water lands.
           --no-grass            No grass grown over the lawns.
           --no-sun-rays         No rays of sunlight, outdoors or in at a window.
           --no-shimmer          No heat haze over the far ground.

@@ -205,6 +205,32 @@ public interface ISceneSink
     void MoveInWind(IReadOnlySet<string> textures);
 
     /// <summary>
+    /// Says which textures are the ground of a room that is out of doors, and how far each
+    /// may vary from the picture painted on it.
+    /// </summary>
+    /// <param name="textures">
+    /// Colour texture names against how much they vary, nought to one. See
+    /// <see cref="GroundVariation"/>; a texture that is not named varies not at all, which
+    /// is every surface in the game before this.
+    /// </param>
+    void VaryGround(IReadOnlyDictionary<string, float> textures);
+
+    /// <summary>
+    /// Says what holds an outdoor room's ground still, so that weathering it leaves
+    /// everything standing on it where it stands.
+    /// </summary>
+    /// <param name="anchors">
+    /// Where the scene places models, whose feet were set against the ground as the 1999
+    /// files describe it.
+    /// </param>
+    /// <param name="walkable">
+    /// Whether an actor may stand at a point on X and Z, or null where the room lets them
+    /// stand nowhere. What is walked on is read from the original geometry, so what is
+    /// walked on may not move.
+    /// </param>
+    void HoldGround(IReadOnlyList<GroundAnchor> anchors, Func<float, float, bool>? walkable);
+
+    /// <summary>
     /// Draws one of the room's own named objects, or stops drawing it.
     /// </summary>
     /// <param name="objectName">The object's name, as the geometry file records it.</param>

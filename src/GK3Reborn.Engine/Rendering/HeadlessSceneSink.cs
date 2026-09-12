@@ -160,6 +160,26 @@ public sealed class HeadlessSceneSink : ISceneSink
         WindTextureCount = textures.Count;
     }
 
+    /// <summary>How many textures were named as the ground of a room out of doors.</summary>
+    public int GroundTextureCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void VaryGround(IReadOnlyDictionary<string, float> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+        GroundTextureCount = textures.Count;
+    }
+
+    /// <summary>How many models were named as holding the ground still.</summary>
+    public int GroundAnchorCount { get; private set; }
+
+    /// <inheritdoc/>
+    public void HoldGround(IReadOnlyList<GroundAnchor> anchors, Func<float, float, bool>? walkable)
+    {
+        ArgumentNullException.ThrowIfNull(anchors);
+        GroundAnchorCount = anchors.Count;
+    }
+
     /// <summary>How many sides of a sky the scene gave, for a sweep that wants to count.</summary>
     public int SkyboxFaces { get; private set; }
 

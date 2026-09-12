@@ -9,14 +9,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The kit's own sound effects.
 /// </summary>
-/// <remarks>
-/// <b>The game ships these and no script asks for any of them.</b> Four effects are named
-/// for Gabriel handling tape — getting it, wrapping it, putting it, pocketing it — and the
-/// fingerprint kit is the only place in the game where tape is handled; the reference
-/// engine's screen plays no audio at all, which is why they have never been heard. The
-/// brushing is <c>COATRUB</c>, a soft rub, which is the nearest thing the game has to a
-/// sable brush on glass.
-/// </remarks>
 public static class DustingSounds
 {
     /// <summary>Lifting the brush out of the kit.</summary>
@@ -96,20 +88,6 @@ public readonly record struct DustingStep(
 /// One session with the fingerprint kit: what is in hand, how far the powder has brought
 /// each print out, and which of them are on the cloth.
 /// </summary>
-/// <remarks>
-/// <para>
-/// <b>The kit is a puzzle, not a verdict.</b> The retail engine will not say whether a
-/// surface has anything on it until the player has actually worked the powder over it: a
-/// print fades up under the brush where it happens to be, and a bare surface says so only
-/// after the brush has travelled far enough to be sure. Both numbers here — how fast a
-/// print comes out, and how far the brush goes over nothing — are the reference engine's
-/// own, from <c>FingerprintScreen.cpp</c>.
-/// </para>
-/// <para>
-/// Nothing here draws or hit-tests. The screen knows where the pictures ended up, so it
-/// says which print the brush is over; this says what that does to the story.
-/// </para>
-/// </remarks>
 public sealed class FingerprintDusting
 {
     /// <summary>How far the brush goes over a bare surface before Gabriel is sure.</summary>
@@ -183,11 +161,6 @@ public sealed class FingerprintDusting
     /// <summary>
     /// How far through a stroke the brush is, nought to one and round again.
     /// </summary>
-    /// <remarks>
-    /// The screen turns this into the small back-and-forth the brush makes while it is
-    /// being worked. It is what tells the player the button has to stay down: a brush that
-    /// sits still under a held button looks like a brush that is not doing anything.
-    /// </remarks>
     public float Stroke { get; private set; }
 
     /// <summary>Whether a sweep of the brush finished this frame, for the sound.</summary>
@@ -199,12 +172,6 @@ public sealed class FingerprintDusting
     /// <summary>
     /// How many times a second the brush goes back and forth while it is being worked.
     /// </summary>
-    /// <remarks>
-    /// Driven by the clock rather than by how far the pointer has travelled: tied to
-    /// distance, a quick flick of the mouse spun the brush through most of a stroke in one
-    /// frame and the sweep read as a jitter. This way it is the same sweep however fast the
-    /// player is moving, and it stops the moment they do.
-    /// </remarks>
     private const float SweepsASecond = 2.5f;
 
     /// <summary>

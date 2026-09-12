@@ -14,11 +14,6 @@ public enum MenuBehind
     /// The title screen the port draws for itself: a picture, and one this page also lays
     /// its first page out against. See <see cref="TitleScene"/>.
     /// </summary>
-    /// <remarks>
-    /// A value of its own rather than <see cref="Picture"/> plus a flag, because the two
-    /// differ in exactly one thing — where the rows on the first page go — and every other
-    /// place that asks what is behind the page wants the same answer for both.
-    /// </remarks>
     Modern,
 
     /// <summary>Nothing, so the page draws its own screen.</summary>
@@ -277,21 +272,11 @@ public sealed class MenuPage
     /// <summary>
     /// Whether this page is one line of buttons across the window rather than a panel.
     /// </summary>
-    /// <remarks>
-    /// The title screen's first page, and nothing else. The picture behind it is a statue
-    /// with a wall behind it and black under both, and the black is where the rows belong;
-    /// a panel drawn over the middle of it would cover the thing it was drawn against.
-    /// </remarks>
     public bool Horizontal { get; set; }
 
     /// <summary>
     /// What to draw underneath the page, before anything of the page itself.
     /// </summary>
-    /// <remarks>
-    /// The title screen's own layers. It goes into this display list rather than behind it
-    /// so that the screen the player sees is one frame — the rows are drawn against the
-    /// statue, not over a picture that reached the window by another road.
-    /// </remarks>
     public Action<Overlay>? Backdrop { get; set; }
 
     /// <summary>One row's height, which is what everything else is measured in.</summary>
@@ -701,12 +686,6 @@ public sealed class MenuPage
     /// <param name="width">Window width.</param>
     /// <param name="height">Window height.</param>
     /// <param name="at">Where the pointer is, for the hover.</param>
-    /// <remarks>
-    /// No panel and no scrolling. This page is five buttons and it is always five buttons,
-    /// so the one thing it has to do that the upright pages do not is fit them across a
-    /// window that may be narrower than they would like: the air between them closes up
-    /// first, and only after that is gone does the line run to the edges.
-    /// </remarks>
     private void Strip(IReadOnlyList<MenuItem> items, int width, int height, Vector2 at)
     {
         float unit = Overlay.LineHeight;

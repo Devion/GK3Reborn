@@ -383,6 +383,12 @@ public sealed class SceneLoader
     /// </summary>
     public bool Grass { get; set; } = true;
 
+    /// <summary>
+    /// Whether the ground of a room out of doors is allowed to vary from the picture
+    /// painted on it. See <see cref="Rendering.GroundVariation"/>.
+    /// </summary>
+    public bool VariedGround { get; set; } = true;
+
     /// <summary>The floor map, read once for the grass: which textures are lawn.</summary>
     private Actors.Footsteps? _steps;
 
@@ -627,6 +633,40 @@ public sealed class SceneLoader
             }
         }
 
+        // And which of those textures is ground that may vary. The same two-part test —
+        // the room has a sky, and the room itself lays this texture on the floor it names
+        // — because it is the same question, "is this outdoor ground"; but asked without
+        // the height map, since a surface with no relief to cut is exactly the one most in
+        // need of something to break up a bitmap laid a thousand times.
+        if (VariedGround && asset is { Skybox.IsEmpty: false } && floorTextures.Count > 0)
+        {
+            _steps ??= Actors.Footsteps.Open(_archives);
+
+            Dictionary<string, float> ground = new(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string texture in floorTextures)
+            {
+                float varies = Rendering.GroundVariation.Of(texture, _steps.GroundOf);
+
+                if (varies > 0f)
+                {
+                    ground[texture] = varies;
+                }
+            }
+
+            if (ground.Count > 0)
+            {
+                geometry.VaryGround(ground);
+                _log?.Invoke(
+                    $"ground: {ground.Count} outdoor texture" +
+                    $"{(ground.Count == 1 ? string.Empty : "s")} varied — " +
+                    string.Join(
+                        ", ",
+                        ground.OrderBy(g => g.Key, StringComparer.Ordinal)
+                            .Select(g => $"{g.Key} {g.Value:0.##}")));
+            }
+        }
+
         // The longest single stretch of a cold load, and the one that can be counted: the
         // list of names is in hand before a byte of it is read. See Through.
         Doing(AtRoomGeometry, AtRoomTextures);
@@ -663,6 +703,18 @@ public sealed class SceneLoader
                 $"geometry: {overlay.Objects.Count} object(s) drawn from improved geometry, " +
                 $"{overlay.TriangleCount} triangles");
         }
+
+        // What holds this room's ground still while the weather takes material off it, and
+        // it has to be in hand before the room is added because cutting the ground is part
+        // of adding it. Two kinds: everything the scene stands on the ground, whose feet
+        // were set against the ground as the 1999 files describe it, and everywhere an
+        // actor may walk, whose height is read off the original geometry by WalkFloor and
+        // so cannot follow anything done here. See GroundErosion.
+        WalkBoundary? walkable = ReadBoundary(init, diagnostics);
+
+        geometry.HoldGround(
+            GroundHolds(init),
+            walkable is null ? null : (x, z) => walkable.IsWalkable(new Vector3(x, 0f, z)));
 
         geometry.AddScene(bsp, lightmaps, HiddenObjects(init), floorObject, replaced, overlay);
         Timeline?.Stamp("room: the rest of AddScene");
@@ -772,7 +824,7 @@ public sealed class SceneLoader
             asset,
             lightmaps,
             placed.Count,
-            ReadBoundary(init, diagnostics),
+            walkable,
             bsp,
             placed,
             ReadActions(init, request, diagnostics),
@@ -934,7 +986,24 @@ public sealed class SceneLoader
 
             // The original renders at a 60 degree vertical field of view on a 4:3 screen.
             FieldOfView = MathF.PI / 3f,
-            NearPlane = 1f,
+
+            // <b>The near plane is the depth buffer's whole budget.</b> A perspective depth
+            // value is nearly all decided by the near plane: the resolution at a distance
+            // goes as near/distance², so the difference between one unit and eight is eight
+            // times as much depth to tell two close surfaces apart with, everywhere in the
+            // room. At a unit, a decal a tenth of a unit off its backing is about three
+            // float steps apart at the far end of a long room, and three steps is a
+            // coin toss — reported from the museum, where the display panels stand a tenth
+            // of a unit off the red banners they hang on and the red ate into them from
+            // halfway down the hall.
+            //
+            // <b>Eight is the game's own number, near enough.</b> The retail engine clips
+            // at twelve (G-Engine's Camera.h records it and settles on eight because twelve
+            // was cutting things); every camera in the corpus and every camera-bounds shell
+            // was authored against that, so nothing in the game is meant to come closer.
+            // Eight rather than twelve because the port's own derived close-ups frame
+            // smaller things than the artists ever pointed a camera at.
+            NearPlane = 8f,
             FarPlane = reach * 4f,
         };
     }
@@ -1116,6 +1185,41 @@ public sealed class SceneLoader
         !SceneModel.IsDecal(model);
 
     /// <summary>Reads the bitmap that says where actors may stand.</summary>
+    /// <summary>
+    /// How much ground one model holds still around where it stands, in world units.
+    /// </summary>
+    private const float ModelHolds = 200f;
+
+    /// <summary>And how much a place the story stands somebody holds.</summary>
+    private const float SpotHolds = 90f;
+
+    /// <summary>Everywhere something of the scene's own rests on the ground.</summary>
+    /// <param name="init">The scene's initialisation.</param>
+    /// <returns>One anchor per placed model and named spot; empty for a room with none.</returns>
+    private static List<GroundAnchor> GroundHolds(SceneDefinition init)
+    {
+        List<GroundAnchor> holds = [];
+
+        foreach (SceneModel model in init.Models())
+        {
+            if (model.Position is { } at)
+            {
+                holds.Add(new GroundAnchor(new Vector2(at.X, at.Z), ModelHolds));
+            }
+        }
+
+        // And the spots the story puts people on. Most are inside the walk bitmap and
+        // held twice over; the ones that are not are the arrivals and the cutscene marks,
+        // which are exactly the places somebody is standing when the camera is on them.
+        foreach (ScenePosition spot in init.Positions())
+        {
+            holds.Add(
+                new GroundAnchor(new Vector2(spot.Position.X, spot.Position.Z), SpotHolds));
+        }
+
+        return holds;
+    }
+
     private WalkBoundary? ReadBoundary(SceneDefinition init, DiagnosticBag diagnostics)
     {
         if (init.Boundary() is not { } declared)

@@ -661,14 +661,6 @@ public sealed unsafe class OverlayPipeline : IDisposable
     /// <summary>The colour state one blend wants.</summary>
     /// <param name="blend">How a run is combined with what is already on the screen.</param>
     /// <returns>The attachment state.</returns>
-    /// <remarks>
-    /// The shader writes the same thing for both of the new two -- the picture faded by its
-    /// own coverage -- and these factors are what make one a screen and the other a
-    /// multiply. <see cref="OverlayShaders.PictureBlended"/> carries the arithmetic and the
-    /// reason it is one branch. Both leave the destination's alpha alone rather than
-    /// compositing coverage into it: neither is covering anything, and the swapchain's
-    /// alpha is already one.
-    /// </remarks>
     private static PipelineColorBlendAttachmentState Blending(OverlayBlend blend)
     {
         const ColorComponentFlags Everything =

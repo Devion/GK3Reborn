@@ -1259,7 +1259,7 @@ public sealed unsafe class Streamline : IDisposable
                     NumPathsToPlugins = 1,
 
                     // The engine creates its own instance, device and swapchain and tells
-                    // Streamline about them afterwards. See the class remarks.
+                    // Streamline about them afterwards.
                     Flags = DisableCommandListStateTracking | UseManualHooking |
                             UseFrameBasedResourceTagging,
 

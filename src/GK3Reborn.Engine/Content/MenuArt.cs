@@ -14,13 +14,6 @@ namespace GK3Reborn.Content;
 /// <summary>
 /// The layers the title screen is built out of, wherever they are to be had.
 /// </summary>
-/// <remarks>
-/// Six pictures, and the screen is all six or none of them. A menu missing its statue is
-/// not a cheaper menu, it is a menu with a hole in it — so an incomplete set is reported
-/// and the game opens on the 1999 <c>TITLE.BMP</c> instead. See
-/// <see cref="UI.TitleScene"/> for what is done with them and <c>docs/main-menu.md</c> for
-/// why each one is separate rather than painted into the others.
-/// </remarks>
 public sealed class MenuArt
 {
     /// <summary>The statue, cut out, which stands on the left.</summary>

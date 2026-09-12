@@ -167,13 +167,6 @@ public sealed class SceneSight
     /// <summary>
     /// Whether something can be seen from a point.
     /// </summary>
-    /// <remarks>
-    /// This is the retail engine's test: a line from the head to the thing, and the thing
-    /// is seen when the line reaches it or the first surface it meets is the thing's own.
-    /// Something hollow and large — the inside of a house, looked at through its window —
-    /// is seen the moment a look lands on any part of it, which a test that only asks
-    /// whether the line is clear all the way to the middle can never say.
-    /// </remarks>
     /// <param name="head">Where the looking is done from, at head height.</param>
     /// <param name="target">The thing.</param>
     /// <returns>True when any part of it is both near enough and unobstructed.</returns>

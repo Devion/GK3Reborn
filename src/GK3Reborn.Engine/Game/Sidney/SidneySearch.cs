@@ -140,14 +140,6 @@ public sealed class SidneySearch
     /// <summary>
     /// Reads <c>SIDNEYDIALOG.TXT</c>: which pages Grace has something to say about.
     /// </summary>
-    /// <remarks>
-    /// One section per page, keyed by the page's name without its extension, because that
-    /// is how the pages link to each other. <c>ME</c> is one or more licence plates,
-    /// <c>Flag</c> the flag set once it is said, <c>Flags</c> what must already hold, and
-    /// <c>LSR</c>/<c>LSRMax</c> the window of Le Serpent Rouge it belongs to. The file's
-    /// <c>Onetime</c> is not read: the flag it sets is what stops it a second time, which
-    /// is how the retail engine does it and what every section in the file relies on.
-    /// </remarks>
     private static Dictionary<string, SearchRemark> Remarks(string? text)
     {
         var remarks = new Dictionary<string, SearchRemark>(StringComparer.OrdinalIgnoreCase);

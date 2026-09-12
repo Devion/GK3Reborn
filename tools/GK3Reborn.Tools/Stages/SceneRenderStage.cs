@@ -58,6 +58,14 @@ public sealed class SceneRenderStage
     /// <summary>Whether grass is grown over the lawns.</summary>
     public bool Grass { get; set; } = true;
 
+    /// <summary>
+    /// Whether an outdoor room's ground is allowed to vary from the picture painted on it.
+    /// </summary>
+    public bool VariedGround { get; set; } = true;
+
+    /// <summary>Whether an outdoor room's ground is weathered.</summary>
+    public bool Weather { get; set; } = true;
+
     /// <summary>Renders a scene.</summary>
     /// <param name="sourceDirectory">The game's <c>Data</c> directory.</param>
     /// <param name="sceneName">Scene name, such as <c>R25</c>.</param>
@@ -191,6 +199,11 @@ public sealed class SceneRenderStage
         // only way to compare the two: everything else about the frame is identical.
         geometry.Relief = relief ? ReliefSettings.Default : ReliefSettings.Off;
 
+        if (!Weather)
+        {
+            geometry.Relief = geometry.Relief with { Erosion = 0f };
+        }
+
         // Set before the room's textures are read, because it gates the measurement as well
         // as the geometry and the measurement happens as a texture is uploaded. Off is the
         // flat 1999 card, which is the only thing to compare a thickened one against.
@@ -270,6 +283,7 @@ public sealed class SceneRenderStage
 
         loader.Trees = grown;
         loader.Grass = Grass;
+        loader.VariedGround = VariedGround;
         _log(grown.IsEmpty
             ? "trees: none grown; every foliage card stays flat"
             : $"trees: {grown.Count} grown across {grown.SpeciesCount} species, " +
@@ -518,6 +532,15 @@ public sealed class SceneRenderStage
             _log(string.Create(
                 CultureInfo.InvariantCulture,
                 $"railing shadows: {geometry.CardShadowTriangles} opaque triangles traced"));
+        }
+
+        if (geometry.Weather is { } weather)
+        {
+            _log(string.Create(
+                CultureInfo.InvariantCulture,
+                $"ground weathered: {weather.Free - weather.Held} of {weather.Free} ground " +
+                $"cells free at {weather.Cell:0.#} units, cut up to {weather.Deepest:0.#} " +
+                $"units ({weather.Typically:0.#} typically)"));
         }
 
         _log($"drawing {geometry.TriangleCount} triangles in {geometry.BatchCount} batches" +

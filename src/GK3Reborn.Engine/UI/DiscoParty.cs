@@ -46,24 +46,6 @@ public sealed record DiscoPartyContent(
 /// <summary>
 /// The party behind the title screen once the player has spelled the word.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The bar at Rennes-le-Château has a secret: with the eggs on, the bartender lowers a
-/// mirror ball, the floor turns to checkers and he dances to <c>BarDisco</c>. This is that
-/// secret let out onto the title screen, with everybody else in the game who was ever
-/// given something silly to do invited along — Grace's splits, Jean's flips, Emilio's
-/// clown routine, Gabriel's propeller — and the animals from the cemetery parade.
-/// </para>
-/// <para>
-/// It is a real scene: the models out of the archives, their own clips driving them, in a
-/// <see cref="SceneGeometry"/> the renderer draws under the menu's display list. Nothing is
-/// pre-rendered. The room around them is the one thing that is not the game's: a checkered
-/// floor and the title screen's own wall, lit by a ring of coloured lights that turn.
-/// </para>
-/// <para>
-/// Nothing here reads the clock. The menu's loop hands it how long the last frame took.
-/// </para>
-/// </remarks>
 public sealed class DiscoParty : IDisposable
 {
     /// <summary>The music, once the ball is down.</summary>
@@ -100,11 +82,6 @@ public sealed class DiscoParty : IDisposable
     private const int Ring = 6;
 
     /// <summary>How often the light rig is re-laid, in seconds.</summary>
-    /// <remarks>
-    /// Laying a rig rebuilds the scene's light grid. Ten times a second is plenty for
-    /// lights that take fifteen seconds to go round, and costs a tenth of what once a
-    /// frame would.
-    /// </remarks>
     private const float LightStep = 0.1f;
 
     private readonly DiscoPartyContent _content;
@@ -176,11 +153,6 @@ public sealed class DiscoParty : IDisposable
     public IReadOnlyList<string> Guests => [.. _performers.Select(p => p.Name)];
 
     /// <summary>Where the party is looked at from.</summary>
-    /// <remarks>
-    /// Low and a little back, so the ball hangs in the top of the view and the floor runs
-    /// off the bottom under the menu's rows. It sways: not a camera move, just enough that
-    /// the picture is never quite still.
-    /// </remarks>
     public Camera Camera => new()
     {
         // Straight at the ball, which puts it in the middle of the window and clear of
@@ -450,12 +422,6 @@ public sealed class DiscoParty : IDisposable
     }
 
     /// <summary>Lays the lights where they have got to.</summary>
-    /// <remarks>
-    /// A ring of coloured lights turning over the floor, each a different colour and each
-    /// drifting through the hues at its own rate, and a white key over the ball so that the
-    /// mirror ball is lit whatever colour the ring is showing. Before the ball is down
-    /// there is one dim warm light, which is the bar with its house lights on.
-    /// </remarks>
     private void LayLights()
     {
         _lights.Clear();
@@ -583,12 +549,6 @@ public sealed class DiscoParty : IDisposable
     /// The ball, its pole and the specks it throws: the bar's own three models, kept in
     /// the arrangement the bar authored them in.
     /// </summary>
-    /// <remarks>
-    /// The pole's clips and the two glowing models are all authored in the bar's own
-    /// space, so one translation moves all three together and the pole still comes down
-    /// exactly onto the ball. The translation is chosen so that the ball hangs at
-    /// <see cref="BallSpot"/>.
-    /// </remarks>
     private Performer? Rig(Action<string>? log)
     {
         if (_content.Model("discolights_ball") is not { } ball ||
@@ -756,11 +716,6 @@ public sealed class DiscoParty : IDisposable
     private static string[] Numbers(params string[] numbers) => numbers;
 
     /// <summary>Reads one animation and the clips it names onto a performer's puppets.</summary>
-    /// <remarks>
-    /// An animation that names a model the performer does not yet have gets that model
-    /// added: Emilio's clown routine is Emilio, a red nose, a party hat and a newspaper,
-    /// and each is a model of its own with a clip of its own.
-    /// </remarks>
     private Number? Learn(Performer performer, string name, After after)
     {
         if (_content.Animations.Read(name) is not { } animation || animation.Actions.Count == 0)
@@ -900,13 +855,6 @@ public sealed class DiscoParty : IDisposable
     /// Where a clip stands its owner on its first frame: the middle of the body across,
     /// and the lowest point of it down.
     /// </summary>
-    /// <remarks>
-    /// The posed vertices rather than the mesh origins. A character's lowest origin is a
-    /// shoe and near enough the floor; a cat's is its body, and a cat stood by its body's
-    /// origin is a cat up to its shoulders in the dance floor. The rig markers — the
-    /// three-vertex triads the artists left in — are left out, since they can sit
-    /// anywhere.
-    /// </remarks>
     private static Vector3 Feet(Number number, string owner)
     {
         (ActFile clip, Puppet puppet) = number.Parts.FirstOrDefault(

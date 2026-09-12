@@ -252,7 +252,7 @@ public sealed unsafe class D3D12Swapchain : IDisposable
         {
             // Asked for outright, or asked for by whatever else needs it. scRGB is tried
             // first here rather than PQ, because a caller that named it named it for a
-            // reason — see the class remarks on what frame generation wants.
+            // reason.
             if (transfer != HdrTransfer.PerceptualQuantiser &&
                 SupportsColorSpace(ColorSpaceType.RgbFullG10NoneP709))
             {

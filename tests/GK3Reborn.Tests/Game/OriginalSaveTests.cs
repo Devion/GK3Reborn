@@ -672,12 +672,6 @@ public sealed class OriginalSaveTests
     /// <summary>
     /// Every retail save this machine can find reads, and its own score reconciles.
     /// </summary>
-    /// <remarks>
-    /// The check that matters: the earned events and the header's score number come from
-    /// opposite ends of the file — one out of a table two hundred kilobytes into a
-    /// compressed block, the other out of the fixed header — and they have to agree. They
-    /// cannot agree by accident. Skipped where there is no installation to read.
-    /// </remarks>
     [Fact]
     public void A_real_save_reconciles_its_own_score()
     {

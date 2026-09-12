@@ -92,12 +92,6 @@ public sealed record Settings
     /// <summary>
     /// Whether the game opens on the port's own title screen rather than on the 1999 one.
     /// </summary>
-    /// <remarks>
-    /// On by default, and worth nothing at all without the six pictures the screen is made
-    /// of: they travel in <c>Reborn.rebarn</c>, and a game that has not got them opens on
-    /// <c>TITLE.BMP</c> whatever this says. See <see cref="UI.TitleScene"/> and
-    /// <see cref="Content.MenuArt"/>.
-    /// </remarks>
     public bool ModernMenu { get; init; } = true;
 
     /// <summary>Whether frames wait for the display.</summary>
@@ -204,30 +198,17 @@ public sealed record Settings
     /// <summary>
     /// Whether ankle-high grass is grown over the ground the rooms paint as lawn.
     /// </summary>
-    /// <remarks>
-    /// Takes effect at the next door, like the trees: the clumps are baked into the room
-    /// when it is built. See <see cref="Grass"/>.
-    /// </remarks>
     public bool Grass { get; init; } = true;
 
     /// <summary>
     /// Whether insects hang under the trees and dust drifts in the air.
     /// </summary>
-    /// <remarks>
-    /// One row for both, because both are the same decision: whether the air in a room is
-    /// allowed to have anything in it. See <see cref="SceneDrift"/> for which rooms get which.
-    /// </remarks>
     public bool InsectsAndDust { get; init; } = true;
 
     /// <summary>
     /// Whether the sun draws rays through whatever stands between it and the eye, outdoors
     /// past the trees and indoors in at the windows.
     /// </summary>
-    /// <remarks>
-    /// Its own row rather than part of the lighting, because it is the one effect here that
-    /// is a picture of the air rather than of a thing, and somebody who finds it too much
-    /// should be able to lose it without losing the sun. See <see cref="Rendering.SunRays"/>.
-    /// </remarks>
     public bool SunRays { get; init; } = true;
 
     /// <summary>

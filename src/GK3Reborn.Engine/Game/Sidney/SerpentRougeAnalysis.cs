@@ -48,31 +48,6 @@ public sealed record SerpentRougeOutcome(
 /// Le Serpent Rouge, worked out on Sidney's map: the thirteen verses as the retail engine
 /// checks them off.
 /// </summary>
-/// <remarks>
-/// <para>
-/// The map puzzle is not geometry the machine measures for itself; it is a fixed sequence of
-/// answers the retail engine holds in code and compares the player's marks and figures
-/// against, one verse at a time, setting the zodiac flag for each — <c>Aquarius</c> through
-/// <c>Sagittarius</c> — and the <c>LSRState</c> count the scripts read. Nothing in the game
-/// data says any of it: the spots, the tolerances, the order and what Grace says are all the
-/// engine's, read here out of the reference engine's <c>SidneyAnalyze_Map.cpp</c>.
-/// </para>
-/// <para>
-/// Spots are in the map's own 1,368 pixels measured from the top left; the retail engine
-/// measures from the bottom left, so every one of its Y values is turned over. Its
-/// zoomed-out figures are a quarter the size, so its centre, radius and tolerances for the
-/// circle, square and hexagram are four times what it writes. A marked place counts as one
-/// of the answer's when it is within twenty pixels; a figure when its middle is within
-/// eighty and its size within sixteen.
-/// </para>
-/// <para>
-/// Some steps are checked when ANALYZE is pressed (Aquarius, the meridian line, Leo, Virgo,
-/// the temple divisions, Sagittarius), some the moment the map changes (Pisces, Aries,
-/// Taurus, Libra), one when a place is marked (Scorpio's Site) and one when a grid is
-/// drawn (Gemini and Cancer). Ophiuchus is the anagram and Capricorn the temple; neither is
-/// on the map.
-/// </para>
-/// </remarks>
 public static class SerpentRougeAnalysis
 {
     // -------------------------------------------------------------------------------------
@@ -357,11 +332,6 @@ public static class SerpentRougeAnalysis
     /// <summary>
     /// What ruling a grid comes to.
     /// </summary>
-    /// <remarks>
-    /// A grid is almost never the answer. Filling a shape is only allowed while Gemini is
-    /// the verse in hand, and only the eight by eight is the chessboard; everything else
-    /// draws the grid and has Grace doubt it.
-    /// </remarks>
     /// <param name="map">The map, with the grid already drawn where it was allowed.</param>
     /// <param name="story">The game.</param>
     /// <param name="scores">The score sheet, or null.</param>
@@ -420,10 +390,6 @@ public static class SerpentRougeAnalysis
     /// <summary>
     /// Whether the figure being worked on may be erased just now.
     /// </summary>
-    /// <remarks>
-    /// Between Aries and Taurus the square is right but not yet turned right, and erasing
-    /// it would undo Aries; Grace says she thinks it is right and keeps it.
-    /// </remarks>
     /// <param name="map">The map.</param>
     /// <param name="story">The game.</param>
     /// <returns>The line Grace says instead, or null when it may go.</returns>
@@ -440,10 +406,6 @@ public static class SerpentRougeAnalysis
     /// <summary>
     /// Whether places may be marked at all just now.
     /// </summary>
-    /// <remarks>
-    /// On the second afternoon Grace will not plot anything until she has the church
-    /// pamphlet and the poem to plot from.
-    /// </remarks>
     /// <param name="story">The game.</param>
     /// <returns>The line she says instead, or null when she will.</returns>
     public static string? RefusesMarking(GameState story)
@@ -463,12 +425,6 @@ public static class SerpentRougeAnalysis
     /// The turn a figure being rotated should settle on if a step passes over it: the
     /// square's once the meridian line is down, the hexagram's once it sits in the circle.
     /// </summary>
-    /// <remarks>
-    /// The retail engine's player turns a figure by dragging and stops when it looks right,
-    /// within a tenth of a radian for the square and two degrees for the hexagram. A turn
-    /// taken in steps cannot stop there, so a step that sweeps past the right angle lands
-    /// on it, and a step that does not leaves the figure where the step put it.
-    /// </remarks>
     /// <param name="map">The map.</param>
     /// <param name="story">The game.</param>
     /// <param name="from">The turn before the step, in degrees.</param>

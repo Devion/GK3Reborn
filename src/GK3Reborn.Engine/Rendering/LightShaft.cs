@@ -19,12 +19,6 @@ namespace GK3Reborn.Rendering;
 /// How bright it is drawn: one for the sun coming straight in, less for the diffuse light
 /// of a window the sun does not reach this hour.
 /// </param>
-/// <remarks>
-/// Drawn by the daylight pass as a volume: every pixel's ray is cut against the box and
-/// marched through the part of it that lies in front of whatever the room drew there, so a
-/// pillar standing in a shaft cuts it and a shaft behind a wall is not seen. See
-/// <see cref="Game.SceneShafts"/> for where they come from.
-/// </remarks>
 public readonly record struct LightShaft(
     Vector3 Origin,
     Vector3 Direction,

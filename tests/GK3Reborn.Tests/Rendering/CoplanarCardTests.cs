@@ -88,6 +88,29 @@ public sealed class CoplanarCardTests
     }
 
     [Fact]
+    public void A_card_far_from_the_origin_is_still_recognised_as_one()
+    {
+        // RC1's bookshop sign hangs three thousand units out and is turned off the axes, so
+        // its two faces are quads whose corners no float lands on exactly. Measured as
+        // dot(normal, point) against the plane's distance from the origin, the leftover is
+        // the normal's own error multiplied by three thousand — three hundredths of a unit,
+        // which read as a board with a thickness. The two faces were left coincident and
+        // fought: the back's mirrored lettering showed through the shop's name.
+        var corner = new Vector3(3189.6f, 143.85f, -1384.37f);
+        var across = new Vector3(24.7f, 0, 35.9f);
+        var up = new Vector3(0, 18.3f, 0);
+
+        BspFile room = Room(
+            Quad(corner, across, up, flipped: false),
+            Quad(corner, across, up, flipped: true));
+
+        Vector3[] apart = CoplanarCards.Apart(room);
+
+        Assert.Equal(CoplanarCards.Separation, apart[0].Length(), 4);
+        Assert.Equal(CoplanarCards.Separation, apart[1].Length(), 4);
+    }
+
+    [Fact]
     public void A_wall_that_coincides_with_nothing_is_left_where_it_is()
     {
         BspFile room = Room(

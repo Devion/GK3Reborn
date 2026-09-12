@@ -173,13 +173,6 @@ public sealed class FrontEnd
     /// <summary>
     /// Whether the port's own title screen could be drawn at all on this installation.
     /// </summary>
-    /// <remarks>
-    /// Its six layers travel in <c>Reborn.rebarn</c>. False says the game has not got them,
-    /// which is what a 1999 disc plus the executable is; the row is still listed, dead, with
-    /// a line under it saying why. A row that appears when a pack is dropped in and is
-    /// absent until then is a row nobody knows to look for -- the same argument the language
-    /// row is made with.
-    /// </remarks>
     public bool ModernMenuAvailable { get; set; }
 
     /// <summary>

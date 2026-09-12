@@ -142,14 +142,6 @@ public sealed class GameState
     /// Where the story's rules find the player: the map while it is open, and otherwise
     /// the room.
     /// </summary>
-    /// <remarks>
-    /// The original made the map a place of its own. Showing it was a change of location
-    /// to <c>MAP</c>, the room underneath was unloaded, and a timeblock's rules ran on it
-    /// as they ran on any other — and the first afternoon ends on exactly that: 102P is
-    /// over when the map opens with everything done, and the card shows over the map.
-    /// The port keeps the room built under the map and the map is a screen over it, so
-    /// <see cref="Location"/> stays the room, and this answers for the rules instead.
-    /// </remarks>
     public string Whereabouts =>
         Screens.IsOnTop(ScreenKind.Driving) ? DrivingMap.Location : Location;
 
@@ -313,11 +305,6 @@ public sealed class GameState
     /// <param name="location">Three-letter location code.</param>
     /// <param name="when">Which point in the story the visits belong to.</param>
     /// <param name="value">The count.</param>
-    /// <remarks>
-    /// The clock-free form of the setter above, for writing a whole history in at once
-    /// rather than one timeblock's worth: an imported original save carries the counts for
-    /// every room in every timeblock the player has been through. See OriginalSaves.
-    /// </remarks>
     public void SetLocationCount(string actor, string location, Timeblock when, int value) =>
         _locationCounts[LocationKey(actor, location, when.ToString())] = value;
 

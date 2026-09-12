@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -2036,6 +2036,15 @@ public static class Application
                     : ReliefSettings.Off;
             }
 
+            // And whether an outdoor room's ground is weathered at all. Its own switch
+            // beside the budget, because the two fail in unrelated ways: the budget decides
+            // how finely the ground is cut and this decides whether anything is taken off
+            // it, and a picture that shows one going wrong shows nothing about the other.
+            if (args.Contains("--no-weather", StringComparer.OrdinalIgnoreCase))
+            {
+                geometry.Relief = geometry.Relief with { Erosion = 0f };
+            }
+
             // A fresh loader each time: it carries the last room's glances and its count of
             // enhanced textures, and neither belongs to the next one.
             var loader = new SceneLoader(archives, Log.Info)
@@ -2130,6 +2139,13 @@ public static class Application
             // the hundred thousand.
             loader.Grass = settings.Grass &&
                 !args.Contains("--no-grass", StringComparer.OrdinalIgnoreCase);
+
+            // Whether an outdoor room's ground may depart from the picture painted on it.
+            // Costs nothing and moves nothing — it is three lines of a fragment shader over
+            // the surfaces the room itself calls its floor — so there is no setting for it,
+            // only a switch, so that the same room can be photographed both ways.
+            loader.VariedGround =
+                !args.Contains("--flat-ground", StringComparer.OrdinalIgnoreCase);
 
             if (settings.ModelledTrees)
             {
@@ -4429,6 +4445,28 @@ public static class Application
                 $"{Game.BirdFlock.FlapsPerSecond(overhead.Wingspan):F1} beats a second"));
         }
 
+        // And what its fountains throw. Six rooms have one and the rest get an empty list
+        // that costs nothing; which rooms is read off the models rather than kept as a
+        // list, because every fountain in the game is the same model. See Game.Fountains.
+        bool noSpray = options.Contains("--no-spray", StringComparer.OrdinalIgnoreCase);
+
+        var spray = new Game.FountainSpray(Game.Fountains.In(scene.Models));
+
+        if (spray.Any)
+        {
+            Log.Info($"Fountain: {spray.Rings} ring(s) of falling water throwing spray");
+        }
+
+        // And what is alight in somebody's hand. Madeline Buthane is the only smoker in
+        // the game and seven rooms place her cigarette; the rest get an empty list that
+        // costs nothing. See Game.Cigarettes.
+        var smoking = new Game.CigaretteSmoke(Game.Cigarettes.In(scene.Models));
+
+        if (smoking.Any)
+        {
+            Log.Info($"Cigarette: {smoking.Count} alight, giving off smoke");
+        }
+
         // And what drifts through it: insects under its trees and dust in its air. Which
         // rooms have either is decided from the room — where its foliage cards are, and
         // whether it has a sun over it — rather than from a list. See Game.SceneDrift.
@@ -4523,6 +4561,38 @@ public static class Application
                     IReadOnlyList<Rendering.Particle> flying = birds.Facing(view);
 
                     blended = blended.Count == 0 ? flying : [.. flying, .. blended];
+                }
+            }
+
+            // And the spray off the fountains, which is in the room rather than over it.
+            // Advanced whatever the switch says, for the same reason the birds are: turning
+            // it off and on again is the same fountain a moment later, not a new one.
+            if (spray.Any)
+            {
+                spray.Advance(delta, view.Position);
+
+                if (!noSpray)
+                {
+                    IReadOnlyList<Rendering.Particle> thrown = spray.Facing(view.Position);
+
+                    if (thrown.Count > 0)
+                    {
+                        blended = blended.Count == 0 ? thrown : [.. blended, .. thrown];
+                    }
+                }
+            }
+
+            // And what a lit cigarette gives off. In the room rather than over it, like the
+            // spray, and sorted with it.
+            if (smoking.Any)
+            {
+                smoking.Advance(delta, view.Position);
+
+                IReadOnlyList<Rendering.Particle> puffing = smoking.Facing(view.Position);
+
+                if (puffing.Count > 0)
+                {
+                    blended = blended.Count == 0 ? puffing : [.. blended, .. puffing];
                 }
             }
 
@@ -5491,10 +5561,36 @@ public static class Application
 
             if (!console.Open && window.WasClicked(Platform.PointerButton.Secondary))
             {
+                // <b>Not while something is already happening.</b> The bar is where a
+                // conversation is held, so a bar that can be opened over a line that is
+                // still playing is a second conversation started on top of the first: pick
+                // a topic, and while the answer is being spoken right-click somebody else
+                // and pick another. Both run, both talk, and the camera belongs to whichever
+                // asked last — which is what was reported.
+                //
+                // The reference forbids it one level lower down, at the click rather than at
+                // the bar: <c>GameCamera::IsSceneInteractAllowed</c> is
+                // <c>mSceneInteractEnabled && !gActionManager.IsActionPlaying() && ...</c>,
+                // and nothing reaches <c>ShowActionBar</c> while an action is playing. The
+                // left button is already refused here for the same reason — see the
+                // <c>update.Occupied</c> arm below, which reads a click during dialogue as
+                // "skip this line" — and this is the other button's half of it.
+                //
+                // <c>Acting</c> rather than <c>Occupied</c>: the second is four conditions,
+                // one of them "more scripts are parked than were parked when an action last
+                // started", which in the temple is true from the moment the room opens and
+                // never clears. It is the same signal, and the same reasoning, that the
+                // headset's list is gated on.
+                //
+                // Closing is always allowed. A bar the player wants rid of must go away
+                // whatever the room is doing, or a conversation that wedges takes the only
+                // way out of itself with it.
+                bool busy = update.Acting || room?.Talking == true;
+
                 // The menu belongs to the thing it was opened over, not to wherever the
                 // pointer wanders next, so what was under it is kept — and so is where it
                 // was, because a menu that follows the pointer cannot be clicked.
-                menu = menu is null && hover.Actionable ? hover : null;
+                menu = menu is null && hover.Actionable && !busy ? hover : null;
                 menuAt = pointer;
                 menuIndex = 0;
 
@@ -5507,9 +5603,11 @@ public static class Application
                 // right-click that did not register.
                 if (menu is null)
                 {
-                    Log.Info(hover.Noun is { Length: > 0 } asked
-                        ? $"{asked} answers to nothing here and now"
-                        : "nothing under the pointer");
+                    Log.Info(busy
+                        ? "not now — something is already being said or done"
+                        : hover.Noun is { Length: > 0 } asked
+                            ? $"{asked} answers to nothing here and now"
+                            : "nothing under the pointer");
                 }
             }
 
@@ -6508,9 +6606,16 @@ public static class Application
             // something to it, and while it shared the left button it won every click:
             // the close-up is offered for nearly every noun in the game, so a click meant
             // to cross the room leaned in at a doorframe instead.
+            //
+            // And not while an action is playing, for the reason the bar cannot be opened
+            // then: a close-up is an action like any other, and starting one over a line
+            // that is still being spoken is two actions at once. The reference refuses this
+            // at the same place it refuses the bar — INSPECT is reached through the action
+            // bar, and the bar is behind IsSceneInteractAllowed.
             else if (!console.Open &&
                      window.WasClicked(Platform.PointerButton.Middle) &&
                      menu is null &&
+                     !update.Acting &&
                      hud?.OverInterface(pointer) != true)
             {
                 if (interaction.Do(hover, hover.Closer) is { } looked)
@@ -8404,13 +8509,6 @@ public static class Application
     /// <summary>
     /// Puts a picture's transparency back, where the game keeps it in a second bitmap.
     /// </summary>
-    /// <remarks>
-    /// GK3 stores a mask as its own file beside the picture, named with an <c>A</c> on the
-    /// end: <c>C_FPBRUSH.BMP</c> and <c>C_FPBRUSHA.BMP</c>. Keying magenta gets most of the
-    /// way there and leaves a magenta fringe wherever the artist anti-aliased an edge, which
-    /// on the fingerprint brush is a purple halo around the whole thing. Where no companion
-    /// exists — which is most of them — the picture is returned exactly as it was decoded.
-    /// </remarks>
     /// <param name="archives">The game's data.</param>
     /// <param name="file">The picture's file name.</param>
     /// <param name="picture">The picture, decoded.</param>
@@ -8462,13 +8560,6 @@ public static class Application
     /// <summary>
     /// Gives every transparent pixel the colour of its nearest visible neighbour.
     /// </summary>
-    /// <remarks>
-    /// What is behind a masked picture is still magenta, and drawing one larger than it was
-    /// painted blends the two: the fingerprint brush at twice its size came out with a
-    /// purple halo everywhere the filter mixed an invisible magenta pixel into a visible
-    /// one. Carrying the edge colour outwards leaves the filter nothing but the picture to
-    /// mix, and changes nothing at all about what is drawn — those pixels are invisible.
-    /// </remarks>
     /// <param name="pixels">The picture, RGBA, changed in place.</param>
     /// <param name="width">Its width in pixels.</param>
     /// <param name="height">Its height.</param>

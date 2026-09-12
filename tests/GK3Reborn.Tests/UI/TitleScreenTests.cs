@@ -455,11 +455,6 @@ public sealed class TitleScreenTests : IDisposable
     /// <summary>
     /// A font of fixed four-pixel characters, covering everything this page says.
     /// </summary>
-    /// <remarks>
-    /// <see cref="OverlayAtlas.Blank"/> would do for laying rectangles out and will not do
-    /// here: it has no characters at all, so every label measures nothing and a row of
-    /// buttons squeezed into a narrow window has nothing to squeeze.
-    /// </remarks>
     private static OverlayAtlas Font()
     {
         const string Characters =

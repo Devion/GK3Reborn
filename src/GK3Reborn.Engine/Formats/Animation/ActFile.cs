@@ -40,6 +40,12 @@ public sealed class ActFile
     private readonly Dictionary<int, List<MeshPose>> _transforms = [];
     private readonly Dictionary<(int Mesh, int Submesh), List<VertexPose>> _shapes = [];
 
+    /// <summary>
+    /// Whether each shaped submesh's last recorded pose runs back into its first. Worked
+    /// out on demand and kept, because it is a walk over every vertex of every frame.
+    /// </summary>
+    private readonly Dictionary<(int Mesh, int Submesh), bool> _closes = [];
+
     private ActFile(string name, string model, int frames, int meshes)
     {
         Name = name;
@@ -251,7 +257,12 @@ public sealed class ActFile
             return poses[0].Positions;
         }
 
-        (int next, float span) = Next(poses.Count, previous, poses[previous].Frame, i => poses[i].Frame, cycles);
+        (int next, float span) = Next(
+            poses.Count,
+            previous,
+            poses[previous].Frame,
+            i => poses[i].Frame,
+            cycles && Closes(mesh, submesh, poses));
 
         IReadOnlyList<Vector3> from = poses[previous].Positions;
 
@@ -308,6 +319,76 @@ public sealed class ActFile
         }
 
         return cycles && count > 1 && at == FrameCount - 1 ? (0, 1f) : (-1, 0);
+    }
+
+    /// <summary>
+    /// How much bigger than an ordinary step the wrap may be and still be one.
+    /// </summary>
+    private const float SeamSlack = 2f;
+
+    /// <summary>
+    /// Whether a shaped submesh's last recorded pose runs straight back into its first.
+    /// </summary>
+    /// <param name="mesh">Which mesh group.</param>
+    /// <param name="submesh">Which submesh within it.</param>
+    /// <param name="poses">Its recorded shapes, in frame order.</param>
+    /// <returns>True when the two ends may be interpolated together.</returns>
+    private bool Closes(int mesh, int submesh, List<VertexPose> poses)
+    {
+        if (_closes.TryGetValue((mesh, submesh), out bool already))
+        {
+            return already;
+        }
+
+        bool closes = Seamless(poses);
+        _closes[(mesh, submesh)] = closes;
+
+        return closes;
+    }
+
+    /// <summary>Whether the wrap of a track of shapes is no bigger than a step within it.</summary>
+    private static bool Seamless(List<VertexPose> poses)
+    {
+        // A track the whole of the clip is not recorded on has holes in it, and the frame
+        // after the last one is not the first: nothing is interpolated across the wrap
+        // anyway, so the answer does not matter and this is the cheap one.
+        if (poses.Count < 3)
+        {
+            return true;
+        }
+
+        float widest = 0;
+
+        for (int i = 1; i < poses.Count; i++)
+        {
+            widest = Math.Max(widest, Apart(poses[i - 1].Positions, poses[i].Positions));
+        }
+
+        float wrap = Apart(poses[^1].Positions, poses[0].Positions);
+
+        // A track that does not move at all: every step is nought and so is the wrap, and
+        // nought is not more than nought times anything.
+        return wrap <= widest * SeamSlack;
+    }
+
+    /// <summary>How far a shape moves, as the average distance its vertices travel.</summary>
+    private static float Apart(IReadOnlyList<Vector3> from, IReadOnlyList<Vector3> to)
+    {
+        int count = Math.Min(from.Count, to.Count);
+
+        if (count == 0)
+        {
+            return 0;
+        }
+
+        float total = 0;
+
+        for (int i = 0; i < count; i++)
+        {
+            total += Vector3.Distance(from[i], to[i]);
+        }
+
+        return total / count;
     }
 
     /// <summary>Mixes two mesh transforms, turning the shorter way round.</summary>

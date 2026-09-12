@@ -13,19 +13,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// The insects under a room's trees and the dust hanging in its air.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A few midges dance in a knot under a crown near the camera, and one or two flies cross
-/// the air on their own. Both are small, soft and few: they are there to make the air read
-/// as air, not to be looked at. A speck of dust lives in a box that travels with the camera
-/// and is born and dies on a sine, so a camera cut moves the box and every speck in it is
-/// simply young again; a speck inside a shaft of daylight is lit by it, which is how a
-/// shaft is seen at all.
-/// </para>
-/// <para>
-/// Both are handed to the blended pass as soft discs.
-/// </para>
-/// </remarks>
 public sealed class DriftField
 {
     /// <summary>How long one step of the simulation is, in seconds.</summary>

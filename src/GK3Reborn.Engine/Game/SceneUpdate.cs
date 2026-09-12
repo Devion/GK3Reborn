@@ -1987,12 +1987,6 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Draws one of the room's own named objects, or stops drawing it.</summary>
-    /// <remarks>
-    /// Hiding an ordinary object takes it out of the pointer's reach as well as off the
-    /// screen, which is what the retail engine does. A hit test is the exception: it is
-    /// never drawn in the first place, and hiding one leaves it clickable — the calls that
-    /// switch a hit test off are <c>DisableHitTestModel</c> and nothing else.
-    /// </remarks>
     /// <param name="objectName">The object's name, as the geometry records it.</param>
     /// <param name="visible">Whether it is drawn.</param>
     /// <returns>True when the room has an object by that name.</returns>
@@ -3739,7 +3733,13 @@ public sealed class SceneUpdate
             Target = centre,
             Up = Vector3.UnitY,
             FieldOfView = CloseUpFieldOfView,
-            NearPlane = 1f,
+
+            // As far out as the framing allows, for the depth precision the room camera's
+            // eight units buy — but no further, because this close-up is the one the port
+            // works out rather than the one the artists placed, and it frames things as
+            // small as a licence plate from a couple of units away. A quarter of the way
+            // to the middle of the subject clears the near face of it whatever its size.
+            NearPlane = MathF.Min(8f, MathF.Max(0.25f, back * 0.25f)),
             FarPlane = reach * 4f,
         };
     }

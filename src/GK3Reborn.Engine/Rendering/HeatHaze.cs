@@ -11,15 +11,6 @@ namespace GK3Reborn.Rendering;
 /// <summary>
 /// The waver of hot air over distant ground, as the output pass is told it.
 /// </summary>
-/// <remarks>
-/// Very soft, deliberately: the strongest bend at the pass's own tuning is half a pixel at
-/// 1080 lines, scaled with the picture, and it is nothing at all inside seven hundred units
-/// of the eye — the far end of a long street, not the middle of a square. What it is for is
-/// the horizon of a field on a hot day, and everything nearer staying still in front of it.
-/// At 1.3 pixels from 320 units it was the first thing the eye went to, which is exactly
-/// what a heat haze must never be. It is drawn where the picture is put on
-/// the screen, so the interface over it is untouched. See <c>OutputShaders</c>.
-/// </remarks>
 public static class HeatHaze
 {
     /// <summary>How far the haze bends the picture at its fullest, in pixels at 1080 lines.</summary>

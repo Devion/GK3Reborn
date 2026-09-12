@@ -24,20 +24,6 @@ namespace GK3Reborn.Rendering;
 /// The shafts of daylight at the room's windows, indoors, or none. Drawn by the same pass
 /// as volumes: see <see cref="LightShaft"/>.
 /// </param>
-/// <remarks>
-/// <para>
-/// The rays are drawn on the screen rather than marched through the room. Every pixel walks
-/// the line from itself toward where the sun is on the screen and counts how much of that
-/// line is sky, which is where the sun's light gets in; a wall, a tree or a hillside on the
-/// line is where it does not. What that draws is the shafts between the trees and the glow
-/// behind a roofline, which is the whole of what a ray of sunlight looks like from inside it,
-/// and it costs a few dozen depth reads a pixel rather than a march through a volume.
-/// </para>
-/// <para>
-/// So it needs the sun to be roughly in front of the camera, and fades out as it leaves.
-/// That is not a shortcoming: rays are only ever seen looking toward the light.
-/// </para>
-/// </remarks>
 public readonly record struct SunRays(
     Vector3 Toward, Vector3 Colour, float Strength, IReadOnlyList<LightShaft>? Shafts = null)
 {

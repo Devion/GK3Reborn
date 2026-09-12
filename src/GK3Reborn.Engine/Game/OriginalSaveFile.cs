@@ -91,27 +91,9 @@ public sealed record OriginalSaveState
 /// <summary>
 /// Reads a save the 1999 game wrote, header and state both.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A retail <c>.gk3</c> is a fixed header, then a summary, then a thumbnail as a plain PNG,
-/// and then — at the byte the header's own <c>Data Offset</c> names — a zlib stream holding
-/// the whole of the engine's state. Inside that is a table of the 160 classes the game knows
-/// and then every object it owns, written by each class's persist method in a fixed order
-/// with no field names: binary mode drops the names the text format writes.
-/// </para>
-/// <para>
-/// This reads the two blocks the story is actually kept in — the game state and the score
-/// table — and finds each by parsing rather than by offset, because nothing in the file says
-/// where an object begins. See <see cref="ReadState"/> for what makes a match certain.
-/// </para>
-/// </remarks>
 public static class OriginalSaveFile
 {
     /// <summary>The words the original files an inventory item under.</summary>
-    /// <remarks>
-    /// Read off the executable's own table at <c>0x675520</c>. Two of them mean somebody is
-    /// carrying it; the rest mean it is in the world, spent, or not yet anywhere.
-    /// </remarks>
     private static readonly string[] Statuses =
         ["BothHave", "GabeHas", "GraceHas", "Placed", "NotPlaced", "Used", "Normal"];
 
@@ -261,13 +243,6 @@ public static class OriginalSaveFile
     /// <param name="body">The decompressed state.</param>
     /// <param name="events">Every score event the game knows, for finding its table.</param>
     /// <returns>The state, or null when neither block could be found.</returns>
-    /// <remarks>
-    /// Nothing in the stream says where an object starts, so both blocks are found by trying
-    /// to parse one at every offset and keeping the first that comes out whole. That sounds
-    /// weak and is not: the game state is thirteen members deep and ends in eighty-three rooms
-    /// each carrying seventeen timeblocks, and every inventory line has to name one of six
-    /// words the executable knows. Nothing else in a megabyte of state parses as that.
-    /// </remarks>
     public static OriginalSaveState? ReadState(byte[] body, IReadOnlyCollection<string> events)
     {
         ArgumentNullException.ThrowIfNull(body);
@@ -527,11 +502,6 @@ public static class OriginalSaveFile
     /// <summary>
     /// A place in the save, and the shapes the original writes.
     /// </summary>
-    /// <remarks>
-    /// Every string is a 32-bit length, its bytes, and a terminating nul the length does not
-    /// count. Everything else is a little-endian int, a short or a byte. There is no padding
-    /// anywhere: a string of ten characters leaves the next int on an odd address.
-    /// </remarks>
     private struct Cursor(byte[] bytes, int at = 0)
     {
         private readonly byte[] _bytes = bytes;

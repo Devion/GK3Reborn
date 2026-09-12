@@ -9,13 +9,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Reads the saves the 1999 game wrote, and turns them into saves this engine can open.
 /// </summary>
-/// <remarks>
-/// The format is <see cref="OriginalSaveFile"/>. What is done with it is here: the original
-/// keeps its story in a shape close enough to this engine's that almost all of it carries
-/// over one field at a time, and the two places it does not — a topic count that is per
-/// character over there and not over here, and a Sidney scan the original never records
-/// because it is a verb count — are each written up where they are handled.
-/// </remarks>
 public static class OriginalSaves
 {
     /// <summary>
@@ -88,23 +81,12 @@ public static class OriginalSaves
     /// <summary>
     /// Which reader an import was made with.
     /// </summary>
-    /// <remarks>
-    /// Bumped whenever this file learns to read more of an original save than it did before,
-    /// which is what makes an existing import out of date. One was the header alone — the
-    /// story position, what a past timeblock implies, and a new game's pockets. Two reads the
-    /// state: the real pockets, the flags, the counts and the score events.
-    /// </remarks>
     private const string Reader = "original:2";
 
     /// <summary>Whether a slot already holds this save, read by this reader.</summary>
     /// <param name="store">Where the imports go.</param>
     /// <param name="slot">The slot the file would be imported to.</param>
     /// <returns>True when there is nothing to do.</returns>
-    /// <remarks>
-    /// An import an older reader made is replaced rather than kept. Nothing the player writes
-    /// can land in one of these slots — the interface writes <c>slot-NN</c>, the autosave and
-    /// the quick save, and nothing else — so redoing one costs nobody their game.
-    /// </remarks>
     private static bool Brought(SaveStore store, string slot) =>
         store.Read(slot, out SaveFault fault) is { } already &&
         fault == SaveFault.None &&
@@ -245,13 +227,6 @@ public static class OriginalSaves
     /// <summary>Puts the noun, verb and topic counts back.</summary>
     /// <param name="story">The game being built.</param>
     /// <param name="original">What the save holds.</param>
-    /// <remarks>
-    /// The original keeps one map for both, keyed by noun, verb and which of the two the
-    /// count belongs to, and answers <c>GetNounVerbCount</c> and <c>GetTopicCount</c> out of
-    /// it. This engine keeps them apart, so a topic is written to both: whichever a case
-    /// asks, it gets the answer the original would have given. A topic is a verb whose name
-    /// begins <c>T_</c>, which is the convention <c>VERBS.TXT</c> itself follows.
-    /// </remarks>
     private static void Counted(GameState story, OriginalSaveState original)
     {
         foreach (OriginalCount count in original.Counts)
@@ -313,12 +288,6 @@ public static class OriginalSaves
     /// <summary>Puts back what has been through Sidney's scanner.</summary>
     /// <param name="story">The game being built.</param>
     /// <param name="original">What the save holds.</param>
-    /// <remarks>
-    /// The original keeps no list of its own: scanning something is the <c>SCANNER</c> verb
-    /// on it, and every case in the corpus that asks whether a thing has been scanned asks
-    /// <c>GetNounVerbCount(noun, "SCANNER")</c>. So this is derived from the counts rather
-    /// than read, which is also how the original itself answers the question.
-    /// </remarks>
     private static void Scanned(GameState story, OriginalSaveState original)
     {
         foreach (OriginalCount count in original.Counts)
@@ -340,13 +309,6 @@ public static class OriginalSaves
     /// <param name="original">What the save holds.</param>
     /// <param name="introductions">The introductions table.</param>
     /// <param name="when">Where the story has got to.</param>
-    /// <remarks>
-    /// Two answers, and the union of them. The table says who a point in the story implies,
-    /// which is what an import had to rely on before the state could be read; the save's own
-    /// <c>T_INTRODUCE</c> counts say who was actually introduced. The labels this engine
-    /// draws ask this question, and an import that got it wrong called Madeleine Buthane
-    /// "Woman" two days in.
-    /// </remarks>
     private static void Met(
         GameState story,
         OriginalSaveState original,
@@ -376,11 +338,6 @@ public static class OriginalSaves
     /// <param name="scores">The score table.</param>
     /// <param name="introductions">The introductions table.</param>
     /// <returns>The save.</returns>
-    /// <remarks>
-    /// Everything a point in the story implies, and nothing else. This is what every import
-    /// used to be; it is kept because a save this engine cannot unpack is better opened at
-    /// the right hour with the right pockets than not opened at all.
-    /// </remarks>
     private static SaveGame Assumed(
         OriginalSaveHeader header,
         GameState story,

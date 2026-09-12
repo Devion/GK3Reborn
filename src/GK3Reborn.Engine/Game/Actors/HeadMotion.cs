@@ -7,13 +7,6 @@ namespace GK3Reborn.Game.Actors;
 /// <summary>
 /// The motion a clip is asking a refined head to make, read out of its vertices.
 /// </summary>
-/// <remarks>
-/// A refined head is drawn from geometry the clip has never heard of, so the clip's few
-/// hundred head vertices cannot be written into it — they are fitted against the authored
-/// rest instead and the answer applied to the mesh as a rigid motion. One of these belongs
-/// to one clip playing on one model: the fit either works for that pairing or it does not,
-/// and asking once is what keeps a frame from paying for it.
-/// </remarks>
 public sealed class HeadMotion
 {
     /// <summary>Scratch for the fit, kept so a frame does not allocate.</summary>
@@ -28,10 +21,6 @@ public sealed class HeadMotion
     /// <summary>
     /// How far a fit may miss by, as a share of the head's own width.
     /// </summary>
-    /// <remarks>
-    /// Above every model's ninety-ninth percentile but two — ma2 at 8.3% and glb at 15.5% —
-    /// and below the frames that are actually somebody's head coming off.
-    /// </remarks>
     private const float Limit = 0.08f;
 
     /// <summary>Reads the head's motion on a frame.</summary>

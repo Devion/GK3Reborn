@@ -192,12 +192,6 @@ public sealed class DrivingMap
     /// <summary>
     /// Whether the story itself has put a place on the map, without the player going there.
     /// </summary>
-    /// <remarks>
-    /// The rules are the retail engine's own, read out of the function that refreshes the
-    /// map's markers. They compare timeblocks chronologically, which is what its index
-    /// does, and the three places that are only ever open for one timeblock are open for
-    /// exactly that one.
-    /// </remarks>
     private static bool Found(GameState story, DrivingStop stop)
     {
         Timeblock now = story.Timeblock;
@@ -250,11 +244,6 @@ public sealed class DrivingMap
     /// <summary>
     /// How many signs of Le Serpent Rouge have been solved in order.
     /// </summary>
-    /// <remarks>
-    /// The retail engine counts the sign flags set from Aquarius up to the first that is
-    /// not, and its scripts read the same number back as <c>LSRState</c>; either is
-    /// honoured, whichever the analysis writes.
-    /// </remarks>
     /// <param name="story">The game.</param>
     /// <returns>The count, from none to all thirteen.</returns>
     public static int SerpentRougeSigns(GameState story)
@@ -321,16 +310,6 @@ public sealed class DrivingMap
     /// Why the map will not take the player somewhere just now, as a dialogue licence
     /// plate, or null when it will.
     /// </summary>
-    /// <remarks>
-    /// The retail map's own two refusals, from the function that answers its buttons.
-    /// Larry Chester's is refused the evening the two men have pulled into his driveway —
-    /// once they have, which is <c>TwoMenState</c> of five — and the small hours Gabriel
-    /// goes over on foot; both times he says he could pull in but had better not, parks at
-    /// Blanchefort and walks over by the château path. Riding straight in stood the moped
-    /// in the driveway while he was meant to be hiding behind a tree, which is how it was
-    /// reported. The station is refused on the two mornings Grace has nothing to do
-    /// there. Neither is a script's: nothing in the game data says either.
-    /// </remarks>
     /// <param name="story">The game.</param>
     /// <param name="scene">Where the player pointed, as a scene code.</param>
     /// <returns>The line, or null.</returns>

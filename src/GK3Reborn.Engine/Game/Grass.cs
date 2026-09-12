@@ -25,24 +25,6 @@ public readonly record struct GrassBed(
 /// <summary>
 /// Grows ankle-high grass over the ground the room paints as grass.
 /// </summary>
-/// <remarks>
-/// <para>
-/// A GK3 lawn is a flat texture. This stands clumps of blades on it: three crossed cards a
-/// hand high, spaced a stride apart with a little jitter, over every triangle whose texture
-/// <c>FLOORMAP.TXT</c> calls grass. The blades are drawn, not shipped, and drawn in the
-/// colour of the ground they stand on — the mean of the very texture underneath — so grass
-/// over Rennes-le-Château's yellow-green lawn is yellow-green and grass over the wood's is
-/// darker, and neither reads as grass from another game.
-/// </para>
-/// <para>
-/// What makes it read as grass rather than as cards: each blade is dark at its root and
-/// light at its tip, which is the shading a tuft has in life and the one thing a flat card
-/// cannot get from the lights; the card comes in a bright pair and a shaded pair, and a
-/// clump under a tree's crown takes the shaded one; and the card's normal is the ground's,
-/// so the lights and the traced shadows fall on a blade exactly as they fall on the lawn
-/// beside it. It moves in the wind by its own rule: see <see cref="GrassCards"/>.
-/// </para>
-/// </remarks>
 public static class Grass
 {
     /// <summary>The shortest and tallest clump, in world units. A character is seventy tall.</summary>

@@ -114,6 +114,71 @@ public sealed class SurfaceReliefTests
             new DecodedImage(extent, extent, pixels, HasAlpha: false, "level"));
     }
 
+    /// <summary>
+    /// The weather moves a vertex straight down, and by an amount that depends on nothing
+    /// but where the vertex is.
+    /// </summary>
+    [Fact]
+    public void TheWeatherTakesTheGroundStraightDown()
+    {
+        // A bank, so that no normal in the room points straight up and moving along one
+        // would move a vertex sideways as well as down.
+        BspFile room = Room((
+            [
+                new Vector3(-300f, 0f, -300f),
+                new Vector3(-300f, 0f, 300f),
+                new Vector3(300f, 120f, 300f),
+                new Vector3(300f, 120f, -300f),
+            ],
+            [
+                new Vector2(-3f, -3f),
+                new Vector2(-3f, 3f),
+                new Vector2(3f, 3f),
+                new Vector2(3f, -3f),
+            ]));
+
+        ReliefPlan dry = ReliefPlan.For(room, "the_floor", _ => true, 200_000)!;
+
+        ReliefPlan wet = ReliefPlan.For(
+            room, "the_floor", _ => true, 200_000, null,
+            new ErosionRequest(_ => 1f, [], null, 24f, 5))!;
+
+        Assert.NotNull(wet.Erosion);
+
+        // The same lattice both times, cut with no height map at all, so the only thing
+        // that can have moved a vertex is the weather.
+        List<(List<ReliefVertex> Vertices, List<int> Indices)> before = Cut(room, dry, null, 0f);
+        List<(List<ReliefVertex> Vertices, List<int> Indices)> after = Cut(room, wet, null, 0f);
+
+        Assert.Equal(before.Count, after.Count);
+
+        float lowered = 0f;
+
+        for (int piece = 0; piece < before.Count; piece++)
+        {
+            Assert.Equal(before[piece].Vertices.Count, after[piece].Vertices.Count);
+
+            for (int at = 0; at < before[piece].Vertices.Count; at++)
+            {
+                Vector3 was = before[piece].Vertices[at].Position;
+                Vector3 now = after[piece].Vertices[at].Position;
+
+                Assert.InRange(now.X - was.X, -0.001f, 0.001f);
+                Assert.InRange(now.Z - was.Z, -0.001f, 0.001f);
+                Assert.True(now.Y <= was.Y + 1e-3f, $"the weather raised the ground at {was}.");
+
+                // And by exactly what the field says about that point, which is what two
+                // triangles either side of a seam both read.
+                Assert.InRange(
+                    now.Y - was.Y - wet.Erosion!.At(was.X, was.Z), -0.01f, 0.01f);
+
+                lowered = MathF.Max(lowered, was.Y - now.Y);
+            }
+        }
+
+        Assert.True(lowered > 0.5f, $"the weather took nothing off the bank at all: {lowered}.");
+    }
+
     /// <summary>Cuts every triangle of a room's floor and returns what came out.</summary>
     private static List<(List<ReliefVertex> Vertices, List<int> Indices)> Cut(
         BspFile room, ReliefPlan plan, HeightField? field, float depth)

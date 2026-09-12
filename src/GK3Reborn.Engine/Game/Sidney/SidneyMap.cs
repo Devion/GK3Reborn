@@ -535,10 +535,6 @@ public sealed class SidneyMap
     /// A marked place near a spot, whether it is the working set's or an unsettled
     /// figure's, and takes it off the map.
     /// </summary>
-    /// <remarks>
-    /// The retail engine's <c>GetPlacedPointNearPoint</c>, twenty pixels, and the removal
-    /// that follows every successful match: a place recognised becomes the answer's own.
-    /// </remarks>
     /// <param name="spot">Where, in map pixels.</param>
     /// <param name="within">How near counts.</param>
     /// <returns>True when one was there.</returns>

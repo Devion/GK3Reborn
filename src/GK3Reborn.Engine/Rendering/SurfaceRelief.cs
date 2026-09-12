@@ -25,14 +25,42 @@ namespace GK3Reborn.Rendering;
 /// Without this a cobble does not shadow its own gutter, which is most of what displacing it
 /// was for; with it, the acceleration structure carries the whole budget.
 /// </param>
-public readonly record struct ReliefSettings(bool Displace, int TriangleBudget, bool Trace)
+/// <param name="Erosion">
+/// The most an outdoor room's ground may be weathered away, in world units, or nought to
+/// leave it the shape the artists modelled. This is the band between the texture's own
+/// relief and the three-to-five-metre triangles the ground is built from — the ruts and
+/// scours and hollows nothing in a 1999 room describes. See <see cref="GroundErosion"/>.
+/// </param>
+public readonly record struct ReliefSettings(
+    bool Displace, int TriangleBudget, bool Trace, float Erosion)
 {
-    /// <summary>Displaced, at a million triangles, and traced.</summary>
-    public static ReliefSettings Default => new(true, 2_000_000, true);
+    /// <summary>
+    /// Displaced, at a million triangles, traced, and weathered by up to twenty-four units.
+    /// </summary>
+    public static ReliefSettings Default => new(true, 2_000_000, true, 24f);
 
     /// <summary>Nothing displaced.</summary>
-    public static ReliefSettings Off => new(false, 1, false);
+    public static ReliefSettings Off => new(false, 1, false, 0f);
 }
+
+/// <summary>What a room needs to say before its ground can be weathered.</summary>
+/// <param name="Erodes">
+/// How readily a texture's ground erodes, nought to one. See <see cref="GroundVariation"/>.
+/// </param>
+/// <param name="Anchors">
+/// Where the scene stands models on its ground, which holds the ground under them.
+/// </param>
+/// <param name="Walkable">
+/// Whether an actor may stand at a point on X and Z, or null where none may anywhere.
+/// </param>
+/// <param name="Depth">The most that may be taken off, in world units.</param>
+/// <param name="Seed">Something stable about the room.</param>
+public readonly record struct ErosionRequest(
+    Func<string, float> Erodes,
+    IReadOnlyList<GroundAnchor> Anchors,
+    Func<float, float, bool>? Walkable,
+    float Depth,
+    int Seed);
 
 /// <summary>A vertex of a displaced surface, before it is given a lightmap coordinate.</summary>
 /// <param name="Position">Where it ended up, in world space.</param>
@@ -310,6 +338,9 @@ public sealed class ReliefPlan
     /// <summary>Surfaces beyond the floor whose relief is cut, or null for floor-only.</summary>
     private Func<BspSurface, bool>? Also { get; init; }
 
+    /// <summary>What the weather takes off this room's ground, or null for none.</summary>
+    public GroundErosion? Erosion { get; private init; }
+
     /// <summary>
     /// Works out how finely a scene's floor can afford to be cut, and what must not move.
     /// </summary>
@@ -321,10 +352,15 @@ public sealed class ReliefPlan
     /// Surfaces beyond the floor whose relief is cut too, or null for floor-only —
     /// outdoors, the ground runs past the <c>floor=</c> object and the loader says how far.
     /// </param>
+    /// <param name="erosion">
+    /// What the room needs to weather its ground, or null to leave it the shape it was
+    /// modelled in.
+    /// </param>
     /// <returns>The plan, or null when there is no floor to displace.</returns>
     public static ReliefPlan? For(
         BspFile? scene, string? floorObject, Func<string, bool> deep, int budget,
-        Func<BspSurface, bool>? also = null)
+        Func<BspSurface, bool>? also = null,
+        ErosionRequest? erosion = null)
     {
         ArgumentNullException.ThrowIfNull(deep);
         ArgumentOutOfRangeException.ThrowIfLessThan(budget, 1);
@@ -594,6 +630,21 @@ public sealed class ReliefPlan
             held.Add(edge.to);
         }
 
+        // Over exactly the triangles that survived every filter above, because those are
+        // the ones that will move. Anything that dropped out on the way — a facade, a
+        // triangle whose tiling stands apart, a surface with no lattice — is ground that
+        // stays where it is, and the field has to hold its neighbours to it.
+        GroundErosion? weather = erosion is { } asked && scene is not null
+            ? GroundErosion.For(
+                triangles,
+                scene,
+                asked.Erodes,
+                asked.Anchors,
+                asked.Walkable,
+                asked.Depth,
+                asked.Seed)
+            : null;
+
         return new ReliefPlan(
             normals,
             pinned,
@@ -608,6 +659,7 @@ public sealed class ReliefPlan
             Boundary = (pinned.Count, continued),
             SetApart = apart.Count,
             Also = also,
+            Erosion = weather,
         };
     }
 
@@ -703,7 +755,9 @@ public sealed class ReliefPlan
 
         // How wide a cell is in texture coordinates, for averaging the field over one.
         float span = (step.X + step.Y) * 0.5f;
-        bool displacing = field is not null && depth > 0f;
+        bool marching = field is not null && depth > 0f;
+        bool weathering = Erosion is not null;
+        bool displacing = marching || weathering;
 
         Span<Vector2> polygon = stackalloc Vector2[16];
         Span<Vector2> clipped = stackalloc Vector2[16];
@@ -806,7 +860,7 @@ public sealed class ReliefPlan
                     blend = MathF.Min(blend, Away(position, c));
                 }
 
-                if (blend > 0f)
+                if (marching && blend > 0f)
                 {
                     // Downwards only: the lower half of the signed field cuts into the
                     // modelled surface and its upper half remains on that surface. `Over`
@@ -837,6 +891,34 @@ public sealed class ReliefPlan
                     cutTotal += far;
                     cutCount++;
                 }
+
+                // And what the weather has taken off here, straight down, and not subject
+                // to the fade above.
+                //
+                // That fade holds a vertex to the authored plane wherever two lattices meet
+                // — at every change of texture, and the ground of an outdoor room changes
+                // texture every few metres, since its five steps of grass-to-dirt are five
+                // separate pictures chosen per triangle. A field faded out at all of those
+                // would be a field of bumps with a crease around each. It does not need the
+                // fade, because it is not a lattice: it is one smooth function of where a
+                // point is in the world, so two lattices either side of a seam are reading
+                // the same answer, and what holds it to the authored plane at a wall, at a
+                // rim, under a model and under the walk bitmap is held in the field itself.
+                if (weathering)
+                {
+                    float weather = Weather(position);
+
+                    if (weather < 0f)
+                    {
+                        position.Y += weather;
+
+                        float far = -weather;
+
+                        cutFurthest = MathF.Max(cutFurthest, far);
+                        cutTotal += far;
+                        cutCount++;
+                    }
+                }
             }
 
             made[key] = vertices.Count;
@@ -845,6 +927,12 @@ public sealed class ReliefPlan
             return vertices.Count - 1;
         }
     }
+
+    /// <summary>How far down the weather takes a point, in world units.</summary>
+    /// <param name="at">Where, in world space.</param>
+    /// <returns>Nought or less; nought where the room has no weather.</returns>
+    private float Weather(Vector3 at) =>
+        Erosion is null ? 0f : MathF.Min(Erosion.At(at.X, at.Z), 0f);
 
     /// <summary>How much of the displacement survives this far from something pinned.</summary>
     private static float Held(float weight, float fade) =>
@@ -909,14 +997,17 @@ public sealed class ReliefPlan
         List<ReliefVertex> vertices,
         List<int> indices)
     {
-        vertices.Add(new ReliefVertex(a, NormalAt(Key(a), a, b, c), ua));
-        vertices.Add(new ReliefVertex(b, NormalAt(Key(b), a, b, c), ub));
-        vertices.Add(new ReliefVertex(c, NormalAt(Key(c), a, b, c), uc));
+        vertices.Add(new ReliefVertex(Down(a), NormalAt(Key(a), a, b, c), ua));
+        vertices.Add(new ReliefVertex(Down(b), NormalAt(Key(b), a, b, c), ub));
+        vertices.Add(new ReliefVertex(Down(c), NormalAt(Key(c), a, b, c), uc));
 
         indices.Add(0);
         indices.Add(1);
         indices.Add(2);
     }
+
+    /// <summary>A corner with the weather taken off it.</summary>
+    private Vector3 Down(Vector3 at) => at with { Y = at.Y + Weather(at) };
 
     /// <summary>
     /// Clips a convex polygon against one axis-aligned line, in texture space.

@@ -544,12 +544,6 @@ public sealed class DrivingTraffic
     /// <summary>
     /// Records where every chase already followed all the way left its quarry.
     /// </summary>
-    /// <remarks>
-    /// For a game saved before <see cref="Traveller.LeavesThemAt"/> was written at the end
-    /// of a chase. The count says the chase happened, and it is the only memory of it, so
-    /// this puts the quarry where it would have put them — and only where nothing has
-    /// placed them since, because a script that moved them afterwards knows better.
-    /// </remarks>
     /// <param name="story">The game.</param>
     public static void RecordWhereChasesEnded(GameState story)
     {

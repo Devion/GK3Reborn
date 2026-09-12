@@ -42,16 +42,6 @@ public sealed record SerpentRougePage(int Number, string Picture, IReadOnlyList<
 /// <summary>
 /// Le Serpent Rouge, the poem in Grace's bag, read a page at a time.
 /// </summary>
-/// <remarks>
-/// The retail engine does not show the poem as one picture: its close-up is six pages
-/// with a button over every verse, and clicking a verse offers the verse's own verbs — READ,
-/// THINK, and the turn of a page — out of <c>INV_ALL.NVC</c>, which has seventy-odd rules
-/// for the thirteen verses and nothing at all for the poem as a whole beyond a look. A verse
-/// is lit while it is the one Sidney is working on and struck through once it is done, on the
-/// zodiac flags the analysis sets; the book opens at the page of the verse in hand. The
-/// port showed the bag's thumbnail and none of it, so the poem could not be read.
-/// Positions are the retail engine's own, anchored from the foot of a 640 by 400 page.
-/// </remarks>
 public static class SerpentRouge
 {
     /// <summary>The poem, as the inventory names it.</summary>

@@ -168,6 +168,69 @@ public sealed class BackFaceCullingTests
         Assert.True(draws[1].DoubleSided, "a placed model should keep both faces");
     }
 
+    /// <summary>A sheet of paper: a printed face and a back, coincident and opposed.</summary>
+    private static ModFile Sheet(string front, string back)
+    {
+        ModSubmesh Side(string texture, bool towards)
+        {
+            Vector3[] positions = Quad(1f, 0f, towards);
+
+            return new ModSubmesh
+            {
+                TextureName = texture,
+                Color = (255, 255, 255),
+                Positions = positions,
+                Normals = [.. positions.Select(_ => towards ? -Vector3.UnitZ : Vector3.UnitZ)],
+                TexCoords = [.. positions.Select(_ => Vector2.Zero)],
+                Indices = [0, 1, 2, 0, 2, 3],
+            };
+        }
+
+        ModMesh Group(ModSubmesh submesh) => new()
+        {
+            MeshToLocal = Matrix4x4.Identity,
+            BoundsMin = new Vector3(-1, -1, 0),
+            BoundsMax = new Vector3(1, 1, 0),
+            Submeshes = [submesh],
+        };
+
+        // Two mesh groups rather than two submeshes of one, because that is how the game
+        // builds them: R25's poem is four groups in two sheets, each a printed face and a
+        // dark back at the same place.
+        return ModFile.FromMeshes(
+            "sheet", [Group(Side(front, towards: true)), Group(Side(back, towards: false))]);
+    }
+
+    [Fact]
+    public void A_model_face_with_an_exact_opposite_is_culled_rather_than_fighting_it()
+    {
+        // Placed models are drawn both sides, which is right for a tree's leaves and wrong
+        // for a sheet of paper whose back is modelled: the two are the same surface, so the
+        // depth test has no answer and the page comes out in bands. Reported from R25,
+        // where the lower half of the poem was unreadable.
+        Assert.SkipUnless(HasDevice(), "no Vulkan device");
+
+        using VulkanContext context = VulkanContext.CreateHeadless();
+        using SceneRenderer renderer = SceneRenderer.Create(context);
+        using SceneGeometry geometry = renderer.CreateGeometry();
+
+        geometry.AddTexture("printed", Solid(220, 210, 180));
+        geometry.AddTexture("reverse", Solid(60, 60, 60));
+        geometry.Add(Sheet("printed", "reverse"));
+        geometry.Add(Model("printed", towards: true));
+        geometry.Finish();
+
+        SceneDraw[] draws = [.. geometry.Draws()];
+
+        Assert.Equal(3, draws.Length);
+        Assert.False(draws[0].DoubleSided, "the printed face has a back and should be culled");
+        Assert.False(draws[1].DoubleSided, "and so should the back");
+
+        // A model face with nothing behind it is left alone: this narrows the exemption,
+        // it does not withdraw it.
+        Assert.True(draws[2].DoubleSided, "a lone model face should keep both faces");
+    }
+
     [Fact]
     public void A_keyed_surface_of_the_room_keeps_both_faces()
     {

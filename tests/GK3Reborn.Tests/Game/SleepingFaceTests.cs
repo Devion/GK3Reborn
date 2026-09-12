@@ -459,6 +459,15 @@ public sealed class SleepingFaceTests : IDisposable
         {
         }
 
+        public void VaryGround(IReadOnlyDictionary<string, float> textures)
+        {
+        }
+
+        public void HoldGround(
+            IReadOnlyList<GroundAnchor> anchors, Func<float, float, bool>? walkable)
+        {
+        }
+
         public ModelPlacement Add(
             ModFile model,
             Matrix4x4? transform = null,

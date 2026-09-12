@@ -51,10 +51,6 @@ public sealed unsafe class D3D12SunRayPass : IDisposable
 
     /// <summary>Gives the pass the room's shafts of daylight.</summary>
     /// <param name="shafts">The shafts, or none.</param>
-    /// <remarks>
-    /// Written straight into the buffer the last frame may still be reading, for the
-    /// reason the Vulkan pass gives: a room's shafts change at its door.
-    /// </remarks>
     public void Shafts(IReadOnlyList<LightShaft> shafts)
     {
         ArgumentNullException.ThrowIfNull(shafts);

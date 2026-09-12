@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using GK3Reborn.Content.Manifests;
 using GK3Reborn.Foundation.Diagnostics;
 using GK3Reborn.Formats.Barn;
@@ -163,6 +163,8 @@ public static class Program
                 Fog = options.Fog,
                 SunRays = options.SunRays,
                 Grass = options.Grass,
+                VariedGround = options.VariedGround,
+                Weather = options.Weather,
                 Cull = options.Cull,
             }.Run(
                 options.Source,
@@ -817,6 +819,8 @@ public static class Program
               --no-fog             Leave the air clear.
               --no-sun-rays        The sun draws no rays through the air.
               --no-grass           No grass grown over the lawns.
+              --flat-ground        Outdoor ground exactly as painted, with no variation.
+              --no-weather         Outdoor ground as modelled, with nothing weathered off.
               --wind SECONDS       Where the wind's clock stops. Two values render both.
               --heads N            Head refinement, 0 to 3.
               --tool NAME          What produced the candidates, recorded as provenance.
@@ -944,6 +948,12 @@ public static class Program
         /// <summary>Whether render-scene grows grass over the lawns.</summary>
         public bool Grass { get; init; } = true;
 
+        /// <summary>Whether render-scene lets outdoor ground vary from what is painted.</summary>
+        public bool VariedGround { get; init; } = true;
+
+        /// <summary>Whether render-scene weathers outdoor ground.</summary>
+        public bool Weather { get; init; } = true;
+
         /// <summary>Expand block-compressed textures on the host, as a Mac has to.</summary>
         public bool ExpandBlocks { get; init; }
 
@@ -987,6 +997,8 @@ public static class Program
             bool fog = true;
             bool sunRays = true;
             bool grass = true;
+            bool variedGround = true;
+            bool weather = true;
             bool improved = true;
             bool thickCards = true;
             bool cardShadows = true;
@@ -1042,6 +1054,12 @@ public static class Program
                         break;
                     case "--no-grass":
                         grass = false;
+                        break;
+                    case "--flat-ground":
+                        variedGround = false;
+                        break;
+                    case "--no-weather":
+                        weather = false;
                         break;
                     case "--expand-blocks":
                         expandBlocks = true;
@@ -1200,6 +1218,8 @@ public static class Program
                 Fog = fog,
                 SunRays = sunRays,
                 Grass = grass,
+                VariedGround = variedGround,
+                Weather = weather,
                 Improved = improved,
                 ThickCards = thickCards,
                 CardShadows = cardShadows,

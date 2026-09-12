@@ -30,21 +30,6 @@ public readonly record struct TitleLetter(char Character, Vector4 Box)
 /// Where every letter of the title is painted on <c>titlename.png</c>, and the word the
 /// player can spell out of them.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Measured off the sheet the port ships rather than read from it at run time: the letters
-/// share a painted glow, so any threshold that separates them from the black also joins
-/// neighbours through it, and telling an <c>A</c> from a <c>B</c> is a job for eyes rather
-/// than for a threshold. The positions are parts of the sheet, so a sheet re-exported at
-/// another size with the same layout still works; one painted differently needs measuring
-/// again.
-/// </para>
-/// <para>
-/// The word is <see cref="Word"/>. Each of its letters is on the sheet more than once, and
-/// any of them counts: the point is that somebody who knows the bar's secret can spell it
-/// here, not that they find the one <c>d</c> of five the code wants.
-/// </para>
-/// </remarks>
 public static class TitleLetters
 {
     /// <summary>What the player spells to start the party.</summary>
@@ -59,12 +44,6 @@ public static class TitleLetters
     /// <summary>
     /// How far outside its paint a letter still answers a click, as a part of its height.
     /// </summary>
-    /// <remarks>
-    /// The small letters are forty pixels tall on the sheet and a third of that on a modest
-    /// window, and a click that has to land inside the ink of an <c>e</c> is a click most
-    /// people miss. A margin of a quarter keeps neighbours from overlapping at the sizes
-    /// the sheet is drawn at.
-    /// </remarks>
     private const float Margin = 0.25f;
 
     /// <summary>Every letter, top line first, left to right.</summary>
@@ -169,12 +148,6 @@ public static class TitleLetters
 /// <summary>
 /// The word being spelled on the title, one click at a time.
 /// </summary>
-/// <remarks>
-/// A click on the next letter of the word lights it; a click on any other letter of the
-/// title puts the word back to nothing, which is what every cheat code since the Konami
-/// one has done. Clicks on nothing are not clicks on the wrong letter: the title is a small
-/// part of a large screen and somebody clicking around it is not spelling.
-/// </remarks>
 public sealed class DanceCode
 {
     private readonly List<int> _lit = [];

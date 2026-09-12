@@ -10,14 +10,19 @@ namespace GK3Reborn.Rendering.Geometry;
 /// would have been on the screen a frame ago.
 /// </param>
 /// <param name="Shading">
-/// Whether to read the lightmap, what to multiply it by, two flags packed into one number
-/// — one for self-lit and two for a model standing in the room — and how deep this
-/// surface's height map goes.
+/// Whether to read the lightmap, what to multiply it by, four flags packed into one number
+/// — one for self-lit, two for a model standing in the room, four for a mirror and eight
+/// for the ground of a room out of doors — and how deep this surface's height map goes.
 /// </param>
 /// <param name="Material">
 /// The finish measured for this texture, which the shader uses where no map overrides it.
 /// </param>
-/// <param name="Wind">How far a leaf sways, how fast, and the clock as it stood a frame ago.</param>
+/// <param name="Wind">
+/// How far a leaf sways, how fast, and the clock as it stood a frame ago. The block takes
+/// lodgers where a surface plainly cannot be the thing the slot was named for: w is how
+/// much of a mirror is frame rather than glass, and y — free while x, which switches the
+/// sway off, is nought — is how far a piece of outdoor ground may vary.
+/// </param>
 /// <param name="Fur">
 /// Which shell of a coat this draw is: x how far up the fur it stands, from zero at the
 /// skin to one at the tips, y how deep the whole coat is in world units, z how many strands

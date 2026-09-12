@@ -241,14 +241,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Grace's inbox as it stands at this point in the story.
     /// </summary>
-    /// <remarks>
-    /// The file lists every message she will ever get, and the retail engine hands them
-    /// over as the days go by: the first three from the start, the Temple of Solomon's
-    /// divisions from the third noon, the analysis of the symbols from Serres from six
-    /// that evening, and the one about the egg only once the egg has been found. Showing
-    /// the whole file from the first morning gave away two of the third day's puzzles on
-    /// the second, which is how it was reported.
-    /// </remarks>
     /// <returns>The messages received so far, in the order the file lists them.</returns>
     public IReadOnlyList<SidneyMail> Mail()
     {
@@ -266,13 +258,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The people Sidney has a file on at this point in the story.
     /// </summary>
-    /// <remarks>
-    /// Eight from the start. Montreaux is added on the second afternoon, once Grace has
-    /// met him; Mosely from five that day, and only if his print was lifted that morning
-    /// — the retail engine's own two rules, from the function that fills the list — and
-    /// his print is linked to him as he is added, the way it does. All ten from the first
-    /// morning named two people the story had not yet, which is how it was reported.
-    /// </remarks>
     /// <returns>The suspects so far, in the file's order.</returns>
     public IReadOnlyList<SidneySuspect> Suspects()
     {
@@ -337,11 +322,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// Opens one of the screens from the menu.
     /// </summary>
-    /// <remarks>
-    /// The one screen with a rule of its own is ADD DATA on the second morning: the retail
-    /// engine has Grace say she has nothing to scan yet (<c>0264G2ZPF1</c>) instead of
-    /// asking for input. The screen still opens here, with its own "nothing to scan".
-    /// </remarks>
     /// <param name="screen">Which screen.</param>
     public void Show(SidneyScreen screen)
     {
@@ -737,15 +717,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The flags sixteen of the encyclopedia's pages set when Grace reads them.
     /// </summary>
-    /// <remarks>
-    /// <b>Reading a page is a puzzle step.</b> Nothing in the game data says so — not
-    /// <c>SIDSEARCH.TXT</c>, not the pages — but the action files ask about the flags:
-    /// 207A will not start the Magdala tour until <c>vampire</c> is set, and the same
-    /// pattern gates Asmodeus in the church and the temple diagram on the third morning.
-    /// The retail engine holds this table in code, and it is read out of the reference
-    /// engine's <c>SidneySearch.h</c>. Keyed by page name without its extension, because
-    /// the pages link to each other in whatever spelling and case they please.
-    /// </remarks>
     private static readonly Dictionary<string, string> PageFlags =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -770,7 +741,6 @@ public sealed class SidneyMachine
     /// <summary>
     /// The score fifteen of the pages are worth the first time they are read.
     /// </summary>
-    /// <remarks>Also the retail engine's own table rather than anything in the data.</remarks>
     private static readonly Dictionary<string, string> PageScores =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -935,10 +905,45 @@ public sealed class SidneyMachine
         }
 
         _state.SetFlag(Link(suspect, file));
+
+        // And the game's own flag for it, where the licence is that suspect's. The action
+        // files ask about these by name — MOP_ALL.NVC's G_MOSE_LICENSE_IN_SIDNEY and its
+        // four siblings are GetFlag("IDedMoselyVehicle") and the like — and nothing in the
+        // port was setting them, so the lines Grace has about each moped once she has
+        // worked out whose it is could never be reached. It is also what stops the port's
+        // own label naming a moped's owner before the player has established it: see
+        // SceneInteraction.Unidentified.
+        if (file.Kind == SidneyKind.Licence && Identifies(suspect, file) is { } identified)
+        {
+            _state.SetFlag(identified);
+        }
+
         Showing = new SidneyResult($"{file.Label} linked to {suspect.Name}.");
 
         return Showing;
     }
+
+    /// <summary>
+    /// The flag that says a suspect's vehicle is known, when this licence is theirs.
+    /// </summary>
+    /// <param name="suspect">Who the file was linked to.</param>
+    /// <param name="file">The licence.</param>
+    /// <returns>The flag, or null when this licence is not this suspect's.</returns>
+    private static string? Identifies(SidneySuspect suspect, SidneyFile file) =>
+        suspect.Index switch
+        {
+            2 when Is(file, "BUCHELLIS_LICENSE") => "IDedBuchelliVehicle",
+            3 when Is(file, "EMILIOS_LICENSE") => "IDedEmilioVehicle",
+            5 when Is(file, "HOWARDS_LICENSE") => "IDedHowardVehicle",
+            6 when Is(file, "HOWARDS_LICENSE") => "IDedEstelleVehicle",
+            7 when Is(file, "WILKES_LICENSE") => "IDedWilkesVehicle",
+            10 when Is(file, "MOSELYS_LICENSE") => "IDedMoselyVehicle",
+            _ => null,
+        };
+
+    /// <summary>Whether a file came from a particular item.</summary>
+    private static bool Is(SidneyFile file, string item) =>
+        file.Item.Equals(item, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Takes a file off a suspect again.</summary>
     /// <param name="file">The file.</param>
@@ -1383,13 +1388,6 @@ public sealed class SidneyMachine
     /// Does the next verse of Le Serpent Rouge for the player, as far as what they have
     /// earned allows.
     /// </summary>
-    /// <remarks>
-    /// One verse a time, by the same road the player would take — the places marked, the
-    /// figure laid, ANALYZE pressed — so that everything the verse sets is set by the
-    /// ordinary path. A figure the pictures have not given up yet is not laid: the machine
-    /// says so instead. Verses that are not on the map (Ophiuchus is the anagram) and steps
-    /// that wait on something else (Scorpio waits on a mail) are left to the player.
-    /// </remarks>
     /// <param name="yes">Whether they said to.</param>
     /// <returns>What the machine says.</returns>
     public SidneyResult Finish(bool yes)

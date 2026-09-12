@@ -21,10 +21,6 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for the sun's rays: which rooms get them, what the pass is told, and what it draws.
 /// </summary>
-/// <remarks>
-/// In the device collection because the pixel tests open a real device on both backends,
-/// and two classes doing that at once on Direct3D is a null reference in whichever loses.
-/// </remarks>
 [Collection(GpuTests.Name)]
 public sealed class SunRayTests
 {

@@ -21,12 +21,6 @@ public readonly record struct AtlasGlyph(
     Vector4 Uv, float Width, float Height, float Left, float Top, float Advance);
 
 /// <summary>How a rectangle is combined with what is already on the screen.</summary>
-/// <remarks>
-/// Fixed-function blend state, not arithmetic in the shader: nothing drawn here can read
-/// what is under it. Each of these is one pipeline in each backend, and the display list is
-/// cut into runs on this as well as on the picture — so a screen that uses none of them,
-/// which is every screen but the title, still costs exactly what it did.
-/// </remarks>
 public enum OverlayBlend
 {
     /// <summary>Over what is behind it, by its own alpha. Everything the interface draws.</summary>
@@ -71,13 +65,6 @@ public enum OverlayBlend
 /// Whether <see cref="Gradient"/> runs from the top edge to the bottom rather than from the
 /// left edge to the right.
 /// </param>
-/// <remarks>
-/// The gradient exists because of what the title screen does: a wall drawn in slices whose
-/// opacity drifts across the window. One colour a slice makes each slice a flat band, and
-/// on a screen blend a two-percent step between neighbours is a visible upright line —
-/// which is what the first version of that screen looked like. Interpolated, two slices
-/// that meet agree exactly at the edge they share and there is nothing to see.
-/// </remarks>
 public readonly record struct OverlayQuad(
     Vector4 Destination,
     Vector4 Source,
@@ -694,11 +681,6 @@ public sealed class Overlay
     /// <param name="tint">What to multiply it by; white leaves it alone.</param>
     /// <param name="turn">How far to turn it about that middle, in radians, clockwise.</param>
     /// <param name="blend">How it is combined with what is already on the screen.</param>
-    /// <remarks>
-    /// The one thing the interface draws that is not square to the screen. A turned quad is
-    /// kept whole or dropped whole by a clip — see <c>Add</c> — so a caller that wants it
-    /// confined has to place it inside whatever is confining it.
-    /// </remarks>
     public void Sprite(
         int picture,
         Vector2 centre,

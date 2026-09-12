@@ -115,11 +115,6 @@ public sealed unsafe class SunRayPipeline : IDisposable
 
     /// <summary>Gives the pass the room's shafts of daylight.</summary>
     /// <param name="shafts">The shafts, or none.</param>
-    /// <remarks>
-    /// Written straight into the buffer the last frame may still be reading. A room's
-    /// shafts change at its door, where the renderer has a great deal else to rebuild
-    /// and the one frame that might read a half-written box is one nobody sees.
-    /// </remarks>
     public void Shafts(IReadOnlyList<LightShaft> shafts)
     {
         ArgumentNullException.ThrowIfNull(shafts);

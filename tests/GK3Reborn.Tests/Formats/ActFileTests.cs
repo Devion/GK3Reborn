@@ -357,6 +357,43 @@ public sealed class ActFileTests
     }
 
     [Fact]
+    public void A_looping_shape_whose_ends_meet_runs_the_last_into_the_first()
+    {
+        // Four even steps and a wrap the same size as one of them: this is a cycle, and
+        // holding the last pose for a frame would show a hitch every time round.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Shape(0, new Vector3(0, 0, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, 1, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, 2, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, 3, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, -1, 0)))));
+
+        Assert.Equal(-0.5f, Assert.Single(act.ShapeAt(0, 0, 4.5f, cycles: true)!).Y, 3);
+    }
+
+    [Fact]
+    public void A_looping_shape_that_snaps_back_is_held_rather_than_swept_back()
+    {
+        // A conveyor: the shape walks one way and cuts back to the top, and the cut is ten
+        // times the size of a step. Interpolated, that one frame interval runs the whole
+        // clip backwards - which is RC1's fountain, reported as the water ping-ponging
+        // instead of falling, and as a flash where the sheet is caught halfway.
+        ActFile act = Read(
+            new Clip(1)
+                .Frame((0, Clip.Shape(0, new Vector3(0, 0, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, -1, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, -2, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, -3, 0))))
+                .Frame((0, Clip.Shape(0, new Vector3(0, -4, 0)))));
+
+        Assert.Equal(-4f, Assert.Single(act.ShapeAt(0, 0, 4.5f, cycles: true)!).Y, 3);
+
+        // And everything inside the clip is mixed exactly as it was.
+        Assert.Equal(-1.5f, Assert.Single(act.ShapeAt(0, 0, 1.5f, cycles: true)!).Y, 3);
+    }
+
+    [Fact]
     public void A_mesh_that_is_not_recorded_again_waits_and_then_moves()
     {
         // A mix is only ever between two poses recorded on consecutive frames. A mesh that

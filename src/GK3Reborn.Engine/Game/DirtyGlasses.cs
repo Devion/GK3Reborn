@@ -22,18 +22,6 @@ public sealed record GlassDusting(string? Says, bool Lifts, string? Mislabels, s
 /// The two dirty glasses in the hotel lobby on the second afternoon, and whose print is
 /// on which.
 /// </summary>
-/// <remarks>
-/// Wilkes and Buchelli each left a glass, and the kit lifts a print off either — but the
-/// game does not say whose. The retail engine works it out from code the scripts cannot:
-/// if Buchelli's print was taken off his suitcase that morning, a glass is recognised on
-/// sight; otherwise Gabriel says he has to think who was using it and a topic bar puts the
-/// question, and the wrong answer pockets a print labelled with the wrong name. The
-/// second glass is then deduced from the first. All of it is written to
-/// <c>DirtyGlassPrint</c>, which is what the lobby's own action files read to say "I already
-/// lifted a print from that glass" — so a port that lifted both prints outright and wrote
-/// nothing left the glasses dustable for ever and the deduction gone. No script anywhere
-/// writes the variable; the numbers are the retail engine's own.
-/// </remarks>
 public static class DirtyGlasses
 {
     /// <summary>The variable the lobby's scripts read.</summary>

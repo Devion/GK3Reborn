@@ -126,6 +126,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </summary>
     public int CardsSeparated { get; private set; }
 
+    /// <summary>
+    /// How many of the placed models' faces have an exact opposite, and so are drawn one
+    /// side at a time rather than fighting it. See <see cref="CoplanarCards.BackToBack"/>.
+    /// </summary>
+    public int ModelFacesBacked { get; private set; }
+
     /// <summary>Whether a keyed card is given the thickness of the thing drawn on it.</summary>
     public bool ThickenCutoutCards
     {
@@ -158,6 +164,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
     /// <summary>How many floor triangles were left uncut because their tiling stood apart.</summary>
     public int ReliefSetApart { get; private set; }
+
+    /// <summary>What the weather took off this room's ground, or null where none was.</summary>
+    public GroundErosion? Weather { get; private set; }
 
     /// <summary>What each texture's surface is like, for the passes that care.</summary>
     public Rendering.Materials.SurfaceFinishes Materials { get; set; } =
@@ -339,6 +348,49 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    /// <summary>The ground of a room out of doors, and how far each texture may vary.</summary>
+    private readonly Dictionary<string, float> _ground =
+        new(StringComparer.OrdinalIgnoreCase);
+
+    /// <inheritdoc/>
+    public void VaryGround(IReadOnlyDictionary<string, float> textures)
+    {
+        ArgumentNullException.ThrowIfNull(textures);
+
+        _ground.Clear();
+
+        foreach ((string texture, float varies) in textures)
+        {
+            if (varies > 0f)
+            {
+                _ground[texture] = Math.Clamp(varies, 0f, 1f);
+            }
+        }
+    }
+
+    /// <summary>How far one batch's ground may vary, and nought for everything else.</summary>
+    /// <param name="batch">The batch.</param>
+    /// <returns>Nought to one.</returns>
+    private float GroundOf(Batch batch) =>
+        batch.IsModel || batch.Grass || batch.Foliage
+            ? 0f
+            : _ground.GetValueOrDefault(batch.TextureName, 0f);
+
+    /// <summary>Where the scene stands models on its ground, which holds it still there.</summary>
+    private IReadOnlyList<GroundAnchor> _anchors = [];
+
+    /// <summary>Where an actor may stand, whose ground may not move under them.</summary>
+    private Func<float, float, bool>? _walkable;
+
+    /// <inheritdoc/>
+    public void HoldGround(IReadOnlyList<GroundAnchor> anchors, Func<float, float, bool>? walkable)
+    {
+        ArgumentNullException.ThrowIfNull(anchors);
+
+        _anchors = anchors;
+        _walkable = walkable;
+    }
+
     /// <summary>The leaf cards that move, by the texture they are painted with.</summary>
     private readonly HashSet<string> _wind = new(StringComparer.OrdinalIgnoreCase);
 
@@ -457,6 +509,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // other; each group may still overrule it. See ModNormals.
         bool localNormals = ModNormals.AreLocal(model);
 
+        // Which of its faces have an exact opposite drawn over them. Empty for nearly
+        // every model there is; see CoplanarCards.BackToBack.
+        IReadOnlySet<(int Mesh, int Submesh)> backed = CoplanarCards.BackToBack(model);
+        ModelFacesBacked += backed.Count;
+
         for (int index = 0; index < model.Meshes.Count; index++)
         {
             ModMesh mesh = model.Meshes[index];
@@ -552,6 +609,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     selfLit: false,
                     local: meshToLocal,
                     isModel: true,
+                    backed: backed.Contains((index, group)),
                     into: uploads);
             }
         }
@@ -1541,8 +1599,31 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         ReliefPlan? relief = Relief.Displace
             ? ReliefPlan.For(
                 scene, floorObject, Deep, Relief.TriangleBudget,
-                _reliefEverywhere.Count > 0
-                    ? surface => _reliefEverywhere.Contains(surface.TextureName)
+                // Beyond the floor object: ground whose relief is cut wherever it appears,
+                // and — once the weather is on — every surface the room paints with its own
+                // ground, height map or no height map.
+                //
+                // The second is not tidiness. A room's `floor=` object is not all of its
+                // ground: LHM draws a shelf of the same earth as a separate object, and
+                // with only the floor eroding, the shelf stayed where it was while the
+                // meadow around it dropped half a metre and it came out as a blade of
+                // ground standing out of the hillside. Ground has to weather together or
+                // not at all.
+                _reliefEverywhere.Count > 0 || (Relief.Erosion > 0f && _ground.Count > 0)
+                    ? surface => _reliefEverywhere.Contains(surface.TextureName) ||
+                                 (Relief.Erosion > 0f && _ground.ContainsKey(surface.TextureName))
+                    : null,
+
+                // Only where the loader has said this room's ground is ground, which is
+                // what makes this an outdoor feature: indoors `_ground` is empty and no
+                // field is built at all.
+                Relief.Erosion > 0f && _ground.Count > 0
+                    ? new ErosionRequest(
+                        texture => _ground.GetValueOrDefault(texture, 0f),
+                        _anchors,
+                        _walkable,
+                        Relief.Erosion,
+                        StringComparer.Ordinal.GetHashCode(scene.Name ?? string.Empty))
                     : null)
             : null;
 
@@ -1846,6 +1927,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         ReliefBoundary = relief?.Boundary ?? (0, 0);
         ReliefExpected = relief?.Triangles ?? 0;
         ReliefSetApart = relief?.SetApart ?? 0;
+        Weather = relief?.Erosion;
 
         if (_device.SupportsRayTracing && occluderIndices.Count > 0)
         {
@@ -1907,7 +1989,17 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     {
         SurfaceFinish finish = Materials.Of(texture);
 
-        return finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture);
+        if (finish.Displaced && finish.HeightDepth > 0f && _textures.HasField(texture))
+        {
+            return true;
+        }
+
+        // With the weather on, outdoor ground is cut whether or not anybody has generated a
+        // height map for it. Cutting without displacing is a path Tessellate already has,
+        // and the alternative is worse than the cost: the erosion field holds its
+        // neighbours to anything that cannot move, so a ground texture left whole in the
+        // middle of ground that is cut would pin a hole through the weather around it.
+        return Relief.Erosion > 0f && _ground.ContainsKey(texture);
     }
 
     /// <summary>The names of the room's round things, matched by what they contain.</summary>
@@ -2532,8 +2624,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </summary>
     /// <param name="eye">Where the camera is.</param>
     /// <param name="floors">
-    /// Whether a polished floor may be reflected where the room has no mirror in it. See
-    /// the remarks below for why the two cannot both be had in one frame.
+    /// Whether a polished floor may be reflected where the room has no mirror in it.
     /// </param>
     /// <returns>The plane, or null if the room has nothing worth reflecting about.</returns>
     public MirrorSurface? ChooseMirror(Vector3 eye, bool floors = false)
@@ -2717,6 +2808,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // than one mirror; both draw the picture painted on them, as they always have.
             bool isMirror = index == _mirrorBatch;
 
+            // How far this surface may depart from the picture painted on it, and nought
+            // for everything that is not the ground of a room out of doors — which is all
+            // but thirty-eight rooms' floors. See GroundVariation.
+            float ground = GroundOf(batch);
+
             var constants = new DrawConstants(
                 batch.Transform,
                 batch.Previous,
@@ -2737,7 +2833,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     // character as far as the shadow rays are concerned.
                     (batch.SelfLit ? 1f : 0f) +
                     (batch.IsModel ? 2f : 0f) +
-                    (isMirror ? 4f : 0f),
+                    (isMirror ? 4f : 0f) +
+                    (ground > 0f ? 8f : 0f),
 
                     // How deep this surface's height map goes, and zero where it has none —
                     // which is what keeps the level map bound in its place from shifting
@@ -2778,8 +2875,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     ? new Vector4(-GrassCards.Sway, GrassCards.Speed, previousSeconds, 0f)
                     : batch.Foliage
                         ? new Vector4(LeafSway, WindSpeed, previousSeconds, 0f)
+
+                        // A third lodger, and the same argument as the second: the ground of
+                        // an outdoor room neither sways nor reflects, so y is free while x
+                        // is nought — which is the very thing that switches the sway off.
                         : new Vector4(
-                            0f, 0f, 0f,
+                            0f, ground, 0f,
                             isMirror ? Materials.Of(batch.Drawn).MirrorInset : 0f),
 
                 // The skin under the coat. The shells over it are below, and a surface with
@@ -2843,6 +2944,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // exemption twice: a card has no back. A placed model may be a grown tree,
             // whose leaves are single sheets; a keyed surface in the room is the 1999
             // spelling of the same thing, a crown painted on crossed quads.
+            //
+            // And one exemption from the exemption: a model face that does have a back,
+            // modelled as its own quad in exactly the same place. Drawing both is a depth
+            // fight neither can win, and the one the player sees is decided per pixel. The
+            // keyed test still comes first, so a leaf with an opposite-wound twin painted
+            // from a different part of the sheet — which is how 1999 drew a crown — keeps
+            // both of its silhouettes.
             yield return new SceneDraw(
                 batch.Live ?? batch.Vertices,
                 batch.Was ?? batch.Live ?? batch.Vertices,
@@ -2852,7 +2960,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 batch.Material,
                 constants,
                 shells,
-                DoubleSided: !CullBackFaces || batch.IsModel || batch.Keyed);
+                DoubleSided: !CullBackFaces || batch.Keyed || (batch.IsModel && !batch.Backed));
         }
     }
 
@@ -3001,10 +3109,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         bool isModel = false,
         bool displaced = false,
         bool hidden = false,
+        bool backed = false,
         IGeometryUploads? into = null) =>
         _batches.Add(new Batch
         {
             Hidden = hidden,
+            Backed = backed,
             // Identity for the room's own geometry, which is already where it belongs.
             Local = local ?? Matrix4x4.Identity,
             Vertices = _device.CreateBuffer(vertices, GeometryBufferKind.Vertices, into),
@@ -3090,6 +3200,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>A model standing in the room, rather than the room itself.</summary>
         public bool IsModel { get; init; }
+
+        /// <summary>
+        /// One face of a sheet whose other face is drawn too, so this one is culled from
+        /// behind rather than fighting its twin for the depth buffer. See
+        /// <see cref="CoplanarCards.BackToBack"/>.
+        /// </summary>
+        public bool Backed { get; init; }
 
         /// <summary>What is drawn on it instead of its own texture, if anything is.</summary>
         public string? Painted { get; init; }

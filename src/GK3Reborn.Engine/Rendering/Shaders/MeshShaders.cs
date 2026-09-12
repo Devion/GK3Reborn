@@ -704,6 +704,140 @@ public static class MeshShaders
                    (glow * bar * ScreenGlow);
         }
 
+        // How far apart the two samplings of a ground texture are, and how much of the
+        // second is mixed in. The second is the same picture stretched four times over, so
+        // its period and the first's do not divide into one another and the pair has no
+        // period a viewer can find. The offset is there so that the two are never the same
+        // texels: without it the mix is the texture itself wherever the scales cross.
+        //
+        // Proven in the reconstructed horizon's own shader first, where one sampling of a
+        // tile across a kilometre of hillside was plainly one tile. See TerrainShaders.
+        const float kGroundSecondScale = 0.23;
+        const float kGroundSecondMix = 0.45;
+        const vec2 kGroundSecondOffset = vec2(7.31, 3.7);
+
+        // And how far away it has to be to get all of that. A repeat is three to nine
+        // metres of ground, so underfoot a viewer sees one tile and there is no repetition
+        // to hide — only detail to lose. Mixed at a fifth in the first seven metres and in
+        // full past thirty-five, which is where a second copy of the same tile first
+        // appears in the same glance.
+        const float kGroundNear = 300.0;
+        const float kGroundFar = 1450.0;
+        const float kGroundNearMix = 0.2;
+
+        // The two wavelengths the ground is shaded over, in GK3 units — a unit is about two
+        // and a half centimetres, so these are roughly twenty metres and six. Both well
+        // above one repeat of the texture, which is three to nine metres: a variation
+        // finer than the thing it is varying only sharpens what it was meant to hide.
+        const float kGroundBroad = 830.0;
+        const float kGroundFine = 250.0;
+
+        // How much lighter or darker each of those may make the ground. Small numbers: this
+        // is a field drying unevenly, not a spotlight.
+        const float kGroundBroadShade = 0.14;
+        const float kGroundFineShade = 0.07;
+
+        // Where ground stops being flat enough to be soil. The rise of the surface normal,
+        // so 0.93 is about twenty-one degrees and 0.72 about forty-four.
+        const float kGroundStandsUp = 0.93;
+        const float kGroundFallsAway = 0.72;
+
+        // What a steep face gets: its colour pulled towards its own grey, since bare rock
+        // under thin soil is the same stuff with the green gone out of it, and a rougher
+        // finish because it is broken rather than laid.
+        const float kGroundBared = 0.35;
+        const float kGroundBaredRougher = 0.12;
+
+        // One number in [0,1) per cell of a grid, smoothed across it.
+        //
+        // The hash is StrandNoise's, which is the sine-fract one everybody uses. Poor by
+        // any standard and sufficient for the same reason it is sufficient there: it is
+        // asked the same question about the same cell every frame, and a ground that
+        // shimmered would be worse than a ground that repeats.
+        float GroundNoise(vec2 at)
+        {
+            vec2 cell = floor(at);
+            vec2 into = fract(at);
+
+            // Smoothstep between cells rather than a straight lerp: a linear interpolation
+            // of a value noise leaves a crease along every cell boundary, and a crease
+            // every twenty metres across a hillside is a grid again.
+            into = into * into * (3.0 - (2.0 * into));
+
+            return mix(
+                mix(StrandNoise(cell), StrandNoise(cell + vec2(1.0, 0.0)), into.x),
+                mix(StrandNoise(cell + vec2(0.0, 1.0)), StrandNoise(cell + vec2(1.0, 1.0)), into.x),
+                into.y);
+        }
+
+        // The ground of a room out of doors, and what keeps it from reading as one bitmap
+        // laid a thousand times.
+        //
+        // Three things, and every one of them decided in world space rather than in the
+        // texture's: the ground of an outdoor room is thirty to four hundred surfaces, each
+        // with texture coordinates of its own, and anything driven by those has a seam
+        // along every join between them. World space has no seams by construction.
+        //
+        // What this does not do is recover the ramp. SOLIDDIRT, 1QTR_GRASS, HALF_GRASS,
+        // 3QTR_GRASS and SOLIDGRASS are five pre-mixed steps of one blend that the artists
+        // chose between per triangle, so the ground's own variation has five levels and
+        // every change of level lands on a triangle edge. Blending those continuously needs
+        // the next step's picture bound beside this one, which is a sixth texture in the
+        // material and a change to both backends; it is not here.
+        vec3 Ground(vec3 colour, vec2 coord, float varies, inout float roughness)
+        {
+            // The same picture at a second scale, mixed in. Nothing is offset in the
+            // texture's own space and no derivative is touched, so whatever the march
+            // worked out about this fragment still holds: the second sampling adds colour
+            // and takes nothing away from the relief.
+            vec3 second = texture(
+                baseColor, (coord * kGroundSecondScale) + kGroundSecondOffset).rgb;
+
+            float away = smoothstep(
+                kGroundNear, kGroundFar, distance(frame.cameraPosition.xyz, inWorld));
+
+            vec3 broken = mix(
+                colour,
+                second,
+                mix(kGroundNearMix, 1.0, away) * kGroundSecondMix * varies);
+
+            // Two octaves of low-frequency shade. Centred on nought so that a room's mean
+            // exposure is exactly what the artists lit: this moves ground about, it does
+            // not lift or drop it.
+            vec2 at = inWorld.xz;
+
+            float broad = GroundNoise(at / kGroundBroad) - 0.5;
+            float fine = GroundNoise((at / kGroundFine) + vec2(31.7, 11.3)) - 0.5;
+
+            float shade = 1.0 +
+                (varies * 2.0 *
+                    ((broad * kGroundBroadShade) + (fine * kGroundFineShade)));
+
+            broken *= shade;
+
+            // And what lies steep is barer. Measured off the geometric normal, which after
+            // the relief pass is the ground's own shape rather than the plane it was
+            // authored on — so the sides of a cut gully bare themselves and its floor does
+            // not.
+            float rise = abs(normalize(inNormal).y);
+            float bared =
+                varies * (1.0 - smoothstep(kGroundFallsAway, kGroundStandsUp, rise));
+
+            if (bared > 0.0)
+            {
+                // Towards its own luminance rather than towards a colour written here. A
+                // rock face in Rennes-le-Chateau is limestone and one at Coume Sourde is
+                // white, and neither of them is a number this shader could know.
+                float grey = dot(broken, vec3(0.2126, 0.7152, 0.0722));
+
+                broken = mix(broken, vec3(grey), bared * kGroundBared);
+                roughness = clamp(
+                    roughness + (bared * kGroundBaredRougher), 0.03, 1.0);
+            }
+
+            return broken;
+        }
+
         float Distribution(float nDotH, float roughness)
         {
             // Squared once for perceptual roughness, which is what an artist and a texture
@@ -1259,6 +1393,11 @@ public static class MeshShaders
             // their own room, the bathroom's hand mirror is a flat grey oval.
             bool isMirror = mod(floor(draw.shading.z * 0.25), 2.0) > 0.5;
 
+            // The ground of a room that is out of doors. Read as a bit, like the three
+            // below it, and paired with a strength in wind.y that says how far this
+            // particular ground may go. See GroundVariation.
+            bool isGround = mod(floor(draw.shading.z * 0.125), 2.0) > 0.5;
+
             // One frame for both the march and the normal, built from the coordinate the
             // fragment arrived with.
             SurfaceFrame basis = FrameAt(geometric);
@@ -1354,6 +1493,25 @@ public static class MeshShaders
 
             surface.metalness = clamp(
                 corrected ? draw.material.y : mix(draw.material.y, orm.b, sheen), 0.0, 1.0);
+
+            // Ground last, so that it varies the finished surface — the measured finish,
+            // whatever the ORM map corrected in it, and the colour the march landed on —
+            // rather than something half assembled. Through a local, because writing to a
+            // struct's field through an out parameter is legal in GLSL and is one of the
+            // things SPIRV-Cross has to take apart to reach HLSL.
+            if (isGround)
+            {
+                float grounded = surface.roughness;
+
+                // Into the local as well as into the surface, and that is not tidiness:
+                // what reaches the screen below is this local, and the struct is what the
+                // rig's own terms read. Varying one and not the other lights a ground the
+                // viewer never sees.
+                albedo = Ground(albedo, uv, draw.wind.y, grounded);
+
+                surface.albedo = albedo;
+                surface.roughness = grounded;
+            }
 
             // A dielectric reflects a few per cent of what hits it head-on, the same in
             // every channel; a metal reflects most of it, tinted by its own colour. 0.08

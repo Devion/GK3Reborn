@@ -116,12 +116,6 @@ public sealed class SceneInteraction
     /// <summary>
     /// A question put to the player as a verb bar, for a noun that is nowhere in the room.
     /// </summary>
-    /// <remarks>
-    /// The retail engine's topic bar, opened from code rather than from a click: the lobby's
-    /// action files answer <c>CROW</c> and <c>DAGGER</c> with two topics each and nothing in
-    /// the room is called either. The bar's rows are whatever the files offer for the noun
-    /// now, and choosing one performs it the way any row does.
-    /// </remarks>
     /// <param name="noun">The noun the action files answer for.</param>
     /// <param name="label">What the bar is headed, since the noun itself means nothing to a player.</param>
     /// <returns>A hover to open the bar on, with no rows when the files offer none.</returns>
@@ -202,6 +196,11 @@ public sealed class SceneInteraction
         if (Stranger(noun) is { Length: > 0 } unmet)
         {
             return unmet;
+        }
+
+        if (Unidentified(noun) is { Length: > 0 } anybodys)
+        {
+            return anybodys;
         }
 
         if (Numbered(noun, pick.Name) is { Length: > 0 } room)
@@ -326,6 +325,7 @@ public sealed class SceneInteraction
     /// <returns>The label.</returns>
     private string Labelled(string noun, string model) =>
         Stranger(noun)
+        ?? Unidentified(noun)
         ?? Numbered(noun, model)
         ?? OneOfSeveral(noun)
         ?? noun;
@@ -353,6 +353,76 @@ public sealed class SceneInteraction
             ? Text.Say("noun.WOMAN", "Woman")
             : Text.Say("noun.MAN", "Man");
     }
+
+    /// <summary>
+    /// A thing the artists named after its owner, and the game's own rule for whether the
+    /// player has worked out that it is theirs.
+    /// </summary>
+    /// <param name="noun">The noun the scene gives it.</param>
+    /// <returns>What it is, or null when the player knows whose it is.</returns>
+    private string? Unidentified(string noun)
+    {
+        foreach ((string[] nouns, string key, string fallback, string knows) in Owned)
+        {
+            if (!nouns.Contains(noun, StringComparer.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            // A condition the story cannot answer leaves the name alone, which is the same
+            // way round Introductions.Knows fails: a label shown early is a small spoiler,
+            // and one withheld for ever is a thing with no name.
+            try
+            {
+                return Sheep.SheepExpression.IsTrue(knows, _api) ? null : Text.Say(key, fallback);
+            }
+            catch (Formats.FormatParseException)
+            {
+                return null;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>What each owner's machine and its plate are called before anybody knows.</summary>
+    private static readonly (string[] Nouns, string Key, string Fallback, string Knows)[] Owned =
+    [
+        // Gabriel's own Harley, which is his only once he has hired it. The hire shop's
+        // 102P models carry GABES_MOPED from the moment he walks in, so the label was
+        // handing him a bike he has not paid for and has no key to. HARLEY_FOR_RENT is
+        // the original's own noun for it, translated in every language and used nowhere
+        // else; MOPED_KEYS is the game's own test, out of MOP102P.NVC's NOT_RENTED_BIKE.
+        // Either ego's keys count, because Grace rides it on day 3 with Gabriel's.
+        (["GABES_MOPED"], "noun.HARLEY_FOR_RENT", "Harley for hire",
+            "DoesGabeHaveInvItem(\"MOPED_KEYS\") || DoesGraceHaveInvItem(\"MOPED_KEYS\")"),
+
+        (["MOSELYS_MOPED"], "noun.MOPED", "Moped",
+            "GetFlag(\"SeenMoselyMop\") || GetFlag(\"IDedMoselyVehicle\")"),
+        (["MOSELYS_MOPED_LICENSE", "MOSELY_LICENSE_PLATE"], "noun.MOPED_LICENSE", "Moped number plate",
+            "GetFlag(\"SeenMoselyMop\") || GetFlag(\"IDedMoselyVehicle\")"),
+
+        // Lady Howard and Estelle share one. FOLLOW is the game's own second half of
+        // SEEN_LADYH_ON_ROAD: following her out of the square is seeing whose it is.
+        (["LADY_H_MOPED"], "noun.MOPED", "Moped",
+            "GetFlag(\"SeenLadyHMop\") || GetNounVerbCount(\"LADY_HOWARD\",\"FOLLOW\") || " +
+            "GetFlag(\"IDedHowardVehicle\") || GetFlag(\"IDedEstelleVehicle\")"),
+        (["LADY_H_MOPED_LICENSE"], "noun.MOPED_LICENSE", "Moped number plate",
+            "GetFlag(\"SeenLadyHMop\") || GetNounVerbCount(\"LADY_HOWARD\",\"FOLLOW\") || " +
+            "GetFlag(\"IDedHowardVehicle\") || GetFlag(\"IDedEstelleVehicle\")"),
+
+        (["WILKES_MOPED"], "noun.MOPED", "Moped", "GetFlag(\"IDedWilkesVehicle\")"),
+        (["WILKES_MOPED_LICENSE", "WILKES_LICENSE_PLATE"], "noun.MOPED_LICENSE",
+            "Moped number plate", "GetFlag(\"IDedWilkesVehicle\")"),
+
+        (["BUCHELLIS_MOPED"], "noun.MOPED", "Moped", "GetFlag(\"IDedBuchelliVehicle\")"),
+        (["BUCHELLIS_LICENSE"], "noun.MOPED_LICENSE", "Moped number plate",
+            "GetFlag(\"IDedBuchelliVehicle\")"),
+
+        (["EMILIOS_MOPED"], "noun.MOPED", "Moped", "GetFlag(\"IDedEmilioVehicle\")"),
+        (["EMILIOS_LICENSE_PLATE"], "noun.MOPED_LICENSE", "Moped number plate",
+            "GetFlag(\"IDedEmilioVehicle\")"),
+    ];
 
     /// <summary>Does something to what is under the pointer.</summary>
     /// <param name="hover">What was under it, from <see cref="At"/>.</param>

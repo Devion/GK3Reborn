@@ -9,21 +9,6 @@ namespace GK3Reborn.Rendering.Shaders;
 /// <summary>
 /// The sun's rays, in GLSL.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Outdoors, a screen-space pass. Every pixel walks the line from itself toward the sun's
-/// place on the screen and gathers how much of that line is sky — where the sun's light gets
-/// in — less what the clouds hold back; a wall, a tree or a hillside on the line is where it
-/// does not. Weighted toward the near end and toward the sun, that is the shafts between the
-/// trees and the glow over a roofline. See <see cref="SunRays"/> for why it is done this way.
-/// </para>
-/// <para>
-/// Indoors, a volume. Each shaft of daylight at a window is a box of lit air, and every
-/// pixel's ray is cut against each box and marched through the part of it that lies in front
-/// of whatever the room drew at that pixel — so a pillar standing in a shaft cuts it, a shaft
-/// behind a wall is not seen, and the eye can stand inside one. See <see cref="LightShaft"/>.
-/// </para>
-/// </remarks>
 public static class SunRayShaders
 {
     /// <summary>

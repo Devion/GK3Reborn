@@ -14,15 +14,6 @@ namespace GK3Reborn.Game;
 /// <summary>
 /// Which of a room's windows the daylight comes in at, and as what.
 /// </summary>
-/// <remarks>
-/// Decided from the room. A window is an object the artists named one — the test
-/// <see cref="Daylight"/> uses to move the daylight to it, and a few more words — and the
-/// shaft leaves its pane along the sun's own direction where the sun reaches that wall this
-/// hour, or softly downward into the room where it does not. Only indoors: a village's
-/// houses have windows too, and a shaft out of one of those into the square would be light
-/// from nowhere. See <see cref="IsRoofed"/>. The daylight pass draws them as volumes; see
-/// <see cref="LightShaft"/>.
-/// </remarks>
 public static class SceneShafts
 {
     /// <summary>How brightly the sun's own shaft is drawn.</summary>

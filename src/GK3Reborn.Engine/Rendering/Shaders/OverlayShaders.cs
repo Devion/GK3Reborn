@@ -56,21 +56,6 @@ public static class OverlayShaders
     /// <summary>
     /// One of the screens' own pictures, screened or multiplied into what is behind it.
     /// </summary>
-    /// <remarks>
-    /// <b>One value for both, on purpose.</b> Each wants the picture already faded by its
-    /// own coverage — <c>aS</c> — and the pair of blend factors does the rest: screen is
-    /// <c>(one, one minus source colour)</c>, which gives <c>D + aS(1 - D)</c>, and multiply
-    /// is <c>(destination colour, one minus source alpha)</c>, which gives
-    /// <c>D(1 - a(1 - S))</c>. Both leave the destination exactly alone where the picture is
-    /// transparent, which is the property the whole thing turns on.
-    /// <para>
-    /// It was two values and two branches, and the failure that cost was ugly and hard to
-    /// see: a run whose shader took one branch while its pipeline carried the other blend
-    /// wrote a *factor* where a *colour* was wanted, and the sigils came out as flat dark
-    /// squares the size of their own quads. With one branch there is nothing left to
-    /// disagree about.
-    /// </para>
-    /// </remarks>
     public const int PictureBlended = 2;
 
     /// <summary>Which run kind a blend wants written.</summary>

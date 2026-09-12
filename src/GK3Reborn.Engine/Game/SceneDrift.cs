@@ -41,14 +41,6 @@ public readonly record struct Crown(Vector3 Least, Vector3 Most, bool Conifer)
 /// <summary>
 /// Which rooms have insects and dust in the air, and where the insects gather.
 /// </summary>
-/// <remarks>
-/// Decided from the room rather than from a list. Midges hang under trees, so a room has
-/// insects where it has crowns — read off the same foliage cards <see cref="Foliage"/> grows
-/// its trees over — and dust hangs in the air of any room the sun reaches, which is every
-/// room with the sky over it and the ones with a window on it: a hotel bedroom at ten in the
-/// morning has motes in its light the way a village square does. Both need daylight to be
-/// seen at all, so a room at two in the morning gets neither.
-/// </remarks>
 public static class SceneDrift
 {
     /// <summary>How many insects a wooded room may have about at once.</summary>
@@ -99,10 +91,6 @@ public static class SceneDrift
     /// <summary>Something stable about a room, for seeding what drifts through it.</summary>
     /// <param name="scene">The scene's name.</param>
     /// <returns>A hash of the name, the same on every machine and every run.</returns>
-    /// <remarks>
-    /// Written out rather than <see cref="HashCode.Combine{T1}"/>, which is seeded afresh
-    /// for every process and would reshuffle the wind on every launch.
-    /// </remarks>
     public static ulong Seed(string? scene)
     {
         ulong hash = 14695981039346656037UL;
