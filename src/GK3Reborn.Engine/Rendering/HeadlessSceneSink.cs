@@ -254,6 +254,22 @@ public sealed class HeadlessSceneSink : ISceneSink
         }
     }
 
+    /// <summary>Which mesh groups each placed model keeps out of the eyes standing in it.</summary>
+    public IReadOnlyDictionary<int, IReadOnlyList<int>> UnseenBySelf => _unseenBySelf;
+
+    private readonly Dictionary<int, IReadOnlyList<int>> _unseenBySelf = [];
+
+    /// <inheritdoc/>
+    public void SetUnseenBySelf(ModelPlacement placement, IReadOnlyList<int> meshes)
+    {
+        ArgumentNullException.ThrowIfNull(meshes);
+
+        if (placement.Exists)
+        {
+            _unseenBySelf[placement.Id] = [.. meshes];
+        }
+    }
+
     /// <summary>How many models something has made their own light source.</summary>
     public int SelfLitCount { get; private set; }
 

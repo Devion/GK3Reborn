@@ -235,6 +235,9 @@ public sealed record Settings
     /// <summary>Whether pushing the mouse forward looks down rather than up.</summary>
     public bool InvertLook { get; init; }
 
+    /// <summary>Whether the player's own arms are drawn in first person, and the eye follows a clip played on them.</summary>
+    public bool FirstPersonArms { get; init; } = true;
+
     /// <summary>Which language the game is read, spoken and written in.</summary>
     public string Language { get; init; } = Content.GameLanguage.Default.Code;
 

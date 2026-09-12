@@ -137,6 +137,21 @@ public interface ISceneSink
     /// <param name="visible">Whether that part is drawn.</param>
     void SetPartVisible(ModelPlacement placement, int mesh, int submesh, bool visible);
 
+    /// <summary>Keeps some of a model's mesh groups out of the eyes of whoever is standing in it.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="meshes">
+    /// Which groups the view standing in the model does not see. The light and the mirrors
+    /// still see the whole of it, which is what tells this from
+    /// <see cref="SetPartVisible"/>: a player in first person casts their own shadow and
+    /// stands in their own reflection while seeing nothing of themselves but their arms.
+    /// Pass nothing to draw all of it to them again.
+    /// </param>
+    void SetUnseenBySelf(ModelPlacement placement, IReadOnlyList<int> meshes)
+    {
+        // A sink that only records what a room places draws nothing, so it has no view to
+        // keep anything out of.
+    }
+
     /// <summary>Makes a standing model its own light source, or stops.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="selfLit">Whether it is drawn at full brightness and never shaded.</param>

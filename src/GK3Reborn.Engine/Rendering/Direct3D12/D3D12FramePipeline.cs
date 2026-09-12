@@ -405,7 +405,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
 
         _mesh.Begin(
             list, _geometry, _frames.Table(0, reflection: true), width, height, reflection: true);
-        _mesh.Record(list, _geometry, scene.Draws(_frames.PreviousSeconds));
+        _mesh.Record(list, _geometry, scene.Draws(_frames.PreviousSeconds, reflection: true));
 
         _mirror.Transition(list, ResourceStates.PixelShaderResource);
     }

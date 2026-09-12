@@ -90,6 +90,12 @@ public sealed class SceneUpdate
     /// <summary>The last shift a clip asked of each model, kept for as long as the room stands.</summary>
     private readonly Dictionary<string, Matrix4x4> _space = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Which of each model's mesh groups are the arms its owner can see, worked out once per model.</summary>
+    private readonly Dictionary<string, int[]> _arms = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>And which one is the head, for a model whose head is not refined and so carries no rig.</summary>
+    private readonly Dictionary<string, int?> _heads = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Models whose behaviour script is held while something else animates them.</summary>
     private readonly HashSet<string> _held = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1548,6 +1554,73 @@ public sealed class SceneUpdate
         _geometry.SetVisible(model.Placement, visible);
     }
 
+    /// <summary>Keeps a body out of the eyes of whoever is standing in it, all of it or all but the arms.</summary>
+    /// <param name="model">The model.</param>
+    /// <param name="standingIn">Whether the player is behind this body's eyes.</param>
+    /// <param name="keepArms">Whether their own arms are left in their view.</param>
+    public void Embody(PlacedModel model, bool standingIn, bool keepArms)
+    {
+        ArgumentNullException.ThrowIfNull(model);
+
+        // Not something they can click: a body drawn at the camera puts its own shirt across the crosshair, and the picker asks this. It is still
+        // drawn, still traced and still in the mirror — being stood in is not the same as being taken out of the room.
+        model.Visible = !standingIn;
+
+        if (!standingIn)
+        {
+            _geometry.SetUnseenBySelf(model.Placement, []);
+
+            return;
+        }
+
+        int[] arms = keepArms ? ArmsOf(model) : [];
+        List<int> unseen = [];
+
+        for (int mesh = 0; mesh < model.Model.Meshes.Count; mesh++)
+        {
+            if (Array.IndexOf(arms, mesh) < 0)
+            {
+                unseen.Add(mesh);
+            }
+        }
+
+        _geometry.SetUnseenBySelf(model.Placement, unseen);
+    }
+
+    /// <summary>Which of a model's mesh groups are its arms.</summary>
+    private int[] ArmsOf(PlacedModel model)
+    {
+        if (!_arms.TryGetValue(model.Model.Name, out int[]? found))
+        {
+            // Without the shoulders: what is kept is the arm from the elbow down, because an eye of their own is inside the shoulder. See
+            // CharacterArms.Shoulders.
+            IReadOnlyList<int> shoulders = Actors.CharacterArms.Shoulders(model.Model);
+
+            found = [.. Actors.CharacterArms.Find(model.Model).Where(mesh => !shoulders.Contains(mesh))];
+            _arms[model.Model.Name] = found;
+        }
+
+        return found;
+    }
+
+    /// <summary>Which of a model's mesh groups is its head.</summary>
+    private int? HeadOf(PlacedModel model)
+    {
+        if (model.Head is { } rig)
+        {
+            return rig.Mesh;
+        }
+
+        // A head is only refined when the setting asks for it, and the head is wanted either way.
+        if (!_heads.TryGetValue(model.Model.Name, out int? found))
+        {
+            found = Actors.CharacterHead.Find(model.Model);
+            _heads[model.Model.Name] = found;
+        }
+
+        return found;
+    }
+
     /// <summary>Applies an animation's visibility changes.</summary>
     /// <param name="changes">The changes due now.</param>
     private void Reveal(IEnumerable<AnimationVisibility> changes)
@@ -1870,6 +1943,29 @@ public sealed class SceneUpdate
         ArgumentNullException.ThrowIfNull(actor);
 
         return _standing.TryGetValue(actor, out PlacedModel? placed) && Where(actor) is { } feet ? feet + (Vector3.UnitY * Eyes(placed)) : null;
+    }
+
+    /// <summary>How far a clip has carried an actor's head from where their own standing pose has it.</summary>
+    /// <returns>The shift, in world units, or null when there is no head to measure or nobody by that name.</returns>
+    /// <param name="actor">Their model name or the noun the scene gives them.</param>
+    public Vector3? HeadShift(string actor)
+    {
+        ArgumentNullException.ThrowIfNull(actor);
+
+        if (ModelNamed(actor) is not { } placed || (Where(actor) ?? Where(placed.Name)) is not { } feet || HeadOf(placed) is not { } head ||
+            head < 0 || head >= placed.Model.Meshes.Count)
+        {
+            return null;
+        }
+
+        Matrix4x4 world = _geometry.TransformOf(placed.Placement);
+
+        Vector3 now = Vector3.Transform(placed.PoseOf(head).Translation, world);
+        Vector3 rest = Vector3.Transform(placed.Model.Meshes[head].MeshToLocal.Translation, world);
+
+        // Measured from the feet at each end, so a clip that walks the character carries their head along for nothing: what is left is what it does
+        // to the head that their standing does not — a kneel, a lean, a reach down — which is the part an eye over their feet cannot see.
+        return now - feet - (rest - world.Translation);
     }
 
     /// <summary>The direction a heading looks along.</summary>

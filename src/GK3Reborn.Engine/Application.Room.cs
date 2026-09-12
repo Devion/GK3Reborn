@@ -427,6 +427,19 @@ public static partial class Application
         // Whether the ego's model is being stood in rather than looked at, so it is taken out of the picture and put back exactly once each way.
         bool embodied = false;
 
+        // And whether their arms are being left in it, which is the same decision made again whenever the row is turned over mid-room.
+        bool armsShown = false;
+
+        // How much of the way the eye has gone from standing over the player's own feet to riding the head of a clip being played on them.
+        float ridingHead = 0f;
+
+        // How long that takes, each way, in seconds. Out is the slower of the two: a clip ends on a frame and the eye should not.
+        const float RidingIn = 0.35f;
+        const float RidingOut = 0.5f;
+
+        // And the furthest it will follow a head, in scene units. A kneel is thirty; GAB_GABTE3HDOFF is Gabriel's head coming off.
+        const float FurthestRide = 45f;
+
         // How near their own eyes the view has to be for that to be true, in scene units.
         const float InsideTheHead = 45f;
 
@@ -446,6 +459,11 @@ public static partial class Application
 
         // How fast the view follows the body round, in radians a second. Under the actors' own Walker.TurnRate, because a head that kept up with.
         const float TurningHead = 4.5f;
+
+        // And how far round the body has to have been turned before the view follows it at all. A walk to something clicked at the crosshair ends
+        // facing what the player was already looking at, and every corner of the walk before that is the body repositioning: reported as the camera
+        // shaking off to one side and back for an interaction the player never asked to be turned for.
+        const float LookingAway = 0.7f;
 
         // The last way out walked into, and when, so that one which answers with a line rather than a door is not run again on every frame the.
         string? tried = null;
@@ -948,7 +966,8 @@ public static partial class Application
                 {
                     turningTo = null;
                 }
-                else if (MathF.Abs(Game.Navigation.Walker.Wrapped(facing - turned)) > 0.001f)
+                else if (MathF.Abs(Game.Navigation.Walker.Wrapped(facing - turned)) > 0.001f && update.Heading(story.Ego) is null &&
+                    MathF.Abs(Game.Navigation.Walker.Wrapped(facing - walker.Yaw)) > LookingAway)
                 {
                     turningTo = facing;
                 }
@@ -1036,6 +1055,20 @@ public static partial class Application
 
                 (Vector3 eye, float yaw, float pitch) = walker.Shot(Game.Navigation.FirstPerson.Eyes, delta);
 
+                // A clip that kneels, leans or reaches down moves the body the player is standing in, and an eye pinned over their feet stayed
+                // upright while their own hands went out of the bottom of the frame. Followed only while the story is animating them, eased in and
+                // out, and never written back to where they stand: see SceneUpdate.Driven for what happens when a pose moves the player.
+                bool performing = front.Settings.FirstPersonArms && update.Performing(story.Ego);
+
+                ridingHead = performing ? MathF.Min(1f, ridingHead + (delta / RidingIn)) : MathF.Max(0f, ridingHead - (delta / RidingOut));
+
+                if (ridingHead > 0f && update.HeadShift(story.Ego) is { } shift)
+                {
+                    float far = shift.Length();
+
+                    eye += (far > FurthestRide ? shift / far * FurthestRide : shift) * ridingHead;
+                }
+
                 camera.Position = eye;
                 camera.Aim = new Vector2(yaw * 180f / MathF.PI, pitch * 180f / MathF.PI);
             }
@@ -1050,13 +1083,18 @@ public static partial class Application
             bool behindTheEyes = OnFoot() && (onFoot || walker.Returning || (update.Gliding && update.EyesOf(story.Ego) is { } head &&
                   Vector3.DistanceSquared(view.Position, head) < InsideTheHead * InsideTheHead));
 
-            if (behindTheEyes != embodied)
+            bool ownArms = behindTheEyes && front.Settings.FirstPersonArms;
+
+            if (behindTheEyes != embodied || ownArms != armsShown)
             {
                 embodied = behindTheEyes;
+                armsShown = ownArms;
 
                 if (update.ModelNamed(story.Ego) is { } body)
                 {
-                    update.Show(body, !behindTheEyes);
+                    // Their own arms are what is left of them, so a clip they are playing is something they can watch their hands do. The rest of
+                    // the body is only taken out of their own view: it still casts their shadow across the floor and still stands in the mirror.
+                    update.Embody(body, behindTheEyes, ownArms);
                 }
             }
 

@@ -879,6 +879,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>Batches an <c>[MVISIBILITY]</c> line has turned off on their own.</summary>
     private readonly HashSet<int> _invisibleParts = [];
 
+    /// <summary>Batches drawn to everything but the eyes of whoever is standing in them.</summary>
+    private readonly HashSet<int> _unseenBySelf = [];
+
     /// <summary>Every placement that turns to the camera, and the pose it was placed in.</summary>
     private readonly List<(ModelPlacement Placement, Matrix4x4 Placed, Vector3 Pivot, float Authored)>
         _billboards = [];
@@ -1051,6 +1054,38 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // and held — a pair of glasses, a hat, a pipe, a spare hand — whose shadow at this
         // scale is a few pixels, where the cost of splitting every model into an instance
         // per submesh is paid by every room.
+    }
+
+    /// <inheritdoc/>
+    public void SetUnseenBySelf(ModelPlacement placement, IReadOnlyList<int> meshes)
+    {
+        ArgumentNullException.ThrowIfNull(meshes);
+
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        // Not the Hidden flag: these batches are still drawn, still traced and still in
+        // every other pass — the room's own view is the only one that skips them. Which is
+        // what a body the player is standing in needs, since it still stands between the
+        // sun and the floor and still stands in front of the mirror.
+        foreach ((int mesh, List<int> batches) in _placements[placement.Id])
+        {
+            bool unseen = meshes.Contains(mesh);
+
+            foreach (int index in batches)
+            {
+                if (unseen)
+                {
+                    _unseenBySelf.Add(index);
+                }
+                else
+                {
+                    _unseenBySelf.Remove(index);
+                }
+            }
+        }
     }
 
     /// <inheritdoc/>
@@ -2850,13 +2885,19 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// The wind's clock as it stood a frame ago, so that a leaf reports its own movement to
     /// the temporal filter rather than reporting none.
     /// </param>
-    public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f)
+    /// <param name="reflection">
+    /// Whether this is the mirror's pass rather than the player's own, which decides
+    /// whether the body they are standing in is one of them. See SetUnseenBySelf.
+    /// </param>
+    public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f, bool reflection = false)
     {
         for (int index = 0; index < _batches.Count; index++)
         {
             Batch batch = _batches[index];
 
-            if (batch.Material is null || batch.Hidden)
+            // The player's own body is drawn in the mirror and nowhere the player is
+            // looking from. See SetUnseenBySelf.
+            if (batch.Material is null || batch.Hidden || (!reflection && _unseenBySelf.Contains(index)))
             {
                 continue;
             }

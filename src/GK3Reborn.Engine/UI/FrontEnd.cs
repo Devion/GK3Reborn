@@ -882,6 +882,13 @@ public sealed class FrontEnd
             Enabled = Settings.FirstPerson,
         },
 
+        // One row for the whole body: the arms in view and the eye following the clip that moves them are the same idea, which is that the player
+        // is standing in a character rather than at a point sixty units off the floor.
+        Toggle( "arms", Text.Say("general.arms", "Your own arms in view"), Settings.FirstPersonArms) with
+        {
+            Enabled = Settings.FirstPerson,
+        },
+
         Toggle( "captions", Text.Say("general.captions", "Write out what is said"), Settings.Captions),
 
         // Its own row, immediately under the one it pairs with, because the two are different decisions: a caption is small and beside whoever is.
@@ -1214,6 +1221,7 @@ public sealed class FrontEnd
             {
                 Perspective = Step(Perspectives, Settings.Perspective, action.Step),
             }, "invertlook" => Settings with { InvertLook = !Settings.InvertLook },
+            "arms" => Settings with { FirstPersonArms = !Settings.FirstPersonArms },
 
             // Rounded to a whole unit a second, so the row reads as a number and two players who set it to the same thing walk at the same pace.
             "walkpace" => Settings with
