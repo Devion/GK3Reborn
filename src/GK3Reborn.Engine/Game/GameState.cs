@@ -115,6 +115,9 @@ public sealed class GameState
     /// <summary>Three-letter code of the location before this one.</summary>
     public string LastLocation { get; private set; } = string.Empty;
 
+    /// <summary>How many times a script has asked to change location, including to the room the player is already in; not saved.</summary>
+    public int LocationRequests { get; set; }
+
     /// <summary>Where the story's rules find the player: the map while it is open, and otherwise the room.</summary>
     public string Whereabouts => Screens.IsOnTop(ScreenKind.Driving) ? DrivingMap.Location : Location;
 
@@ -380,6 +383,9 @@ public sealed class GameState
         {
             Timeblock = wanted;
             ChangingTo = null;
+
+            // Chat counts belong to one timeblock (GameProgress::SetTimeblock); a Day 1 chat with Wilkes otherwise loses 202P's scored one.
+            _chatCounts.Clear();
         }
     }
 

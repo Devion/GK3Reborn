@@ -18,6 +18,12 @@ public sealed class MoviePlayer : IDisposable
     private AudioVoice _voice;
     private double _elapsed;
     private DecodedImage? _frame;
+    private byte[]? _pixels;
+    private readonly System.Diagnostics.Stopwatch _clock = new();
+
+    /// <summary>How long past its end a movie waits for a late last picture or the tail of its sound.</summary>
+    private const double Overrun = 2.0;
+
     private IReadOnlyList<Formats.Animation.AnimationCaption> _captions = [];
     private int _rate = Formats.Animation.AnimationFile.FramesPerSecond;
 
@@ -65,6 +71,9 @@ public sealed class MoviePlayer : IDisposable
 
     /// <summary>The frame that should be on screen, or null when nothing is playing.</summary>
     public DecodedImage? Frame => _frame;
+
+    /// <summary>Changes whenever <see cref="Frame"/> does, so a caller uploads a picture once rather than every frame it is on screen.</summary>
+    public long FrameSerial { get; private set; }
 
     /// <summary>
     /// Starts a movie.
@@ -119,6 +128,7 @@ public sealed class MoviePlayer : IDisposable
             _voice = _audio.Play(sound, AudioBus.Music);
         }
 
+        _clock.Restart();
         Advance(0);
 
         return _movie.Duration.TotalSeconds;
@@ -161,21 +171,41 @@ public sealed class MoviePlayer : IDisposable
         }
 
         _elapsed += Math.Max(0, seconds);
+
+        // The sound plays in real time whatever the frame rate, so the picture keeps the clock it is heard by, not deltas a slow frame clipped.
+        if (_voice.Exists)
+        {
+            _elapsed = Math.Max(_elapsed, _clock.Elapsed.TotalSeconds);
+        }
+
         Written(_elapsed);
 
-        if (_movie.TryReadFrame(TimeSpan.FromSeconds(_elapsed), out MovieFrame frame))
+        double duration = _movie.Duration.TotalSeconds;
+
+        // Asked for just inside the end once the clock is past it, so the last pictures a slow decoder is still delivering are shown, not cut.
+        if (_movie.TryReadFrame(TimeSpan.FromSeconds(Math.Min(_elapsed, Math.Max(0, duration - 0.001))), out MovieFrame frame))
         {
             // Kept rather than handed straight on: a frame the decoder could not produce
-            // should leave the last one on screen instead of a black flash.
-            _frame = new DecodedImage(
-                frame.Width, frame.Height, frame.Rgba.ToArray(), HasAlpha: false, _movie.Name);
+            // should leave the last one on screen instead of a black flash. One buffer, rather than 6 MB of garbage a frame.
+            int bytes = frame.Width * frame.Height * 4;
+
+            if (_pixels?.Length != bytes)
+            {
+                _pixels = new byte[bytes];
+            }
+
+            frame.Rgba.Span[..bytes].CopyTo(_pixels);
+            _frame = new DecodedImage(frame.Width, frame.Height, _pixels, HasAlpha: false, _movie.Name);
+            FrameSerial++;
 
             return true;
         }
 
-        // Out of picture. The sound may still have a moment to run, and the movie is over
-        // when both are.
-        if (_elapsed < _movie.Duration.TotalSeconds)
+        // Over once the clock is past the end, the last picture is out and the sound has finished; or, whatever either says, a moment later.
+        bool pictureOut = _movie.Exhausted;
+        bool soundOut = !_voice.Exists || _audio?.IsPlaying(_voice) != true;
+
+        if (_elapsed < duration || (_elapsed < duration + Overrun && !(pictureOut && soundOut)))
         {
             return true;
         }
@@ -196,6 +226,9 @@ public sealed class MoviePlayer : IDisposable
         _movie?.Dispose();
         _movie = null;
         _frame = null;
+        FrameSerial++;
+        _pixels = null;
+        _clock.Reset();
         _elapsed = 0;
         _captions = [];
         Speaker = null;

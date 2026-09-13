@@ -745,7 +745,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
                 camera,
                 _frames.Seconds,
                 width,
-                height));
+                height,
+                lean: _frames.Settings.Quality == RayTracingQuality.None));
     }
 
     /// <summary>

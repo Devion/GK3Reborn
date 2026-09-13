@@ -30,10 +30,25 @@ public enum PictureQuality
 public enum Perspective
 {
     /// <summary>Over the room, as the original plays: click the floor to walk there.</summary>
-    FreeCam,
+    Original,
 
     /// <summary>Behind the eyes, walking it yourself.</summary>
     FirstPerson,
+
+    /// <summary>Off the leash: the camera flies, through the walls and through whatever the story was going to show.</summary>
+    FreeCamera,
+}
+
+/// <summary>Reads a perspective by name, and takes anything it does not know for the original — which is what "FreeCam" meant before the flying
+/// camera took that name, and so the one rename in this file cannot throw away the rest of somebody's settings.</summary>
+internal sealed class PerspectiveNames : JsonConverter<Perspective>
+{
+    public override Perspective Read(ref Utf8JsonReader reader, Type type, JsonSerializerOptions options) =>
+        reader.TokenType == JsonTokenType.String && Enum.TryParse(reader.GetString(), true, out Perspective named) && Enum.IsDefined(named) ? named
+        : reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out int ordinal) && Enum.IsDefined((Perspective)ordinal)
+            ? (Perspective)ordinal : Perspective.Original;
+
+    public override void Write(Utf8JsonWriter writer, Perspective value, JsonSerializerOptions options) => writer.WriteStringValue(value.ToString());
 }
 
 /// <summary>What the player has chosen, and where it is kept.</summary>
@@ -216,15 +231,16 @@ public sealed record Settings
     /// <summary>Whether the story is allowed to move the camera for effect.</summary>
     public bool Cinematics { get; init; } = true;
 
-    /// <summary>Whether the camera may fly out of the room and keep flying through a cutscene.</summary>
-    public bool FreeCamera { get; init; }
-
     /// <summary>Where the player watches the game from.</summary>
-    public Perspective Perspective { get; init; } = Perspective.FreeCam;
+    public Perspective Perspective { get; init; } = Perspective.Original;
 
     /// <summary>Whether the player is behind their own eyes.</summary>
     [JsonIgnore]
     public bool FirstPerson => Perspective == Perspective.FirstPerson;
+
+    /// <summary>Whether the camera may fly out of the room and keep flying through a cutscene.</summary>
+    [JsonIgnore]
+    public bool FreeCamera => Perspective == Perspective.FreeCamera;
 
     /// <summary>How fast they walk in first person, in scene units a second.</summary>
     public float FirstPersonSpeed { get; init; } = Navigation.FirstPerson.Pace;
@@ -402,7 +418,7 @@ public sealed record Settings
 
         CursorScale = float.IsFinite(CursorScale) ? Math.Clamp(CursorScale, SmallestCursor, LargestCursor) : 1f,
 
-        Perspective = Enum.IsDefined(Perspective) ? Perspective : Perspective.FreeCam,
+        Perspective = Enum.IsDefined(Perspective) ? Perspective : Perspective.Original,
 
         FirstPersonSpeed = float.IsFinite(FirstPersonSpeed) ? Math.Clamp( FirstPersonSpeed, Navigation.FirstPerson.SlowestPace,
                 Navigation.FirstPerson.FastestPace) : Navigation.FirstPerson.Pace,
@@ -457,6 +473,7 @@ public sealed record Settings
 
     private static JsonSerializerOptions Json { get; } = new()
     {
-        WriteIndented = true, Converters = { new JsonStringEnumConverter() },
+        // The perspective is read here rather than by an attribute on the enum, because a converter in this list outranks one named on the type.
+        WriteIndented = true, Converters = { new PerspectiveNames(), new JsonStringEnumConverter() },
     };
 }

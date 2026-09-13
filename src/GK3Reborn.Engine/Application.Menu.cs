@@ -634,6 +634,7 @@ public static partial class Application
         double began = stopwatch.Elapsed.TotalSeconds;
         double previous = began;
         bool skipped = false;
+        long shown = -1;
 
         while (!window.IsClosing && movies.Playing)
         {
@@ -682,7 +683,12 @@ public static partial class Application
                 renderer.SetOverlay(null);
             }
 
-            renderer.SetMovieFrame(movies.Frame);
+            // Only a new picture: Direct3D waits for the device and builds a texture on every call, which at 1440x1080 is a slow machine's frame.
+            if (shown != movies.FrameSerial)
+            {
+                shown = movies.FrameSerial;
+                renderer.SetMovieFrame(movies.Frame);
+            }
 
             window.EndFrame();
             renderer.DrawFrame(0f, 0f, 0f);

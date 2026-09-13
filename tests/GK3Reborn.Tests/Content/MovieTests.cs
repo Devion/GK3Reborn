@@ -40,6 +40,45 @@ public sealed class MovieTests
     }
 
     [Fact]
+    public void A_decoder_slower_than_the_clock_drops_pictures_rather_than_falling_behind()
+    {
+        string? clip = H264DecoderTests.FindClip("212PEND.mp4");
+        Assert.SkipUnless(clip is not null, "needs the game's converted clips");
+
+        using Movie movie = Movie.Open(VideoLibrary.Open(Path.GetDirectoryName(clip)!), "212PEND")!;
+
+        // 1440x1080 at thirty a second, decoded at well under a third of that: what a laptop from 2015 did to the closing film.
+        movie.DecodeCost = TimeSpan.FromMilliseconds(80);
+
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        double showing = -1;
+        double worst = 0;
+        int pictures = 0;
+
+        while (clock.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            double now = clock.Elapsed.TotalSeconds;
+
+            if (movie.TryReadFrame(TimeSpan.FromSeconds(now), out MovieFrame frame))
+            {
+                showing = frame.Seconds;
+                pictures++;
+            }
+
+            if (now > 3)
+            {
+                worst = Math.Max(worst, now - showing);
+            }
+
+            Thread.Sleep(5);
+        }
+
+        // Played frame by frame the picture would be seven seconds behind by now and still losing ground.
+        Assert.True(pictures > 20, $"{pictures} pictures");
+        Assert.True(worst < 2.0, $"the picture fell {worst:F2}s behind the clock");
+    }
+
+    [Fact]
     public void Frames_arrive_by_time_and_the_sound_is_whole()
     {
         VideoLibrary? videos = OpenLibrary(out string name);

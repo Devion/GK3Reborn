@@ -176,6 +176,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>How long a movie runs, asked before it is played.</summary>
     public Func<string, double>? MovieSeconds { get; set; }
 
+    /// <summary>How long stopping an actor's fidget takes, which is its cleanup clips, asked before it is stopped.</summary>
+    public Func<string, double>? FidgetSeconds { get; set; }
+
     /// <summary>Walks an actor to where an animation begins, and says how long it takes.</summary>
     public Func<string, string, bool, double>? WalksToAnimationStart { get; set; }
 
@@ -276,6 +279,9 @@ public sealed class Gk3SheepApi : ISheepApi
             // front. Turning a laser head is as long as Grace's hands take, and she has a
             // different clip for every angle she can leave one at.
             "CALLSCENEFUNCTION" => Mechanism?.Seconds(first) ?? 0,
+
+            // WAITABLE in the reference: it returns once the cleanups have played, so MA3202P's Abbé lowers his binoculars before walking.
+            "STOPFIDGET" => FidgetSeconds?.Invoke(first) ?? 0,
 
             // A movie is as long as the movie is, which only whatever plays it knows.
             // Answering nothing would have a script speak over its own cutscene.

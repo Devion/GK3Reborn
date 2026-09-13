@@ -1553,7 +1553,8 @@ public static partial class Application
             }
 
             // The air in the room, for the handful that have any.
-            Rendering.FogVolume air = Game.SceneFog.For(scene.Name, api.State.Timeblock);
+            Rendering.FogVolume air = args.Contains("--no-fog", StringComparer.OrdinalIgnoreCase)
+                ? Rendering.FogVolume.None : Game.SceneFog.For(scene.Name, api.State.Timeblock);
             renderer.SetFog(air);
 
             if (air.Any)
@@ -2089,6 +2090,29 @@ public static partial class Application
 
                     // Always out of the archives, whatever the paintings are being read from.
                     Game.TimeblockCard.Read(archives, api.State.Timeblock.ToString()), audio, sounds);
+
+                // The film the new timeblock opens on, after its card, as GameProgress::StartTimeblock plays it: 212PBEGIN and 310ABEGIN.
+                if (movies.Play(api.State.Timeblock + "begin") is > 0 and { } opening)
+                {
+                    Log.Info( string.Create(CultureInfo.InvariantCulture, $"Opening film: {api.State.Timeblock}begin, {opening:F1}s"));
+
+                    if (frameLimit > 0)
+                    {
+                        movies.Stop();
+                        Log.Info($"Opening film: {api.State.Timeblock}begin passed over");
+                    }
+                    else
+                    {
+                        double waited = 0;
+                        bool pressed = false;
+
+                        if (Watch( window, renderer, movies, pages, Stopwatch.StartNew(), ref waited, ref pressed, SayForFilm,
+                                front.Settings.MovieSubtitles))
+                        {
+                            Log.Info($"Opening film: {api.State.Timeblock}begin skipped");
+                        }
+                    }
+                }
 
                 // And the card goes out into the next room the same way a room does, which also gives the load that follows something to draw frames.
                 fade.Begin();

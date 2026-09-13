@@ -279,33 +279,70 @@ public sealed class FrontEndTests
     }
 
     [Fact]
-    public void The_free_camera_is_a_row_on_the_playing_page_and_is_off_to_begin_with()
+    public void The_free_camera_is_the_third_perspective_and_the_room_begins_on_the_original()
     {
-        // Asked for by somebody photographing the game. It is a preference and not an
-        // assist: it changes nothing the story asks of the player, so it belongs beside the
-        // other two rows about who is holding the camera rather than on Made Easier.
+        // Who is holding the camera is one question with three answers rather than a choice
+        // with a toggle beside it: the story's own angles, the player's own eyes, or nobody.
+        // It is a preference and not an assist — it changes nothing the story asks of the
+        // player — so it belongs on Playing rather than on Made Easier.
         FrontEnd front = Front();
 
         front.Choose(new MenuAction("options"));
         front.Choose(new MenuAction("tab:gameplay"));
 
+        Assert.Equal(Perspective.Original, front.Settings.Perspective);
+        Assert.False(front.Settings.FirstPerson);
         Assert.False(front.Settings.FreeCamera);
-        Assert.Equal("Off", Row(front, "freecamera").Value);
+        Assert.Equal("Original", Row(front, "perspective").Value);
 
-        front.Choose(new MenuAction("freecamera"));
+        front.Choose(new MenuAction("perspective", Step: 1));
 
+        Assert.True(front.Settings.FirstPerson);
+        Assert.Equal("First person", Row(front, "perspective").Value);
+
+        front.Choose(new MenuAction("perspective", Step: 1));
+
+        // The two are exclusive now, which is what the row says and what the room does: a
+        // camera through the walls is not a body standing in them.
         Assert.True(front.Settings.FreeCamera);
-        Assert.Equal("On", Row(front, "freecamera").Value);
+        Assert.False(front.Settings.FirstPerson);
+        Assert.Equal("Free camera", Row(front, "perspective").Value);
 
-        front.Choose(new MenuAction("freecamera"));
+        front.Choose(new MenuAction("perspective", Step: 1));
 
-        Assert.False(front.Settings.FreeCamera);
+        Assert.Equal(Perspective.Original, front.Settings.Perspective);
 
-        // And it is not on Made Easier, which is the page that takes a puzzle away.
+        // And there is no row of its own left behind for it.
+        Assert.DoesNotContain(front.Items, i => i.Id == "freecamera");
+
+        // Nor is the perspective on Made Easier, which is the page that takes a puzzle away.
         front.Choose(new MenuAction("back"));
         front.Choose(new MenuAction("assists"));
 
-        Assert.DoesNotContain(front.Items, i => i.Id == "freecamera");
+        Assert.DoesNotContain(front.Items, i => i.Id == "perspective");
+    }
+
+    [Fact]
+    public void A_settings_file_written_before_the_rename_still_opens_on_the_original()
+    {
+        // "FreeCam" was what the original perspective was written under until the flying
+        // camera took the name, and the enum is read by name: a file that still says it has
+        // to answer the original rather than throw away everything else the player set.
+        string file = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+
+        try
+        {
+            File.WriteAllText(file, """{ "Perspective": "FreeCam", "MusicVolume": 0.25 }""");
+
+            Settings read = Settings.Load(file);
+
+            Assert.Equal(Perspective.Original, read.Perspective);
+            Assert.Equal(0.25f, read.MusicVolume);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
     }
 
     [Fact]
@@ -317,7 +354,7 @@ public sealed class FrontEndTests
 
         try
         {
-            Assert.True(new Settings { FreeCamera = true }.Save(file));
+            Assert.True(new Settings { Perspective = Perspective.FreeCamera }.Save(file));
             Assert.True(Settings.Load(file).FreeCamera);
         }
         finally

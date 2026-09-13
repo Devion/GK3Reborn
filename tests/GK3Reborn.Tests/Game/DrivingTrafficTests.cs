@@ -499,6 +499,26 @@ public sealed class DrivingTrafficTests
     }
 
     /// <summary>
+    /// Estelle stays in her room until the lobby bump and RC1 put her on the moped; the reference asks for location MAP.
+    /// </summary>
+    [Fact]
+    public void Estelle_circles_only_once_she_is_out_on_the_moped()
+    {
+        var noon = new GameState { Timeblock = Block("202P"), Location = "RC1" };
+
+        Assert.Empty(DrivingTraffic.Circling(noon));
+
+        noon.SetActorLocation("Estelle", "MOP");
+        Assert.Empty(DrivingTraffic.Circling(noon));
+
+        noon.SetActorLocation("Estelle", "MAP");
+        Assert.Equal("ESTELLE", Assert.Single(DrivingTraffic.Circling(noon)).Noun);
+
+        noon.SetActorLocation("Estelle", "WOD");
+        Assert.Empty(DrivingTraffic.Circling(noon));
+    }
+
+    /// <summary>
     /// The map's own two refusals: Larry's once the men are in his driveway and the night
     /// Gabriel walks over, and the station on Grace's two idle mornings.
     /// </summary>

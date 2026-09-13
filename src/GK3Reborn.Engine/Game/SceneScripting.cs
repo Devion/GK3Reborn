@@ -1014,11 +1014,14 @@ public static class SceneScripting
             return SheepValue.FromInt(0);
         });
 
+        // Waited on for as long as the cleanup clips take, as in the reference.
+        api.FidgetSeconds = world.TidySeconds;
+
         api.Register("StopFidget", a =>
         {
             world.StopFidget(a.Count > 0 ? a[0].AsString() : null);
             return SheepValue.FromInt(0);
-        });
+        }, waitable: true);
     }
 
     /// <summary>Makes a scene's hidden staging appear and disappear.</summary>

@@ -100,7 +100,7 @@ public sealed class FrontEnd
         [HdrTransfer.Automatic, HdrTransfer.PerceptualQuantiser, HdrTransfer.ExtendedLinear];
 
     private static readonly Perspective[] Perspectives =
-        [Perspective.FreeCam, Perspective.FirstPerson];
+        [Perspective.Original, Perspective.FirstPerson, Perspective.FreeCamera];
 
     private static readonly ToneMapping[] Curves =
         [ToneMapping.Clip, ToneMapping.Reinhard, ToneMapping.Filmic];
@@ -857,9 +857,7 @@ public sealed class FrontEnd
 
         Toggle( "cinematics", Text.Say("general.cinematics", "Let the story move the camera"), Settings.Cinematics),
 
-        // Not the perspective row above: this one is about the camera passing through the walls rather than about where the player watches from, and.
-        Toggle( "freecamera", Text.Say("general.freecamera", "No-clip camera"), Settings.FreeCamera),
-
+        // One row for the whole question of who is holding the camera: the story's own angles, the player's own eyes, or nothing at all holding it.
         MenuItem.Choice( "perspective", Text.Say("general.perspective", "Perspective"), Describe(Settings.Perspective)),
 
         MenuItem.Slider( "walkpace", Text.Say("general.walkpace", "Walking pace"), Fraction( Settings.FirstPersonSpeed,
@@ -1217,7 +1215,7 @@ public sealed class FrontEnd
             "insects" => Settings with { InsectsAndDust = !Settings.InsectsAndDust }, "sunrays" => Settings with { SunRays = !Settings.SunRays },
             "shimmer" => Settings with { HeatHaze = !Settings.HeatHaze }, "towns" => Settings with { RebuiltTowns = !Settings.RebuiltTowns },
             "glide" => Settings with { CameraGlide = !Settings.CameraGlide }, "cinematics" => Settings with { Cinematics = !Settings.Cinematics },
-            "freecamera" => Settings with { FreeCamera = !Settings.FreeCamera }, "perspective" => Settings with
+            "perspective" => Settings with
             {
                 Perspective = Step(Perspectives, Settings.Perspective, action.Step),
             }, "invertlook" => Settings with { InvertLook = !Settings.InvertLook },
@@ -1455,12 +1453,14 @@ public sealed class FrontEnd
     private static string Describe(Content.GameLanguage language) => string.Equals(language.Native, language.Name, StringComparison.Ordinal)
             ? language.Name : $"{language.Native} ({language.Name})";
 
-    /// <summary>What each cut-content tier is called in the menu.</summary>
+    /// <summary>What each perspective is called in the menu.</summary>
     private string Describe(Perspective perspective) => perspective switch
     {
-        Perspective.FirstPerson => Text.Say("general.perspective.first", "First person"), _ => Text.Say("general.perspective.free", "Free cam"),
+        Perspective.FirstPerson => Text.Say("general.perspective.first", "First person"),
+        Perspective.FreeCamera => Text.Say("general.perspective.free", "Free camera"), _ => Text.Say("general.perspective.original", "Original"),
     };
 
+    /// <summary>What each cut-content tier is called in the menu.</summary>
     private string Describe(CutContentTier tier) => tier switch
     {
         CutContentTier.Observation => Text.Say("general.restored.look", "Things to look at"),

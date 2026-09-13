@@ -2654,7 +2654,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
                 _camera,
                 (float)_wind.Elapsed.TotalSeconds,
                 width,
-                height));
+                height,
+                lean: Quality == RayTracingQuality.None));
 
         _vk.CmdEndRendering(buffer);
 

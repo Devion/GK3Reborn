@@ -78,6 +78,9 @@ public readonly record struct FogConstants(
     /// <param name="seconds">The clock the flicker runs on.</param>
     /// <param name="width">Viewport width in pixels.</param>
     /// <param name="height">Its height.</param>
+    /// <param name="lean">
+    /// March fewer steps and read the lamps every other one: for a machine with no ray tracing, where this is the dearest pass in the frame.
+    /// </param>
     /// <returns>The block.</returns>
     public static FogConstants For(
         FogVolume fog,
@@ -86,7 +89,8 @@ public readonly record struct FogConstants(
         Camera camera,
         float seconds,
         int width,
-        int height)
+        int height,
+        bool lean = false)
     {
         ArgumentNullException.ThrowIfNull(camera);
 
@@ -116,8 +120,14 @@ public readonly record struct FogConstants(
             new Vector4(counts.X, counts.Y, counts.Z, 0f),
             new Vector4(fog.Colour, fog.Density),
             new Vector4(fog.Top, MathF.Max(fog.Falloff, 0.001f), fog.Anisotropy, fog.Ambient),
-            new Vector4(fog.NoiseScale, fog.NoiseDrift, fog.NoiseStrength, fog.Steps),
+            new Vector4(fog.NoiseScale, fog.NoiseDrift, fog.NoiseStrength, lean ? Math.Min(fog.Steps, LeanSteps) : fog.Steps),
             new Vector4(ambient, 0f),
-            new Vector4(width, height, 0f, 0f));
+            new Vector4(width, height, lean ? LeanLightStride : 0f, 0f));
     }
+
+    /// <summary>The most steps a lean march takes. Each step is a slab, so fewer of them dim the layer by very little.</summary>
+    public const int LeanSteps = 12;
+
+    /// <summary>How many steps of a lean march share one reading of the lamps.</summary>
+    public const int LeanLightStride = 2;
 }

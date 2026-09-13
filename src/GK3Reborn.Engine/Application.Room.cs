@@ -101,6 +101,9 @@ public static partial class Application
 
         string here = scene.Name;
 
+        // A SetLocation to this same room still runs the timeblock check, as LocationManager::ChangeLocationInternal does; LBY210A's EndTB ends 210A that way.
+        int requests = story.LocationRequests;
+
         // Putting the binoculars down from a zoomed view.
         RoomExit Lower(Game.BinocularView looking)
         {
@@ -419,6 +422,7 @@ public static partial class Application
 
         // Whether a movie was on screen last frame, so the renderer is told to stop drawing one exactly once rather than every frame for the rest of.
         bool showingMovie = false;
+        long movieShown = -1;
         int saidAboutMovies = 0;
         int presented = 0;
         string? hovering = null;
@@ -670,7 +674,13 @@ public static partial class Application
                     movies.Advance(delta);
                 }
 
-                renderer.SetMovieFrame(movies.Frame);
+                // Only a new picture: Direct3D waits for the device and builds a texture on every call.
+                if (!showingMovie || movieShown != movies.FrameSerial)
+                {
+                    movieShown = movies.FrameSerial;
+                    renderer.SetMovieFrame(movies.Frame);
+                }
+
                 showingMovie = true;
 
                 for (; saidAboutMovies < movies.Diagnostics.Items.Count; saidAboutMovies++)
@@ -683,6 +693,7 @@ public static partial class Application
                 // Once, on the frame after it ended, rather than every frame afterwards.
                 renderer.SetMovieFrame(null);
                 showingMovie = false;
+                movieShown = -1;
             }
 
             // A screen first.
@@ -1532,6 +1543,12 @@ public static partial class Application
                     {
                         story.SetNounVerbCount(gaveUp.Counted, DrivingMap.Follow, 0);
 
+                        // Estelle's Follow$ moves her to WOD before the chase; back out on the roads, or she is lost for the block.
+                        if (gaveUp.LeavesThemAt is { } at && string.Equals(story.GetActorLocation(gaveUp.Noun), at, StringComparison.OrdinalIgnoreCase))
+                        {
+                            story.SetActorLocation(gaveUp.Noun, "MAP");
+                        }
+
                         Log.Info($"Gave up following {gaveUp.Noun}");
                     }
                     else if (traffic is { Following: true, Arrived: true } caught)
@@ -2155,6 +2172,21 @@ public static partial class Application
                 update.Cancel();
 
                 return new RoomExit(0, elsewhere);
+            }
+
+            // Asked to be where they already are: only the timeblock can come of it, so the room is left only when the rules say it is over.
+            if (story.LocationRequests != requests)
+            {
+                requests = story.LocationRequests;
+
+                if (api.Leaning is null && !Looking(api) && Game.Story.TimeblockRules.Check(story) is not null)
+                {
+                    Log.Info($"SetLocation({here}) from {here} ends {story.Timeblock}");
+
+                    update.Cancel();
+
+                    return new RoomExit(0, here);
+                }
             }
 
             window.EndFrame();

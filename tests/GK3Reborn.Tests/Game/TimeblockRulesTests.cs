@@ -264,4 +264,19 @@ public sealed class TimeblockRulesTests
         Assert.Equal("RC1", state.Location);
         Assert.Equal(new Timeblock(1, 12, true), state.Timeblock);
     }
+
+    [Fact]
+    public void Chat_counts_start_again_with_each_timeblock()
+    {
+        // LBY202P's scored chat with Wilkes asks for a count of nought, and he is chatted to on day one.
+        var state = new GameState { Timeblock = new Timeblock(1, 6, true) };
+        state.IncrementChatCount("WILKES");
+
+        Assert.True(state.ChangeTimeblock(new Timeblock(2, 2, true)));
+        Assert.Equal(1, state.GetChatCount("WILKES"));
+
+        state.StartedTimeblock();
+
+        Assert.Equal(0, state.GetChatCount("WILKES"));
+    }
 }

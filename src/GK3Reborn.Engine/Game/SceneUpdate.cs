@@ -638,7 +638,7 @@ public sealed class SceneUpdate
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
+        if (ActorNamed(actor) is not { } model)
         {
             return false;
         }
@@ -692,7 +692,7 @@ public sealed class SceneUpdate
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
+        if (ActorNamed(actor) is not { } model)
         {
             return false;
         }
@@ -743,11 +743,34 @@ public sealed class SceneUpdate
             return;
         }
 
-        if (ModelNamed(actor) is { } model && _fidgets.TryGetValue(model.Name, out Fidget? one))
+        if (ActorNamed(actor) is { } model && _fidgets.TryGetValue(model.Name, out Fidget? one))
         {
             Tidy(one);
             one.Stopped = true;
         }
+    }
+
+    /// <summary>How long stopping a character's fidget takes: the cleanup clips it will play, asked before it is stopped.</summary>
+    /// <returns>Seconds, or zero when nothing needs putting right.</returns>
+    /// <param name="actor">Their name.</param>
+    public double TidySeconds(string? actor)
+    {
+        if (actor is not { Length: > 0 } || Animations is null || ActorNamed(actor) is not { } model ||
+            !_fidgets.TryGetValue(model.Name, out Fidget? fidget) || fidget.Stopped || fidget.Running is not { } running)
+        {
+            return 0;
+        }
+
+        double seconds = 0;
+        string? was = running.Playing;
+
+        for (int guard = 0; guard < 8 && was is { Length: > 0 } && running.Script.CleanupFor(was) is { Length: > 0 } tidied; guard++)
+        {
+            seconds += Animations.SecondsOf(tidied);
+            was = tidied;
+        }
+
+        return seconds;
     }
 
     /// <summary>Puts a prop back where it lives, when the idle that was moving it is cut short.</summary>
@@ -802,7 +825,7 @@ public sealed class SceneUpdate
     {
         ArgumentNullException.ThrowIfNull(actor);
 
-        if (ModelNamed(actor) is not { Kind: PlacedModelKind.Actor } model)
+        if (ActorNamed(actor) is not { } model)
         {
             return;
         }
@@ -1541,6 +1564,22 @@ public sealed class SceneUpdate
         }
 
         return null;
+    }
+
+    /// <summary>Finds a character, by model name or noun, passing over a prop that shares the noun (MA3202P's abebinocs is ABBE too).</summary>
+    /// <returns>The actor, or null when the room has no character by that name.</returns>
+    /// <param name="name">Their model name or noun.</param>
+    public PlacedModel? ActorNamed(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        if (_models.TryGetValue(name, out PlacedModel? model) && model.Kind == PlacedModelKind.Actor)
+        {
+            return model;
+        }
+
+        return _scene.Models.FirstOrDefault(placed => placed.Kind == PlacedModelKind.Actor && placed.Placement.Exists &&
+            placed.Noun is { Length: > 0 } noun && noun.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>Draws a model, or stops drawing it.</summary>

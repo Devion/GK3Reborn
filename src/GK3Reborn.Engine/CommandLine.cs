@@ -113,6 +113,7 @@ public static class CommandLine
           --no-grass            No grass grown over the lawns.
           --no-sun-rays         No rays of sunlight, outdoors or in at a window.
           --no-shimmer          No heat haze over the far ground.
+          --no-fog              No mist in the cellars, the chasm or the night streets.
           --no-towns            Couiza and Rennes-les-Bains as the game shipped them.
           --towns               Build both towns out, whatever the setting says.
           --no-shader-fire      Draw the game's painted flame cards instead of fire.

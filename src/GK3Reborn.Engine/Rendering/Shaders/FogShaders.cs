@@ -85,7 +85,7 @@ public static class FogShaders
             // rgb the room's ambient floor
             vec4 ambient;
 
-            // xy the viewport in pixels
+            // xy the viewport in pixels, z how many steps share one reading of the lamps (nought or one is every step)
             vec4 screen;
         } fog;
 
@@ -452,6 +452,11 @@ public static class FogShaders
             vec3 scattered = vec3(0.0);
             float transmittance = 1.0;
 
+            // The lamps are most of a step's cost and change slowly along a ray, so a lean march reads them every few steps.
+            int stride = max(int(fog.screen.z), 1);
+            vec3 lit = vec3(0.0);
+            bool read = false;
+
             for (int i = 0; i < steps; i++)
             {
                 vec3 at = eye + (view * (near + ((float(i) + offset) * span)));
@@ -470,7 +475,13 @@ public static class FogShaders
                 float through = exp(-sigma * span);
                 float gathered = 1.0 - through;
 
-                scattered += transmittance * gathered * fog.tint.rgb * InScatter(at, view);
+                if (!read || (i % stride) == 0)
+                {
+                    lit = InScatter(at, view);
+                    read = true;
+                }
+
+                scattered += transmittance * gathered * fog.tint.rgb * lit;
                 transmittance *= through;
 
                 // Nothing behind two hundred and fifty to one is going to show.

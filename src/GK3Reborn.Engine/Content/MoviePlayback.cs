@@ -14,7 +14,8 @@ namespace GK3Reborn.Content;
 /// <param name="Width">Its width in pixels.</param>
 /// <param name="Height">Its height in pixels.</param>
 /// <param name="Rgba">Its pixels, four bytes each, top row first. Valid until the next frame is read.</param>
-public readonly record struct MovieFrame(int Width, int Height, ReadOnlyMemory<byte> Rgba);
+/// <param name="Seconds">When it is shown, from the start of the movie.</param>
+public readonly record struct MovieFrame(int Width, int Height, ReadOnlyMemory<byte> Rgba, double Seconds = 0);
 
 /// <summary>
 /// A movie, opened and decoded on demand.
@@ -44,6 +45,7 @@ public sealed class Movie : IDisposable
     private byte[]? _current;
     private bool _finished;
     private Exception? _failure;
+    private long _wantedTicks;
 
     private Movie(
         Mp4File file,
@@ -252,12 +254,16 @@ public sealed class Movie : IDisposable
     {
         frame = default;
 
+        // Told to the decode thread before anything else, so that a clock it cannot keep up with is one it knows to drop pictures for.
+        Interlocked.Exchange(ref _wantedTicks, at.Ticks);
+
         if (at >= Duration)
         {
             return false;
         }
 
         byte[]? chosen = null;
+        double shown = 0;
 
         lock (_gate)
         {
@@ -268,7 +274,7 @@ public sealed class Movie : IDisposable
                     ArrayPool<byte>.Shared.Return(chosen);
                 }
 
-                chosen = _ready.Dequeue().Rgba;
+                (shown, chosen) = _ready.Dequeue();
             }
 
             if (chosen is not null)
@@ -289,7 +295,7 @@ public sealed class Movie : IDisposable
             return false;
         }
 
-        frame = new MovieFrame(Width, Height, chosen.AsMemory(0, Width * Height * 4));
+        frame = new MovieFrame(Width, Height, chosen.AsMemory(0, Width * Height * 4), shown);
         return true;
     }
 
@@ -437,33 +443,74 @@ public sealed class Movie : IDisposable
         _stop.Dispose();
     }
 
-    /// <summary>The decode thread: keeps a few frames ahead of whatever the clock asks for.</summary>
+    /// <summary>How far behind the clock the decoder may fall before it starts again at a keyframe.</summary>
+    private const double CatchUp = 0.5;
+
+    /// <summary>A pause after every picture decoded, standing in for a slower machine in tests.</summary>
+    internal TimeSpan DecodeCost { get; set; }
+
+    /// <summary>Whether every picture has been decoded and taken.</summary>
+    public bool Exhausted
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _finished && _ready.Count == 0;
+            }
+        }
+    }
+
+    /// <summary>The moment the clock last asked for.</summary>
+    private double Wanted => TimeSpan.FromTicks(Interlocked.Read(ref _wantedTicks)).TotalSeconds;
+
+    /// <summary>When a sample is shown, in seconds from the start of the movie.</summary>
+    private double Shown(Mp4Sample sample) => _video.Seconds(sample.PresentationTime - _video.EditOffset);
+
+    /// <summary>
+    /// The decode thread: keeps a few frames ahead of whatever the clock asks for, and when it cannot, drops what the clock has already passed.
+    /// </summary>
     private void DecodeAhead()
     {
         CancellationToken stop = _stop.Token;
         byte[] buffer = new byte[64 * 1024];
         int frameBytes = Width * Height * 4;
+        List<Mp4Sample> samples = _video.Samples;
+        double gap = FrameRate > 0 ? 1.0 / FrameRate : 0;
 
         try
         {
-            foreach (Mp4Sample sample in _video.Samples)
+            for (int index = 0; index < samples.Count; index++)
             {
                 if (stop.IsCancellationRequested)
                 {
                     return;
                 }
 
-                if (buffer.Length < sample.Size)
+                double wanted = Wanted;
+
+                // Far behind a clock the sound is keeping: start again at the last keyframe it has passed rather than decode pictures nobody sees.
+                if (wanted - Shown(samples[index]) > CatchUp && Keyframe(index, wanted, ref buffer) is > 0 and int jump)
                 {
-                    buffer = new byte[Math.Max(sample.Size, buffer.Length * 2)];
+                    _decoder.Reset();
+                    index = jump;
                 }
 
-                lock (_stream)
+                Mp4Sample sample = samples[index];
+                buffer = Read(sample, buffer);
+
+                // Late, and no later picture is predicted from it: not decoded at all.
+                if (Shown(sample) + gap <= wanted && !Referenced(buffer.AsSpan(0, sample.Size), _video.NalLengthSize, out _))
                 {
-                    _file.Read(sample, buffer);
+                    continue;
                 }
 
                 _decoder.Decode(buffer.AsMemory(0, sample.Size), _video.NalLengthSize, sample.PresentationTime);
+
+                if (DecodeCost > TimeSpan.Zero)
+                {
+                    Thread.Sleep(DecodeCost);
+                }
 
                 if (!Deliver(frameBytes, stop))
                 {
@@ -490,31 +537,139 @@ public sealed class Movie : IDisposable
         }
     }
 
+    /// <summary>Reads one sample into the buffer, growing it when the sample is bigger.</summary>
+    private byte[] Read(Mp4Sample sample, byte[] buffer)
+    {
+        if (buffer.Length < sample.Size)
+        {
+            buffer = new byte[Math.Max(sample.Size, buffer.Length * 2)];
+        }
+
+        lock (_stream)
+        {
+            _file.Read(sample, buffer);
+        }
+
+        return buffer;
+    }
+
+    /// <summary>The last IDR picture after a sample that the clock has already passed, or -1 when there is none.</summary>
+    private int Keyframe(int from, double wanted, ref byte[] buffer)
+    {
+        List<Mp4Sample> samples = _video.Samples;
+        int found = -1;
+
+        for (int next = from + 1; next < samples.Count && _video.Seconds(samples[next].DecodeTime - _video.EditOffset) <= wanted; next++)
+        {
+            if (samples[next].Sync && Shown(samples[next]) <= wanted)
+            {
+                found = next;
+            }
+        }
+
+        if (found < 0)
+        {
+            return -1;
+        }
+
+        // A sync sample that is not an IDR may still be predicted from before itself, and starting there draws garbage until the next.
+        buffer = Read(samples[found], buffer);
+        Referenced(buffer.AsSpan(0, samples[found].Size), _video.NalLengthSize, out bool idr);
+
+        return idr ? found : -1;
+    }
+
+    /// <summary>Whether any picture in a length-prefixed access unit is a reference, and whether it is an IDR.</summary>
+    internal static bool Referenced(ReadOnlySpan<byte> unit, int lengthSize, out bool idr)
+    {
+        idr = false;
+        bool picture = false;
+        int at = 0;
+
+        while (at + lengthSize < unit.Length)
+        {
+            int length = 0;
+
+            for (int i = 0; i < lengthSize; i++)
+            {
+                length = (length << 8) | unit[at + i];
+            }
+
+            at += lengthSize;
+
+            // Damaged: decoded, and the decoder says what is wrong with it.
+            if (length <= 0 || at + length > unit.Length)
+            {
+                return true;
+            }
+
+            int header = unit[at];
+            int type = header & 0x1F;
+
+            if (type is 1 or 5)
+            {
+                picture = true;
+                idr |= type == 5;
+
+                if ((header & 0x60) != 0)
+                {
+                    return true;
+                }
+            }
+
+            at += length;
+        }
+
+        return !picture;
+    }
+
     /// <summary>Converts and queues every frame the decoder has ready, waiting while the queue is full.</summary>
     private bool Deliver(int frameBytes, CancellationToken stop)
     {
+        DecodedFrame pending = default!;
+        bool holding = false;
+
         while (_decoder.TryGetFrame(out DecodedFrame decoded))
         {
-            double seconds = _video.Seconds(decoded.Tag - _video.EditOffset);
-            byte[] rgba = ArrayPool<byte>.Shared.Rent(frameBytes);
-            YuvConverter.ToRgba(decoded, rgba);
-            decoded.Release();
-
-            lock (_gate)
+            // A picture is dropped only for a later one that is already due, so a decoder that never catches up still shows its newest.
+            if (holding && _video.Seconds(decoded.Tag - _video.EditOffset) <= Wanted)
             {
-                while (_ready.Count >= Lookahead && !stop.IsCancellationRequested)
-                {
-                    Monitor.Wait(_gate);
-                }
-
-                if (stop.IsCancellationRequested)
-                {
-                    ArrayPool<byte>.Shared.Return(rgba);
-                    return false;
-                }
-
-                _ready.Enqueue((seconds, rgba));
+                pending.Release();
             }
+            else if (holding && !Queue(pending, frameBytes, stop))
+            {
+                return false;
+            }
+
+            pending = decoded;
+            holding = true;
+        }
+
+        return !holding || Queue(pending, frameBytes, stop);
+    }
+
+    /// <summary>Converts one frame and queues it, waiting while the queue is full.</summary>
+    private bool Queue(DecodedFrame decoded, int frameBytes, CancellationToken stop)
+    {
+        double seconds = _video.Seconds(decoded.Tag - _video.EditOffset);
+        byte[] rgba = ArrayPool<byte>.Shared.Rent(frameBytes);
+        YuvConverter.ToRgba(decoded, rgba);
+        decoded.Release();
+
+        lock (_gate)
+        {
+            while (_ready.Count >= Lookahead && !stop.IsCancellationRequested)
+            {
+                Monitor.Wait(_gate);
+            }
+
+            if (stop.IsCancellationRequested)
+            {
+                ArrayPool<byte>.Shared.Return(rgba);
+                return false;
+            }
+
+            _ready.Enqueue((seconds, rgba));
         }
 
         return true;

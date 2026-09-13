@@ -395,6 +395,7 @@ public sealed class ScriptHost
         _api.Register("SetLocation", a =>
         {
             _api.State.Location = Arg(a, 0);
+            _api.State.LocationRequests++;
             return SheepValue.FromInt(0);
         });
 

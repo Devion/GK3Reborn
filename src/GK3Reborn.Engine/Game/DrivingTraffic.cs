@@ -515,14 +515,12 @@ public sealed class DrivingTraffic
                 []));
         }
 
-        // Day 2, two: Estelle, until the player has followed her to the dig.
-        //
-        // Followed all the way rather than followed at all, which is where this parts from
-        // the original. Lady Howard and Estelle share one count, and the original asks
-        // whether it is set — so a player who followed Lady Howard round the valley on Day
-        // 1, which leads nowhere and is worth nothing, lost the Day 2 chase that finds the
-        // dig. See Application.Arrive for the two values and what each of them means.
+        // Day 2, two: Estelle, only once she is out on the moped and until she has been followed to the dig.
+        // Out means location MAP (reference DrivingScreen): LBY202P's bump puts her at MOP, RC1202P's enter moves her to MAP.
+        // Before that she is in her room waiting for Emilio, and her moped is still in the rental shop.
+        // Followed all the way rather than at all: the count is shared with Day 1's Lady Howard loop, which is worth nothing.
         if (string.Equals(now, "202P", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(story.GetActorLocation("ESTELLE"), "MAP", StringComparison.OrdinalIgnoreCase) &&
             story.GetNounVerbCount("LADY_HOWARD", DrivingMap.Follow) < 2)
         {
             travelling.Add(new Traveller(
