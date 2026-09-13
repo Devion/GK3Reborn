@@ -268,6 +268,7 @@ public sealed class SidneyWords
         SidneyAction.Analyse => Menu("MenuItem2", "START ANALYSIS"),
         SidneyAction.ExtractAnomalies => Menu("Menu2Item1", "EXTRACT ANOMALIES"),
         SidneyAction.Translate => Menu("Menu2Item2", "TRANSLATE"),
+        SidneyAction.AnagramParser => Menu("Menu2Item3", "ANAGRAM PARSER"),
         SidneyAction.AnalyseText => Menu("Menu2Item4", "ANALYZE TEXT"),
         SidneyAction.ViewGeometry => Menu("Menu3Item1", "VIEW GEOMETRY"),
         SidneyAction.RotateShape => Menu("Menu3Item2", "ROTATE SHAPE"),
@@ -316,6 +317,12 @@ public sealed class SidneyWords
 
     /// <summary>One of the analyze screen's strings, or the English it was written in.</summary>
     private string Menu(string key, string english) => Game(key, "Analyze Screen", english);
+
+    /// <summary>One of the analyze screen's own strings, or the English behind it.</summary>
+    /// <param name="key">The 1999 key, which is the same in every release.</param>
+    /// <param name="english">What to say when there is no game data at all.</param>
+    /// <returns>The string.</returns>
+    public string Analyze(string key, string english) => Menu(key, english);
 
     /// <summary>One of the game's own strings, or the English it was written in.</summary>
     /// <param name="key">The 1999 key, which is the same in every release.</param>

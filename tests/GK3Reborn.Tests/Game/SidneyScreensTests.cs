@@ -23,8 +23,11 @@ public sealed class SidneyScreensTests
         Menu1Name  = MEDICAL
         Menu1Item1 = DOCTOR
         Menu1Item2 = CORONER
-        Menu2Name  = POLICE
-        Menu2Item1 = NEW ORLEANS
+        Menu1Item3 = BLOOD BANK
+        Menu2Name  = REPORTER
+        Menu2Item1 = N.Y. TIMES
+        Menu2Item2 = FREELANCE
+        Menu2Item3 = E. MONTHLY
         Select     = SELECT:
         Print      = PRINT IDENTIFICATION
 
@@ -539,28 +542,134 @@ public sealed class SidneyScreensTests
     {
         IReadOnlyList<SidneyIdentity> identities = Machine(out _).Library.Identities();
 
-        Assert.Equal(3, identities.Count);
+        Assert.Equal(6, identities.Count);
         Assert.Equal("MEDICAL", identities[0].Category);
         Assert.Equal("DOCTOR", identities[0].Title);
-        Assert.Equal("POLICE", identities[2].Category);
+        Assert.Equal("REPORTER", identities[3].Category);
+
+        // The trade behind a row is its position, and nothing in the game's data says so:
+        // the retail engine holds the list, and the card's picture is filed under it.
+        Assert.Equal("DOC", identities[0].Job);
+        Assert.Equal("NYTIMES", identities[3].Job);
     }
 
+    /// <summary>The row with a given key, which is how the tests name a trade.</summary>
+    private static SidneyIdentity Row(SidneyMachine sidney, string key) =>
+        sidney.Library.Identities().First(i => i.Key == key);
+
     [Fact]
-    public void Printing_an_identity_is_something_the_story_can_read()
+    public void A_press_card_is_printed_into_the_pocket_and_is_worth_its_points()
     {
-        SidneyMachine sidney = Machine(out GameState state);
+        // <b>Without the item there is no way into the château.</b> CSE202P asks for these
+        // five by name — FAKE_ID_NYT_REP and its siblings — and nothing else opens the door
+        // or gets Gabriel past the bartender.
+        GameState state = Ready();
         state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
 
-        sidney.PrintIdentity(sidney.Library.Identities()[0]);
+        SidneyMachine sidney = Scored(state);
 
-        Assert.Equal("DOCTOR", sidney.Identity?.Title);
-        Assert.Null(sidney.TakeCue()?.Plate);
+        sidney.ChooseIdentity(Row(sidney, "Menu2Item1"));
+        sidney.PrintIdentity();
+
+        Assert.True(state.Inventory.Has("GABRIEL", "FAKE_ID_NYT_REP"));
 
         // Keyed on the row rather than on the job, because the job is translated and the
         // key is not: a card printed in a French game means the same thing in an English
         // one.
-        Assert.True(state.GetFlag("SidneyId:Menu1Item1"));
+        Assert.True(state.GetFlag("SidneyId:Menu2Item1"));
+
+        // "That should work!", and the two points the press cards carry.
+        Assert.Equal("02O8G5F772", sidney.TakeCue()?.Plate);
+        Assert.Equal(2, state.Score);
     }
+
+    [Fact]
+    public void The_other_three_cards_print_and_are_worth_nothing()
+    {
+        GameState state = Ready();
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+
+        SidneyMachine sidney = Scored(state);
+
+        sidney.ChooseIdentity(Row(sidney, "Menu1Item3"));
+        sidney.PrintIdentity();
+
+        Assert.True(state.Inventory.Has("GABRIEL", "FAKE_ID_BLOODBANK"));
+
+        // "Might provoke an interesting response."
+        Assert.Equal("02O8G5FQ21", sidney.TakeCue()?.Plate);
+        Assert.Equal(0, state.Score);
+    }
+
+    [Fact]
+    public void A_card_already_in_the_pocket_is_not_printed_twice()
+    {
+        GameState state = Ready();
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+
+        SidneyMachine sidney = Scored(state);
+
+        sidney.ChooseIdentity(Row(sidney, "Menu2Item1"));
+        sidney.PrintIdentity();
+
+        while (sidney.HasCues)
+        {
+            sidney.TakeCue();
+        }
+
+        sidney.PrintIdentity();
+
+        Assert.Equal("0XF724XBL1", sidney.TakeCue()?.Plate);
+    }
+
+    [Fact]
+    public void Gabriel_refuses_a_trade_that_will_not_get_him_through_the_gate()
+    {
+        GameState state = Ready();
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+
+        SidneyMachine sidney = Scored(state);
+
+        // A doctor's card is no use at a vineyard, and a sports magazine is the right idea
+        // with the wrong masthead. Two different lines, and neither prints anything.
+        sidney.ChooseIdentity(Row(sidney, "Menu1Item1"));
+        sidney.PrintIdentity();
+
+        Assert.Equal("02O8G5F1K1", sidney.TakeCue()?.Plate);
+
+        sidney.ChooseIdentity(Row(sidney, "Menu2Item3"));
+        sidney.PrintIdentity();
+
+        Assert.Equal("02O8G5FNV1", sidney.TakeCue()?.Plate);
+
+        Assert.Empty(state.Inventory.ItemsOf("GABRIEL"));
+        Assert.False(state.GetFlag("SidneyId:Menu1Item1"));
+    }
+
+    [Fact]
+    public void Gabriel_will_not_print_a_card_with_Graces_face_on_it()
+    {
+        GameState state = Ready();
+        state.Timeblock = new Timeblock(2, 2, IsAfternoon: true);
+
+        SidneyMachine sidney = Scored(state);
+
+        sidney.ChooseIdentity(Row(sidney, "Menu2Item1"));
+        sidney.GracesFace = true;
+
+        Assert.Equal("GRA_NYTIMES", sidney.IdentityPicture);
+
+        sidney.PrintIdentity();
+
+        Assert.Equal("02O8G5F961", sidney.TakeCue()?.Plate);
+        Assert.Empty(state.Inventory.ItemsOf("GABRIEL"));
+    }
+
+    /// <summary>Gabriel at Sidney, with the score sheet the game ships.</summary>
+    private static GameState Ready() => new() { Ego = "GABRIEL" };
+
+    private static SidneyMachine Scored(GameState state) =>
+        new(SidneyLibrary.From(Text), state) { Scores = ScoreEvents.Open() };
 
     /// <summary>
     /// A card is only needed the afternoon Gabriel calls on Montreaux; any other time the
@@ -571,16 +680,18 @@ public sealed class SidneyScreensTests
     {
         SidneyMachine sidney = Machine(out GameState state);
 
-        sidney.PrintIdentity(sidney.Library.Identities()[0]);
+        sidney.ChooseIdentity(Row(sidney, "Menu2Item1"));
+        sidney.PrintIdentity();
 
-        Assert.False(state.GetFlag("SidneyId:Menu1Item1"));
+        Assert.False(state.GetFlag("SidneyId:Menu2Item1"));
         Assert.Equal("02O8G5FZ51", sidney.TakeCue()?.Plate);
         Assert.Null(sidney.TakeCue()?.Plate);
 
         state.Ego = "GABRIEL";
-        sidney.PrintIdentity(sidney.Library.Identities()[0]);
+        sidney.PrintIdentity();
 
         Assert.Equal("02O8G5FVU1", sidney.TakeCue()?.Plate);
+        Assert.Empty(state.Inventory.ItemsOf("GABRIEL"));
     }
 
     /// <summary>The scanner on the second morning: Grace has nothing to scan, and says so.</summary>

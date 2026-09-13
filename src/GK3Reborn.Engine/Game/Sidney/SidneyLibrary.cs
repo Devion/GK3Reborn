@@ -150,7 +150,46 @@ public sealed record SidneySuspect(int Index, string Name, string Nationality, s
 /// What <c>ESIDNEY.TXT</c> calls the row — <c>Menu2Item1</c> — which is the same in every
 /// release while the title is not.
 /// </param>
-public sealed record SidneyIdentity(string Category, string Title, string Key = "");
+public sealed record SidneyIdentity(string Category, string Title, string Key = "")
+{
+    /// <summary>
+    /// The fifteen jobs, by the menu and row that offer them. These names are not in the
+    /// game's data anywhere: they are the retail engine's, and they are what the card's
+    /// picture is filed under — <c>GAB_NYTIMES.BMP</c>, <c>GRA_DOC.BMP</c> — so they have to
+    /// be spelt exactly this way.
+    /// </summary>
+    private static readonly string[][] Jobs =
+    [
+        ["DOC", "CORONER", "BLOOD"],                      // Medical
+        ["NYTIMES", "FREELANCE", "EMONTHLY", "SPORTSI"],  // Reporter
+        ["ELEC", "PLUMB"],                                // Repair
+        ["ENCY", "SHOES", "AUTO", "DIAPER"],              // Sales
+        ["NOPD", "SECURITY"],                             // Police
+    ];
+
+    /// <summary>
+    /// What the retail engine calls this job, or an empty string for a row it does not know.
+    /// </summary>
+    public string Job
+    {
+        get
+        {
+            // Menu{n}Item{m}, which is the only thing about a row that is the same in every
+            // release: the job on it is translated and its position is not.
+            if (!Key.StartsWith("Menu", StringComparison.Ordinal) ||
+                Key.IndexOf("Item", StringComparison.Ordinal) is not (> 4 and { } at) ||
+                !int.TryParse(Key[4..at], out int menu) ||
+                !int.TryParse(Key[(at + 4)..], out int item) ||
+                menu < 1 || menu > Jobs.Length ||
+                item < 1 || item > Jobs[menu - 1].Length)
+            {
+                return string.Empty;
+            }
+
+            return Jobs[menu - 1][item - 1];
+        }
+    }
+}
 
 /// <summary>
 /// One of the answers Sidney offers to a question it has asked.

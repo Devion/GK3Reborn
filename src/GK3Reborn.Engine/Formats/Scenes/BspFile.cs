@@ -35,6 +35,15 @@ public sealed record BspSurface
         (Flags & IgnoreLightmapFlag) != 0 || (Flags & ShadowTextureFlag) != 0;
 
     /// <summary>
+    /// Whether this surface is a stain on whatever it lies over rather than a thing in its
+    /// own right: the shadow a parked moped drops on the gravel, the blood on ARM's floor,
+    /// the tyre tracks, the darkened glass in LHE's windows, TE5's shadow bridge. Ninety of
+    /// them across twenty-six rooms, each a white picture with the mark painted dark on it,
+    /// and each meant to be multiplied into what is behind it rather than drawn over it.
+    /// </summary>
+    public bool IsDecal => (Flags & ShadowTextureFlag) != 0;
+
+    /// <summary>
     /// Whether this surface should block a ray-traced shadow.
     /// </summary>
     public bool CastsShadows =>

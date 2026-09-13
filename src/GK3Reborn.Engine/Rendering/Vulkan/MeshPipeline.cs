@@ -25,6 +25,7 @@ public sealed unsafe class MeshPipeline : IDisposable
     private Pipeline _pipeline;
     private Pipeline _culled;
     private Pipeline _culledMirror;
+    private Pipeline _decal;
 
     private MeshPipeline(Vk vk, Device device, bool rayTracing)
     {
@@ -44,6 +45,13 @@ public sealed unsafe class MeshPipeline : IDisposable
 
     /// <summary>That one again for the mirror pass, whose view reverses every winding.</summary>
     public Pipeline CulledMirrorHandle => _culledMirror;
+
+    /// <summary>
+    /// The pipeline a stain on the room is drawn with: its picture multiplied into the
+    /// first attachment, nothing written to the other three and nothing written to depth.
+    /// See <c>SceneDraw.Decal</c>.
+    /// </summary>
+    public Pipeline DecalHandle => _decal;
 
     /// <summary>The pipeline layout, for binding descriptor sets and push constants.</summary>
     public PipelineLayout Layout => _layout;
@@ -91,6 +99,7 @@ public sealed unsafe class MeshPipeline : IDisposable
 
             pipeline.CreateDescriptorLayouts();
             pipeline.BuildPipeline(colorFormat, depthFormat);
+
             return pipeline;
         }
         catch
@@ -139,7 +148,7 @@ public sealed unsafe class MeshPipeline : IDisposable
         // Reused for every draw: two vertex streams, both from the start of their buffer.
         Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2];
         ulong* offsets = stackalloc ulong[2] { 0, 0 };
-        bool? bound = null;
+        int? bound = null;
 
         foreach (SceneDraw draw in draws)
         {
@@ -147,15 +156,20 @@ public sealed unsafe class MeshPipeline : IDisposable
             // batches are built before any model is placed, so a frame normally switches
             // once. Nothing here sorts them, because a sort would be a decision and this
             // method makes none.
-            if (bound != draw.DoubleSided)
+            int wanted = draw.Decal ? 2 : draw.DoubleSided ? 0 : 1;
+
+            if (bound != wanted)
             {
-                bound = draw.DoubleSided;
+                bound = wanted;
                 vk.CmdBindPipeline(
                     command,
                     PipelineBindPoint.Graphics,
-                    draw.DoubleSided
-                        ? pipeline.Handle
-                        : reflection ? pipeline.CulledMirrorHandle : pipeline.CulledHandle);
+                    wanted switch
+                    {
+                        2 => pipeline.DecalHandle,
+                        0 => pipeline.Handle,
+                        _ => reflection ? pipeline.CulledMirrorHandle : pipeline.CulledHandle,
+                    });
             }
 
             DescriptorSet material = VulkanGeometry.Set(draw.Material);
@@ -189,6 +203,11 @@ public sealed unsafe class MeshPipeline : IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        if (_decal.Handle != 0)
+        {
+            _vk.DestroyPipeline(_device, _decal, null);
+        }
+
         if (_culledMirror.Handle != 0)
         {
             _vk.DestroyPipeline(_device, _culledMirror, null);
@@ -594,8 +613,9 @@ public sealed unsafe class MeshPipeline : IDisposable
                 Layout = _layout,
             };
 
-            // Three pipelines over one layout and one pair of modules, differing in nothing
-            // but which faces survive the rasteriser, and built in one call.
+            // Four pipelines over one layout and one pair of modules, differing in nothing
+            // but which faces survive the rasteriser and — for the fourth — how the result
+            // reaches the attachments, and built in one call.
             //
             // A draw says which it wants. Placed models take the first, because a grown
             // tree's leaf is a single sheet with no back; the room takes the second, because
@@ -603,28 +623,72 @@ public sealed unsafe class MeshPipeline : IDisposable
             // over what is meant to be seen through them - R25's dumbwaiter, where the
             // shaft's room-side face is a solid sheet of lath with no hole cut for the door.
             // The third is that one again for the mirror pass, whose reflected view turns
-            // every triangle the other way.
+            // every triangle the other way. The fourth is the room's stains: see below.
             PipelineRasterizationStateCreateInfo* rasterizers =
-                stackalloc PipelineRasterizationStateCreateInfo[3];
+                stackalloc PipelineRasterizationStateCreateInfo[4];
 
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < 4; i++)
             {
                 rasterizers[i] = rasterization;
-                rasterizers[i].CullMode = i == 0 ? CullModeFlags.None : CullModeFlags.BackBit;
+
+                // The fourth is both faces again: a shadow decal is a card laid on the
+                // ground, and the original turns culling off for its whole translucent pass.
+                rasterizers[i].CullMode =
+                    i is 0 or 3 ? CullModeFlags.None : CullModeFlags.BackBit;
+
                 rasterizers[i].FrontFace =
                     i == 2 ? FrontFace.CounterClockwise : FrontFace.Clockwise;
             }
 
-            GraphicsPipelineCreateInfo* infos = stackalloc GraphicsPipelineCreateInfo[3];
-            Pipeline* built = stackalloc Pipeline[3];
+            // And the fourth's own blending: `dst * src`, the factor pair the original uses
+            // for its whole translucent pass, into every attachment and no depth written.
+            // The shader writes white to the three a stain must not disturb, which is what
+            // lets one blend state serve all four — a per-attachment write mask would need
+            // `independentBlend`, which Vulkan does not promise. See SceneDraw.Decal.
+            PipelineColorBlendAttachmentState* stainAttachments =
+                stackalloc PipelineColorBlendAttachmentState[(int)GBuffer.Targets];
 
-            for (int i = 0; i < 3; i++)
+            for (int i = 0; i < (int)GBuffer.Targets; i++)
+            {
+                stainAttachments[i] = new PipelineColorBlendAttachmentState
+                {
+                    BlendEnable = true,
+                    SrcColorBlendFactor = BlendFactor.DstColor,
+                    DstColorBlendFactor = BlendFactor.Zero,
+                    ColorBlendOp = BlendOp.Add,
+                    SrcAlphaBlendFactor = BlendFactor.Zero,
+                    DstAlphaBlendFactor = BlendFactor.One,
+                    AlphaBlendOp = BlendOp.Add,
+                    ColorWriteMask = All,
+                };
+            }
+
+            var stainBlend = new PipelineColorBlendStateCreateInfo
+            {
+                SType = StructureType.PipelineColorBlendStateCreateInfo,
+                AttachmentCount = GBuffer.Targets,
+                PAttachments = stainAttachments,
+            };
+
+            var stainDepth = depth;
+            stainDepth.DepthWriteEnable = false;
+
+            GraphicsPipelineCreateInfo* infos = stackalloc GraphicsPipelineCreateInfo[4];
+            Pipeline* built = stackalloc Pipeline[4];
+
+            for (int i = 0; i < 4; i++)
             {
                 infos[i] = createInfo;
                 infos[i].PRasterizationState = &rasterizers[i];
+
+                if (i == 3)
+                {
+                    infos[i].PColorBlendState = &stainBlend;
+                    infos[i].PDepthStencilState = &stainDepth;
+                }
             }
 
-            if (_vk.CreateGraphicsPipelines(_device, default, 3, infos, null, built)
+            if (_vk.CreateGraphicsPipelines(_device, default, 4, infos, null, built)
                 != Result.Success)
             {
                 throw new VulkanException("Could not create the mesh pipeline.");
@@ -633,6 +697,7 @@ public sealed unsafe class MeshPipeline : IDisposable
             _pipeline = built[0];
             _culled = built[1];
             _culledMirror = built[2];
+            _decal = built[3];
         }
         finally
         {

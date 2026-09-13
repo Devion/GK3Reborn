@@ -69,6 +69,12 @@ public readonly record struct DrawConstants(
 /// Whether both faces of these triangles are drawn, rather than only the one their winding
 /// says is the front.
 /// </param>
+/// <param name="Decal">
+/// Whether this is a stain on the room rather than a part of it: the shadow under a parked
+/// moped, the blood on ARM's floor, the darkened glass in LHE's windows. Its picture is
+/// multiplied into what is already in the frame, it writes no depth, and it arrives after
+/// everything it darkens. See <c>BspSurface.IsDecal</c>.
+/// </param>
 public readonly record struct SceneDraw(
     IGeometryBuffer Vertices,
     IGeometryBuffer Previous,
@@ -78,7 +84,8 @@ public readonly record struct SceneDraw(
     IGeometryMaterial Material,
     DrawConstants Constants,
     IReadOnlyList<DrawConstants> Shells,
-    bool DoubleSided = true);
+    bool DoubleSided = true,
+    bool Decal = false);
 
 /// <summary>One vertex of a mesh, as both backends receive it.</summary>
 /// <param name="Position">Where it is, in the model's own space.</param>

@@ -18,16 +18,38 @@ public sealed unsafe class D3D12MeshPass : IDisposable
     private readonly D3D12Pipeline _pipeline;
     private readonly D3D12Pipeline _culled;
     private readonly D3D12Pipeline _culledMirror;
+    private readonly D3D12Pipeline _decal;
     private bool _reflection;
-    private bool? _bound;
+    private Bound _bound = Bound.None;
     private bool _disposed;
 
+    /// <summary>Which of the pass's pipelines is on the command list.</summary>
+    private enum Bound
+    {
+        /// <summary>None yet: the next draw binds whatever it wants.</summary>
+        None,
+
+        /// <summary>Both faces.</summary>
+        Sides,
+
+        /// <summary>Front faces only.</summary>
+        Front,
+
+        /// <summary>A stain multiplied into the picture. See SceneDraw.Decal.</summary>
+        Stain,
+    }
+
     private D3D12MeshPass(
-        D3D12Pipeline pipeline, D3D12Pipeline culled, D3D12Pipeline culledMirror, bool rayTracing)
+        D3D12Pipeline pipeline,
+        D3D12Pipeline culled,
+        D3D12Pipeline culledMirror,
+        D3D12Pipeline decal,
+        bool rayTracing)
     {
         _pipeline = pipeline;
         _culled = culled;
         _culledMirror = culledMirror;
+        _decal = decal;
         RayTracing = rayTracing;
     }
 
@@ -87,7 +109,8 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         // meant to be seen through them — R25's dumbwaiter, where the shaft's room-side
         // face is a solid sheet of lath with no hole cut for the door. The third is that one
         // again for the mirror pass, where the reflected view reverses every winding.
-        D3D12Pipeline Build(CullMode cull, bool mirrored, D3D12RootSignature? reuse) =>
+        D3D12Pipeline Build(
+            CullMode cull, bool mirrored, bool stain, D3D12RootSignature? reuse) =>
             D3D12Pipeline.CreateGraphics(
                 context.Device,
                 compiler,
@@ -100,19 +123,24 @@ public sealed unsafe class D3D12MeshPass : IDisposable
                 attributes,
                 [new VertexBufferLayout(VertexStride), new VertexBufferLayout(VertexStride)],
                 ShaderLanguage.Glsl,
-                depthWrite: true,
+
+                // A stain writes no depth: it lies on the thing it darkens and has to let
+                // whatever is in front of that thing still cover it.
+                depthWrite: !stain,
                 depthTest: true,
                 cull: cull,
                 frontCounterClockwise: mirrored,
+                modulateFirstTarget: stain,
                 reuse: reuse);
 
-        D3D12Pipeline pipeline = Build(CullMode.None, mirrored: false, reuse: null);
+        D3D12Pipeline pipeline = Build(CullMode.None, mirrored: false, stain: false, reuse: null);
         D3D12Pipeline culled;
         D3D12Pipeline culledMirror;
+        D3D12Pipeline decal;
 
         try
         {
-            culled = Build(CullMode.Back, mirrored: false, reuse: pipeline.Signature);
+            culled = Build(CullMode.Back, mirrored: false, stain: false, reuse: pipeline.Signature);
         }
         catch
         {
@@ -122,7 +150,7 @@ public sealed unsafe class D3D12MeshPass : IDisposable
 
         try
         {
-            culledMirror = Build(CullMode.Back, mirrored: true, reuse: pipeline.Signature);
+            culledMirror = Build(CullMode.Back, mirrored: true, stain: false, reuse: pipeline.Signature);
         }
         catch
         {
@@ -131,7 +159,21 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             throw;
         }
 
-        return new D3D12MeshPass(pipeline, culled, culledMirror, rayTracing);
+        try
+        {
+            // Both faces, like the original: a shadow decal is a flat card laid on the
+            // ground and the retail engine turns culling off for the whole translucent pass.
+            decal = Build(CullMode.None, mirrored: false, stain: true, reuse: pipeline.Signature);
+        }
+        catch
+        {
+            culledMirror.Dispose();
+            culled.Dispose();
+            pipeline.Dispose();
+            throw;
+        }
+
+        return new D3D12MeshPass(pipeline, culled, culledMirror, decal, rayTracing);
     }
 
     /// <summary>Binds the pass, ready for the draws.</summary>
@@ -162,7 +204,7 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         list->SetDescriptorHeaps(2, heaps);
 
         _reflection = reflection;
-        _bound = null;
+        _bound = Bound.None;
 
         list->SetGraphicsRootSignature(_pipeline.Signature.Handle);
         list->IASetPrimitiveTopology(Silk.NET.Core.Native.D3DPrimitiveTopology.D3DPrimitiveTopologyTrianglelist);
@@ -230,13 +272,20 @@ public sealed unsafe class D3D12MeshPass : IDisposable
             // room's own batches are built before any model is placed, so a frame normally
             // switches once. Nothing here sorts them, because a sort would be a decision and
             // this file makes none.
-            if (_bound != draw.DoubleSided)
+            Bound wanted = draw.Decal ? Bound.Stain
+                : draw.DoubleSided ? Bound.Sides
+                : Bound.Front;
+
+            if (_bound != wanted)
             {
-                _bound = draw.DoubleSided;
+                _bound = wanted;
                 list->SetPipelineState(
-                    draw.DoubleSided
-                        ? _pipeline.Handle
-                        : _reflection ? _culledMirror.Handle : _culled.Handle);
+                    wanted switch
+                    {
+                        Bound.Stain => _decal.Handle,
+                        Bound.Sides => _pipeline.Handle,
+                        _ => _reflection ? _culledMirror.Handle : _culled.Handle,
+                    });
             }
 
             var material = (D3D12GeometryMaterial)draw.Material;
@@ -278,6 +327,7 @@ public sealed unsafe class D3D12MeshPass : IDisposable
         }
 
         _disposed = true;
+        _decal.Dispose();
         _culledMirror.Dispose();
         _culled.Dispose();
         _pipeline.Dispose();

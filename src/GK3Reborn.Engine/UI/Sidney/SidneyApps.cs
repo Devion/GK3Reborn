@@ -787,14 +787,16 @@ public static class SidneyApps
         IReadOnlyList<SidneyIdentity> identities = machine.Library.Identities();
 
         float button = surface.Line + surface.Em(10);
-        var chosen = new Vector4(
-            body.X, body.Y + body.W - surface.Line, body.Z, surface.Line);
+
+        // The card on the right, the trades to choose from on the left. The original lays
+        // it out the same way, and it has to be laid out at all: which face is on the card
+        // is half the puzzle, and the player cannot choose a face they cannot see.
+        float side = MathF.Min(body.Z * 0.38f, body.W * 0.62f);
+        var card = new Vector4(body.X + body.Z - side, body.Y, side, body.W);
 
         var list = new Vector4(
-            body.X, body.Y, body.Z, body.W - surface.Line - surface.Em(6));
+            body.X, body.Y, body.Z - side - surface.Em(16), body.W - button - surface.Em(8));
 
-        // Laid out twice: once to find how tall it is, and once to draw it. Cheaper than
-        // being wrong about the height, which is what put the way home over the last row.
         float tall = Lay(surface, machine, identities, list, button, 0, measure: true);
         float offset = surface.BeginScroll("id", list, tall);
 
@@ -802,14 +804,69 @@ public static class SidneyApps
 
         surface.EndScroll();
 
-        if (machine.Identity is { } printed)
+        float y = card.Y;
+
+        surface.Write(
+            machine.Library.Say("Select", "MakeID Screen"), card.X, y, SidneyPalette.Dim);
+
+        y += surface.Line + surface.Em(6);
+
+        // Both mugshots, side by side, with the one on the card lit. Gabriel's to start
+        // with; hers is the joke the original lets the player make once.
+        float face = MathF.Min(card.Z / 2.4f, surface.Em(56));
+
+        foreach ((string who, bool hers) in
+            (ReadOnlySpan<(string, bool)>)[("GAB", false), ("GRA", true)])
+        {
+            var at = new Vector4(card.X + (hers ? face + surface.Em(8) : 0), y, face, face);
+            ItemIcon mugshot = surface.Art(who + "_MUGSHOT.BMP");
+
+            if (mugshot.Drawn)
+            {
+                surface.Draw(mugshot, mugshot.Fit(at.X, at.Y, face));
+            }
+            else
+            {
+                surface.Write(who, at.X + surface.Em(6), at.Y + surface.Em(6), SidneyPalette.Ink);
+            }
+
+            surface.Frame(
+                at,
+                machine.GracesFace == hers ? SidneyPalette.Amber : SidneyPalette.Rule);
+
+            surface.Hit("sidney:face:" + who, at);
+        }
+
+        y += face + surface.Em(10);
+
+        // The card itself, which is one picture per face and trade: GAB_NYTIMES, GRA_DOC.
+        if (machine.Identity is { } chosen)
         {
             surface.Write(
-                $"{machine.Library.Say("Print", "MakeID Screen")}: {printed.Category}, {printed.Title}",
-                chosen.X,
-                chosen.Y,
-                SidneyPalette.Amber);
+                $"{chosen.Category} ; {chosen.Title}", card.X, y, SidneyPalette.Amber);
+
+            y += surface.Line + surface.Em(6);
+
+            if (machine.IdentityPicture is { Length: > 0 } picture &&
+                surface.Art(picture + ".BMP") is { Drawn: true } plate)
+            {
+                Vector4 into = plate.Fit(card.X, y, card.Z);
+
+                surface.Draw(plate, into);
+                surface.Frame(into, SidneyPalette.Rule);
+
+                y += into.W + surface.Em(8);
+            }
         }
+
+        surface.Button(
+            "sidney:print",
+            new Vector4(
+                card.X,
+                MathF.Max(y, card.Y + card.W - button),
+                card.Z,
+                button),
+            machine.Library.Say("Print", "MakeID Screen"));
     }
 
     /// <summary>Lays the identity menus out, and says how tall they came to.</summary>
@@ -1073,12 +1130,165 @@ public static class SidneyApps
     }
 
     /// <summary>
+    /// The anagram parser: the inscription's letters, the Latin words that can still be
+    /// spelt from the ones nobody has used, and the phrase being built out of them.
+    /// </summary>
+    /// <param name="surface">Where to draw.</param>
+    /// <param name="machine">The machine, for its text and what it last said.</param>
+    /// <param name="anagram">The puzzle.</param>
+    /// <param name="body">The room the window frame leaves.</param>
+    private static void Anagram(
+        SidneySurface surface, SidneyMachine machine, SidneyAnagram anagram, Vector4 body)
+    {
+        float row = surface.Line + surface.Em(10);
+        float y = body.Y;
+
+        surface.Write(
+            $"{machine.Words.Analyze("Parsing", "Parsing:")} {anagram.Phrase}",
+            body.X,
+            y,
+            SidneyPalette.Amber);
+
+        y += row;
+
+        // The letters, spaced out, with the ones already spent shown dim. The original
+        // swaps their font; there is one font here, so the colour carries it.
+        string left = anagram.Remaining;
+        List<char> pool = [.. left];
+        float x = body.X;
+
+        foreach (char letter in anagram.Letters)
+        {
+            bool spent = !pool.Remove(letter);
+
+            surface.Write(
+                letter.ToString(), x, y, spent ? SidneyPalette.Dim : SidneyPalette.Ink);
+
+            x += surface.Em(14);
+        }
+
+        y += row + surface.Em(6);
+
+        // The words on the left and the phrase on the right, which is the original's layout
+        // and the one the puzzle reads in: the list is long and the phrase is three words.
+        float half = body.Z * 0.44f;
+        var list = new Vector4(body.X, y, half, body.Y + body.W - y - (row * 2));
+
+        IReadOnlyList<AnagramWord> available = anagram.Available;
+        float step = row + surface.Em(2);
+        float offset = surface.BeginScroll("anagram", list, available.Count * step);
+        float width = surface.Room(list, available.Count * step);
+
+        for (int i = 0; i < available.Count; i++)
+        {
+            AnagramWord word = available[i];
+            var bounds = new Vector4(list.X, list.Y + (i * step) - offset, width, row);
+
+            if (surface.Over(bounds))
+            {
+                surface.Fill(bounds, SidneyPalette.PanelLit);
+            }
+
+            surface.WriteIn(
+                $"{word.Latin} ({word.English})",
+                bounds.X + surface.Em(6),
+                bounds.Y + ((row - surface.Line) / 2),
+                bounds.Z - surface.Em(12),
+                SidneyPalette.Ink);
+
+            surface.Hit($"sidney:word:{word.Index}", bounds);
+        }
+
+        surface.EndScroll();
+
+        var phrase = new Vector4(
+            body.X + half + surface.Em(16), y, body.Z - half - surface.Em(16), list.W);
+
+        float py = phrase.Y;
+
+        surface.Write(
+            machine.Words.Analyze("PhraseText", "PHRASE BUILDING AREA:"),
+            phrase.X,
+            py,
+            SidneyPalette.Amber);
+
+        py += row;
+
+        // Three slots, always drawn, so the player can see how many are wanted. The fourth
+        // is the one the parser supplies, and only once it has.
+        IReadOnlyList<AnagramWord> reading = anagram.Reading();
+        IReadOnlyList<AnagramWord> shown = reading.Count > 0 ? reading : anagram.Chosen;
+
+        for (int i = 0; i < 4; i++)
+        {
+            var slot = new Vector4(phrase.X, py, phrase.Z, row);
+
+            surface.Frame(slot, i < shown.Count ? SidneyPalette.AmberDim : SidneyPalette.Rule);
+
+            if (i < shown.Count)
+            {
+                surface.WriteIn(
+                    shown[i].Latin,
+                    slot.X + surface.Em(8),
+                    slot.Y + ((row - surface.Line) / 2),
+                    slot.Z - surface.Em(16),
+                    SidneyPalette.Amber);
+            }
+
+            py += row + surface.Em(4);
+        }
+
+        py += surface.Em(6);
+
+        surface.Paragraph(
+            string.Join(' ', shown.Select(w => w.English)),
+            phrase.X,
+            py,
+            phrase.Z,
+            phrase.Y + phrase.W,
+            SidneyPalette.Dim);
+
+        // What the parser has to say about it, along the foot where the rest of this screen
+        // puts its messages.
+        float bottom = body.Y + body.W - (row * 2);
+
+        if (machine.Showing is { Text.Length: > 0 } said)
+        {
+            surface.Paragraph(
+                said.Text.Replace('\n', ' '),
+                body.X,
+                bottom,
+                body.Z,
+                bottom + row,
+                SidneyPalette.Ink);
+        }
+
+        surface.Button(
+            "sidney:erase",
+            new Vector4(body.X, body.Y + body.W - row, surface.Em(90), row),
+            machine.Words.Analyze("EraseButton", "ERASE"));
+
+        surface.Button(
+            "sidney:anagram:close",
+            new Vector4(body.X + surface.Em(100), body.Y + body.W - row, surface.Em(90), row),
+            machine.Words.Analyze("ExitButton", "EXIT"));
+    }
+
+    /// <summary>
     /// Analyze: a file, what may be done to it, and what it said.
     /// </summary>
     /// <returns>Where the map was drawn, when the open file is the map.</returns>
     private static Vector4 Analyze(
         SidneySurface surface, SidneyMachine machine, ScreenView view, Vector4 body)
     {
+        // The parser takes the whole screen while it is up, as it does in the original.
+        if (machine.Anagram is { } anagram)
+        {
+            Anagram(surface, machine, anagram, body);
+
+            return default;
+        }
+
         IReadOnlyList<SidneyFile> files = machine.Files;
 
         if (files.Count == 0)
@@ -1312,6 +1522,15 @@ public static class SidneyApps
         SidneyAction.EraseGrid or
         SidneyAction.UseShape or
         SidneyAction.RotateShape or
-        SidneyAction.EraseShape;
+        SidneyAction.EraseShape or
+
+        // The zoom asks a question, and a player who answered no has to be able to ask for
+        // it again.
+        SidneyAction.ZoomAndClarify or
+
+        // The parser is a screen and not a finding: it is closed and opened again as often
+        // as the player likes, and an unsolved anagram they have walked away from has to be
+        // reachable a second time.
+        SidneyAction.AnagramParser;
 
 }

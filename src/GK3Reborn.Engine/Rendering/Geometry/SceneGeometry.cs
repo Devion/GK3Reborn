@@ -453,6 +453,9 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <summary>The leaf cards that move, by the texture they are painted with.</summary>
     private readonly HashSet<string> _wind = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The room's stains, by the picture painted on them. See Batch.Decal.</summary>
+    private readonly HashSet<string> _decals = new(StringComparer.OrdinalIgnoreCase);
+
     /// <inheritdoc/>
     public void MoveInWind(IReadOnlySet<string> textures)
     {
@@ -1667,6 +1670,16 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         SceneOverlay? enhanced = null)
     {
         ArgumentNullException.ThrowIfNull(scene);
+
+        // Which of this room's pictures are stains rather than surfaces, before any batch
+        // is built from one. See Batch.Decal.
+        foreach (BspSurface surface in scene.Surfaces)
+        {
+            if (surface.IsDecal)
+            {
+                _decals.Add(surface.TextureName);
+            }
+        }
 
         if (lightmaps is not null)
         {
@@ -2891,7 +2904,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// </param>
     public IEnumerable<SceneDraw> Draws(float previousSeconds = 0f, bool reflection = false)
     {
-        for (int index = 0; index < _batches.Count; index++)
+        // The room first and its stains after it, because a stain is multiplied into
+        // whatever is already in the frame and there has to be something there to multiply.
+        // See Batch.Decal.
+        foreach (int index in Stained())
         {
             Batch batch = _batches[index];
 
@@ -2931,10 +2947,14 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                     // second with `>= 1.5`, which a 4 also passes: adding a flag above an
                     // existing one silently turns every mirror in the game into a
                     // character as far as the shadow rays are concerned.
+                    // And sixteen for a stain multiplied into the room rather than drawn
+                    // over it, which the fragment shader answers by writing white to every
+                    // target but the picture. See SceneDraw.Decal.
                     (batch.SelfLit ? 1f : 0f) +
                     (batch.IsModel ? 2f : 0f) +
                     (isMirror ? 4f : 0f) +
-                    (ground > 0f ? 8f : 0f),
+                    (ground > 0f ? 8f : 0f) +
+                    (batch.Decal ? 16f : 0f),
 
                     // How deep this surface's height map goes, and zero where it has none —
                     // which is what keeps the level map bound in its place from shifting
@@ -3060,7 +3080,34 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
                 batch.Material,
                 constants,
                 shells,
-                DoubleSided: !CullBackFaces || batch.Keyed || (batch.IsModel && !batch.Backed));
+                DoubleSided: !CullBackFaces || batch.Keyed || (batch.IsModel && !batch.Backed),
+                Decal: batch.Decal);
+        }
+    }
+
+    /// <summary>
+    /// Every batch's index, the room's own before its stains. A decal is multiplied into
+    /// the frame rather than drawn over it, so it has to come after whatever it darkens;
+    /// within each half the order is the order the batches were built in, which is what the
+    /// draw list has always been.
+    /// </summary>
+    /// <returns>The indices to draw, in order.</returns>
+    private IEnumerable<int> Stained()
+    {
+        for (int index = 0; index < _batches.Count; index++)
+        {
+            if (!_batches[index].Decal)
+            {
+                yield return index;
+            }
+        }
+
+        for (int index = 0; index < _batches.Count; index++)
+        {
+            if (_batches[index].Decal)
+            {
+                yield return index;
+            }
         }
     }
 
@@ -3247,6 +3294,13 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // per frame because it is a fact about the texture and the texture is already
             // uploaded by the time any batch using it is made. See CullBackFaces.
             Keyed = _textures.Keyed.Contains(texture),
+
+            // A stain on the room rather than a part of it. Asked of the texture rather
+            // than carried down from the surface because the batch key already separates by
+            // texture, and no decal texture in the corpus is used by anything else in the
+            // same room. Models are exempt: a moped that is placed rather than built in
+            // paints itself with the same picture its shadow is drawn from.
+            Decal = !isModel && _decals.Contains(texture),
         });
 
     private IGeometryTexture TextureFor(string name) => _textures.Get(name);
@@ -3301,6 +3355,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
         /// <summary>Whether the picture on it is a cutout: holes rather than a solid sheet.</summary>
         public bool Keyed { get; init; }
+
+        /// <summary>
+        /// Whether this is a stain multiplied into the room rather than a surface of it.
+        /// See <see cref="Formats.Scenes.BspSurface.IsDecal"/>.
+        /// </summary>
+        public bool Decal { get; init; }
 
         /// <summary>A model standing in the room, rather than the room itself.</summary>
         public bool IsModel { get; init; }

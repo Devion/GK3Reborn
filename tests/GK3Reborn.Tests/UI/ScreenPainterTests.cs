@@ -23,9 +23,29 @@ public sealed class ScreenPainterTests
         MenuItem4 = E-MAIL
         MenuItem5 = EXIT
 
+        [MakeID Screen]
+        Menu1Name  = MEDICAL
+        Menu1Item1 = DOCTOR
+        Menu2Name  = REPORTER
+        Menu2Item1 = N.Y. TIMES
+        Select     = SELECT:
+        Print      = PRINT IDENTIFICATION
+
         [Analyze Screen]
         AnalyzeParch1 = Text appears to have irregularities in design.
         AnalyzeTemp   = Analysis did not find any encoded references.
+        AnalyzePous   = Painting analysed.
+        Menu2Item3    = ANAGRAM PARSER
+        ArcadiaText   = Et in Arcadia Ego Sum
+        Parsing       = Parsing:
+        PhraseText    = PHRASE BUILDING AREA:
+        EraseButton   = ERASE
+        ExitButton    = EXIT
+        SelectMsg     = Select words to move over to the phrase building area.
+        Word13        = Arcam (Tomb)
+        Word41        = Dei (God)
+        Word147       = Tango (I Touch)
+        FinalWord     = Iesu (Jesus)
         """;
 
     private const string SidneyMailText = """
@@ -722,6 +742,61 @@ public sealed class ScreenPainterTests
     }
 
     /// <summary>The map with its art loaded, laid out.</summary>
+    [Fact]
+    public void The_make_id_screen_offers_both_faces_and_a_printer()
+    {
+        // Which face is on the card is half of what Gabriel objects to, so the player has
+        // to be able to see it and change it before pressing print.
+        SidneyMachine sidney = Sidney(out _);
+        sidney.Screen = SidneyScreen.MakeId;
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(new Screen(ScreenKind.Sidney), [], null, sidney), Width, Height);
+
+        Assert.NotNull(Middle(painter, "sidney:id:Menu2Item1"));
+        Assert.NotNull(Middle(painter, "sidney:face:GAB"));
+        Assert.NotNull(Middle(painter, "sidney:face:GRA"));
+        Assert.NotNull(Middle(painter, "sidney:print"));
+    }
+
+    [Fact]
+    public void The_anagram_parser_offers_its_words_and_the_way_out()
+    {
+        SidneyMachine sidney = Sidney(out GameState state);
+
+        foreach (string sign in new[]
+        {
+            "Aquarius", "Pisces", "Aries", "Taurus", "Gemini", "Cancer", "Leo",
+            "Virgo", "Libra", "Scorpio",
+        })
+        {
+            state.SetFlag(sign);
+        }
+
+        state.SetFlag("SavedArcadiaText");
+        state.SetFlag("ArcadiaComplete");
+
+        sidney.Screen = SidneyScreen.Analyze;
+        sidney.Scan("POUSSIN_POSTCARD");
+        sidney.OpenFile(sidney.Files[0]);
+        sidney.Perform(SidneyAction.AnagramParser);
+
+        ScreenPainter painter = Painter();
+
+        painter.Build(
+            new ScreenView(new Screen(ScreenKind.Sidney), [], null, sidney), Width, Height);
+
+        Assert.NotNull(Middle(painter, "sidney:word:13"));
+        Assert.NotNull(Middle(painter, "sidney:word:147"));
+        Assert.NotNull(Middle(painter, "sidney:erase"));
+        Assert.NotNull(Middle(painter, "sidney:anagram:close"));
+
+        // The file list is not underneath it: the parser has the screen to itself.
+        Assert.Null(Middle(painter, "sidney:file:filePainting1"));
+    }
+
     private static ScreenPainter Drawn(
         IReadOnlyList<DrivingStop> stops, int width = Width, int height = Height)
     {

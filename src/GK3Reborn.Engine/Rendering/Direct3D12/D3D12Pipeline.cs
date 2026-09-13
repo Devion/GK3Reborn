@@ -81,6 +81,11 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     /// <paramref name="blend"/>, and <paramref name="premultiplied"/> only says anything
     /// about <see cref="OverlayBlend.Alpha"/>.
     /// </param>
+    /// <param name="modulateFirstTarget">
+    /// Whether this pipeline multiplies its colour into what is already in the targets
+    /// rather than replacing it. What a stain on the room wants — see <c>SceneDraw.Decal</c>
+    /// — and it overrides <paramref name="blend"/> and <paramref name="mode"/>.
+    /// </param>
     /// <param name="vertexEntryPoint">Entry point of the vertex shader in its own source.</param>
     /// <param name="fragmentEntryPoint">Entry point of the fragment shader in its own source.</param>
     /// <param name="reuse">
@@ -111,6 +116,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
         bool blend = false,
         bool premultiplied = false,
         OverlayBlend mode = OverlayBlend.Alpha,
+        bool modulateFirstTarget = false,
         string vertexEntryPoint = "main",
         string fragmentEntryPoint = "main",
         D3D12RootSignature? reuse = null)
@@ -190,7 +196,7 @@ public sealed unsafe class D3D12Pipeline : IDisposable
                         NumElements = (uint)attributes.Count,
                     },
                     RasterizerState = Rasterizer(cull, frontCounterClockwise),
-                    BlendState = Blender(blend, premultiplied, mode, colorFormats.Count),
+                    BlendState = Blender(blend, premultiplied, mode, colorFormats.Count, modulateFirstTarget),
                     DepthStencilState = DepthStencil(
                         depthFormat != Format.FormatUnknown, depthWrite, depthTest, depthEqual),
                 };
@@ -344,8 +350,48 @@ public sealed unsafe class D3D12Pipeline : IDisposable
     };
 
     private static BlendDesc Blender(
-        bool blend, bool premultiplied, OverlayBlend mode, int targets)
+        bool blend, bool premultiplied, OverlayBlend mode, int targets, bool modulateFirst)
     {
+        // A stain multiplied into what is already there: `dst * src`, which is the factor
+        // pair the original uses for its whole translucent pass
+        // (`glBlendFunc(GL_DST_COLOR, GL_ZERO)`) and not the interface's Multiply, which
+        // fades towards leaving the destination alone by the source's alpha — and a
+        // self-lit surface writes nought there. The alpha channel is kept as it was, so a
+        // roughness written into a normal target survives being stained.
+        //
+        // Every target, because the shader writes white to the three it must not disturb.
+        // See MeshShaders: a per-target write mask would need a device feature Vulkan does
+        // not promise, and nothing else in this renderer asks for one.
+        if (modulateFirst)
+        {
+            var modulated = new BlendDesc
+            {
+                AlphaToCoverageEnable = false,
+                IndependentBlendEnable = false,
+            };
+
+            var stain = new RenderTargetBlendDesc
+            {
+                BlendEnable = true,
+                LogicOpEnable = false,
+                SrcBlend = Blend.DestColor,
+                DestBlend = Blend.Zero,
+                BlendOp = BlendOp.Add,
+                SrcBlendAlpha = Blend.Zero,
+                DestBlendAlpha = Blend.One,
+                BlendOpAlpha = BlendOp.Add,
+                LogicOp = LogicOp.Noop,
+                RenderTargetWriteMask = (byte)ColorWriteEnable.All,
+            };
+
+            for (int i = 0; i < Math.Max(1, targets) && i < 8; i++)
+            {
+                modulated.RenderTarget[i] = stain;
+            }
+
+            return modulated;
+        }
+
         var description = new BlendDesc
         {
             AlphaToCoverageEnable = false,

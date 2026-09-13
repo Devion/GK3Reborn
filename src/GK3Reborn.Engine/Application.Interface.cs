@@ -416,12 +416,36 @@ public static partial class Application
                 console.Print(sidney.MatchPrint().Text);
                 break;
 
+            // Composing a card and printing it are two things: the machine has to have a
+            // job and a face on it before Gabriel will say what he thinks of it.
             case "id" when sidney.Library.Identities() .FirstOrDefault(i => i.Key == which) is { } identity:
-                console.Print(sidney.PrintIdentity(identity).Text);
+                sidney.ChooseIdentity(identity);
+                break;
+
+            case "face":
+                sidney.GracesFace = which.StartsWith("GRA", StringComparison.OrdinalIgnoreCase);
+                break;
+
+            case "print":
+                console.Print(sidney.PrintIdentity().Text);
                 break;
 
             case "do" when Enum.TryParse(which, out Game.Sidney.SidneyAction action):
                 sidney.Perform(action);
+                break;
+
+            // The anagram parser: a word moved into the phrase, the last one taken back
+            // out, and the screen put away again.
+            case "word" when int.TryParse(which, out int word):
+                console.Print(sidney.ChooseAnagramWord(word).Text);
+                break;
+
+            case "erase":
+                console.Print(sidney.EraseAnagramWord().Text);
+                break;
+
+            case "anagram":
+                sidney.CloseAnagram();
                 break;
 
             case "answer":

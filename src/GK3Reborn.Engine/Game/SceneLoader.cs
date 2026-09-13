@@ -1008,13 +1008,39 @@ public sealed class SceneLoader
         };
     }
 
+    /// <summary>
+    /// Two stencils the scene files forgot to hide. Every object of this kind in the corpus
+    /// carries the bake's own flag and is declared <c>hidden</c> — fourteen of them, each
+    /// named for what it is — and these two are named for it and are not. They exist only
+    /// so the 1998 bake had something to cast with: a black shell wrapped round CS8's
+    /// window wall, and a gobo over the cracks in GRI's glass. The original got away with
+    /// drawing them because it culls the back of everything and both face outwards; the
+    /// port exempts a colour-keyed surface from culling, so CS8's shell reads as a black
+    /// slab across the whole wall from the camera the Montreaux conversation uses.
+    ///
+    /// The three stands of pine that carry the same flag and are also undeclared —
+    /// <c>pl1_treeshadowcasters</c> and VG1's two <c>hide_this_group</c> objects — are left
+    /// alone: those are foliage cards, the props already stand trees on them, and hiding
+    /// them only thins two crowns.
+    /// </summary>
+    private static readonly HashSet<string> UndeclaredStencils =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "cs8_wincaster",
+            "gri_wndw_crk_gobo",
+        };
+
     /// <summary>Objects baked into the geometry that must not be drawn.</summary>
     private static HashSet<string> HiddenObjects(SceneDefinition init)
     {
-        return init.Models()
+        HashSet<string> hidden = init.Models()
             .Where(m => IsHitTest(m) || (IsBakedIn(m) && m.Hidden))
             .Select(m => m.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        hidden.UnionWith(UndeclaredStencils);
+
+        return hidden;
     }
 
     /// <summary>The textures on the object the scene calls its floor.</summary>

@@ -1554,6 +1554,30 @@ public static class MeshShaders
                 ? 1.0
                 : surface.roughness;
 
+            // A stain on the room rather than a part of it: the shadow under a parked
+            // moped, the blood on ARM's floor, the dark glass in LHE's windows. Drawn last,
+            // writing no depth, and blended into every target as `destination * source` --
+            // which is what makes it a stain and not a sticker, and which is the factor pair
+            // the original uses for its whole translucent pass.
+            //
+            // <b>White is how it declines to touch a channel.</b> The blend is the same on
+            // all four targets, so the normal, the motion vector and the traced light are
+            // each multiplied by one and come out of this draw exactly as they went in. The
+            // alternative is a per-target write mask, which needs a device feature Vulkan
+            // does not promise and which nothing else here asks for.
+            if (mod(floor(draw.shading.z * 0.0625), 2.0) > 0.5)
+            {
+                outColor = vec4(albedo, 1.0);
+                outNormalTarget = vec4(1.0);
+                outMotion = vec2(1.0);
+
+                #ifdef RAY_TRACING
+                outDirect = vec4(1.0);
+                #endif
+
+                return;
+            }
+
             outNormalTarget = vec4(normal, isModel ? -reported : reported);
             outMotion = vec2(0.0);
 

@@ -21,6 +21,9 @@ public enum SidneyAction
     /// <summary>Turn it into English.</summary>
     Translate,
 
+    /// <summary>Rearrange an inscription's letters into the words hidden in them.</summary>
+    AnagramParser,
+
     /// <summary>Find the shape hidden in an image.</summary>
     ViewGeometry,
 
@@ -232,6 +235,7 @@ public sealed class SidneyMachine
         if (mail is not null)
         {
             _state.SetFlag("SidneyRead:" + mail.Id);
+            Award(SidneyScores.Read(mail.Id));
         }
     }
 
@@ -325,6 +329,17 @@ public sealed class SidneyMachine
     /// <param name="screen">Which screen.</param>
     public void Show(SidneyScreen screen)
     {
+        // Gabriel will not use three of the eight. He says so and the screen does not open,
+        // which is the retail engine's own behaviour and is what keeps him from solving Le
+        // Serpent Rouge on Grace's behalf. The icons stay where they are: the original
+        // draws all eight for him too, and he refuses at the press.
+        if (Refuses(screen) is { Length: > 0 } refusal)
+        {
+            Speak(refusal);
+
+            return;
+        }
+
         Screen = screen;
         OpenFile(null);
 
@@ -333,6 +348,25 @@ public sealed class SidneyMachine
         {
             Speak("0264G2ZPF1");
         }
+    }
+
+    /// <summary>The line Gabriel says instead of opening a screen, or null when he will.</summary>
+    /// <param name="screen">Which screen was pressed.</param>
+    /// <returns>The dialogue plate.</returns>
+    private string? Refuses(SidneyScreen screen)
+    {
+        if (!string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return screen switch
+        {
+            SidneyScreen.Search => "02O6I2ZQR1",
+            SidneyScreen.EMail => "02O1E2ZQR1",
+            SidneyScreen.Analyze => "02O7A2ZQR1",
+            _ => null,
+        };
     }
 
     /// <summary>
@@ -421,10 +455,24 @@ public sealed class SidneyMachine
 
         _state.AddSidneyFile(file.Id);
         _state.RecordSidneyScan(file.Item);
+        Award(SidneyScores.Scanned(file.Item));
 
         Showing = new SidneyResult($"{file.Label} scanned.", Produced: file.Id);
 
         return Showing;
+    }
+
+    /// <summary>
+    /// Credits one of Sidney's own score events. Everything the machine does that the game
+    /// pays for goes through here; the story only counts each event once.
+    /// </summary>
+    /// <param name="score">The event's name, or null when the step is worth nothing.</param>
+    private void Award(string? score)
+    {
+        if (score is { Length: > 0 } named)
+        {
+            _state.AwardScore(named, Scores?.Worth(named));
+        }
     }
 
     /// <summary>Opens a file on the analyze screen.</summary>
@@ -433,6 +481,7 @@ public sealed class SidneyMachine
     {
         Open = file;
         Showing = null;
+        Anagram = null;
     }
 
     /// <summary>Which operations the open file will answer.</summary>
@@ -462,10 +511,28 @@ public sealed class SidneyMachine
             case SidneyKind.Poussin:
                 actions.Add(SidneyAction.ViewGeometry);
                 actions.Add(SidneyAction.ZoomAndClarify);
+
+                // Once the inscription on the tomb has been saved as text of its own. The
+                // original keeps that text in a file the zoom produces and offers the
+                // parser on that file; the port keeps it on the painting it came off, which
+                // is the only place it has to hang.
+                if (_state.GetFlag("SavedArcadiaText"))
+                {
+                    actions.Add(SidneyAction.AnagramParser);
+                }
+
                 break;
 
             case SidneyKind.Teniers:
                 actions.Add(SidneyAction.ViewGeometry);
+
+                // Only the one with no temple in it. The pair differ by a building painted
+                // out, and the verse heading the zoom reads is on that one alone.
+                if (Is(file, "TENIERS_POSTCARD_NO_TEMP"))
+                {
+                    actions.Add(SidneyAction.ZoomAndClarify);
+                }
+
                 break;
 
             // The map is the one file with a screen of its own rather than a chain of
@@ -534,7 +601,8 @@ public sealed class SidneyMachine
             SidneyAction.RotateShape => file.Kind == SidneyKind.Map
                 ? Turned()
                 : Finished("RotateParch2"),
-            SidneyAction.ZoomAndClarify => Finished("ArcadiaAnalysis"),
+            SidneyAction.ZoomAndClarify => Zoomed(file),
+            SidneyAction.AnagramParser => Parsed(),
             SidneyAction.Translate => Finished("AnalyzeSUM"),
             SidneyAction.EnterPoints => Marked(),
             SidneyAction.ClearPoints => Cleared(),
@@ -551,17 +619,105 @@ public sealed class SidneyMachine
         return Showing;
     }
 
+    /// <summary>What the machine last asked, so that it knows what an answer means.</summary>
+    private enum Asking
+    {
+        /// <summary>Which language a hidden message is in.</summary>
+        Language,
+
+        /// <summary>Whether to keep the inscription the zoom read off Poussin's tomb.</summary>
+        SaveArcadia,
+
+        /// <summary>Whether to fetch the verse the Teniers postcard's heading names.</summary>
+        GetVerse,
+    }
+
+    private Asking _asked = Asking.Language;
+
+    /// <summary>
+    /// ZOOM &amp; CLARIFY: enlarge part of a painting until the writing in it can be read.
+    ///
+    /// <para>Two paintings answer it and they answer differently. Poussin's tomb carries the
+    /// Arcadia inscription, and the machine offers to keep it as a file of its own — which
+    /// is what the translate screen and the anagram parser then work on. The Teniers
+    /// postcard with the temple painted out carries a biblical verse heading, and the
+    /// machine offers to fetch the verse.</para>
+    /// </summary>
+    /// <param name="file">The open file.</param>
+    /// <returns>What the machine says, and the question it asks with it.</returns>
+    private SidneyResult Zoomed(SidneyFile file)
+    {
+        bool tomb = file.Kind == SidneyKind.Poussin;
+
+        // The Teniers zoom is paid for on the button, before the question is answered: the
+        // original scores it "just for zooming in", and the verse behind it is worth
+        // nothing. Poussin's is paid for the same way.
+        Award(SidneyScores.Analysed(file.Kind, SidneyAction.ZoomAndClarify));
+
+        _asked = tomb ? Asking.SaveArcadia : Asking.GetVerse;
+
+        return new SidneyResult(
+            Say(tomb ? "SaveArcadia" : "GetVerse"),
+            Say(tomb ? "SaveArcadia" : "GetVerse"),
+            [
+                new SidneyChoice("Yes", Say("YesButton")),
+                new SidneyChoice("No", Say("NoButton")),
+            ]);
+    }
+
+    /// <summary>
+    /// Yes or no to the zoom's question.
+    /// </summary>
+    /// <param name="yes">Whether the player agreed.</param>
+    /// <returns>What the machine says.</returns>
+    private SidneyResult Agreed(bool yes)
+    {
+        bool tomb = _asked == Asking.SaveArcadia;
+
+        _asked = Asking.Language;
+
+        if (!yes)
+        {
+            return new SidneyResult(Say("ArcadiaAnalysis"));
+        }
+
+        if (!tomb)
+        {
+            // The verse itself, and Grace reading the passage out.
+            Speak("02OCB2ZQ35");
+
+            return new SidneyResult($"{Say("RetrieveVerse")}\n\n{Say("Verse")}");
+        }
+
+        // <b>The inscription becomes a file.</b> R25307A's timeblock will not end without
+        // SavedArcadiaText, and the port was only setting it at the far end of the translate
+        // screen — after the player had typed the missing word. The original sets it here,
+        // and a player who zoomed and then walked away had no way past the evening.
+        _state.SetFlag("SavedArcadiaText");
+        _state.SetFlag("SidneyText:ArcadiaText");
+
+        return new SidneyResult(Say("SavingArcadia"));
+    }
+
     /// <summary>
     /// Answers the question an operation asked.
     /// </summary>
     /// <param name="language">
     /// Which language the player suggested, as <c>ESIDNEY.TXT</c> keys it — <c>French</c>,
-    /// <c>English</c>, <c>Latin</c> — rather than as the button spelled it.
+    /// <c>English</c>, <c>Latin</c> — rather than as the button spelled it. Yes and no come
+    /// through here too, as the keys the zoom's own question offered.
     /// </param>
     /// <returns>What the machine says.</returns>
     public SidneyResult Answer(string language)
     {
         ArgumentNullException.ThrowIfNull(language);
+
+        if (_asked != Asking.Language)
+        {
+            Showing = Agreed(language.StartsWith('Y') || language.StartsWith('y'));
+
+            return Showing;
+        }
 
         bool second = Open?.Kind == SidneyKind.Parchment2;
         bool french = string.Equals(language.Trim(), "French", StringComparison.OrdinalIgnoreCase);
@@ -578,9 +734,11 @@ public sealed class SidneyMachine
         if (french && Open is { } file)
         {
             // The one that gets somewhere. Recorded as a flag so the story can read it the
-            // way it reads everything else.
+            // way it reads everything else, and paid for here rather than on the button
+            // that asked: the question is the operation, and the other two answers are wrong.
             _state.SetFlag(Flag(file, SidneyAction.Translate));
             _done.Add(Flag(file, SidneyAction.Translate));
+            Award(SidneyScores.Extracted(file.Kind));
         }
 
         return Showing;
@@ -600,6 +758,7 @@ public sealed class SidneyMachine
     /// <summary>Puts the machine back to its front screen.</summary>
     public void Home()
     {
+        Anagram = null;
         Menu = 0;
         Marking = false;
         Screen = SidneyScreen.Main;
@@ -624,6 +783,95 @@ public sealed class SidneyMachine
     /// <summary>Whether the machine is waiting for a string to add to a sentence.</summary>
     public bool Appending { get; private set; }
 
+    /// <summary>The anagram parser, while it is open, and null the rest of the time.</summary>
+    public SidneyAnagram? Anagram { get; private set; }
+
+    /// <summary>
+    /// Opens the anagram parser over the Arcadia inscription.
+    ///
+    /// <para>Only from Ophiuchus onwards, which is where the poem asks the question it
+    /// answers; before that the original has whoever is sitting there say they do not need
+    /// it on this text, and so does this.</para>
+    /// </summary>
+    /// <returns>What the machine says.</returns>
+    private SidneyResult Parsed()
+    {
+        if (DrivingMap.SerpentRougeSigns(_state) < 10)
+        {
+            Speak("02O3H2Z951");
+
+            return new SidneyResult(string.Empty);
+        }
+
+        Anagram = SidneyAnagram.Open(_library, _state.GetFlag("ArcadiaComplete"));
+
+        // The game's own name for having started it, which two of its conditions read and
+        // which changes what Grace says about the poem.
+        _state.SetFlag("StartArcadiaAnagram");
+
+        return new SidneyResult(
+            Anagram is null
+                ? Say("NotImplemented")
+                : $"{Say("Parsing")} {Anagram.Phrase}\n\n{Say("LatinMsg")}\n{Say("Latin2Msg")}\n" +
+                  Say("SelectMsg"));
+    }
+
+    /// <summary>
+    /// Moves one of the parser's words into the phrase, and finishes the puzzle when the
+    /// three chosen are the three that solve it.
+    /// </summary>
+    /// <param name="index">The word's row in the list.</param>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult ChooseAnagramWord(int index)
+    {
+        if (Anagram is not { } anagram || !anagram.Choose(index))
+        {
+            return Showing ?? new SidneyResult(string.Empty);
+        }
+
+        if (anagram.Solved)
+        {
+            // <b>What the twenty points are for.</b> Nothing else in Sidney is worth
+            // anything like it, and nothing in the port could reach it: there was no parser
+            // to solve. Ophiuchus is the sign it completes, and the poem's own page, the
+            // driving map and the third day all read that flag.
+            Award("e_sidney_analysis_complete_anagram");
+            _state.SetFlag("Ophiuchus");
+            Speak("02OFT2ZRNA");
+
+            Showing = new SidneyResult(
+                $"{Say("MatchMsg")}\n\n" +
+                string.Join(' ', anagram.Reading().Select(w => w.Latin)) + "\n\n" +
+                $"{Say("RebusMsg")}\n{Say("TransMsg")}");
+        }
+        else
+        {
+            Showing = new SidneyResult(
+                anagram.Stuck
+                    ? $"{Say("CheckingMsg")}\n{Say("NoMatchMsg")}\n{Say("TryAgain")}"
+                    : Say("SelectMsg"));
+        }
+
+        return Showing;
+    }
+
+    /// <summary>Takes the parser's last word back out of the phrase.</summary>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult EraseAnagramWord()
+    {
+        Anagram?.Erase();
+        Showing = new SidneyResult(Say("SelectMsg"));
+
+        return Showing;
+    }
+
+    /// <summary>Puts the parser away and goes back to the file it was opened over.</summary>
+    public void CloseAnagram()
+    {
+        Anagram = null;
+        Showing = null;
+    }
+
     /// <summary>Opens a file on the translate screen.</summary>
     /// <param name="file">Which file, or null to close the one open.</param>
     public void OpenForTranslation(SidneyFile? file)
@@ -645,6 +893,16 @@ public sealed class SidneyMachine
         {
             _state.SetFlag(Flag(file, SidneyAction.Translate));
             _done.Add(Flag(file, SidneyAction.Translate));
+        }
+
+        // Paid on a translation that actually happened, which is one the player named the
+        // right language for: a wrong answer comes back as the screen's WrongFrom line and
+        // that one carries no choices either.
+        if (Translating is { } translated &&
+            Translator.Find(translated) is { } text &&
+            string.Equals(From, text.Language, StringComparison.OrdinalIgnoreCase))
+        {
+            Award(SidneyScores.Translated(translated.Item));
         }
 
         return Showing;
@@ -918,6 +1176,10 @@ public sealed class SidneyMachine
             _state.SetFlag(identified);
         }
 
+        // And the points for it, when the file is that suspect's own. Nothing in the port
+        // was crediting these, so a whole afternoon of filing evidence scored zero.
+        Award(SidneyScores.Linked(suspect.Index, file.Item));
+
         Showing = new SidneyResult($"{file.Label} linked to {suspect.Name}.");
 
         return Showing;
@@ -1004,7 +1266,16 @@ public sealed class SidneyMachine
             return Showing;
         }
 
-        bool matched = print.Kind == SidneyKind.KnownPrint && Belongs(owner, suspect);
+        // A print that names nobody still has an owner: the three off the manuscript and
+        // the one off the envelope are the reason the screen exists, and the engine's own
+        // table is the only thing that says whose they are. Comparing names alone left all
+        // four unmatchable, so MatchedBuchelli, MatchedButhane and MatchedMosely — three
+        // flags the action files read — could never be set.
+        int named = SidneyScores.Identifies(owner);
+
+        bool matched = named > 0
+            ? named == suspect.Index
+            : print.Kind == SidneyKind.KnownPrint && Belongs(owner, suspect);
 
         Showing = new SidneyResult(
             $"{Ask("MatchCompare")} {suspect.Name}\n\n" +
@@ -1012,6 +1283,7 @@ public sealed class SidneyMachine
 
         if (matched)
         {
+            Award(SidneyScores.Matched(owner));
             // <b>The flag the game's own scripts read.</b> "SidneyMatched:2" was written and
             // read by nothing; the story is waiting on Matched<i>Noun</i>, and setting
             // MatchedEstelle is what opens the T_LSR topic with her in the lobby and gives
@@ -1045,19 +1317,61 @@ public sealed class SidneyMachine
         return upper.Length > 3 && upper[^1] == 'S' ? upper[..^1] : upper;
     }
 
-    /// <summary>Prints an identity card.</summary>
-    /// <param name="identity">Which one.</param>
-    /// <returns>What the machine says.</returns>
-    public SidneyResult PrintIdentity(SidneyIdentity identity)
+    /// <summary>
+    /// Which of the two faces goes on the card. Gabriel's to start with: he is the only one
+    /// who ever needs one, and the picture is the whole of the joke when it is hers.
+    /// </summary>
+    public bool GracesFace { get; set; }
+
+    /// <summary>Puts a job on the card without printing it.</summary>
+    /// <param name="identity">Which row.</param>
+    public void ChooseIdentity(SidneyIdentity identity)
     {
         ArgumentNullException.ThrowIfNull(identity);
 
         Identity = identity;
+        Showing = null;
+    }
 
+    /// <summary>
+    /// The card being composed, as the picture for it is filed: <c>GAB_NYTIMES</c>.
+    /// </summary>
+    public string IdentityPicture =>
+        Identity?.Job is { Length: > 0 } job ? (GracesFace ? "GRA_" : "GAB_") + job : string.Empty;
+
+    /// <summary>
+    /// The five jobs that actually print something, and what each one puts in the pocket.
+    /// None of this is in the game's data: the retail engine holds it, and the scripts at
+    /// Serres ask for these five items by name.
+    /// </summary>
+    private static readonly Dictionary<string, string> Cards =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["NYTIMES"] = "FAKE_ID_NYT_REP",
+            ["FREELANCE"] = "FAKE_ID_REPORTER",
+            ["BLOOD"] = "FAKE_ID_BLOODBANK",
+            ["AUTO"] = "FAKE_ID_CAR",
+            ["DIAPER"] = "FAKE_ID_DIAPERS",
+        };
+
+    /// <summary>Every card the screen can print, for whoever needs to know the set.</summary>
+    public static IReadOnlyCollection<string> PrintableCards => Cards.Values;
+
+    /// <summary>
+    /// Prints the card as it stands.
+    ///
+    /// <para>Gabriel is picky about it, and every one of his refusals is in the retail
+    /// engine rather than in any script: the wrong afternoon, his own face missing, a trade
+    /// that will not get him through a vineyard gate, and a magazine nobody at Serres would
+    /// talk to. The five that do work put a real inventory item in his pocket, because
+    /// CSE202P asks for those items by name and nothing else opens that door.</para>
+    /// </summary>
+    /// <returns>What the machine says, which is nothing at all when he only speaks.</returns>
+    public SidneyResult PrintIdentity()
+    {
         // A card is only ever needed the afternoon Gabriel calls on Montreaux as a
         // journalist; any other time the retail engine prints nothing and has whoever is
-        // sitting there say they do not need a fake ID. Printing one regardless left a
-        // card in the story that the story never asked for.
+        // sitting there say they do not need a fake ID.
         if (_state.Timeblock != new Timeblock(2, 2, IsAfternoon: true))
         {
             Speak(string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase)
@@ -1069,11 +1383,59 @@ public sealed class SidneyMachine
             return Showing;
         }
 
-        // Keyed on the row rather than on the job, because the job is translated: a save
-        // made in French would otherwise carry SidneyId:JOURNALISTE and mean nothing to the
-        // same game opened in English.
+        if (GracesFace)
+        {
+            // "Uh duh, what's wrong with this picture?"
+            Speak("02O8G5F961");
+
+            Showing = new SidneyResult(string.Empty);
+
+            return Showing;
+        }
+
+        if (Identity is not { } identity || identity.Job.Length == 0)
+        {
+            Showing = new SidneyResult(Ask("Select", "MakeID Screen"));
+
+            return Showing;
+        }
+
+        if (!Cards.TryGetValue(identity.Job, out string? item))
+        {
+            // Two different refusals, and which one he gives says what is wrong with the
+            // card: a reporter is the right idea and the wrong masthead.
+            Speak(identity.Job is "EMONTHLY" or "SPORTSI" ? "02O8G5FNV1" : "02O8G5F1K1");
+
+            Showing = new SidneyResult(string.Empty);
+
+            return Showing;
+        }
+
+        // Keyed on the row rather than on the job title, because the title is translated: a
+        // save made in French would otherwise carry SidneyId:JOURNALISTE and mean nothing to
+        // the same game opened in English.
         _state.SetFlag(
             "SidneyId:" + (identity.Key.Length > 0 ? identity.Key : identity.Title));
+
+        // Paid for the press cards whether or not one is already in the pocket, which is
+        // where the original puts it; the story only counts an event once anyway.
+        Award(SidneyScores.Printed(identity.Key));
+
+        if (_state.Inventory.Has(_state.Ego, item))
+        {
+            // "I already have it."
+            Speak("0XF724XBL1");
+
+            Showing = new SidneyResult(string.Empty);
+
+            return Showing;
+        }
+
+        // "That should work" for the two press cards, and "might provoke an interesting
+        // response" for the other three.
+        Speak(SidneyScores.Printed(identity.Key) is { Length: > 0 } ? "02O8G5F772" : "02O8G5FQ21");
+
+        _state.Inventory.Add(_state.Ego, item);
 
         Showing = new SidneyResult($"{identity.Category}: {identity.Title}");
 
@@ -1238,7 +1600,8 @@ public sealed class SidneyMachine
     public static int MenuOf(SidneyAction action) => action switch
     {
         SidneyAction.Analyse => 1,
-        SidneyAction.ExtractAnomalies or SidneyAction.AnalyseText or SidneyAction.Translate => 2,
+        SidneyAction.ExtractAnomalies or SidneyAction.AnalyseText or
+            SidneyAction.Translate or SidneyAction.AnagramParser => 2,
         SidneyAction.ViewGeometry or SidneyAction.RotateShape or
             SidneyAction.ZoomAndClarify or SidneyAction.EraseShape => 3,
         _ => 4,
@@ -2004,6 +2367,8 @@ public sealed class SidneyMachine
         {
             _state.SetFlag(known);
         }
+
+        Award(SidneyScores.Analysed(file.Kind, action));
     }
 
     /// <summary>
