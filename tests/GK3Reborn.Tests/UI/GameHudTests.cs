@@ -554,4 +554,58 @@ public sealed class GameHudTests
         // And the last row is still the one the hit test finds where it was drawn.
         Assert.Equal("TOPIC29", hud.RowNamed(hud.RowAt(hud.RowMiddle(29))));
     }
+
+    [Fact]
+    public void The_players_own_buttons_are_all_one_size_and_answer_to_a_click()
+    {
+        // In first person there is nobody to right-click, so these are the only way to the
+        // binoculars. Buttons of different widths in a row read as a mistake, so the
+        // longest word sets the width for all of them.
+        GameHud hud = Hud();
+
+        hud.Build(State() with { Self = ["LOOK", "BINOCULARS"] }, 800, 600);
+
+        List<OverlayQuad> panels = [.. hud.Overlay.Quads.Where(q => q.Destination.Y > 500 && q.Destination.W > 30)];
+
+        Assert.Equal(2, panels.Count);
+        Assert.Equal(panels[0].Destination.Z, panels[1].Destination.Z, 1);
+
+        // And each is clicked where it was drawn, under a name the room loop can read back.
+        foreach (OverlayQuad panel in panels)
+        {
+            var middle = new Vector2( panel.Destination.X + (panel.Destination.Z / 2f), panel.Destination.Y + (panel.Destination.W / 2f));
+
+            Assert.StartsWith(GameHud.SelfButton, hud.ButtonAt(middle), StringComparison.Ordinal);
+            Assert.True(hud.OverInterface(middle));
+        }
+    }
+
+    [Fact]
+    public void Nothing_to_do_to_yourself_draws_no_buttons()
+    {
+        // Which is every room outside first person, and most rooms inside it.
+        GameHud hud = Hud();
+
+        hud.Build(State(), 800, 600);
+
+        Assert.Null(hud.ButtonAt(new Vector2(40, 570)));
+    }
+
+    [Fact]
+    public void A_caption_clears_the_players_own_buttons()
+    {
+        // The captions are laid out from the foot of the screen upwards, and the bar is in
+        // the way of where they used to start.
+        GameHud hud = Hud();
+
+        float Bottom(IReadOnlyList<string>? own)
+        {
+            hud.Build( State(caption: "A line somebody says") with { Self = own }, 800, 600);
+
+            return hud.Overlay.Quads.Where(q => Math.Abs(q.Destination.X - (48f * hud.Scale)) < 0.5f)
+                .Max(q => q.Destination.Y + q.Destination.W);
+        }
+
+        Assert.True(Bottom(["LOOK"]) < Bottom(null));
+    }
 }

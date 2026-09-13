@@ -9,9 +9,10 @@ namespace GK3Reborn.Game.Navigation;
 /// to it rather than refusing to move.
 /// </param>
 /// <param name="Points">
-/// Corners of the route in world space, from where the walk starts to where it ends. Each
-/// is the middle of a boundary texel with its Y left at zero, because the boundary knows
-/// nothing about the height of the floor it covers.
+/// Corners of the route in world space, from where the walk starts to where it ends, with
+/// Y left at zero because the boundary knows nothing about the height of the floor it
+/// covers. The interior corners are the middles of boundary texels; the two ends are the
+/// exact points the caller named, wherever an actor may stand on them.
 /// </param>
 public readonly record struct WalkRoute(bool ReachedGoal, IReadOnlyList<Vector3> Points)
 {
@@ -106,8 +107,29 @@ public static class WalkPath
 
         PullString(boundary, texels);
 
-        return new WalkRoute(reached, [.. texels.Select(t => boundary.ToWorld(t.X, t.Y))]);
+        List<Vector3> corners = [.. texels.Select(t => boundary.ToWorld(t.X, t.Y))];
+
+        // Both ends were snapped to the middle of a texel to search, and a texel is several
+        // units across. Over a room that is nothing; over the few units an approach has left
+        // to cover it is the whole walk, and the actor slides sideways to the middle of the
+        // texel they are already standing on and then back again -- reported as the camera
+        // swinging aside and returning before Gabriel reaches into the wardrobe. Both ends
+        // go back to the exact point the caller named, wherever the boundary allows it.
+        if (corners.Count > 1 && boundary.IsWalkable(from))
+        {
+            corners[0] = Flat(from);
+        }
+
+        if (reached && boundary.IsWalkable(to))
+        {
+            corners[^1] = Flat(to);
+        }
+
+        return new WalkRoute(reached, corners);
     }
+
+    /// <summary>A point at the height the boundary reports every other corner at.</summary>
+    private static Vector3 Flat(Vector3 point) => point with { Y = 0f };
 
     /// <summary>Breadth-first search over the boundary's texels.</summary>
     /// <param name="boundary">Where actors may stand.</param>

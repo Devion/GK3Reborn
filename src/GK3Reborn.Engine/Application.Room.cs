@@ -87,6 +87,10 @@ public static partial class Application
 
         // How many topics were said to be on offer last time it changed.
         int radioSaid = -1;
+
+        // And the same for the things the player can do to themselves.
+        int ownSaid = -1;
+
         ArgumentNullException.ThrowIfNull(front);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(icons);
@@ -1298,6 +1302,26 @@ public static partial class Application
                 radioIndex = 0;
             }
 
+            // What the player can do to themselves. Only on foot: everywhere else it is a right click on Gabriel or Grace, and in first person they
+            // are standing inside that model with it taken out of their own view, so there is nobody there to click.
+            IReadOnlyList<string> own = onFoot && menu is null && !update.Acting && room?.Talking != true && !story.MustChooseAnAction
+                ? interaction.Own() : [];
+
+            if (own.Count != ownSaid)
+            {
+                ownSaid = own.Count;
+
+                Log.Info(own.Count > 0 ? $"{story.Ego}: {own.Count} thing(s) to do to yourself — " + string.Join(", ", own)
+                    : $"{story.Ego}: nothing to do to yourself here");
+            }
+
+            // The number keys over the letters, one to a button, which is the whole point of drawing the number on them.
+            if (!console.Open && own.Count > 0 && Yourselves(window.AnyKey) is int key && key < own.Count)
+            {
+                Yourself(own[key], interaction, story);
+                menu = null;
+            }
+
             if (Game.Radio.WornAt(story.Timeblock) && topics.Count > 0 && topics.Count != radioSaid)
             {
                 radioSaid = topics.Count;
@@ -1909,6 +1933,14 @@ public static partial class Application
                 menu = null;
             }
 
+            // One of the player's own buttons, which stand in for the right click on themselves that first person leaves nobody to make.
+            else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) &&
+                hud?.ButtonAt(pointer) is { Length: > 0 } pressed && pressed.StartsWith(GameHud.SelfButton, StringComparison.Ordinal))
+            {
+                Yourself(pressed[GameHud.SelfButton.Length..], interaction, story);
+                menu = null;
+            }
+
             // The top bar's two buttons, which are the only way in that a player who has not read a key list will find.
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) && hud?.ButtonAt(pointer) is { Length: > 0 } opening &&
                 story.Screens.InventoryReachable)
@@ -2101,7 +2133,7 @@ public static partial class Application
                             .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs)) .Select(a => a.LocalizedVerb)],
                         window.IsHeld(Platform.CameraAction.ShowHotspots) ? OnScreen( interaction.Nouns(), view, window.FramebufferWidth,
                                 window.FramebufferHeight) : null, icons, verbIcons, (api.Mechanism as Game.Mechanisms.CoordinateDevice)?.Reading(),
-                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair),
+                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair, own),
                     window.FramebufferWidth, window.FramebufferHeight);
 
                 renderer.SetOverlay(hud.Overlay);
@@ -2197,5 +2229,37 @@ public static partial class Application
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
 
         return new RoomExit(0, null);
+    }
+
+    /// <summary>The number keys over the letters, which is what the player's own buttons are numbered with.</summary>
+    private static readonly Platform.InputKey[] SelfKeys =
+    [
+        Platform.InputKey.Number1, Platform.InputKey.Number2, Platform.InputKey.Number3, Platform.InputKey.Number4, Platform.InputKey.Number5,
+        Platform.InputKey.Number6, Platform.InputKey.Number7, Platform.InputKey.Number8, Platform.InputKey.Number9,
+    ];
+
+    /// <summary>Which of the player's own buttons a key press asks for.</summary>
+    /// <returns>Its index from zero, or null for any other key.</returns>
+    /// <param name="key">The key pressed this frame, if any.</param>
+    private static int? Yourselves(Platform.InputKey key)
+    {
+        int at = Array.IndexOf(SelfKeys, key);
+
+        return at < 0 ? null : at;
+    }
+
+    /// <summary>Does one of the things the player can do to themselves.</summary>
+    /// <param name="verb">The verb, as the action files spell it.</param>
+    /// <param name="interaction">What performs it.</param>
+    /// <param name="story">Where the story stands, for who the player is.</param>
+    private static void Yourself(string verb, SceneInteraction interaction, GameState story)
+    {
+        if (interaction.DoOwn(verb) is { } did)
+        {
+            Log.Info($"{story.Ego}: {did.Noun}:{did.Verb} [{did.Case}]");
+            return;
+        }
+
+        Log.Info($"{story.Ego}: {verb} is no longer anything they can do");
     }
 }

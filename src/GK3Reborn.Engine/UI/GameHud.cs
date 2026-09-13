@@ -32,12 +32,13 @@ namespace GK3Reborn.UI;
 /// <param name="RadioIndex">Which of them is picked out.</param>
 /// <param name="Prompt">The one control the room itself is asking for, drawn large under the picture.</param>
 /// <param name="Crosshair">Whether to mark the middle of the screen, which is what the player is looking at and so what a click acts on.</param>
+/// <param name="Self">What the player can do to themselves, on numbered buttons, or null when there is nobody to right-click.</param>
 public readonly record struct HudState( string? Noun, IReadOnlyList<string> Verbs, string? Verb, Vector2 At, bool MenuOpen, int MenuIndex,
     Vector2 MenuAt, string? Speaker, string? Caption, IReadOnlyList<string> Inventory, string? Held, bool InventoryOpen, string Place,
     GameConsole? Console = null, string? Score = null, IReadOnlyList<string>? Items = null, IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
     Func<string, ItemIcon>? Icons = null, Func<string, bool, ItemIcon>? VerbIcons = null, Game.Mechanisms.GpsReading? Gps = null,
     Func<string, ItemIcon>? Pictures = null, bool RadioWorn = false, IReadOnlyList<Game.RadioTopic>? Radio = null, bool RadioOpen = false,
-    int RadioIndex = 0, Game.Mechanisms.MechanismButton? Prompt = null, bool Crosshair = false);
+    int RadioIndex = 0, Game.Mechanisms.MechanismButton? Prompt = null, bool Crosshair = false, IReadOnlyList<string>? Self = null);
 
 /// <summary>The game's interface, laid out fresh every frame.</summary>
 public sealed class GameHud
@@ -116,6 +117,7 @@ public sealed class GameHud
 
         // Before the captions, which are laid out from the foot of the screen upwards and have to start above it rather than under it.
         Prompt(state, width, height);
+        Yourself(state, height);
         Captions(state, width, height);
 
         // Last, so it is over everything: it is attached to the pointer and the pointer is in front of the game by definition.
@@ -435,6 +437,85 @@ public sealed class GameHud
 
         // What the captions have to keep clear of, the gap under it included.
         _reserved = h + (24f * unit);
+    }
+
+    /// <summary>What one of the player's own buttons is called when it is clicked, before the verb.</summary>
+    public const string SelfButton = "self:";
+
+    /// <summary>How many of them a player can be offered, which is as many as there are number keys over the letters.</summary>
+    public const int MostSelfActions = 9;
+
+    /// <summary>How big the picture on one of those buttons is drawn, in units of a line.</summary>
+    private const float SelfIcon = 32f;
+
+    /// <summary>
+    /// The things the player can do to themselves, along the foot of the screen at the left.
+    /// </summary>
+    /// <remarks>
+    /// Only first person asks for these, and only because there is nobody to right-click:
+    /// the player is inside their own model and it is taken out of their own view. Each is
+    /// a picture with the number key that takes it in the corner, because a bar nobody can
+    /// reach without the mouse is no better than the right click it stands in for.
+    /// </remarks>
+    /// <param name="state">What the game is doing.</param>
+    /// <param name="height">Window height.</param>
+    private void Yourself(HudState state, int height)
+    {
+        if (state.Self is not { Count: > 0 } own)
+        {
+            return;
+        }
+
+        float unit = Scale;
+        float pad = 6f * unit;
+        float icon = SelfIcon * unit;
+        float label = Overlay.LineHeight;
+        float tall = icon + label + (pad * 3);
+
+        // Above whatever the room has already put along the bottom, and the captions then start above this.
+        float y = height - InventoryHeight - _reserved - tall - (12f * unit);
+        float x = 12f * unit;
+
+        // One width for all of them, taken from the longest word: buttons of different sizes in a row read as a mistake rather than as a row.
+        float wide = icon + (pad * 2);
+
+        for (int i = 0; i < own.Count && i < MostSelfActions; i++)
+        {
+            wide = Math.Max(wide, Overlay.Measure(Verb(own[i])) + (pad * 2));
+        }
+
+        for (int i = 0; i < own.Count && i < MostSelfActions; i++)
+        {
+            string name = Verb(own[i]);
+            var bounds = new Vector4(x, y, wide, tall);
+
+            bool under = Inside(state.At, bounds);
+
+            Overlay.Rect(x, y, wide, tall, under ? PanelLit : Panel);
+            Overlay.Rect(x, y, wide, 2 * unit, under ? Accent : Rule);
+
+            if (state.VerbIcons?.Invoke(own[i], under) is { Drawn: true } picture)
+            {
+                Vector4 at = picture.Fit(x + ((wide - icon) / 2f), y + pad, icon);
+
+                Overlay.Picture(picture.Picture, at.X, at.Y, at.Z, at.W, Vector4.One);
+            }
+
+            Overlay.Text( name, x + ((wide - Overlay.Measure(name)) / 2f), y + icon + (pad * 2), under ? Accent : Ink);
+
+            // The key that does the same thing, in the corner over the picture rather than beside the words: it is read once and then remembered.
+            string key = (i + 1).ToString(CultureInfo.InvariantCulture);
+
+            Overlay.Rect(x, y, Overlay.Measure(key) + (6f * unit), label, under ? Accent : Rule);
+            Overlay.Text(key, x + (3f * unit), y, under ? Panel : Ink);
+
+            _buttons.Add((SelfButton + own[i], bounds));
+
+            x += wide + (6f * unit);
+        }
+
+        // What the captions have to keep clear of, the gap under them included.
+        _reserved += tall + (12f * unit);
     }
 
     /// <summary>How big the headset is drawn, in units of a line.</summary>

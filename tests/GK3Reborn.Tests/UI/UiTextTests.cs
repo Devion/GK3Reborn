@@ -327,7 +327,7 @@ public sealed partial class UiTextTests
         var hud = new GameHud(new Overlay(Atlas())) { Text = UiText.Carried("fr") };
 
         Assert.Equal("Porte d'entrée", Label(hud, "FRONT_DOOR"));
-        Assert.Equal("Commode", Label(hud, "DRESSER"));
+        Assert.Equal("Armoire", Label(hud, "DRESSER"));
 
         // A noun nobody has written stays the tidied identifier rather than becoming blank.
         Assert.Equal("Mod Gadget", Label(hud, "MOD_GADGET"));

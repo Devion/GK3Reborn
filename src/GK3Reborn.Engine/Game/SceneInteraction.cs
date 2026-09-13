@@ -117,6 +117,40 @@ public sealed class SceneInteraction
         return _actions is null ? new Hover(pick, [], label) : new Hover(pick, _actions.Resolve(noun, _api.State.Ego, Carrying), label);
     }
 
+    /// <summary>
+    /// What the player can do to themselves, here and now.
+    /// </summary>
+    /// <returns>
+    /// The verbs their own noun answers to, most likely first — the binoculars, the GPS,
+    /// Mosely's coat — and empty when there is nothing.
+    /// </returns>
+    /// <remarks>
+    /// Everywhere else these are reached by right-clicking Gabriel or Grace. In first
+    /// person there is nobody to right-click: the player is standing inside that model and
+    /// it is taken out of their own view, so without a bar of its own the binoculars cannot
+    /// be raised at all. The verbs every noun answers to are left out, and so is anything
+    /// said rather than done — talking to yourself is not one of these.
+    /// </remarks>
+    public IReadOnlyList<string> Own()
+    {
+        if (_actions is null)
+        {
+            return [];
+        }
+
+        string me = _api.State.Ego;
+
+        return [.. _actions.Resolve(me, me, Carrying, wildcards: false)
+            .Select(a => a.LocalizedVerb)
+            .Where(verb => _actions.Verbs?.KindOf(verb) is not (Actions.VerbKind.Topic or Actions.VerbKind.RecurringTopic or Actions.VerbKind.Chat) &&
+                !verb.Equals("TALK", StringComparison.OrdinalIgnoreCase))];
+    }
+
+    /// <summary>Does one of those to the player themselves.</summary>
+    /// <returns>What happened, or null when the verb no longer applies.</returns>
+    /// <param name="verb">One of the verbs .</param>
+    public ActionOutcome? DoOwn(string verb) => Do(_api.State.Ego, verb);
+
     /// <summary>The verb that looks closely at something, and the one that stops.</summary>
     private const string Inspect = "INSPECT";
 

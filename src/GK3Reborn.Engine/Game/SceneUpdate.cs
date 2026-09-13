@@ -2031,6 +2031,16 @@ public sealed class SceneUpdate
                 $"ending ({whole.Points[^1].X:0.#}, {whole.Points[^1].Z:0.#}), {outcome}"));
         }
 
+        // The corners the walk will actually take, which is the only way to tell a detour the boundary forced from one the caller asked for.
+        if (TraceActors is { } corners)
+        {
+            string legs = string.Join(" -> ", route.Points.Select(corner => string.Create( CultureInfo.InvariantCulture,
+                $"({corner.X:0.#}, {corner.Z:0.#})")));
+
+            corners(string.Create( CultureInfo.InvariantCulture, $"{placed.Name} walks from ({from.X:0.#}, {from.Z:0.#}) to " +
+                $"({destination.X:0.#}, {destination.Z:0.#}) by {legs}"));
+        }
+
         // Asked for at once rather than walked.
         if (WarpNextWalk)
         {

@@ -371,4 +371,77 @@ public sealed class WalkPathTests
 
         Assert.Equal([(0, 6), (12, 0)], Corners(boundary, route));
     }
+
+    [Fact]
+    public void A_route_keeps_the_exact_points_it_was_given()
+    {
+        // Both ends are snapped to a texel to search, and a texel is ten units across here.
+        // Handing the snapped middles back is what made an approach that was already
+        // satisfied slide the actor sideways to the middle of the texel under their own
+        // feet and back again -- seen in first person as the camera swinging aside before
+        // Gabriel reaches into the wardrobe.
+        WalkBoundary boundary = Map(
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........");
+
+        var from = new Vector3(14f, 0f, 76f);
+        var to = new Vector3(62f, 0f, 27f);
+
+        WalkRoute route = WalkPath.Find(boundary, from, to);
+
+        Assert.True(route.ReachedGoal);
+        Assert.Equal(from, route.Points[0]);
+        Assert.Equal(to, route.Points[^1]);
+    }
+
+    [Fact]
+    public void A_walk_to_where_you_already_stand_ends_where_you_already_stand()
+    {
+        // The same thing over a distance shorter than one texel, which is the case an
+        // approach to an animation's own start position actually meets.
+        WalkBoundary boundary = Map(
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........",
+            ".........");
+
+        var spot = new Vector3(43f, 0f, 47f);
+
+        WalkRoute route = WalkPath.Find(boundary, spot, spot);
+
+        Assert.True(route.ReachedGoal);
+        Assert.Equal(spot, route.Points[^1]);
+    }
+
+    [Fact]
+    public void A_point_off_the_open_floor_still_walks_to_the_nearest_texel()
+    {
+        // And the ends are only put back when they are places an actor may stand: a click
+        // on a wall still walks up to the wall rather than into it.
+        WalkBoundary boundary = Map(
+            ".....",
+            ".....",
+            "..###",
+            "..###",
+            "..###");
+
+        Vector3 wall = boundary.ToWorld(4, 4);
+
+        WalkRoute route = WalkPath.Find(boundary, boundary.ToWorld(0, 0), wall);
+
+        Assert.NotEqual(wall, route.Points[^1]);
+        Assert.True(boundary.IsWalkable(route.Points[^1]));
+    }
 }

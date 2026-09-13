@@ -77,9 +77,15 @@ public sealed class ActionResolver
     /// item being used on the thing, so it is only on offer to somebody holding the item;
     /// without this, Buthane answers to <c>WALLET</c> before Gabriel has found one.
     /// </param>
+    /// <param name="wildcards">
+    /// Whether the verbs every noun answers to are offered as well. False asks only what
+    /// the files write about this noun itself, which is how the player's own actions are
+    /// gathered: the fingerprint kit is a rule on <c>ANY_OBJECT</c> and so belongs to
+    /// whatever is under the pointer, not on a bar of things to do to yourself.
+    /// </param>
     /// <returns>Valid actions, inspect first, then in file order.</returns>
     public IReadOnlyList<AvailableAction> Resolve(
-        string noun, string ego = "GABRIEL", IReadOnlyCollection<string>? carrying = null)
+        string noun, string ego = "GABRIEL", IReadOnlyCollection<string>? carrying = null, bool wildcards = true)
     {
         ArgumentNullException.ThrowIfNull(noun);
 
@@ -88,7 +94,7 @@ public sealed class ActionResolver
         // One action per verb, and which one is not "the first the files happen to list".
         // See Best: the case decides, and a rule guarded by a real condition outranks the
         // catch-all written above it.
-        foreach (string verb in VerbsFor(noun))
+        foreach (string verb in VerbsFor(noun, wildcards))
         {
             if (Verbs?.KindOf(verb) == Actions.VerbKind.Inventory &&
                 carrying is not null &&
@@ -140,7 +146,7 @@ public sealed class ActionResolver
     /// <summary>
     /// Every verb any file offers on a noun, in the order the files list them.
     /// </summary>
-    private List<string> VerbsFor(string noun)
+    private List<string> VerbsFor(string noun, bool wildcards = true)
     {
         List<string> verbs = [];
         HashSet<string> seen = new(StringComparer.OrdinalIgnoreCase) { "ANY_INV_ITEM" };
@@ -161,7 +167,10 @@ public sealed class ActionResolver
             }
         }
 
-        Gather(Wildcard);
+        if (wildcards)
+        {
+            Gather(Wildcard);
+        }
 
         foreach (string name in NamesOf(noun))
         {

@@ -107,6 +107,26 @@ public sealed class ActionCaseTests
     }
 
     [Fact]
+    public void What_the_player_answers_to_themselves_leaves_out_what_every_noun_answers_to()
+    {
+        // GLB_ALL's second line writes the fingerprint kit against ANY_OBJECT, so from the
+        // moment Gabriel picks it up it is a verb on everything there is. That belongs to
+        // whatever is under the crosshair, not on a bar of things to do to yourself -- the
+        // bar is the right click on Gabriel that first person leaves nobody to make.
+        ActionResolver resolver = Resolver(
+            new GameState(),
+            "ANY_OBJECT, FINGERPRINT_KIT, ALL, script={}", "GABRIEL, BINOCULARS, ALL, script={}", "GABRIEL, LOOK, ALL, script={}");
+
+        Assert.Contains("FINGERPRINT_KIT", Verbs(resolver, "GABRIEL"));
+
+        IReadOnlyList<string> own = [.. resolver.Resolve("GABRIEL", "GABRIEL", null, wildcards: false).Select(a => a.LocalizedVerb)];
+
+        Assert.DoesNotContain("FINGERPRINT_KIT", own);
+        Assert.Contains("BINOCULARS", own);
+        Assert.Contains("LOOK", own);
+    }
+
+    [Fact]
     public void Easter_eggs_are_off()
     {
         ActionResolver resolver = Resolver(new GameState(), "STATUE, LOOK, EGG, script={}");
