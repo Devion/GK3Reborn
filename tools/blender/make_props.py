@@ -243,11 +243,11 @@ PROPS = {
         "note": "outdated French magazines on the lobby table",
         "parts": [
             {"sheet": (17.0, 22.0), "at": (0, 0.0, 0), "spin": 0.0, "thick": 0.7,
-             "faces": {"top": "MAGAZINEFRNT", "bottom": "MAGBACK", "all": "MAGBACK"}},
+             "faces": {"top": "MAGCUT", "bottom": "MAGBACK", "all": "MAGBACK"}},
             {"sheet": (17.0, 22.0), "at": (1.8, 0.7, 1.2), "spin": -9.0, "thick": 0.7,
              "faces": {"top": "MAGBACK2", "bottom": "MAGBACK", "all": "MAGBACK"}},
             {"sheet": (17.0, 22.0), "at": (-1.1, 1.4, -0.9), "spin": 7.0, "thick": 0.7,
-             "faces": {"top": "MAGAZINEFRNT", "bottom": "MAGBACK", "all": "MAGBACK"}},
+             "faces": {"top": "MAGCUT", "bottom": "MAGBACK", "all": "MAGBACK"}},
         ],
     },
 }

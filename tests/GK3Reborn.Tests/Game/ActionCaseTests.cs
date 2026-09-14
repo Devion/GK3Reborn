@@ -251,6 +251,33 @@ public sealed class ActionCaseTests
         Assert.Equal(["LOOK", "TALK"], Verbs(resolver, "CHICKEN"));
     }
     [Fact]
+    public void The_dead_mens_faces_answer_to_the_rules_written_for_both_faces()
+    {
+        // ARM.SIF names the two faces DEAD_FACES_HE1 and DEAD_FACES_HE2 while ARM202P.NVC
+        // writes every rule for DEAD_FACES. Without the alias Think was never offered, and
+        // with it went ThinkFaces$ and its points.
+        var state = new GameState();
+
+        ActionResolver resolver = Resolver(
+            state,
+            """
+            DEAD_FACES, LOOK, GABE_ALL, script={}
+            DEAD_FACES, THINK, FOUND_BLOOD_POOLS, script={}
+            DEAD_FACES, THINK, NOT_FOUND_BLOOD_POOLS_OTR, script={}
+
+            [LOGIC]
+            FOUND_BLOOD_POOLS={GetNounVerbCount("BLOOD_POOL","LOOK")}
+            NOT_FOUND_BLOOD_POOLS_OTR={(GetnounVerbCount("BLOOD_POOL","LOOK")==0) && GetNounVerbCountInt(n$,v$) }
+            """);
+
+        state.IncrementNounVerbCount("BLOOD_POOL", "LOOK");
+
+        Assert.Equal(["LOOK", "THINK"], Verbs(resolver, "DEAD_FACES_HE1"));
+        Assert.Equal(["LOOK", "THINK"], Verbs(resolver, "DEAD_FACES_HE2"));
+        Assert.Equal("FOUND_BLOOD_POOLS", resolver.Find("DEAD_FACES_HE2", "THINK")?.Case);
+    }
+
+    [Fact]
     public void Scanning_into_Sidney_beats_the_two_rules_that_only_talk_about_scanning()
     {
         // Every scannable item carries three SCANNER rules: the one that does the work, and

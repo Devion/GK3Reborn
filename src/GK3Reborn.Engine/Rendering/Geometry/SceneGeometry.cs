@@ -2154,6 +2154,12 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // coincident, which is the depth fighting CoplanarCards exists to stop.
         HashSet<int> claimed = [.. emitted];
 
+        // Surfaces the improved shape no longer covers are left to the polygon loop. A sign is
+        // a board and its back at one depth; the Blender pass's vertex merge welds the two and
+        // deletes one of each coincident pair, so VGR's board kept 40% of its face.
+        HashSet<int> shrunk = Shrunk(scene, enhanced);
+        EnhancedSurfacesShrunk = shrunk.Count;
+
         foreach (SceneObjectGeometry piece in enhanced.Objects)
         {
             string owner = piece.ObjectIndex >= 0 && piece.ObjectIndex < scene.ObjectNames.Count
@@ -2174,7 +2180,10 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
 
             foreach (int index in piece.Surfaces)
             {
-                emitted.Add(index);
+                if (!shrunk.Contains(index))
+                {
+                    emitted.Add(index);
+                }
             }
 
             EnhancedObjects++;
@@ -2183,7 +2192,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             {
                 if (triangle.Surface < 0 ||
                     triangle.Surface >= scene.Surfaces.Count ||
-                    claimed.Contains(triangle.Surface))
+                    claimed.Contains(triangle.Surface) ||
+                    shrunk.Contains(triangle.Surface))
                 {
                     continue;
                 }
@@ -2254,6 +2264,68 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             }
         }
     }
+
+    /// <summary>How much of a surface's own area an improved shape must still cover to be drawn.</summary>
+    private const float MinimumCoverage = 0.9f;
+
+    /// <summary>How many surfaces the last build refused from the improved geometry for having lost area.</summary>
+    public int EnhancedSurfacesShrunk { get; private set; }
+
+    /// <summary>
+    /// Which surfaces an improved shape covers less of than the room does.
+    /// </summary>
+    /// <param name="scene">The room.</param>
+    /// <param name="enhanced">The improved shapes laid over it.</param>
+    /// <returns>Every surface under <see cref="MinimumCoverage"/> of its own area, including one with no triangles at all.</returns>
+    private static HashSet<int> Shrunk(BspFile scene, SceneOverlay enhanced)
+    {
+        Dictionary<int, float> improved = [];
+
+        foreach (SceneObjectGeometry piece in enhanced.Objects)
+        {
+            foreach (int index in piece.Surfaces)
+            {
+                improved.TryAdd(index, 0f);
+            }
+
+            foreach (SceneTriangle triangle in piece.Triangles)
+            {
+                improved[triangle.Surface] = improved.GetValueOrDefault(triangle.Surface) +
+                                             Area(triangle.A.Position, triangle.B.Position, triangle.C.Position);
+            }
+        }
+
+        Dictionary<int, float> original = [];
+
+        foreach (BspPolygon polygon in scene.Polygons)
+        {
+            if (!improved.ContainsKey(polygon.SurfaceIndex))
+            {
+                continue;
+            }
+
+            foreach ((ushort a, ushort b, ushort c) in scene.Triangulate(polygon))
+            {
+                original[polygon.SurfaceIndex] = original.GetValueOrDefault(polygon.SurfaceIndex) +
+                                                 Area(scene.Vertices[a], scene.Vertices[b], scene.Vertices[c]);
+            }
+        }
+
+        HashSet<int> shrunk = [];
+
+        foreach ((int surface, float area) in improved)
+        {
+            if (original.TryGetValue(surface, out float was) && was > 0f && area < was * MinimumCoverage)
+            {
+                shrunk.Add(surface);
+            }
+        }
+
+        return shrunk;
+    }
+
+    /// <summary>A triangle's area.</summary>
+    private static float Area(Vector3 a, Vector3 b, Vector3 c) => Vector3.Cross(b - a, c - a).Length() * 0.5f;
 
     /// <summary>
     /// Gives the room's keyed cards the thickness of whatever is drawn on them.

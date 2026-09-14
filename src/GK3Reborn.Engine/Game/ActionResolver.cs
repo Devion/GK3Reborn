@@ -244,6 +244,7 @@ public sealed class ActionResolver
         (["MOSELY", "BUTHANE", "BUCHELLI"], "BUTHANE_MOSE_BUCHELLI"),
         (["DEAD_CLOTHES_HE1", "DEAD_CLOTHES_HE2"], "DEAD_CLOTHES"),
         (["DEAD_THROAT_HE1", "DEAD_THROAT_HE2"], "DEAD_THROATS"),
+        (["DEAD_FACES_HE1", "DEAD_FACES_HE2"], "DEAD_FACES"),
     ];
 
     /// <summary>
