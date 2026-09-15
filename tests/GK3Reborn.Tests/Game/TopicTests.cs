@@ -74,6 +74,23 @@ public sealed class TopicTests
     }
 
     [Fact]
+    public void A_topics_second_time_follows_the_topic_count()
+    {
+        // LHI202P: Larry's second line on the bodies waits for T_DEAD_GUYS to have been raised
+        // once. Asking raises the topic count only, so reading the noun/verb count lost it.
+        var state = new GameState();
+        ActionResolver resolver = Resolver(
+            state,
+            "LARRY, T_TOUR_GROUP, 1ST_TIME, script={}\n" +
+            "LARRY, T_TOUR_GROUP, 2CD_TIME, script={}");
+
+        state.SetTopicCount("LARRY", "T_TOUR_GROUP", 1);
+        state.Said("LARRY", "T_TOUR_GROUP", "1ST_TIME");
+
+        Assert.Equal("2CD_TIME", resolver.Find("LARRY", "T_TOUR_GROUP")!.Case);
+    }
+
+    [Fact]
     public void A_recurring_topic_may_be_raised_again()
     {
         // One verb in the game is declared this way, and the rule has to be read off the

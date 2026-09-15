@@ -147,7 +147,15 @@ public sealed class FaceLibrary
             return exact;
         }
 
-        return name.Length >= 3 && _faces.TryGetValue(name[..3], out FaceConfig? code)
+        string identifier = name.Length >= 3 ? name[..3].ToUpperInvariant() : name;
+        identifier = identifier switch
+        {
+            "WI2" => "WIL",
+            "LH2" => "LHO",
+            _ => identifier,
+        };
+
+        return _faces.TryGetValue(identifier, out FaceConfig? code)
             ? code
             : null;
     }

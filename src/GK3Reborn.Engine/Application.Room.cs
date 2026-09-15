@@ -588,6 +588,9 @@ public static partial class Application
         double flickerTotal = 0;
         int flickerFrames = 0;
 
+        // --record: a fixed clock, every frame kept, and the view on a rail.
+        FilmRecording? recording = FilmRecording.From(options);
+
         // Nothing has been clicked on in this room yet.
         window.Forget();
 
@@ -597,7 +600,7 @@ public static partial class Application
             Run(presented);
 
             double now = stopwatch.Elapsed.TotalSeconds;
-            float delta = (float)Math.Min(0.1, now - previous);
+            float delta = recording?.Step ?? (float)Math.Min(0.1, now - previous);
             previous = now;
 
             // Told before anything the story does this frame, because which camera a conversation picks and whether it is moved to both depend on.
@@ -1093,6 +1096,13 @@ public static partial class Application
             }
 
             Camera view = camera.ToCamera(template);
+
+            if (recording?.View(presented, view) is { } railed)
+            {
+                view = railed;
+            }
+
+            recording?.Move(presented, update, geometry);
 
             // Nobody sees the inside of their own head.
             bool behindTheEyes = OnFoot() && (onFoot || walker.Returning || (update.Gliding && update.EyesOf(story.Ego) is { } head &&
@@ -2198,9 +2208,16 @@ public static partial class Application
             // The other half of the transition, one frame at a time.
             fade.Advance();
 
+            // A recording is the picture alone.
+            if (recording is not null)
+            {
+                renderer.SetOverlay(null);
+            }
+
             if (renderer.DrawFrame(0f, 0f, 0f))
             {
                 presented++;
+                recording?.Write(renderer, presented - 1);
             }
 
             // What Direct3D thought of that frame.

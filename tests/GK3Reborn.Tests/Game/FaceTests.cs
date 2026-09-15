@@ -10,6 +10,17 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class FaceTests
 {
+    [Theory]
+    [InlineData("wi2", "WIL")]
+    [InlineData("LH2", "LHO")]
+    [InlineData("wi2_variant", "WIL")]
+    public void Clothing_variants_use_the_original_characters_face(string model, string code)
+    {
+        FaceLibrary library = FaceLibrary.Parse($"[{code}]\nMouth Offset=1,2\nMouth Size=3x4\n");
+        Assert.Same(library.Of(code), library.Of(model));
+        Assert.Equal($"{code}_MOUTH03", library.Of(model)!.MouthTexture("MOUTH03"));
+    }
+
     private static AnimationFile Read(string text)
     {
         var bag = new DiagnosticBag();

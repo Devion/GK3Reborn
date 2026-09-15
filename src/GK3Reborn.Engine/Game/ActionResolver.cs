@@ -656,11 +656,20 @@ public sealed class ActionResolver
     /// <summary>How often the player has already done this to this.</summary>
     private int Done(string noun, string verb)
     {
+        // Asking about a topic raises its topic count and never its noun/verb count, so a topic's
+        // 2CD_TIME read the wrong one and never came round (Larry's T_DEAD_GUYS, 202P). The
+        // reference picks the count by verb type the same way (ActionManager's GetNounVerbCount).
+        string function = (Verbs?.IsTopic(verb) ?? false) ? "GetTopicCount"
+            : verb.Equals("Z_CHAT", StringComparison.OrdinalIgnoreCase) ? "GetChatCount"
+            : "GetNounVerbCount";
+
         try
         {
             return _api.Invoke(
-                "GetNounVerbCount",
-                [SheepValue.FromString(noun), SheepValue.FromString(verb)]).AsInt();
+                function,
+                function == "GetChatCount"
+                    ? [SheepValue.FromString(noun)]
+                    : [SheepValue.FromString(noun), SheepValue.FromString(verb)]).AsInt();
         }
         catch (FormatParseException ex)
         {

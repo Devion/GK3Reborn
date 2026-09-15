@@ -143,6 +143,10 @@ public static class CommandLine
         photographing a run (headless, no keyboard):
           --frames N            Stop after N frames.
           --screenshot PATH     Write the last frame there.
+          --record DIR          Run on a fixed clock and write every frame there, with no interface.
+          --rail FILE           Move the camera along a JSON rail while recording.
+          --record-fps N        Frames a second for --record. Default 30.
+          --record-warmup N     Frames drawn and not written first.
           --offscreen           Draw one frame with no window and write it out.
           --render              Present frames until the window is closed.
           --headless-frames     Stop --render after sixty frames.

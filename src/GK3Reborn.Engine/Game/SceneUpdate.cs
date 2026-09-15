@@ -4043,6 +4043,8 @@ public sealed class SceneUpdate
                 float travel = MathF.Abs(Forward(clip, clip.FrameCount - 1) - opens);
 
                 Matrix4x4 rest = Matrix4x4.CreateTranslation( Average(target.Model.Meshes.Select(m => m.MeshToLocal.Translation)) - Mean(clip, 0));
+                rest *= Matrix4x4.CreateTranslation(0,
+                    Actors.StrideFooting.Offset(target.Model, clip, characters?.Of(target.Name), rest), 0);
 
                 return new WalkCycle( clip, target, rest, opens, (float)(travel / clip.Duration), animation.Steps);
             }

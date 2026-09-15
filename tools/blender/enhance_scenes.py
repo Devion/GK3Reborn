@@ -89,10 +89,10 @@ def parse_args(argv):
                         help="How many times a curved region is subdivided. 0 turns "
                              "subdivision off and leaves the bevel, which is how the two "
                              "are told apart in a screenshot.")
-    parser.add_argument("--growth", type=float, default=24.0,
+    parser.add_argument("--growth", type=float, default=64.0,
                         help="Most an object's triangle count may multiply by. An object "
                              "that asks for more is refined one level less.")
-    parser.add_argument("--ceiling", type=int, default=15000,
+    parser.add_argument("--ceiling", type=int, default=150000,
                         help="Most triangles one object may come to, whatever its own "
                              "size asks for. What this catches is the object that is "
                              "already detailed: a carved figure of 4,400 triangles has "
@@ -127,6 +127,61 @@ def triangle_count(obj):
     return sum(max(1, len(p.vertices) - 2) for p in obj.data.polygons)
 
 
+def back_to_back(f, g, threshold):
+    """Whether two faces lie in one plane over the same ground: the two sides of a sign, not a wall's two panels."""
+    if abs(f.normal.dot(g.normal)) < 0.999:
+        return False
+    if abs(g.calc_center_median().dot(f.normal) - f.verts[0].co.dot(f.normal)) > threshold:
+        return False
+
+    def inside(point, face):
+        corners = [v.co for v in face.verts]
+        return any(mathutils.geometry.intersect_point_tri(point, corners[0], corners[k], corners[k + 1])
+                   for k in range(1, len(corners) - 1))
+
+    return inside(g.calc_center_median(), f) or inside(f.calc_center_median(), g)
+
+
+def weld(obj, threshold):
+    """Merge coincident vertices, except where that would join two faces lying back to back.
+
+    remove_doubles welded the lettered front of a sign to its wooden back, which share every corner, and the
+    pass then kept one of each overlapping pair: 1,417 surfaces in 95 rooms lost area, 402 of them all of it.
+    """
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+
+    tree = mathutils.kdtree.KDTree(len(bm.verts))
+    for v in bm.verts:
+        tree.insert(v.co, v.index)
+    tree.balance()
+
+    root = list(range(len(bm.verts)))
+    faces = {v.index: list(v.link_faces) for v in bm.verts}
+
+    def find(i):
+        while root[i] != i:
+            root[i] = root[root[i]]
+            i = root[i]
+        return i
+
+    for v in bm.verts:
+        for _, j, _ in sorted(tree.find_range(v.co, threshold), key=lambda hit: hit[1]):
+            a, b = find(v.index), find(j)
+            if a == b or any(back_to_back(f, g, threshold) for f in faces[a] for g in faces[b]):
+                continue
+            root[b] = a
+            faces[a].extend(faces.pop(b))
+
+    targets = {v: bm.verts[find(v.index)] for v in bm.verts if find(v.index) != v.index}
+    if targets:
+        bmesh.ops.weld_verts(bm, targetmap=targets)
+    bm.to_mesh(obj.data)
+    bm.free()
+    obj.data.update()
+
+
 def clean(obj):
     """Weld the object back into one surface, without touching its winding.
 
@@ -145,8 +200,6 @@ def clean(obj):
     if obj.data.has_custom_normals:
         bpy.ops.mesh.customdata_custom_splitnormals_clear()
 
-    bpy.ops.object.mode_set(mode="EDIT")
-    bpy.ops.mesh.select_all(action="SELECT")
     # **A hundredth of a unit, not a ten-thousandth.** A room's coordinates run to a few
     # thousand, where a 32-bit float resolves about two ten-thousandths -- so the tighter
     # threshold could not merge two corners the original file holds at exactly the same
@@ -155,7 +208,10 @@ def clean(obj):
     # halves are different surfaces, which is most of them: a hard line down the middle of
     # a barrel that is otherwise round. A hundredth is forty times that resolution and a
     # hundredth of the smallest thing anybody modelled.
-    bpy.ops.mesh.remove_doubles(threshold=0.01)
+    weld(obj, threshold=0.01)
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
     bpy.ops.mesh.dissolve_degenerate(threshold=0.0001)
     bpy.ops.mesh.delete_loose()
     bpy.ops.object.mode_set(mode="OBJECT")

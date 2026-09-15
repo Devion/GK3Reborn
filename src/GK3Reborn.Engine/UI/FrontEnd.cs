@@ -455,7 +455,7 @@ public sealed class FrontEnd
         return rows;
     }
 
-    /// <summary>Whether a slot is one of the twelve the player saves into.</summary>
+    /// <summary>Whether a slot is one of the numbered ones the player saves into.</summary>
     private static bool IsNumbered(string slot) => int.TryParse(slot, NumberStyles.None, CultureInfo.InvariantCulture, out int at) &&
         at >= 1 && at <= SaveStore.NumberedSlots;
 

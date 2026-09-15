@@ -48,7 +48,7 @@ public sealed class SaveStore
     public const string QuickSlot = "quicksave";
 
     /// <summary>How many numbered slots the interface offers.</summary>
-    public const int NumberedSlots = 12;
+    public const int NumberedSlots = 20;
 
     private static readonly JsonSerializerOptions Json = new()
     {
