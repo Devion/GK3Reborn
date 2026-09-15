@@ -1,3 +1,4 @@
+using System.Numerics;
 ﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Rendering.Shaders;
@@ -160,6 +161,9 @@ public sealed unsafe class D3D12SceneRenderer : IOffscreenRenderer
 
     /// <inheritdoc/>
     public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
+
+    /// <inheritdoc/>
+    public void SetAmbient(Vector3? ambient) => _pipeline.Frames.Ambient = ambient;
 
     /// <inheritdoc/>
     public void SetSunRays(SunRays rays) => _pipeline.SetSunRays(rays);

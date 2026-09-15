@@ -82,7 +82,7 @@ public static class FogShaders
             // density either side of its mean, w how many steps the march takes
             vec4 grain;
 
-            // rgb the room's ambient floor
+            // rgb the room's ambient floor, w direct lamp scattering strength
             vec4 ambient;
 
             // xy the viewport in pixels, z how many steps share one reading of the lamps (nought or one is every step)
@@ -318,6 +318,7 @@ public static class FogShaders
                 -fog.tint.w * Column(at.y, fog.layer.x + (kCeiling * fog.layer.y)));
 
             vec3 total = fog.ambient.rgb * fog.layer.w * overhead;
+            if (fog.ambient.w <= 0.0) return total;
 
             int first = 0;
             int last = 0;
@@ -364,7 +365,7 @@ public static class FogShaders
                 // what mist round a lamp actually does.
                 float phase = Phase(dot(view, direction), fog.layer.z);
 
-                total += light.colorAndIntensity.rgb * light.colorAndIntensity.w *
+                total += fog.ambient.w * light.colorAndIntensity.rgb * light.colorAndIntensity.w *
                          attenuation * cone * phase * Flicker(light) *
                          Survives(at, light.positionAndStart.xyz);
             }

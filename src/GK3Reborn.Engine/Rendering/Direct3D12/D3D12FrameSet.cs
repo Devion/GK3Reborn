@@ -56,6 +56,9 @@ public sealed unsafe class D3D12FrameSet : IDisposable
     /// <summary>How much tracing to do, and how.</summary>
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 
+    /// <summary>Scene ambient override, or null for the tracing tier default.</summary>
+    public Vector3? Ambient { get; set; }
+
     /// <summary>This frame's jitter, in pixels.</summary>
     public Vector2 JitterPixels { get; set; }
 
@@ -321,7 +324,7 @@ public sealed unsafe class D3D12FrameSet : IDisposable
             // which cell it stands in. Constant for as long as a room is loaded.
             GridOrigin,
             GridCounts,
-            new Vector4(settings.Ambient, settings.LightmapHint),
+            new Vector4(Ambient ?? settings.Ambient, settings.LightmapHint),
 
             // The jitter the projection above was built with, so the fragment stage can take
             // it back out of the motion vectors, and how far above white a surface that

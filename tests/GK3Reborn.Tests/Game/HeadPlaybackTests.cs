@@ -243,7 +243,8 @@ public sealed class HeadPlaybackTests
     /// <param name="model">Which model the header names.</param>
     /// <param name="frames">How long it runs.</param>
     /// <param name="shape">Where each authored vertex is, or null to record no vertices.</param>
-    private static byte[] Clip(string model, int frames, Func<Vector3, Vector3>? shape)
+    /// <param name="framed">Where each authored vertex is on a given frame, in place of <paramref name="shape"/>.</param>
+    private static byte[] Clip(string model, int frames, Func<Vector3, Vector3>? shape, Func<Vector3, int, Vector3>? framed = null)
     {
         List<byte> body = [];
         List<int> offsets = [];
@@ -262,7 +263,7 @@ public sealed class HeadPlaybackTests
                 block.AddRange(BitConverter.GetBytes(value));
             }
 
-            if (shape is not null)
+            if (shape is not null || framed is not null)
             {
                 Vector3[] authored = Authored;
 
@@ -274,7 +275,8 @@ public sealed class HeadPlaybackTests
                     // The markers stay where they are while the head turns, which is what
                     // makes them poison for a fit: three points sixty units out, holding
                     // still, outvote three hundred that moved.
-                    Vector3 placed = i < Corners.Length ? shape(authored[i]) : authored[i];
+                    Vector3 placed = i >= Corners.Length ? authored[i]
+                        : framed is not null ? framed(authored[i], frame) : shape!(authored[i]);
 
                     vertices.AddRange(BitConverter.GetBytes(placed.X));
                     vertices.AddRange(BitConverter.GetBytes(placed.Y));
@@ -312,7 +314,7 @@ public sealed class HeadPlaybackTests
 
     /// <summary>A world with one character in it, their head refined to <paramref name="levels"/>.</summary>
     private static (SceneUpdate Update, Sink Sink, HeadRig? Rig) World(
-        int levels, Func<Vector3, Vector3>? shape)
+        int levels, Func<Vector3, Vector3>? shape, Func<Vector3, int, Vector3>? framed = null)
     {
         var sink = new Sink();
 
@@ -346,7 +348,7 @@ public sealed class HeadPlaybackTests
 
             Clips = new ClipLibrary(n =>
                 n.Equals("gra_Breathe.ACT", StringComparison.OrdinalIgnoreCase)
-                    ? Clip("gra", 31, shape)
+                    ? Clip("gra", 31, shape, framed)
                     : null)
             { KeepVertices = true },
         };
@@ -427,6 +429,36 @@ public sealed class HeadPlaybackTests
             Assert.True(
                 Vector3.Distance(asked, got) < 1e-2f,
                 $"vertex {i}: asked for {asked}, got {got}");
+        }
+    }
+
+    /// <summary>
+    /// A clip whose opening frame misses the limit still turns the head: the clip is judged on all its frames, not the first one asked for.
+    /// Emilio's lobby bump opens at 8.4% and fits at 2-6% after.
+    /// </summary>
+    [Fact]
+    public void OneBadOpeningFrameDoesNotCostTheWholeClipItsHead()
+    {
+        // Frame 0 turned and then pulled off rigid by an amount no rotation absorbs; every later frame is the clean turn.
+        Vector3 Framed(Vector3 corner, int frame) => Vector3.Transform(corner, Turned) +
+            (frame == 0 ? new Vector3(corner.X * corner.Y * 0.1f, 0f, 0f) : Vector3.Zero);
+
+        (SceneUpdate update, Sink sink, HeadRig? rig) = World(2, null, Framed);
+
+        Assert.NotNull(rig);
+
+        update.Play("Breathe");
+        update.Advance(0.5);
+
+        Matrix4x4 posed = sink.Poses[(0, 0)];
+        Vector3 centre = Vector3.Transform(Vector3.Zero, posed);
+
+        for (int i = 0; i < Corners.Length; i++)
+        {
+            Vector3 asked = Vector3.Transform(Corners[i], Turned);
+            Vector3 got = Vector3.Transform(Corners[i], posed) - centre;
+
+            Assert.True(Vector3.Distance(asked, got) < 1e-2f, $"vertex {i}: asked for {asked}, got {got}");
         }
     }
 

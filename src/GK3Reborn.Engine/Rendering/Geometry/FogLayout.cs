@@ -56,7 +56,7 @@ public static class FogLayout
 /// The noise's cell size, how fast it drifts, how far it takes the density either side of
 /// its mean, and how many steps the march takes.
 /// </param>
-/// <param name="Ambient">The room's ambient floor in rgb, and nothing in w.</param>
+/// <param name="Ambient">The room's ambient floor in rgb, and direct lamp scattering strength in w.</param>
 /// <param name="Screen">The viewport in pixels in xy, and nothing in zw.</param>
 [StructLayout(LayoutKind.Sequential)]
 public readonly record struct FogConstants(
@@ -121,7 +121,7 @@ public readonly record struct FogConstants(
             new Vector4(fog.Colour, fog.Density),
             new Vector4(fog.Top, MathF.Max(fog.Falloff, 0.001f), fog.Anisotropy, fog.Ambient),
             new Vector4(fog.NoiseScale, fog.NoiseDrift, fog.NoiseStrength, lean ? Math.Min(fog.Steps, LeanSteps) : fog.Steps),
-            new Vector4(ambient, 0f),
+            new Vector4(ambient, fog.DirectLight),
             new Vector4(width, height, lean ? LeanLightStride : 0f, 0f));
     }
 

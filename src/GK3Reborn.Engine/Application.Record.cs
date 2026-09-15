@@ -32,16 +32,16 @@ public static partial class Application
     private sealed record ModelPath(string Name, Vector3 Pivot, PathKey[] Keys, double? Until);
 
     /// <summary>--record DIR [--rail FILE]: a fixed step per frame, every frame written as a PNG, and the view taken from the rail.</summary>
-    private sealed class FilmRecording
+    private sealed class FilmRecording : IDisposable
     {
-        private readonly string _directory;
+        private readonly RecordingFrames _frames;
         private readonly RailKey[] _keys;
         private readonly ModelPath[] _paths;
         private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
 
         private FilmRecording(string directory, int fps, int warmup, RailKey[] keys, ModelPath[] paths)
         {
-            _directory = directory;
+            _frames = new RecordingFrames(directory);
             _keys = keys;
             _paths = paths;
             Fps = fps;
@@ -183,9 +183,12 @@ public static partial class Application
                 return;
             }
 
-            string path = Path.Combine(_directory, string.Create(CultureInfo.InvariantCulture, $"frame_{frame - Warmup:D5}.png"));
-            File.WriteAllBytes(path, Formats.Bitmaps.PngWriter.Encode(picture));
+            _frames.Write(frame - Warmup, picture);
         }
+
+        public void Complete() => _frames.Complete();
+
+        public void Dispose() => _frames.Dispose();
 
         // A key held until the next one's time when that one is a cut, otherwise travelled to, headings the short way round.
         private static (Vector3, Vector2, float) Between(RailKey from, RailKey to, double time)

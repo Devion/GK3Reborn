@@ -61,6 +61,9 @@ public sealed unsafe class FrameUniformSet : IDisposable
     /// <summary>How much ray tracing the shader is asked to do.</summary>
     public RayTracingSettings Settings { get; set; } = RayTracingSettings.For(RayTracingQuality.None);
 
+    /// <summary>Scene ambient override, or null for the tracing tier default.</summary>
+    public Vector3? Ambient { get; set; }
+
     /// <summary>
     /// Where inside its pixel this frame samples, in pixels.
     /// </summary>
@@ -509,7 +512,7 @@ public sealed unsafe class FrameUniformSet : IDisposable
             // out which cell it stands in. Constant for as long as a room is loaded.
             _gridOrigin,
             _gridCounts,
-            new Vector4(settings.Ambient, settings.LightmapHint),
+            new Vector4(Ambient ?? settings.Ambient, settings.LightmapHint),
 
             // The jitter the projection above was built with, so the fragment stage can
             // take it back out of the motion vectors, and how far above white a surface

@@ -23,6 +23,9 @@ namespace GK3Reborn.Rendering.Vulkan;
 public sealed unsafe class VulkanRenderer : IRenderer
 {
     private const int FramesInFlight = 2;
+    private Silk.NET.Vulkan.Buffer _captureBuffer;
+    private DeviceMemory _captureMemory;
+    private ulong _captureCapacity;
 
     private readonly Vk _vk;
     private readonly IVulkanSurfaceSource _surfaceSource;
@@ -130,6 +133,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private SunRayPipeline? _sunRayPipeline;
     private SunRays _sunRays = SunRays.None;
     private FogVolume _fog = FogVolume.None;
+    private Vector3? _ambient;
 
     private readonly Image[] _extraImages = new Image[GBuffer.Targets - 1];
     private readonly DeviceMemory[] _extraMemory = new DeviceMemory[GBuffer.Targets - 1];
@@ -564,7 +568,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// </summary>
     private void Jitter()
     {
-        _secondsSinceLastFrame = (float)_sinceLastFrame.Elapsed.TotalSeconds;
+        _secondsSinceLastFrame = _frameClock?.DeltaSeconds ?? (float)_sinceLastFrame.Elapsed.TotalSeconds;
         _sinceLastFrame.Restart();
 
         // A frame that took longer than a second is a load, a breakpoint or a machine that
@@ -622,15 +626,19 @@ public sealed unsafe class VulkanRenderer : IRenderer
             SharingMode = SharingMode.Exclusive,
         };
 
-        _vk.CreateBuffer(_device, in bufferInfo, null, out Silk.NET.Vulkan.Buffer buffer);
-        _vk.GetBufferMemoryRequirements(_device, buffer, out MemoryRequirements requirements);
+        if (_captureCapacity < bufferInfo.Size)
+        {
+            ReleaseCaptureBuffer();
+            _vk.CreateBuffer(_device, in bufferInfo, null, out _captureBuffer);
+            _vk.GetBufferMemoryRequirements(_device, _captureBuffer, out MemoryRequirements requirements);
+            _captureMemory = _context.Allocate(
+                requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
+            _vk.BindBufferMemory(_device, _captureBuffer, _captureMemory, 0);
+            _captureCapacity = bufferInfo.Size;
+        }
+        Silk.NET.Vulkan.Buffer buffer = _captureBuffer;
+        DeviceMemory memory = _captureMemory;
 
-        DeviceMemory memory = _context.Allocate(
-            requirements, MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit);
-
-        _vk.BindBufferMemory(_device, buffer, memory, 0);
-
-        try
         {
             CommandBuffer command = _context.BeginOneShot();
 
@@ -677,11 +685,21 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
             return new Formats.Bitmaps.DecodedImage(width, height, pixels, HasAlpha: false, "swapchain");
         }
-        finally
+    }
+
+    private void ReleaseCaptureBuffer()
+    {
+        if (_captureBuffer.Handle != 0)
         {
-            _vk.DestroyBuffer(_device, buffer, null);
-            _vk.FreeMemory(_device, memory, null);
+            _vk.DestroyBuffer(_device, _captureBuffer, null);
         }
+        if (_captureMemory.Handle != 0)
+        {
+            _vk.FreeMemory(_device, _captureMemory, null);
+        }
+        _captureBuffer = default;
+        _captureMemory = default;
+        _captureCapacity = 0;
     }
 
     /// <summary>
@@ -992,6 +1010,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         if (_device.Handle != 0)
         {
             _vk.DeviceWaitIdle(_device);
+            ReleaseCaptureBuffer();
             _rayTracedFrames?.Dispose();
             _rayTracedPipeline?.Dispose();
             _frames?.Dispose();
@@ -1856,7 +1875,8 @@ public sealed unsafe class VulkanRenderer : IRenderer
             MeshPipeline pipeline = tracing ? _rayTracedPipeline! : _meshPipeline;
             FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
 
-            frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
+            frames.Seconds = (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds);
+            frames.Ambient = _ambient;
 
             // Where inside its pixel this frame samples, and how far above white a lamp is
             // allowed to burn. Both are per-frame facts about presentation rather than
@@ -2210,7 +2230,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
                     0f),
                 HeatHaze.Constants(
                     _shimmer,
-                    (float)_wind.Elapsed.TotalSeconds,
+                    (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds),
                     _camera,
                     (int)_extent.Height)));
 
@@ -2534,6 +2554,14 @@ public sealed unsafe class VulkanRenderer : IRenderer
     public void SetFog(FogVolume fog) => _fog = fog;
 
     /// <inheritdoc/>
+    public void SetAmbient(Vector3? ambient) => _ambient = ambient;
+
+    private FrameClock? _frameClock;
+
+    /// <inheritdoc/>
+    public void SetFrameClock(FrameClock? clock) => _frameClock = clock;
+
+    /// <inheritdoc/>
     public void SetSunRays(SunRays rays)
     {
         _sunRays = rays;
@@ -2592,7 +2620,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
             height,
             Geometry.SunRayConstants.For(
                 _sunRays, _camera, _terrain?.Plan.CloudField, width, height,
-                (float)_wind.Elapsed.TotalSeconds));
+                (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds)));
 
         _vk.CmdEndRendering(buffer);
 
@@ -2650,9 +2678,9 @@ public sealed unsafe class VulkanRenderer : IRenderer
             Geometry.FogConstants.For(
                 _fog,
                 LightGrid,
-                RayTracingSettings.For(Quality).Ambient,
+                _ambient ?? RayTracingSettings.For(Quality).Ambient,
                 _camera,
-                (float)_wind.Elapsed.TotalSeconds,
+                (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds),
                 width,
                 height,
                 lean: Quality == RayTracingQuality.None));
@@ -2876,7 +2904,7 @@ public sealed unsafe class VulkanRenderer : IRenderer
         TransitionDepth(buffer);
         _vk.CmdBeginRendering(buffer, in rendering);
 
-        _frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
+        _frames.Seconds = (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds);
         _frames.EmissiveGain = _output.EmissiveGain;
 
         // Not jittered. The jitter turns a sequence of frames into a denser sampling of one

@@ -14,8 +14,9 @@ public static class PngWriter
 
     /// <summary>Encodes an image as PNG.</summary>
     /// <param name="image">The image to encode.</param>
+    /// <param name="compression">Lossless compression effort.</param>
     /// <returns>The complete PNG file.</returns>
-    public static byte[] Encode(DecodedImage image)
+    public static byte[] Encode(DecodedImage image, CompressionLevel compression = CompressionLevel.SmallestSize)
     {
         ArgumentNullException.ThrowIfNull(image.Pixels);
 
@@ -38,13 +39,13 @@ public static class PngWriter
         header[12] = 0;            // no interlacing
         WriteChunk(output, "IHDR"u8, header);
 
-        WriteChunk(output, "IDAT"u8, Compress(image, channels));
+        WriteChunk(output, "IDAT"u8, Compress(image, channels, compression));
         WriteChunk(output, "IEND"u8, default);
 
         return output.ToArray();
     }
 
-    private static byte[] Compress(DecodedImage image, int channels)
+    private static byte[] Compress(DecodedImage image, int channels, CompressionLevel compression)
     {
         // Each scanline is prefixed with its filter type. Filter 0 - none - keeps the
         // encoder trivial; deflate still does most of the work on this material.
@@ -70,7 +71,7 @@ public static class PngWriter
         }
 
         var compressed = new MemoryStream();
-        using (var deflate = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        using (var deflate = new ZLibStream(compressed, compression, leaveOpen: true))
         {
             deflate.Write(raw);
         }

@@ -198,7 +198,7 @@ public sealed class FogTests
         Assert.Equal(grid.Counts.X, block.GridCounts.X);
         Assert.Equal(grid.Counts.Z, block.GridCounts.Z);
 
-        Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 0f), block.Ambient);
+        Assert.Equal(new Vector4(0.1f, 0.2f, 0.3f, 1f), block.Ambient);
         Assert.Equal(new Vector4(320, 240, 0, 0), block.Screen);
         Assert.Equal(4f, block.EyeAndTime.W);
     }

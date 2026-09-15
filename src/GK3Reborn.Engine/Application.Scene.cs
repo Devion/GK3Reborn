@@ -1552,9 +1552,13 @@ public static partial class Application
                 Log.Info(string.Create(CultureInfo.InvariantCulture, $"Heat: haze over the far ground at {heat:F1}"));
             }
 
+            Rendering.SceneAtmosphere? atmosphere = Option(args, "--atmosphere") is { Length: > 0 } atmospherePath
+                ? Rendering.SceneAtmosphere.Read(atmospherePath) : null;
+            renderer.SetAmbient(atmosphere?.Ambient);
+
             // The air in the room, for the handful that have any.
             Rendering.FogVolume air = args.Contains("--no-fog", StringComparer.OrdinalIgnoreCase)
-                ? Rendering.FogVolume.None : Game.SceneFog.For(scene.Name, api.State.Timeblock);
+                ? Rendering.FogVolume.None : atmosphere?.Fog ?? Game.SceneFog.For(scene.Name, api.State.Timeblock);
             renderer.SetFog(air);
 
             if (air.Any)
@@ -1740,6 +1744,7 @@ public static partial class Application
 
             // What lets a script light the room a second way.
             string standing = scene.Asset?.BspName ?? scene.Name;
+            byte[]? previousRelightBake = null;
 
             update.Relight = name =>
             {
@@ -1752,9 +1757,19 @@ public static partial class Application
                     return false;
                 }
 
-                if (archives.Read(name + ".MUL") is not { } baked || !geometry.SwapLightmaps(Formats.Lightmaps.MulFile.Parse(baked, name + ".MUL")))
+                if (archives.Read(name + ".MUL") is not { } baked)
                 {
                     return false;
+                }
+                // Moving-light scripts reuse the same bake. Avoid parsing, repacking
+                // and synchronously uploading an identical atlas every frame.
+                if (previousRelightBake is null || !baked.AsSpan().SequenceEqual(previousRelightBake))
+                {
+                    if (!geometry.SwapLightmaps(Formats.Lightmaps.MulFile.Parse(baked, name + ".MUL")))
+                    {
+                        return false;
+                    }
+                    previousRelightBake = baked;
                 }
 
                 // And the rig with the bake, because they are two halves of one lighting.

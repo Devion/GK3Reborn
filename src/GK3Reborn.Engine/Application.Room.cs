@@ -514,7 +514,12 @@ public static partial class Application
             }
         }
 
-        if (Option(options, "--run") is { } command)
+        string? runCommands = Option(options, "--run");
+        if (Option(options, "--run-file") is { } runFile)
+        {
+            runCommands = string.Join(';', runCommands, File.ReadAllText(runFile));
+        }
+        if (runCommands is { } command)
         {
             // Several calls, separated by semicolons, run in order in the same frame — a teleport and then the question that depends on it.
             foreach (string one in command.Split(';', StringSplitOptions.RemoveEmptyEntries))
@@ -589,7 +594,7 @@ public static partial class Application
         int flickerFrames = 0;
 
         // --record: a fixed clock, every frame kept, and the view on a rail.
-        FilmRecording? recording = FilmRecording.From(options);
+        using FilmRecording? recording = FilmRecording.From(options);
 
         // Nothing has been clicked on in this room yet.
         window.Forget();
@@ -1907,7 +1912,8 @@ public static partial class Application
                 fade.Advance();
 
                 // Counted like any other frame, so a run with a frame limit still ends and its screenshot is of the screen rather than of the room.
-                if (renderer.DrawFrame(0f, 0f, 0f))
+                renderer.SetFrameClock(recording is null ? null : Rendering.FrameClock.At(presented, recording.Fps));
+            if (renderer.DrawFrame(0f, 0f, 0f))
                 {
                     presented++;
                 }
@@ -2214,6 +2220,7 @@ public static partial class Application
                 renderer.SetOverlay(null);
             }
 
+            renderer.SetFrameClock(recording is null ? null : Rendering.FrameClock.At(presented, recording.Fps));
             if (renderer.DrawFrame(0f, 0f, 0f))
             {
                 presented++;
@@ -2274,6 +2281,7 @@ public static partial class Application
                 $"frames, over {flickerFrames} frames"));
         }
 
+        recording?.Complete();
         Log.Info(string.Create( CultureInfo.InvariantCulture, $"Presented {presented} frames in {stopwatch.Elapsed.TotalSeconds:F1}s "
             + $"({presented / Math.Max(0.001, stopwatch.Elapsed.TotalSeconds):F0} fps)"));
 

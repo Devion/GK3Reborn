@@ -113,6 +113,7 @@ public static class CommandLine
           --no-grass            No grass grown over the lawns.
           --no-sun-rays         No rays of sunlight, outdoors or in at a window.
           --no-shimmer          No heat haze over the far ground.
+          --atmosphere FILE    Scene ambient RGB and optional ground fog from JSON.
           --no-fog              No mist in the cellars, the chasm or the night streets.
           --no-towns            Couiza and Rennes-les-Bains as the game shipped them.
           --towns               Build both towns out, whatever the setting says.
@@ -160,6 +161,7 @@ public static class CommandLine
           --push X,Y            Hold the movement controls: X sideways, Y ahead.
           --console TEXT        Open the console and type that.
           --run CMD[;CMD]       Run console commands first. @N runs one on frame N.
+          --run-file FILE      Read additional semicolon-separated commands from a file.
           --do NOUN:VERB[;..]   Perform actions on arrival.
           --then NOUN:VERB      The same in the second room.
           --did TB              Mark a timeblock complete.

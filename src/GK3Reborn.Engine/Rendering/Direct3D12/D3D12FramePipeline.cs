@@ -741,7 +741,7 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
             FogConstants.For(
                 _fog,
                 _frames.Grid,
-                _frames.Settings.Ambient,
+                _frames.Ambient ?? _frames.Settings.Ambient,
                 camera,
                 _frames.Seconds,
                 width,

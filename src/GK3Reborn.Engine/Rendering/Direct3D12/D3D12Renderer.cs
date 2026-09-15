@@ -327,6 +327,14 @@ public sealed unsafe class D3D12Renderer : IRenderer
     public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
 
     /// <inheritdoc/>
+    public void SetAmbient(Vector3? ambient) => _pipeline.Frames.Ambient = ambient;
+
+    private FrameClock? _frameClock;
+
+    /// <inheritdoc/>
+    public void SetFrameClock(FrameClock? clock) => _frameClock = clock;
+
+    /// <inheritdoc/>
     public void SetSunRays(SunRays rays) => _pipeline.SetSunRays(rays);
 
     private float _shimmer;
@@ -520,8 +528,8 @@ public sealed unsafe class D3D12Renderer : IRenderer
         // Both are per-frame facts about presentation rather than about the room, which is
         // why they are set here and not by whoever loaded it.
         _pipeline.Frames.EmissiveGain = _output_.EmissiveGain;
-        _pipeline.Frames.Seconds = (float)_wind.Elapsed.TotalSeconds;
-        _pipeline.DeltaSeconds = Pace();
+        _pipeline.Frames.Seconds = (_frameClock?.Seconds ?? (float)_wind.Elapsed.TotalSeconds);
+        _pipeline.DeltaSeconds = _frameClock?.DeltaSeconds ?? Pace();
 
         _pipeline.Prepare(width, height, clear, camera, _scene);
 

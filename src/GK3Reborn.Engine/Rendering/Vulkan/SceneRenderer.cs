@@ -35,6 +35,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     private SunRayPipeline? _sunRayPipeline;
     private SunRays _sunRays = SunRays.None;
     private FogVolume _fog = FogVolume.None;
+    private Vector3? _ambient;
 
     private SceneRenderer(
         VulkanContext context,
@@ -161,6 +162,9 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
     public void SetFog(FogVolume fog) => _fog = fog;
 
     /// <inheritdoc/>
+    public void SetAmbient(Vector3? ambient) => _ambient = ambient;
+
+    /// <inheritdoc/>
     public void SetSunRays(SunRays rays)
     {
         _sunRays = rays;
@@ -206,6 +210,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
         FrameUniformSet frames = tracing ? _rayTracedFrames! : _frames;
 
         frames.Seconds = Seconds;
+        frames.Ambient = _ambient;
 
         if (tracing)
         {
@@ -422,7 +427,7 @@ public sealed unsafe class SceneRenderer : IOffscreenRenderer
             width,
             height,
             FogConstants.For(
-                _fog, LightGrid, Tracing.Ambient, camera, Seconds, width, height));
+                _fog, LightGrid, _ambient ?? Tracing.Ambient, camera, Seconds, width, height));
 
         _context.Api.CmdEndRendering(command);
 

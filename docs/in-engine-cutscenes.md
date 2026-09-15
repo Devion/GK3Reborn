@@ -259,3 +259,41 @@ The one-handed passport pose is superseded by `reading_pose.py`: upper-body moti
 
 
 For the latest 310ABEGIN edit, the clothing swap occurs at 33.2 s, inside the completely black hold, not at the audible cue while the image is still visible. Mosely's local PNG albedo overrides use a 0.55 linear-light gain, including face overlays to preserve matching lips and blinks; `lighting_grade.py` retains the reproducible operation and original enhanced sources. His final walk continues through the doorway to (228,0,315), then left to (188,0,315); the door holds until about 118.0 s, after he leaves view. The earlier EXIT mark at Z=281 was inside the room and must not be used as the final exit destination.
+
+
+## Scene atmosphere overrides
+
+For a dark custom set, use `--atmosphere PATH.json`. The SIF globalLight `ambient` attribute is not an ambient-light control. With no atmosphere file, the existing renderer and room fog defaults apply. Both graphics backends accept the override for surface shading and fog.
+
+```json
+{
+  "ambient": [0.008, 0.011, 0.018],
+  "fog": {
+    "colour": [0.43, 0.50, 0.60],
+    "density": 0.0028,
+    "top": 3,
+    "falloff": 8,
+    "ambient": 1.7,
+    "noiseScale": 95,
+    "noiseDrift": 1.2,
+    "noiseStrength": 0.65,
+    "steps": 32,
+    "directLight": 0
+  }
+}
+```
+
+Ambient RGB is linear light. Fog is full density below `top` and thins exponentially above it. `directLight: 0` produces ambient mist without lamp scattering: the fog pass does not cast geometry shadow rays, so this avoids a bright flashlight halo passing through cave walls. Surface lights still cast their normal RT shadows. `--no-fog` takes precedence over the file. The shared staging renderer accepts an `atmosphere` filename in render.json and includes it in the render input hashes.
+
+
+Recordings also provide a fixed shader/frame clock to both graphics backends. Fog drift, shader animation and temporal-filter timing follow recorded frames rather than how long the GPU takes to draw them. Live gameplay keeps the real-time clock. Moving lights should be updated on every output frame; a 10 Hz scene-light track visibly steps inside a 30 fps movie.
+
+### Recording throughput
+
+Recording PNGs use fast lossless compression on two background workers. The queue holds four additional images and blocks instead of dropping frames when full. The host drains the queue before printing its final Presented message; encoding or disk errors propagate to the caller. Screenshot/asset PNG encoding retains its existing compression default.
+
+Vulkan capture reuses its host-visible readback buffer, growing it when needed and releasing it with the renderer. GPU readback still synchronizes with rendering; the optimization overlaps PNG encoding and file I/O with subsequent frames. Repeated SetScene lighting updates compare bake bytes and skip identical lightmap parsing, repacking and uploads while applying the new lights.
+
+A same-input 1280x720 RT-high benchmark with 90 warm-up frames and 180 saved frames took 19.6 seconds before and 5.6 seconds after (3.5x). All 180 decoded images were pixel-identical. This is a recording-throughput measurement, not a live-gameplay benchmark. The shared capture wrapper allows five seconds for driver cleanup after the queue-drained completion message.
+
+Long recording cue tracks use --run-file with the same semicolon-separated @frame commands as --run. The shared renderer writes commands.run beside commands.json, hashes it as an input, and includes it in the staging archive. This avoids Windows command-line length limits.

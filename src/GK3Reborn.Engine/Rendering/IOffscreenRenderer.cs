@@ -1,3 +1,4 @@
+using System.Numerics;
 ﻿using GK3Reborn.Formats.Bitmaps;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Rendering.Geometry;
@@ -34,6 +35,9 @@ public interface IOffscreenRenderer : IDisposable
     /// <summary>Gives the room its fog, or takes it away again.</summary>
     /// <param name="fog">The layer, or <see cref="FogVolume.None"/> for a room with none.</param>
     void SetFog(FogVolume fog);
+
+    /// <summary>Overrides the ambient light for this scene; null restores the quality default.</summary>
+    void SetAmbient(Vector3? ambient);
 
     /// <summary>Gives the room its sun's rays, or takes them away again.</summary>
     /// <param name="rays">The sun and how strongly to draw it, or <see cref="SunRays.None"/>.</param>

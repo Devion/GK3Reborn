@@ -59,6 +59,7 @@ namespace GK3Reborn.Rendering;
 /// that is actually in the fog rather than over its whole length, so this is the resolution
 /// of the layer and not of the room.
 /// </param>
+/// <param name="DirectLight">Lamp scattering strength; zero leaves ambient mist without unshadowed lamp glow.</param>
 public readonly record struct FogVolume(
     Vector3 Colour,
     float Density,
@@ -69,7 +70,8 @@ public readonly record struct FogVolume(
     float NoiseScale,
     float NoiseDrift,
     float NoiseStrength,
-    int Steps)
+    int Steps,
+    float DirectLight = 1f)
 {
     /// <summary>No fog, which is what all but a handful of the corpus's rooms have.</summary>
     public static FogVolume None { get; }
