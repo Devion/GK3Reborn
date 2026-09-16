@@ -143,6 +143,30 @@ public sealed class DrivingArrivalTests
     }
 
     /// <summary>
+    /// Chateau de Serres is the one place whose ride does not always end where its map button
+    /// says. On the two afternoons the gate stands open the ride ends in the courtyard, with
+    /// the moped inside the gate; otherwise it ends on the road outside, where PL6 draws the
+    /// moped only for BikeLocation 9.
+    /// </summary>
+    [Theory]
+    [InlineData("202P", "CSE", 15)]
+    [InlineData("212P", "CSE", 15)]
+    [InlineData("303P", "PL6", 9)]
+    [InlineData("110A", "PL6", 9)]
+    public void Riding_to_serres_ends_inside_the_gate_while_it_stands_open(
+        string when, string room, int parked)
+    {
+        Assert.True(Timeblock.TryParse(when, out Timeblock timeblock));
+
+        var story = new GameState { Location = "TR1", Timeblock = timeblock };
+
+        story.RideTo("PL6");
+
+        Assert.Equal(room, story.Location);
+        Assert.Equal(parked, story.GetVariable(DrivingMap.Parked));
+    }
+
+    /// <summary>
     /// Riding to Blanchefort leaves a moped in the field to ride away on.
     /// </summary>
     [Fact]

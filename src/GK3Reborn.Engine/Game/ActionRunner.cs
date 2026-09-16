@@ -180,11 +180,11 @@ public sealed class ActionRunner
                 statements[i] = statements[i] with { Seconds = seconds };
 
                 // Whatever happens to the rest of the action, the action itself is not over
-                // while a script it waited on is still running. Said here rather than in the
-                // deferral below because the deferral needs somewhere to resume and an
-                // action whose last statement is the waited call has nowhere — which is
-                // both of the temple's arrivals, and is why the headset lit up eight
-                // seconds into a cutscene nobody had finished watching.
+                // while a script it waited on is still running. Said here as well as through
+                // the deferral below, because a host with nothing to defer with — every tool —
+                // must still report the action as busy for as long as the call runs, and is
+                // why the headset lit up eight seconds into a cutscene nobody had finished
+                // watching.
                 if (statements[i].Waited && started.Count > 0)
                 {
                     _api.Awaits?.Invoke(started);
@@ -194,8 +194,14 @@ public sealed class ActionRunner
                 // business. Only when the script said to wait: an unwaited CallSheep is
                 // one the script deliberately left running behind it, and 640 of the
                 // corpus's calls rely on that.
+                //
+                // The last statement defers too, with nothing left to resume but the finish.
+                // Finish credits a topic, and the original credits it once the script has run
+                // rather than once it has started (ActionManager::OnActionExecuteFinished).
+                // Montreaux's topic rules are each a single waited CallSheep whose script ends
+                // by testing the topic counts for "that was the last one" — credited early,
+                // every one of those tests misses by one and the conversation never ends.
                 if (statements[i].Waited &&
-                    i + 1 < sources.Count &&
                     started.Count > 0 &&
                     _api.DefersUntil is { } until)
                 {

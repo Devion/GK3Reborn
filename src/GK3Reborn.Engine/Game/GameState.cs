@@ -127,12 +127,14 @@ public sealed class GameState
     {
         ArgumentNullException.ThrowIfNull(location);
 
-        Location = DrivingMap.Location;
-        Location = location;
+        (string room, int? parked) = DrivingMap.Ride(this, location);
 
-        if (DrivingMap.ParkedAt(location) is { } parked)
+        Location = DrivingMap.Location;
+        Location = room;
+
+        if (parked is { } at)
         {
-            SetVariable(DrivingMap.Parked, parked);
+            SetVariable(DrivingMap.Parked, at);
         }
     }
 

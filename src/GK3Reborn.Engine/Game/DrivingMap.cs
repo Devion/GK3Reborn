@@ -168,7 +168,10 @@ public sealed class DrivingMap
 
         foreach (DrivingStop stop in Stops)
         {
-            if (string.Equals(stop.Scene, here, StringComparison.OrdinalIgnoreCase))
+            // Against where the ride would actually end, not where the table says: on the two
+            // afternoons the Serres gate stands open that is the courtyard, and a player
+            // standing in it was still being offered the ride there.
+            if (string.Equals(Ride(story, stop.Scene).Scene, here, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
@@ -278,6 +281,34 @@ public sealed class DrivingMap
             Stops, s => string.Equals(s.Scene, scene, StringComparison.OrdinalIgnoreCase));
 
         return at >= 0 ? at : null;
+    }
+
+    /// <summary>The number that means the moped is standing inside the Serres gate.</summary>
+    private const int InsideTheGate = 15;
+
+    /// <summary>
+    /// Where riding to a place actually puts the player, and where it leaves the moped.
+    /// </summary>
+    /// <param name="story">The game, for the clock.</param>
+    /// <param name="scene">The room the chosen place names.</param>
+    /// <returns>The room to load, and the number that says where the moped is parked.</returns>
+    public static (string Scene, int? Parked) Ride(GameState story, string scene)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+        ArgumentNullException.ThrowIfNull(scene);
+
+        // Chateau de Serres is the one place whose ride does not always end where the map
+        // button says. PL6 is the road outside; on the two afternoons the gate stands open
+        // the ride ends in the courtyard, CSE, and the moped is left inside the gate. The
+        // room's own scripts read the number: PL6 draws the moped only for BikeLocation 9,
+        // so riding to the roadside on an afternoon it is not there dismounts thin air.
+        if (string.Equals(scene, "PL6", StringComparison.OrdinalIgnoreCase) &&
+            (story.Timeblock == At("202P") || story.Timeblock == At("212P")))
+        {
+            return ("CSE", InsideTheGate);
+        }
+
+        return (scene, ParkedAt(scene));
     }
 
     /// <summary>Puts a place on the map for good.</summary>

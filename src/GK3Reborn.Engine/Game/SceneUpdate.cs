@@ -2657,7 +2657,13 @@ public sealed class SceneUpdate
         // The clock moves for every timer whatever else is happening; what waits on the story being free is performing one.
         _api.State.Timers.Advance(seconds);
 
-        while (!Occupied && _api.State.Timers.TakeDue() is { } timer)
+        // And not behind a screen. The original pushes the fingerprint kit, Sidney and the
+        // rest as layers over the scene, and pushing a layer pauses the scene, which is what
+        // keeps GameTimers from coming due under it. R25's pop bottle is the case: dusting
+        // arms a one-millisecond POP_BOTTLE/TIMER_EXP timer whose script does nothing unless
+        // the print has already been lifted, so firing it behind the open kit spent the timer
+        // on nothing — no Grace asking what he is doing, and no card left on the desk.
+        while (_api.State.Screens.InTheRoom && !Occupied && _api.State.Timers.TakeDue() is { } timer)
         {
             happened.Add(Fire(timer));
         }
