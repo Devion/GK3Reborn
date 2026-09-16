@@ -121,13 +121,13 @@ public sealed class SidneyDesktopTests
     {
         SidneyMachine sidney = Machine(out _);
         sidney.Screen = SidneyScreen.Suspects;
-        sidney.OpenSuspect(sidney.Library.Suspects()[0]);
+        sidney.Scan("UNKNOWN_PRINT_1");
 
         ScreenPainter painter = Painter();
 
         painter.Build(View(sidney), 1280, 720);
 
-        Assert.NotNull(Middle(painter, "sidney:match"));
+        Assert.NotNull(Middle(painter, "sidney:match:" + sidney.Files[0].Id));
     }
 
     [Fact]

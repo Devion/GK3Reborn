@@ -26,6 +26,19 @@ public sealed class IniDocumentTests
     }
 
     [Fact]
+    public void A_block_comment_marker_inside_a_line_comment_hides_nothing()
+    {
+        IniDocument document = IniDocument.Parse(
+            """
+            [POSITIONS]
+            //** SOM = SquareOnMap
+            START, heading=1
+            """);
+
+        Assert.Equal("START", Assert.Single(document.LinesOf("POSITIONS")).Head.Key);
+    }
+
+    [Fact]
     public void A_bare_keyword_becomes_a_flag()
     {
         IniDocument document = IniDocument.Parse(

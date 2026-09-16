@@ -138,6 +138,12 @@ internal static class SidneyScores
     internal static int Identifies(string item) =>
         Identifications.TryGetValue(item, out (int Suspect, string Score) found) ? found.Suspect : 0;
 
+    /// <summary>A suspect's own fingerprint, which has to be linked to them before a match can find them.</summary>
+    /// <param name="suspect">Which of the ten, from one.</param>
+    /// <returns>The item, or null for Emilio, who leaves none.</returns>
+    internal static string? OwnPrint(int suspect) =>
+        suspect == 10 ? "MOSELYS_PRINT" : Links.FirstOrDefault(l => l.Suspect == suspect && l.Item.EndsWith("_FINGERPRINT", StringComparison.Ordinal)).Item;
+
     /// <summary>What matching such a print to its owner is worth.</summary>
     /// <param name="item">The item the file was scanned from.</param>
     /// <returns>The score event, or null when the match is worth nothing.</returns>

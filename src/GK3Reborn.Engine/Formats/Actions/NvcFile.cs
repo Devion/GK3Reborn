@@ -156,6 +156,13 @@ public sealed partial class NvcFile
         if (scriptMatch.Success)
         {
             script = scriptMatch.Groups["body"].Value.Trim();
+
+            // Fifteen lines lose their closing brace, some a closing parenthesis too; the original appends the brace.
+            if (!scriptMatch.Value.EndsWith('}'))
+            {
+                script = Unclosed(script);
+            }
+
             remainder = line.Remove(scriptMatch.Index, scriptMatch.Length);
         }
 
@@ -210,6 +217,27 @@ public sealed partial class NvcFile
         return true;
     }
 
+    /// <summary>Closes the parentheses a script left open, outside strings.</summary>
+    private static string Unclosed(string script)
+    {
+        int depth = 0;
+        bool quoted = false;
+
+        foreach (char c in script)
+        {
+            if (c == '"')
+            {
+                quoted = !quoted;
+            }
+            else if (!quoted)
+            {
+                depth += c switch { '(' => 1, ')' => -1, _ => 0 };
+            }
+        }
+
+        return depth > 0 ? script.TrimEnd(';', ' ') + new string(')', depth) + ";" : script;
+    }
+
     /// <summary>Removes a trailing line comment, leaving text inside strings alone.</summary>
     private static string StripComment(string line)
     {
@@ -230,6 +258,6 @@ public sealed partial class NvcFile
         return line;
     }
 
-    [GeneratedRegex(@"script\s*=\s*\{(?<body>[^}]*)\}", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"script\s*=\s*\{(?<body>[^}]*)(?:\}|$)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex ScriptField();
 }

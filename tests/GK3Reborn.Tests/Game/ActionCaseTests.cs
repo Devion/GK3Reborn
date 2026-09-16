@@ -202,6 +202,21 @@ public sealed class ActionCaseTests
     }
 
     [Fact]
+    public void A_script_missing_its_closing_brace_still_has_its_script()
+    {
+        NvcFile file = NvcFile.Parse(
+            """
+            CHURCH_PAMPHLET, LOOK, ALL_INV, script={wait StartVoiceOver("10P7544PF1",1);
+            CHURCH_PAMPHLET_P2, LOOK, ALL_INV, script={wait StartVoiceOver("10P7544PF1",1
+            """,
+            "test.nvc",
+            new DiagnosticBag());
+
+        Assert.All(file.Actions, a => Assert.Equal("ALL_INV", a.Case));
+        Assert.All(file.Actions, a => Assert.Equal("wait StartVoiceOver(\"10P7544PF1\",1);", a.Script));
+    }
+
+    [Fact]
     public void A_case_ending_in_a_semicolon_is_still_an_expression()
     {
         // LBY110A02P.NVC writes {!DoesEgoHaveInvItem("Candy");}. The braces are the field

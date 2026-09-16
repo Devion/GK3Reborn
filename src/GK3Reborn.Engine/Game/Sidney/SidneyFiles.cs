@@ -108,11 +108,12 @@ public static class SidneyFiles
         {
             bool unknown = name.StartsWith("UNKNOWN", StringComparison.Ordinal);
 
+            // The envelope's print is named after whose it turns out to be; the label must not say so.
             return new SidneyFile(
                 "file" + Pretty(name).Replace(" ", string.Empty, StringComparison.Ordinal),
                 name,
-                Pretty(name),
-                unknown ? SidneyKind.UnknownPrint : SidneyKind.KnownPrint);
+                name == "ESTELLES_FINGERPRINT_LSR" ? "LSR Fingerprint" : Pretty(name),
+                unknown || name == "ESTELLES_FINGERPRINT_LSR" ? SidneyKind.UnknownPrint : SidneyKind.KnownPrint);
         }
 
         if (name.EndsWith("_TAPE", StringComparison.Ordinal))

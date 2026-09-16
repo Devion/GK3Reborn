@@ -1733,6 +1733,10 @@ public static partial class Application
 
                         story.Screens.Back();
                     }
+                    else if (chose == "verb:" + InspectVerb && panel.Kind == ScreenKind.Inventory && panel.Subject is { Length: > 0 } looked)
+                    {
+                        story.Screens.Show(new Screen(ScreenKind.InventoryInspect, looked));
+                    }
                     else if (chose.StartsWith("verb:", StringComparison.Ordinal) && panel.Subject is { Length: > 0 } about &&
                              scene.Actions?.Find(about, chose[5..], story.Ego) is { } onItem)
                     {

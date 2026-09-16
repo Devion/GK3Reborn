@@ -232,12 +232,50 @@ public sealed class SidneyMachine
     {
         Reading = mail;
 
-        if (mail is not null)
+        if (mail is null)
         {
-            _state.SetFlag("SidneyRead:" + mail.Id);
-            Award(SidneyScores.Read(mail.Id));
+            return;
+        }
+
+        _state.SetFlag("SidneyRead:" + mail.Id);
+        Award(SidneyScores.Read(mail.Id));
+
+        // The retail engine's flags for the two messages Sidney sends; the temple divisions wait on the first.
+        if (mail.Id.Equals("EMail4", StringComparison.OrdinalIgnoreCase))
+        {
+            _state.SetFlag("OpenedTempleDiagram");
+        }
+        else if (mail.Id.Equals("EMail5", StringComparison.OrdinalIgnoreCase) && !_state.GetFlag("OpenedHermeticDiagram"))
+        {
+            _state.SetFlag("OpenedHermeticDiagram");
+            Speak("02DG4583L2", 2);
         }
     }
+
+    /// <summary>Grace's answer to replying to the open message; Sidney's own messages get none.</summary>
+    public void ReplyToMail()
+    {
+        switch (Reading?.Id.ToUpperInvariant())
+        {
+            case "EMAIL1":
+                Speak("02O1V0OPF1");
+                break;
+            case "EMAIL2":
+                Speak("02O240OPF1");
+                break;
+            case "EMAIL3":
+                Speak("02O570OPF1");
+                break;
+            default:
+                break;
+        }
+    }
+
+    /// <summary>Grace declining to write a new message.</summary>
+    public void ComposeMail() => Speak("02OXI2ZZ51");
+
+    /// <summary>Grace declining to print the open message.</summary>
+    public void PrintMail() => Speak("02OXJ2ZZ51");
 
     /// <summary>How many messages have not been opened yet.</summary>
     public int Unread => Mail().Count(m => !HasRead(m));
@@ -437,7 +475,7 @@ public sealed class SidneyMachine
     /// <param name="item">Its noun, as the action files spell it.</param>
     /// <returns>The game's own name for it, or the tidied identifier.</returns>
     public string NameOf(string item) =>
-        Names.Item(item) is { Length: > 0 } named ? named : SidneyFiles.Pretty(item);
+        Names.Item(item) is { Length: > 0 } named ? named : SidneyFiles.For(item)?.Label ?? SidneyFiles.Pretty(item);
 
     /// <summary>Whether an item may be put into the scanner.</summary>
     /// <param name="item">The inventory item.</param>
@@ -907,6 +945,16 @@ public sealed class SidneyMachine
             string.Equals(From, text.Language, StringComparison.OrdinalIgnoreCase))
         {
             Award(SidneyScores.Translated(translated.Item));
+
+            // Gabriel's remark on hearing each tape in English, once.
+            string? remark = translated.Item.ToUpperInvariant() switch { "ABBE_TAPE" => "02OD95EPF2", "BUCHELLI_TAPE" => "02O945EPF2", _ => null };
+
+            if (remark is not null && string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase) &&
+                !_state.GetFlag("SidneyRemark:" + remark))
+            {
+                _state.SetFlag("SidneyRemark:" + remark);
+                Speak(remark);
+            }
         }
 
         return Showing;
@@ -1231,94 +1279,83 @@ public sealed class SidneyMachine
         return Showing;
     }
 
-    /// <summary>
-    /// Runs the fingerprint match against the open suspect.
-    /// </summary>
-    /// <returns>What the machine says.</returns>
-    public SidneyResult MatchPrint()
-    {
-        if (Suspect is not { } suspect)
-        {
-            Showing = new SidneyResult(Ask("NoSuspect"));
+    /// <summary>The prints the match analysis runs on: the three off the manuscript and the one off the envelope.</summary>
+    public IReadOnlyList<SidneyFile> Matchable => [.. Files.Where(f => SidneyScores.Identifies(f.Item) > 0)];
 
-            return Showing;
+    /// <summary>Compares a print with every suspect whose own print is linked, as the retail match analysis does.</summary>
+    /// <param name="print">The print to match.</param>
+    /// <returns>What the machine says.</returns>
+    public SidneyResult MatchPrint(SidneyFile? print)
+    {
+        if (string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase))
+        {
+            Speak("02O7A2ZQR1");
+
+            return Showing ?? new SidneyResult(string.Empty);
         }
 
-        SidneyFile? print = LinkedTo(suspect)
-            .FirstOrDefault(f => f.Kind is SidneyKind.KnownPrint or SidneyKind.UnknownPrint);
+        int owner = print is null ? 0 : SidneyScores.Identifies(print.Item);
 
-        if (print is null)
+        if (print is null || owner == 0)
         {
             Showing = new SidneyResult(Ask("NoFingerprint"));
 
             return Showing;
         }
 
-        string owner = print.Item;
+        // Only suspects whose own print is on file can be compared, so the envelope finds nobody until Estelle's is linked.
+        List<string> compared = [];
+        SidneySuspect? found = null;
 
-        if (owner.StartsWith("GAB", StringComparison.OrdinalIgnoreCase))
+        foreach (SidneySuspect person in Suspects())
         {
-            Showing = new SidneyResult(Ask("GabesPrint"));
+            if (SidneyScores.OwnPrint(person.Index) is not { } own || !LinkedTo(person).Any(f => Is(f, own)))
+            {
+                continue;
+            }
+
+            compared.Add(person.Name);
+
+            if (person.Index == owner)
+            {
+                found = person;
+
+                break;
+            }
+        }
+
+        string checkedList = compared.Count > 0 ? $"{Ask("MatchCompare")} {string.Join(", ", compared)}\n\n" : string.Empty;
+
+        if (found is null)
+        {
+            Showing = new SidneyResult($"{print.Label}\n{checkedList}{Ask("MatchNone")}");
+
+            if (Is(print, "ESTELLES_FINGERPRINT_LSR") && !_state.GetFlag("PlayedEstelleFPDialog"))
+            {
+                Speak("02OX660SL1");
+                _state.SetFlag("PlayedEstelleFPDialog");
+            }
 
             return Showing;
         }
 
-        if (owner.StartsWith("GRACE", StringComparison.OrdinalIgnoreCase))
+        Suspect = found;
+        Showing = new SidneyResult($"{print.Label}\n{checkedList}{Ask("MatchFound")} {found.Name}");
+
+        Speak(print.Item.ToUpperInvariant() switch
         {
-            Showing = new SidneyResult(Ask("GracesPrint"));
+            "UNKNOWN_PRINT_1" => "027X65Q3L2",
+            "UNKNOWN_PRINT_2" => "027X65Q3L1",
+            "UNKNOWN_PRINT_3" => "027X65Q3L3",
+            _ => "02OX660SJ1",
+        });
 
-            return Showing;
-        }
+        Award(SidneyScores.Matched(print.Item));
 
-        // A print that names nobody still has an owner: the three off the manuscript and
-        // the one off the envelope are the reason the screen exists, and the engine's own
-        // table is the only thing that says whose they are. Comparing names alone left all
-        // four unmatchable, so MatchedBuchelli, MatchedButhane and MatchedMosely — three
-        // flags the action files read — could never be set.
-        int named = SidneyScores.Identifies(owner);
-
-        bool matched = named > 0
-            ? named == suspect.Index
-            : print.Kind == SidneyKind.KnownPrint && Belongs(owner, suspect);
-
-        Showing = new SidneyResult(
-            $"{Ask("MatchCompare")} {suspect.Name}\n\n" +
-            (matched ? Ask("MatchFound") : Ask("MatchNone")));
-
-        if (matched)
-        {
-            Award(SidneyScores.Matched(owner));
-            // <b>The flag the game's own scripts read.</b> "SidneyMatched:2" was written and
-            // read by nothing; the story is waiting on Matched<i>Noun</i>, and setting
-            // MatchedEstelle is what opens the T_LSR topic with her in the lobby and gives
-            // Grace something to say over the LSR envelope. The four the scripts name —
-            // Buthane, Buchelli, Estelle, Mosely — are spelt exactly this way.
-            _state.SetFlag($"Matched{suspect.Noun}");
-        }
+        // The flag the scripts wait on: MatchedBuchelli, MatchedButhane, MatchedMosely, MatchedEstelle.
+        _state.SetFlag($"Matched{found.Noun}");
 
         return Showing;
-    }
-
-    /// <summary>Whether a piece of evidence is this suspect's.</summary>
-    /// <param name="item">The item the file was scanned from.</param>
-    /// <param name="suspect">Who it is being tested against.</param>
-    /// <returns>True when the item is named after them.</returns>
-    private static bool Belongs(string item, SidneySuspect suspect)
-    {
-        if (suspect.Noun.Length == 0)
-        {
-            return false;
-        }
-
-        return Bare(item.Split('_')[0]).Equals(Bare(suspect.Noun), StringComparison.Ordinal);
-    }
-
-    /// <summary>A name with its possessive "s", if it has one, taken off.</summary>
-    private static string Bare(string name)
-    {
-        string upper = name.ToUpperInvariant();
-
-        return upper.Length > 3 && upper[^1] == 'S' ? upper[..^1] : upper;
     }
 
     /// <summary>

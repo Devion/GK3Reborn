@@ -383,109 +383,53 @@ public sealed class SidneyScreensTests
                 .Count());
     }
 
-    [Theory]
-    [InlineData("ABBE_FINGERPRINT", "Abbe Arnaud")]
-    [InlineData("BUCHELLIS_FINGERPRINT", "Vittorio Buchelli")]
-    [InlineData("BUTHANES_FINGERPRINT", "Madeline Buthane")]
-    [InlineData("ESTELLES_FINGERPRINT", "Estelle Stiles")]
-    [InlineData("HOWARDS_FINGERPRINT", "Lady Howard")]
-    [InlineData("LARRYS_FINGERPRINT", "Larry Chester")]
-    [InlineData("MONTREAUX_FINGERPRINT", "Excelsior Montreaux")]
-    [InlineData("MOSELYS_FINGERPRINT", "Franklin Mosely")]
-    [InlineData("WILKES_FINGERPRINT", "John Wilkes")]
-    public void Every_print_the_game_ships_reaches_exactly_the_person_it_belongs_to(
-        string item, string owner)
-    {
-        // Evidence is named after the noun the game knows somebody by, and three of them are
-        // not their surname: the Abbé by his title, Estelle Stiles and Larry Chester by their
-        // first names. Reading a surname off the suspect list left those three prints
-        // matching nobody at all — no match, no flag, and no way to convict them.
-        SidneyMachine sidney = Machine(out _);
-
-        sidney.Scan(item);
-
-        foreach (SidneySuspect person in sidney.Library.Suspects())
-        {
-            sidney.OpenSuspect(person);
-            sidney.LinkToSuspect(sidney.Files[0]);
-
-            string said = sidney.MatchPrint().Text;
-            bool theirs = person.Name.Equals(owner, StringComparison.Ordinal);
-
-            Assert.Equal(
-                theirs,
-                said.Contains("** Match Found **", StringComparison.Ordinal));
-
-            sidney.UnlinkFromSuspect(sidney.Files[0]);
-        }
-    }
-
     [Fact]
-    public void Matching_a_print_sets_the_flag_the_story_is_waiting_on()
+    public void The_envelope_print_finds_nobody_until_Estelles_own_print_is_on_her()
     {
-        // "SidneyMatched:6" was written and read by nothing. What the game's own scripts ask
-        // for is MatchedEstelle, and setting it is what opens the T_LSR topic with her in the
-        // lobby and gives Grace something to say over the LSR envelope. Four of these flags
-        // are named in the scripts — Buthane, Buchelli, Estelle, Mosely — and this is how
-        // they are spelt.
         SidneyMachine sidney = Machine(out GameState state);
-        SidneySuspect estelle = sidney.Library.Suspects()
-            .First(s => s.Name.Contains("Estelle", StringComparison.Ordinal));
+        SidneySuspect estelle = sidney.Suspects().First(s => s.Name.Contains("Estelle", StringComparison.Ordinal));
+
+        sidney.Scan("ESTELLES_FINGERPRINT_LSR");
+        SidneyFile envelope = sidney.Files.Single(f => f.Item == "ESTELLES_FINGERPRINT_LSR");
+
+        Assert.Contains(envelope, sidney.Matchable);
+        Assert.DoesNotContain("Estelle", envelope.Label, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No Match Found", sidney.MatchPrint(envelope).Text, StringComparison.Ordinal);
+        Assert.False(state.GetFlag("MatchedEstelle"));
+        Assert.True(state.GetFlag("PlayedEstelleFPDialog"));
 
         sidney.Scan("ESTELLES_FINGERPRINT");
         sidney.OpenSuspect(estelle);
-        sidney.LinkToSuspect(sidney.Files[0]);
+        sidney.LinkToSuspect(sidney.Files.Single(f => f.Item == "ESTELLES_FINGERPRINT"));
+        sidney.OpenSuspect(null);
 
-        Assert.False(state.GetFlag("MatchedEstelle"));
-
-        Assert.Contains("Match Found", sidney.MatchPrint().Text, StringComparison.Ordinal);
-
+        Assert.Contains("Match Found", sidney.MatchPrint(envelope).Text, StringComparison.Ordinal);
         Assert.True(state.GetFlag("MatchedEstelle"));
+        Assert.Equal(estelle.Index, sidney.Suspect?.Index);
     }
 
     [Fact]
-    public void A_print_labelled_with_the_wrong_name_matches_whose_it_actually_is()
+    public void A_named_print_is_not_something_the_match_runs_on()
     {
-        // The whole point of that item, and the one thing here a wrong answer would ruin.
         SidneyMachine sidney = Machine(out _);
 
-        sidney.Scan("BUCHELLIS_FINGERPRINT_LABELED_WILKES");
+        sidney.Scan("ABBE_FINGERPRINT");
 
-        sidney.OpenSuspect(sidney.Library.Suspects().First(s => s.Name.Contains("Buchelli", StringComparison.Ordinal)));
-        sidney.LinkToSuspect(sidney.Files[0]);
-
-        Assert.Contains("Match Found", sidney.MatchPrint().Text, StringComparison.Ordinal);
-
-        sidney.OpenSuspect(sidney.Library.Suspects().First(s => s.Name.Contains("Wilkes", StringComparison.Ordinal)));
-        sidney.LinkToSuspect(sidney.Files[0]);
-
-        Assert.Contains("No Match Found", sidney.MatchPrint().Text, StringComparison.Ordinal);
+        Assert.Empty(sidney.Matchable);
+        Assert.Equal("You must link a fingerprint first.", sidney.MatchPrint(sidney.Files[0]).Text);
+        Assert.Equal("You must link a fingerprint first.", sidney.MatchPrint(null).Text);
     }
 
     [Fact]
-    public void An_unknown_print_matches_nobody()
+    public void Gabriel_leaves_the_match_to_Grace()
     {
-        // Which is what the game's own analysis says it is for: bringing it here to be
-        // matched against a known one.
-        SidneyMachine sidney = Machine(out _);
+        SidneyMachine sidney = Machine(out GameState state);
+        state.Ego = "GABRIEL";
 
         sidney.Scan("UNKNOWN_PRINT_1");
-        sidney.OpenSuspect(sidney.Library.Suspects()[0]);
-        sidney.LinkToSuspect(sidney.Files[0]);
+        sidney.MatchPrint(sidney.Files[0]);
 
-        Assert.Contains("No Match Found", sidney.MatchPrint().Text, StringComparison.Ordinal);
-    }
-
-    [Fact]
-    public void Matching_with_nothing_open_or_nothing_linked_says_which()
-    {
-        SidneyMachine sidney = Machine(out _);
-
-        Assert.Equal("You must first open the suspect file.", sidney.MatchPrint().Text);
-
-        sidney.OpenSuspect(sidney.Library.Suspects()[0]);
-
-        Assert.Equal("You must link a fingerprint first.", sidney.MatchPrint().Text);
+        Assert.Equal("02O7A2ZQR1", sidney.TakeCue()?.Plate);
     }
 
     [Fact]

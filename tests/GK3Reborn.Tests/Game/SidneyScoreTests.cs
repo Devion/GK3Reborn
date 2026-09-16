@@ -170,16 +170,17 @@ public sealed class SidneyScoreTests
     [Fact]
     public void A_print_that_names_nobody_still_matches_the_person_it_belongs_to()
     {
-        // The three off the manuscript are the reason the suspects screen exists. Comparing
-        // the file's name against the suspect's could never match them, which left the
-        // three flags the action files read unreachable.
+        // The three off the manuscript are the reason the suspects screen exists.
         SidneyMachine sidney = Machine(out GameState state);
 
-        Link(sidney, "Buchelli", "UNKNOWN_PRINT_1");
-        sidney.MatchPrint();
+        Link(sidney, "Buchelli", "BUCHELLIS_FINGERPRINT");
+        sidney.Scan("UNKNOWN_PRINT_1");
+        int before = state.Score;
+
+        sidney.MatchPrint(sidney.Files.First(f => f.Item == "UNKNOWN_PRINT_1"));
 
         Assert.True(state.GetFlag("MatchedBuchelli"));
-        Assert.Equal(2, state.Score);
+        Assert.Equal(before + 1, state.Score);
     }
 
     [Fact]
@@ -187,11 +188,14 @@ public sealed class SidneyScoreTests
     {
         SidneyMachine sidney = Machine(out GameState state);
 
-        Link(sidney, "Wilkes", "UNKNOWN_PRINT_1");
-        sidney.MatchPrint();
+        Link(sidney, "Wilkes", "WILKES_FINGERPRINT");
+        sidney.Scan("UNKNOWN_PRINT_1");
+        int before = state.Score;
 
-        Assert.False(state.GetFlag("MatchedWilkes"));
-        Assert.Equal(1, state.Score);
+        sidney.MatchPrint(sidney.Files.First(f => f.Item == "UNKNOWN_PRINT_1"));
+
+        Assert.False(state.GetFlag("MatchedBuchelli"));
+        Assert.Equal(before, state.Score);
     }
 
     [Fact]
@@ -199,11 +203,14 @@ public sealed class SidneyScoreTests
     {
         SidneyMachine sidney = Machine(out GameState state);
 
-        Link(sidney, "Estelle", "ESTELLES_FINGERPRINT_LSR");
-        sidney.MatchPrint();
+        Link(sidney, "Estelle", "ESTELLES_FINGERPRINT");
+        sidney.Scan("ESTELLES_FINGERPRINT_LSR");
+        int before = state.Score;
+
+        sidney.MatchPrint(sidney.Files.First(f => f.Item == "ESTELLES_FINGERPRINT_LSR"));
 
         Assert.True(state.GetFlag("MatchedEstelle"));
-        Assert.Equal(5, state.Score);
+        Assert.True(state.Score > before);
     }
 
     /// <summary>Scans a picture in and opens it on the analyze screen.</summary>

@@ -278,7 +278,7 @@ public static class SidneyApps
         }
 
         float wrap = pane.Z - surface.Em(20);
-        float tall = surface.Line * 4.5f;
+        float tall = (surface.Line * 5.5f) + surface.Em(14);
 
         foreach (string paragraph in reading.Body)
         {
@@ -327,6 +327,20 @@ public static class SidneyApps
 
         surface.Write(reading.Date, pane.X, y, SidneyPalette.Dim);
         y += surface.Line + surface.Em(4);
+
+        // The original's three buttons, each of which only gets a line out of Grace.
+        float x = pane.X;
+
+        foreach ((string key, string command) in (ReadOnlySpan<(string, string)>)[("Reply", "reply"), ("Compose", "compose"), ("Print", "printmail")])
+        {
+            string label = machine.Library.Say(key, "EMail Screen") is { Length: > 0 } said ? said : key.ToUpperInvariant();
+            float wide = surface.Measure(label) + surface.Em(20);
+
+            surface.Button("sidney:" + command, new Vector4(x, y, wide, surface.Line + surface.Em(8)), label);
+            x += wide + surface.Em(8);
+        }
+
+        y += surface.Line + surface.Em(14);
 
         surface.Fill(pane.X, y, wrap, 1, SidneyPalette.Rule);
         y += surface.Em(8);
@@ -615,6 +629,13 @@ public static class SidneyApps
             body.Z - listWidth - surface.Em(12),
             body.W);
 
+        float button = surface.Line + surface.Em(12);
+        IReadOnlyList<SidneyFile> prints = machine.Matchable;
+        float band = (Math.Max(1, prints.Count) * (button + surface.Em(4))) - surface.Em(4);
+        var below = new Vector4(pane.X, pane.Y + pane.W - band, pane.Z, band);
+
+        MatchButtons(surface, machine, prints, below, button);
+
         if (machine.Suspect is not { } suspect)
         {
             surface.Write(
@@ -623,14 +644,7 @@ public static class SidneyApps
             return;
         }
 
-        string match = machine.Words.Match;
-
-        float button = surface.Line + surface.Em(12);
-        float matchWidth = surface.Measure(match) + surface.Em(24);
-        var below = new Vector4(
-            pane.X, pane.Y + pane.W - button, pane.Z, button);
-
-        var detail = new Vector4(pane.X, pane.Y, pane.Z, pane.W - button - surface.Em(8));
+        var detail = new Vector4(pane.X, pane.Y, pane.Z, pane.W - band - surface.Em(8));
 
         IReadOnlyList<SidneyFile> linked = machine.LinkedTo(suspect);
         List<SidneyFile> loose =
@@ -766,18 +780,34 @@ public static class SidneyApps
         }
 
         surface.EndScroll();
+    }
 
-        surface.Button("sidney:match", new Vector4(below.X, below.Y, matchWidth, button), match);
+    /// <summary>A match analysis button for each print it runs on, with what the machine last said beside them.</summary>
+    private static void MatchButtons(
+        SidneySurface surface, SidneyMachine machine, IReadOnlyList<SidneyFile> prints, Vector4 below, float button)
+    {
+        // Named "MATCH ANALYSIS: file" where that fits, and by the file alone where it does not.
+        bool named = prints.All(p => surface.Measure($"{machine.Words.Match}: {p.Label}") + surface.Em(24) <= below.Z * 0.6f);
+        string Label(SidneyFile print) => named ? $"{machine.Words.Match}: {print.Label}" : print.Label;
+        float wide = 0;
+
+        foreach (SidneyFile print in prints)
+        {
+            wide = MathF.Max(wide, surface.Measure(Label(print)) + surface.Em(24));
+        }
+
+        for (int i = 0; i < prints.Count; i++)
+        {
+            var at = new Vector4(below.X, below.Y + (i * (button + surface.Em(4))), wide, button);
+
+            surface.Button("sidney:match:" + prints[i].Id, at, Label(prints[i]));
+        }
 
         if (machine.Showing is { } result)
         {
-            surface.Paragraph(
-                result.Text,
-                below.X + matchWidth + surface.Em(10),
-                below.Y,
-                below.Z - matchWidth - surface.Em(10),
-                below.Y + below.W,
-                SidneyPalette.Amber);
+            float x = prints.Count > 0 ? below.X + wide + surface.Em(10) : below.X;
+
+            surface.Paragraph(result.Text, x, below.Y, below.X + below.Z - x, below.Y + below.W, SidneyPalette.Amber);
         }
     }
 

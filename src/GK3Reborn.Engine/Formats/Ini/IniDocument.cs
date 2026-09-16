@@ -284,8 +284,10 @@ public sealed class IniDocument
             inBlockComment = false;
         }
 
+        // A "/*" inside a line comment opens nothing: LBY205P.SIF's "//** SOM" otherwise hides the rest of the file.
+        int lineComment = line.IndexOf("//", StringComparison.Ordinal);
         int blockStart = line.IndexOf("/*", StringComparison.Ordinal);
-        if (blockStart >= 0)
+        if (blockStart >= 0 && (lineComment < 0 || blockStart < lineComment))
         {
             int end = line.IndexOf("*/", blockStart + 2, StringComparison.Ordinal);
             if (end < 0)

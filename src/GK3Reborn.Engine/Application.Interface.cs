@@ -142,6 +142,9 @@ public static partial class Application
         }
     }
 
+    /// <summary>The verb that opens an item's close-up.</summary>
+    private const string InspectVerb = "INSPECT";
+
     /// <summary>What can be done to the item a close-up is showing.</summary>
     /// <returns>The verbs, or null when the screen is not about an item.</returns>
     /// <param name="panel">The screen on top.</param>
@@ -155,8 +158,11 @@ public static partial class Application
             return null;
         }
 
-        return [.. actions .Resolve(item, story.Ego, story.Inventory.ItemsOf(story.Ego)) .Select(a => a.LocalizedVerb)
-            .Where(v => !IsAboutTheRoom(v))];
+        IEnumerable<string> verbs = actions .Resolve(item, story.Ego, story.Inventory.ItemsOf(story.Ego)) .Select(a => a.LocalizedVerb)
+            .Where(v => !IsAboutTheRoom(v));
+
+        // The close-up is the engine's own verb, which no action file writes; not offered while an item is being picked for the scanner.
+        return panel.Kind == ScreenKind.Inventory && !story.GetFlag("UsingScanner") ? [InspectVerb, .. verbs] : [.. verbs];
     }
 
     /// <summary>Whether a verb only means anything for a thing still in the room.</summary>
@@ -338,6 +344,18 @@ public static partial class Application
                 sidney.ReadMail(sidney.Mail().FirstOrDefault(m => m.Id == which));
                 break;
 
+            case "reply":
+                sidney.ReplyToMail();
+                break;
+
+            case "compose":
+                sidney.ComposeMail();
+                break;
+
+            case "printmail":
+                sidney.PrintMail();
+                break;
+
             // The translate screen keeps its own open file: analysing a parchment and translating a tape are two things a player may have going at.
             case "open":
                 sidney.OpenForTranslation(sidney.Files.FirstOrDefault(f => f.Id == which));
@@ -413,7 +431,7 @@ public static partial class Application
                 break;
 
             case "match":
-                console.Print(sidney.MatchPrint().Text);
+                console.Print(sidney.MatchPrint(sidney.Files.FirstOrDefault(f => f.Id == which)).Text);
                 break;
 
             // Composing a card and printing it are two things: the machine has to have a
