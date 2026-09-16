@@ -752,8 +752,7 @@ public sealed class SidneyScreensTests
 
         SidneySuspect mosely = sidney.Suspects().Single(s => s.Index == 10);
 
-        sidney.Scan("MOSELYS_PRINT");
-
+        Assert.Contains(sidney.Files, f => f.Item == "MOSELYS_PRINT");
         Assert.Contains(sidney.LinkedTo(mosely), f => f.Kind == SidneyKind.KnownPrint);
     }
 

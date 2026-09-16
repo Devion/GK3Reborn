@@ -280,8 +280,12 @@ public sealed class SidneyMachine
                     continue;
 
                 case 10:
-                    if (SidneyFiles.For("MOSELYS_PRINT") is { } print)
+                    // The kit gives no item to scan, so his print is filed as he is added; the
+                    // file list is built from the scan record, and a link to a file not on it is never shown.
+                    if (SidneyFiles.For("MOSELYS_PRINT") is { } print && !_state.HasSidneyFile(print.Id))
                     {
+                        _state.AddSidneyFile(print.Id);
+                        _state.RecordSidneyScan(print.Item);
                         _state.SetFlag(Link(person, print));
                     }
 
