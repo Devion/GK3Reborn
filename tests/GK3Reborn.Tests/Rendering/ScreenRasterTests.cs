@@ -13,6 +13,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for drawing a computer screen as a raster rather than as five bitmaps.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class ScreenRasterTests
 {
     /// <summary>The glass of Larry's monitor, measured off the 1999 bitmap.</summary>

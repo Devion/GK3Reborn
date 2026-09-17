@@ -2510,10 +2510,14 @@ public static partial class Application
             Log.Info( $"Carrying: {string.Join(", ", api.State.Inventory.ItemsOf(api.State.Ego))}");
         }
 
-        // Open a screen on the way in, for looking at one on purpose.
-        if (Option(args, "--screen") is { Length: > 0 } wanted && wanted.Split(':') is [string named, ..] &&
-            Enum.TryParse(named, ignoreCase: true, out ScreenKind kind))
+        // Open screens on the way in, for looking at one on purpose; '+' stacks several, the last on top.
+        foreach (string wanted in (Option(args, "--screen") ?? string.Empty).Split('+', StringSplitOptions.RemoveEmptyEntries))
         {
+            if (wanted.Split(':') is not [string named, ..] || !Enum.TryParse(named, ignoreCase: true, out ScreenKind kind))
+            {
+                continue;
+            }
+
             // Everything after the kind, colons included: a subject may carry one of its own, as ride:TR1 does.
             string? about = wanted.Split(':', 2) is [_, string subject] ? subject : null;
 

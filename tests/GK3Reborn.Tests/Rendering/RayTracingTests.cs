@@ -13,6 +13,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Checks that ray tracing changes the picture in the way it is supposed to.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class RayTracingTests
 {
     private static bool HasRayTracing()

@@ -781,6 +781,19 @@ public sealed class SidneyMachine
             _state.SetFlag(Flag(file, SidneyAction.Translate));
             _done.Add(Flag(file, SidneyAction.Translate));
             Award(SidneyScores.Extracted(file.Kind));
+
+            // Grace remarks on the hidden message once; from the second parchment she keeps a copy of the riddle.
+            if (!second && !_state.GetFlag("PlayedParch1FrenchMsg"))
+            {
+                _state.SetFlag("PlayedParch1FrenchMsg");
+                Speak("02OCR2ZMX3");
+            }
+            else if (second && !_state.GetFlag("GotThemApples"))
+            {
+                _state.SetFlag("GotThemApples");
+                _state.Inventory.Add(_state.Ego, "BLUE_APPLES_RIDDLE");
+                Speak("02OCR2Z4L3", 2);
+            }
         }
 
         return Showing;
@@ -1712,9 +1725,8 @@ public sealed class SidneyMachine
             }
         }
 
-        MapAnalysis found = Map.Analyse();
-
-        Showing = new SidneyResult(Progress() ?? Verdict(found));
+        Map.Analyse();
+        Showing = new SidneyResult(Progress() ?? Say("EnterPointsNote"));
 
         return Showing;
     }
@@ -2121,8 +2133,6 @@ public sealed class SidneyMachine
             return Showing;
         }
 
-        MapAnalysis found = Map.Analyse();
-
         // Every figure already laid is re-fitted, because the places they have to pass
         // through have just changed — and a confirmation cannot be allowed to outlive the
         // marks that earned it.
@@ -2140,108 +2150,12 @@ public sealed class SidneyMachine
         string said = Say("MapEnterPointNote").Replace(
             "%s", SidneyMap.Coordinates(at), StringComparison.Ordinal);
 
-        // <b>Two places are the interesting case, not the dull one.</b> The verdict used
-        // to wait for a third, so the sunrise line — the first step of the whole map
-        // puzzle, and a thing made of exactly two points — was marked and never
-        // remarked on.
-        if (Map.Points.Count > 1 || found.Finding is MapFinding.Circle or MapFinding.Rectangle)
-        {
-            said = said + "\n\n" + Verdict(found);
-        }
+        Map.Analyse();
 
+        // Only ANALYZE judges the marks, as in the original; a verdict here told the player a verse was done when it was not.
         Showing = new SidneyResult(Progress() ?? said);
 
         return Showing;
-    }
-
-    /// <summary>
-    /// Which of the game's notes a line between two places earns.
-    /// </summary>
-    /// <summary>Whether a line was drawn between two named places, either way round.</summary>
-    private static bool Between(
-        System.Numerics.Vector2 from,
-        System.Numerics.Vector2 to,
-        System.Numerics.Vector2 one,
-        System.Numerics.Vector2 other)
-    {
-        const float Near = 40f;
-
-        return (System.Numerics.Vector2.Distance(from, one) <= Near &&
-                System.Numerics.Vector2.Distance(to, other) <= Near) ||
-               (System.Numerics.Vector2.Distance(from, other) <= Near &&
-                System.Numerics.Vector2.Distance(to, one) <= Near);
-    }
-
-    private string LineNote()
-    {
-        if (Map.Points.Count < 2)
-        {
-            return Say("MapLineDisallow");
-        }
-
-        System.Numerics.Vector2 from = Map.Points[0];
-        System.Numerics.Vector2 to = Map.Points[^1];
-
-        // <b>The sunrise line is which two places, not where the line happens to go.</b>
-        // Testing it by geometry — does it cross the meridian and pass through Arques —
-        // refuses the right answer: on this survey the line from the church at
-        // Rennes-le-Château over the ruin at Blanchefort misses Arques by a hundred and
-        // twelve pixels, because the map is drawn rather than surveyed. What the note is
-        // about is the two places the player picked.
-        if (Between(from, to, SidneyMap.Church, SidneyMap.Blanchefort))
-        {
-            return Say("MapLine1Note");
-        }
-
-        // Tangential to a circle already laid: touching it, rather than cutting across it.
-        foreach (LaidShape laid in Map.Laid)
-        {
-            if (laid.Shape != MapShape.Circle)
-            {
-                continue;
-            }
-
-            if (SidneyMap.Through(from, to, laid.At + new System.Numerics.Vector2(laid.Size, 0)) ||
-                SidneyMap.Through(from, to, laid.At - new System.Numerics.Vector2(laid.Size, 0)) ||
-                SidneyMap.Through(from, to, laid.At + new System.Numerics.Vector2(0, laid.Size)) ||
-                SidneyMap.Through(from, to, laid.At - new System.Numerics.Vector2(0, laid.Size)))
-            {
-                return Say("MapLine2Note");
-            }
-        }
-
-        return Map.Points.Count > 2 ? Say("MapLine3Note") : Say("MapLineDisallow");
-    }
-
-    /// <summary>What the machine makes of the points as they stand.</summary>
-    private string Verdict(MapAnalysis found)
-    {
-        switch (found.Finding)
-        {
-            case MapFinding.Circle:
-                // The one that gets somewhere, and the story is allowed to know.
-                _state.SetFlag("SidneyMapCircle");
-
-                return Say("MapCircleConfirmNote").Replace(
-                    "%s", SidneyMap.Coordinates(found.Centre), StringComparison.Ordinal);
-
-            case MapFinding.Rectangle:
-                _state.SetFlag("SidneyMapRectangle");
-
-                return Say("MapRectNote");
-
-            case MapFinding.Line:
-                return LineNote();
-
-            case MapFinding.Several:
-                return Say("MapSeveralPossNote");
-
-            case MapFinding.TooFew:
-                return Say("EnterPointsNote");
-
-            default:
-                return Say("MapIndeterminateNote");
-        }
     }
 
     /// <summary>
@@ -2289,16 +2203,9 @@ public sealed class SidneyMachine
             }
         }
 
-        // What is left is measured again, because taking a place back changes the answer as
-        // surely as adding one does.
-        MapAnalysis found = Map.Analyse();
+        Map.Analyse();
 
-        return new SidneyResult(
-            Map.Points.Count == 0
-                ? Say("EnterPointsNote")
-                : found.Finding == MapFinding.TooFew
-                    ? Say("MapIndeterminateNote")
-                    : Verdict(found));
+        return new SidneyResult(Say("EnterPointsNote"));
     }
 
     private SidneyResult Ruled()

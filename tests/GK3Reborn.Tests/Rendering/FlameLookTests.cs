@@ -17,6 +17,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// A look at the three fires, written out as pictures.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class FlameLookTests
 {
     [Fact(Explicit = true)]

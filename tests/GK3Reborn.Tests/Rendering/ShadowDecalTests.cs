@@ -14,6 +14,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// the flag, each a white picture with the mark painted dark on it, and each meant to be
 /// multiplied into what it lies over rather than drawn as a slab in front of it.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class ShadowDecalTests
 {
     private static bool HasDevice()

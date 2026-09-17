@@ -19,6 +19,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for the fog lying in a room, and for the pass that marches it.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class FogTests
 {
     // --- which rooms have any -------------------------------------------------------------

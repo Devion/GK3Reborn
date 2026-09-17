@@ -572,6 +572,12 @@ public sealed unsafe class D3D12Context : IDisposable
                 (void**)_oneShotList.GetAddressOf()),
             "create the one-shot command list");
 
+        // A runtime can report success and hand back nothing; say so rather than fault on the first call.
+        if (_oneShotList.Handle == null)
+        {
+            throw new D3D12Exception($"{chosen.Name} created no command list.");
+        }
+
         // A command list is created open and BeginOneShot resets it, which a list must be
         // closed to allow. Closing it here is what makes the first BeginOneShot legal.
         D3D12Exception.ThrowIfFailed(_oneShotList.Close(), "close the one-shot command list");

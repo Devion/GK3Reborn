@@ -35,11 +35,8 @@ public sealed record SavedFigure(
     IReadOnlyList<string> Points,
     bool Fixed = false)
 {
-    /// <summary>A figure saved before figures kept their own places.</summary>
-    public SavedFigure(string shape, float x, float y, float size, float turn)
-        : this(shape, x, y, size, turn, [])
-    {
-    }
+    /// <summary>The places it was fitted to; empty for a figure saved before figures kept them.</summary>
+    public IReadOnlyList<string> Points { get; init; } = Points ?? [];
 }
 
 /// <summary>What an actor is carrying, and which of it is in hand.</summary>

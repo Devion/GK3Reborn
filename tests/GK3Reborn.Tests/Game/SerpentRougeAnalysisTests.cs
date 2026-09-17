@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Sidney;
 using Xunit;
@@ -719,5 +719,21 @@ public sealed class SerpentRougeAnalysisTests
         Assert.True(state.GetFlag("Sagittarius"));
 
         Assert.Equal(12, state.GetVariable("LSRState"));
+    }
+
+
+    /// <summary>The meridian line takes its second mark anywhere along it, such as where it touches the circle.</summary>
+    [Fact]
+    public void The_meridian_line_takes_a_mark_where_it_touches_the_circle()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        SolveThrough(sidney, state, "Aries");
+
+        sidney.Mark(SerpentRougeAnalysis.Serres);
+        sidney.Mark(new Vector2(868, 226));
+        Analyse(sidney);
+
+        Assert.True(state.GetFlag("PlacedMeridianLine"));
+        Assert.Empty(sidney.Map.Points);
     }
 }

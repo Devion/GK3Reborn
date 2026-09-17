@@ -232,6 +232,21 @@ public sealed class SaveStoreTests : IDisposable
     }
 
     [Fact]
+    public void A_save_with_a_figure_on_sidneys_map_reads_back()
+    {
+        var state = new GameState { Location = "R25", Ego = "GRACE", Timeblock = new Timeblock(3, 5, IsAfternoon: true) };
+        state.SidneyMap = new SavedMap(["676,672"], [new SavedFigure("Circle", 676, 672, 484, 0, ["267,415"], Fixed: true)], 8, GridFixed: true);
+
+        Assert.True(Store.Write("slot-04", state.Capture("lsr")));
+
+        SaveGame? read = Store.Read("slot-04", out SaveFault fault);
+
+        Assert.Equal(SaveFault.None, fault);
+        Assert.True(read!.SidneyFigures[0].Fixed);
+        Assert.Single(Store.List());
+    }
+
+    [Fact]
     public void An_empty_slot_is_missing_rather_than_broken()
     {
         Assert.Null(Store.Read("slot-09", out SaveFault fault));

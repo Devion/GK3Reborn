@@ -19,6 +19,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// Tests for the smoke and embers a fire gives off, and for the one blended pass that
 /// draws them.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class ParticleTests
 {
     private static bool HasDevice()

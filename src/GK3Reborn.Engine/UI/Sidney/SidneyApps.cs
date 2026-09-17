@@ -1479,7 +1479,24 @@ public static class SidneyApps
             float side = MathF.Min(below.Z * 0.52f, below.W);
             Vector4 into = plate.Fit(below.X, below.Y, side);
 
-            surface.Draw(plate, into);
+            // A shape found in a picture is drawn over that picture, as the original does, not in place of it.
+            if (SidneyPictures.Overlays(named) && SidneyPictures.Of(showing) is { } plain && surface.Art(plain + ".BMP") is { Drawn: true } under)
+            {
+                Vector4 place = SidneyPictures.OverlayPlacement(named) ?? new Vector4(0, 0, under.Width, under.Height);
+                float left = MathF.Min(0, place.X), top = MathF.Min(0, place.Y);
+                float wide = MathF.Max(under.Width, place.X + place.Z) - left, high = MathF.Max(under.Height, place.Y + place.W) - top;
+                float scale = side / MathF.Max(wide, high);
+                float x0 = below.X + ((side - (wide * scale)) / 2) - (left * scale), y0 = below.Y + ((side - (high * scale)) / 2) - (top * scale);
+
+                into = new Vector4(x0, y0, under.Width * scale, under.Height * scale);
+                surface.Draw(under, into);
+                surface.Draw(plate, new Vector4(x0 + (place.X * scale), y0 + (place.Y * scale), place.Z * scale, place.W * scale));
+            }
+            else
+            {
+                surface.Draw(plate, into);
+            }
+
             surface.Frame(into, SidneyPalette.Rule);
 
             below = new Vector4(

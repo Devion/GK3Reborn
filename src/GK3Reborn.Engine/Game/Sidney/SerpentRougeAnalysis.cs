@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -566,13 +566,13 @@ public static class SerpentRougeAnalysis
 
     private static SerpentRougeOutcome CheckMeridianLine(SidneyMap map, GameState story, ScoreEvents? scores)
     {
-        if (!map.HasNear(Serres) || !map.HasNear(Meridian))
+        if (!map.HasNear(Serres) || OnMeridianLine(map) is not { } along)
         {
             return SerpentRougeOutcome.Nothing;
         }
 
         map.TakeNear(Serres);
-        map.TakeNear(Meridian);
+        map.TakeNear(along, 1f);
         map.Remove(MapShape.Line);
 
         // Marked again after the first time, the places just go; only the first gets a word.
@@ -589,6 +589,26 @@ public static class SerpentRougeAnalysis
         // "Oh yeah, that's what the riddle means." Taurus is not done: the square has to
         // be turned to it.
         return new SerpentRougeOutcome(true, "MapLine2Note", Cues: [Say("02O3H2ZQB2")]);
+    }
+
+    /// <summary>A mark anywhere along the line from Serres through the meridian point, which the retail took only at that point.</summary>
+    private static Vector2? OnMeridianLine(SidneyMap map)
+    {
+        Vector2 direction = Vector2.Normalize(Meridian - Serres);
+
+        foreach (Vector2 mark in map.Points.Concat(map.Laid.Where(l => !l.Fixed).SelectMany(l => l.Points)))
+        {
+            Vector2 offset = mark - Serres;
+            float along = Vector2.Dot(offset, direction);
+            float across = MathF.Abs((offset.X * direction.Y) - (offset.Y * direction.X));
+
+            if (along > SidneyMap.NearEnough * 2 && across < SidneyMap.NearEnough)
+            {
+                return mark;
+            }
+        }
+
+        return null;
     }
 
     private static SerpentRougeOutcome CheckTaurus(SidneyMap map, GameState story, ScoreEvents? scores)

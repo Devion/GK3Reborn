@@ -336,6 +336,15 @@ public sealed class SidneyView
 
         surface.Hit("sidney:home", home);
 
+        // The inventory, so the poem can be read while Sidney is open, as the original allows.
+        string pockets = machine.Words.Own("Pockets");
+        var bag = new Vector4(home.X + home.Z + inset, home.Y, surface.Measure(pockets) + surface.Em(20), row);
+
+        surface.Fill(bag, surface.Over(bag) ? SidneyPalette.PanelLit : SidneyPalette.Panel);
+        surface.Frame(bag, SidneyPalette.Rule);
+        surface.Write(pockets, bag.X + surface.Em(10), bag.Y + ((row - surface.Line) / 2), SidneyPalette.Ink);
+        surface.Hit("open:inventory", bag);
+
         // The way out, on the right, and the clock beside it.
         var power = new Vector4(bar.X + bar.Z - inset - row, bar.Y + inset, row, row);
         bool leaving = surface.Over(power);

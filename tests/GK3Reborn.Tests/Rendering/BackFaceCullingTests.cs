@@ -12,6 +12,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// Tests for drawing the room's own surfaces only on the side they face.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class BackFaceCullingTests
 {
     private static bool HasDevice()

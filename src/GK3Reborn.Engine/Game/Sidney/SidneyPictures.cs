@@ -1,4 +1,4 @@
-// Copyright (C) 2026 the GK3Reborn authors.
+﻿// Copyright (C) 2026 the GK3Reborn authors.
 //
 // This program is free software: you can redistribute it and/or modify it under the terms
 // of the GNU General Public License as published by the Free Software Foundation, either
@@ -80,6 +80,21 @@ public static class SidneyPictures
 
         return Of(file);
     }
+
+    /// <summary>Whether a result picture is a shape drawn over the file's own picture.</summary>
+    /// <param name="picture">The result picture's name.</param>
+    /// <returns>True for the geometry results.</returns>
+    public static bool Overlays(string picture) => picture.StartsWith("GEOM", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Where a geometry result sits over the painting, in the painting's pixels from its top left; null lies exactly over it.</summary>
+    /// <param name="picture">The result picture's name.</param>
+    /// <returns>Left, top, width and height, as the retail engine placed them.</returns>
+    public static System.Numerics.Vector4? OverlayPlacement(string picture) => picture.ToUpperInvariant() switch
+    {
+        "GEOMPOUSSINFINAL" => new System.Numerics.Vector4(-8, -68, 431, 350),
+        "GEOMTENNIERSFINAL" => new System.Numerics.Vector4(0, -20, 464, 350),
+        _ => null,
+    };
 
     /// <summary>
     /// The four hermetic symbols, in the order the mail's own lines describe them.

@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -97,6 +97,10 @@ public static partial class Application
         {
             case "close":
                 story.Screens.Back();
+                break;
+
+            case "open" when parts.Length > 1 && parts[1] == "inventory":
+                story.Screens.Show(new Screen(ScreenKind.Inventory));
                 break;
 
             // A verse of Le Serpent Rouge: the close-up becomes the verse's, so that the verbs along the foot are the verse's own — READ, THINK, the.

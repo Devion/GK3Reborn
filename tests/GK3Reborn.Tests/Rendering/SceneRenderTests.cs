@@ -12,6 +12,7 @@ namespace GK3Reborn.Tests.Rendering;
 /// <summary>
 /// End-to-end render tests for the mesh pipeline.
 /// </summary>
+[Collection(GpuTests.Name)]
 public sealed class SceneRenderTests
 {
     private static bool HasDevice()

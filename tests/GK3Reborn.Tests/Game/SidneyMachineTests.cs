@@ -56,6 +56,25 @@ public sealed class SidneyMachineTests
     }
 
     [Fact]
+    public void The_second_parchment_in_french_gives_grace_the_blue_apples_riddle_once()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.Scan("PARCHMENT_2");
+        sidney.OpenFile(sidney.Files[0]);
+        sidney.Perform(SidneyAction.AnalyseText);
+        sidney.Answer("French");
+
+        Assert.True(state.Inventory.Has("GRACE", "BLUE_APPLES_RIDDLE"));
+        Assert.Equal("02OCR2Z4L3", sidney.TakeCue()!.Plate);
+
+        sidney.Perform(SidneyAction.AnalyseText);
+        sidney.Answer("French");
+
+        Assert.Null(sidney.TakeCue());
+    }
+
+    [Fact]
     public void Scanning_a_parchment_is_what_makes_the_story_condition_true()
     {
         SidneyMachine sidney = Machine(out GameState state);
@@ -414,28 +433,23 @@ public sealed class SidneyMachineTests
 
 
     [Fact]
-    public void The_sunrise_line_is_the_church_and_the_ruin_not_a_coincidence_of_geometry()
+    public void The_sunrise_line_is_only_confirmed_by_analyse_and_grace_says_so()
     {
-        // "A straight line marked between the two points intersects with meridian and point
-        // 'Arques'" is what the game says about the line from the church at
-        // Rennes-le-Château over the ruin at Blanchefort. Testing that by geometry refuses
-        // the right answer: on this survey the line misses Arques by a hundred and twelve
-        // pixels, because the map is drawn rather than surveyed. What the note is about is
-        // which two places were picked.
-        SidneyMachine sidney = Machine(out _);
+        SidneyMachine sidney = Machine(out GameState state);
 
         Opened(sidney, "MAP");
-        sidney.Mark(SidneyMap.Church);
-        sidney.Mark(SidneyMap.Blanchefort);
+        sidney.Mark(SerpentRougeAnalysis.Ruin + new Vector2(15, -12));
+        sidney.Mark(SerpentRougeAnalysis.Church + new Vector2(-9, 14));
+
+        // Marking alone confirms nothing.
+        Assert.DoesNotContain("Arques", sidney.Showing!.Text, StringComparison.Ordinal);
+        Assert.False(state.GetFlag("Aquarius"));
+
+        sidney.Perform(SidneyAction.Analyse);
 
         Assert.Contains("Arques", sidney.Showing!.Text, StringComparison.Ordinal);
-
-        // Either way round, and near enough for a click by eye.
-        sidney.Perform(SidneyAction.ClearPoints);
-        sidney.Mark(SidneyMap.Blanchefort + new Vector2(15, -12));
-        sidney.Mark(SidneyMap.Church + new Vector2(-9, 14));
-
-        Assert.Contains("Arques", sidney.Showing!.Text, StringComparison.Ordinal);
+        Assert.True(state.GetFlag("Aquarius"));
+        Assert.Equal("02O3H2Z7F3", sidney.TakeCue()!.Plate);
     }
 
     [Fact]
