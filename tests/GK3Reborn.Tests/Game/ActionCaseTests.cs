@@ -233,6 +233,18 @@ public sealed class ActionCaseTests
         Assert.Equal("GetFlag(\"Asmodeus\") && IsCurrentEgo(\"GRACE\")", file.Cases["LOOKED_UP_ASMODEUS_ON_SIDNEY"]);
     }
 
+    /// <summary>The poem answers THINK with Grace's thought on the verse in hand.</summary>
+    [Fact]
+    public void Thinking_about_the_poem_is_a_rule_of_the_inventory()
+    {
+        NvcFile file = NvcFile.Parse("LSR, LOOK, GRACE_ALL_INV, script={}", "INV_ALL.NVC", new DiagnosticBag());
+
+        NvcAction think = Assert.Single(file.Actions, a => a.Noun == "LSR" && a.Verb == "THINK");
+
+        Assert.Equal("ThinkAboutSerpentRouge();", think.Script);
+        Assert.Contains("CanThinkAboutSerpentRouge()", file.Cases[think.Case]);
+    }
+
     [Fact]
     public void A_case_ending_in_a_semicolon_is_still_an_expression()
     {

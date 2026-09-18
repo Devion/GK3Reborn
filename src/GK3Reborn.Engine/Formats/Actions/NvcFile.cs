@@ -139,6 +139,16 @@ public sealed partial class NvcFile
             }
         }
 
+        foreach ((string file, string line, string caseName, string expression) in Additions)
+        {
+            if (Path.GetFileName(name).Equals(file, StringComparison.OrdinalIgnoreCase) &&
+                TryParseAction(line, $"{name}:port", out NvcAction? added))
+            {
+                actions.Add(added);
+                cases[caseName] = expression;
+            }
+        }
+
         foreach ((string file, string caseName, string shipped, string corrected) in Corrections)
         {
             if (Path.GetFileName(name).Equals(file, StringComparison.OrdinalIgnoreCase)
@@ -150,6 +160,13 @@ public sealed partial class NvcFile
 
         return new NvcFile(name, actions, cases);
     }
+
+    // Port-added rules: THINK on the poem gives Grace's thought on the verse in hand, which retail kept behind its hint button.
+    private static readonly (string File, string Line, string Case, string Expression)[] Additions =
+    [
+        ("INV_ALL.NVC", "LSR, THINK, SERPENT_ROUGE_THOUGHT, script={ThinkAboutSerpentRouge();}",
+            "SERPENT_ROUGE_THOUGHT", "IsTopLayerInventory() && CanThinkAboutSerpentRouge()"),
+    ];
 
     // Shipped case expressions that are plainly wrong, replaced only while they still read as shipped.
     private static readonly (string File, string Case, string Shipped, string Corrected)[] Corrections =

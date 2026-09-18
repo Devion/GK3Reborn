@@ -1999,13 +1999,6 @@ public static partial class Application
                 menu = null;
             }
 
-            // The hint button: Grace thinks aloud about the verse in hand.
-            else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) && hud?.ButtonAt(pointer) == "sidney:hint" &&
-                sidney is not null && !update.Acting)
-            {
-                sidney.Hint();
-            }
-
             // The top bar's two buttons, which are the only way in that a player who has not read a key list will find.
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) && hud?.ButtonAt(pointer) is { Length: > 0 } opening &&
                 story.Screens.InventoryReachable)
@@ -2198,8 +2191,7 @@ public static partial class Application
                             .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs)) .Select(a => a.LocalizedVerb)],
                         window.IsHeld(Platform.CameraAction.ShowHotspots) ? OnScreen( interaction.Nouns(), view, window.FramebufferWidth,
                                 window.FramebufferHeight) : null, icons, verbIcons, (api.Mechanism as Game.Mechanisms.CoordinateDevice)?.Reading(),
-                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair, own,
-                        sidney?.CanHint == true),
+                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair, own),
                     window.FramebufferWidth, window.FramebufferHeight);
 
                 renderer.SetOverlay(hud.Overlay);

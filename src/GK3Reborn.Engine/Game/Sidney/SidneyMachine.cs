@@ -404,12 +404,12 @@ public sealed class SidneyMachine
         }
     }
 
-    /// <summary>Whether the hint button offers Grace a thought on Le Serpent Rouge (retail: Grace, with the poem, up to 312P).</summary>
-    public bool CanHint =>
+    /// <summary>Whether Grace has a thought on Le Serpent Rouge (retail: Grace, with the poem, up to 312P).</summary>
+    public bool CanThink =>
         !Gabriel && _state.Inventory.Has(_state.Ego, "LSR") && Index <= 14 && DrivingMap.SerpentRougeSigns(_state) < 13;
 
-    /// <summary>Grace's thought on the verse in hand, as the retail hint button has it.</summary>
-    public void Hint()
+    /// <summary>Grace's thought on the verse in hand, which the retail engine played from its hint button.</summary>
+    public void Think()
     {
         if (!_state.Inventory.Has(_state.Ego, "LSR"))
         {

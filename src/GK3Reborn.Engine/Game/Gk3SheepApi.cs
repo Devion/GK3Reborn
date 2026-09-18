@@ -899,6 +899,15 @@ public sealed class Gk3SheepApi : ISheepApi
             return SheepValue.FromInt(0);
         });
 
+        // Port-only: Grace's thought on the verse in hand, which the retail engine played from its hint button.
+        Register("CanThinkAboutSerpentRouge", _ => SheepValue.FromInt(Sidney?.CanThink == true ? 1 : 0));
+        Register("ThinkAboutSerpentRouge", _ =>
+        {
+            Sidney?.Think();
+
+            return SheepValue.FromInt(0);
+        });
+
         Register("IsTopLayerInventory", _ => SheepValue.FromInt(
             State.Screens.IsOnTop(ScreenKind.Inventory) ||
             State.Screens.IsOnTop(ScreenKind.InventoryInspect) ? 1 : 0));

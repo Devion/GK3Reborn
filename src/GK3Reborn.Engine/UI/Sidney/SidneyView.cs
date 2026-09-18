@@ -345,18 +345,6 @@ public sealed class SidneyView
         surface.Write(pockets, bag.X + surface.Em(10), bag.Y + ((row - surface.Line) / 2), SidneyPalette.Ink);
         surface.Hit("open:inventory", bag);
 
-        // The original's hint button, while Grace has Le Serpent Rouge to think about.
-        if (machine.CanHint)
-        {
-            string hint = machine.Words.Own("Hint");
-            var asking = new Vector4(bag.X + bag.Z + inset, home.Y, surface.Measure(hint) + surface.Em(20), row);
-
-            surface.Fill(asking, surface.Over(asking) ? SidneyPalette.PanelLit : SidneyPalette.Panel);
-            surface.Frame(asking, SidneyPalette.Rule);
-            surface.Write(hint, asking.X + surface.Em(10), asking.Y + ((row - surface.Line) / 2), SidneyPalette.Ink);
-            surface.Hit("sidney:hint", asking);
-        }
-
         // The way out, on the right, and the clock beside it.
         var power = new Vector4(bar.X + bar.Z - inset - row, bar.Y + inset, row, row);
         bool leaving = surface.Over(power);

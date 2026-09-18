@@ -72,19 +72,19 @@ public sealed class SerpentRougeAnalysisTests
         return sidney;
     }
 
-    /// <summary>The retail hint button: before the sunrise line, Grace wonders about RA, then where it goes once she has read about it.</summary>
+    /// <summary>Grace's thought on the poem: before the sunrise line, Grace wonders about RA, then where it goes once she has read about it.</summary>
     [Fact]
-    public void The_hint_follows_the_verse_in_hand()
+    public void Thinking_about_the_poem_follows_the_verse_in_hand()
     {
         SidneyMachine sidney = Machine(out GameState state);
 
-        sidney.Hint();
+        sidney.Think();
         Assert.Equal(["10L0M0LL31"], Lines(sidney));
 
         state.SetFlag("RA");
-        sidney.Hint();
+        sidney.Think();
         Assert.Equal(["2GLSV628D1"], Lines(sidney));
-        Assert.True(sidney.CanHint);
+        Assert.True(sidney.CanThink);
     }
 
     /// <summary>A figure a verse has settled is not laid again.</summary>
