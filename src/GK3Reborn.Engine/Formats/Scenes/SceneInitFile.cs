@@ -84,6 +84,15 @@ public sealed record SceneModel(string Name, string? Noun, string? Type, bool Hi
     public static bool IsDecal(SceneModel? model) =>
         string.Equals(model?.Type, "decal", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether the line names an object inside the room's BSP rather than a model file to load.</summary>
+    public bool IsInRoom =>
+        !string.Equals(Type, "prop", StringComparison.OrdinalIgnoreCase) &&
+        !string.Equals(Type, "gasprop", StringComparison.OrdinalIgnoreCase) &&
+        !IsDecal(this);
+
+    /// <summary>What lines merge under: a name may be both a room object and a loaded model at once.</summary>
+    public string Key => (IsInRoom ? "room:" : "file:") + Name;
+
     /// <summary>An animation that puts it into its opening pose.</summary>
     public string? InitialAnimation { get; init; }
 }
@@ -354,7 +363,7 @@ public sealed class SceneInitFile
         return cameras.Find(c => c.IsDefault) ?? (cameras.Count > 0 ? cameras[0] : null);
     }
 
-    /// <summary>The models the scene places, deduplicated by name.</summary>
+    /// <summary>The models the scene places, deduplicated by name and kind.</summary>
     /// <param name="includeConditional">Whether to include conditional sections.</param>
     /// <returns>The models.</returns>
     public IReadOnlyList<SceneModel> Models(bool includeConditional = true)
@@ -370,13 +379,14 @@ public sealed class SceneInitFile
             }
 
             bool hidden = line.HasFlag("hidden");
+            string key = new SceneModel(modelName, null, line.Value("type"), hidden).Key;
 
-            if (!models.TryGetValue(modelName, out SceneModel? seen))
+            if (!models.TryGetValue(key, out SceneModel? seen))
             {
-                order.Add(modelName);
+                order.Add(key);
             }
 
-            models[modelName] = new SceneModel(
+            models[key] = new SceneModel(
                 modelName,
                 line.Value("noun"),
                 line.Value("type"),

@@ -39,7 +39,8 @@ public static class SidneyPictures
     /// <returns>The bitmap's name without extension, or null when there is no picture.</returns>
     public static string? Of(SidneyFile? file)
     {
-        if (file is null)
+        // The Teniers card with the temple has no picture on the analyze screen.
+        if (file is null || IsTempleCard(file))
         {
             return null;
         }
@@ -65,7 +66,7 @@ public static class SidneyPictures
     {
         ArgumentNullException.ThrowIfNull(done);
 
-        if (file is null)
+        if (file is null || IsTempleCard(file))
         {
             return null;
         }
@@ -80,6 +81,9 @@ public static class SidneyPictures
 
         return Of(file);
     }
+
+    private static bool IsTempleCard(SidneyFile file) =>
+        file.Item.Equals("TENIERS_POSTCARD_TEMP", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Whether a result picture is a shape drawn over the file's own picture.</summary>
     /// <param name="picture">The result picture's name.</param>

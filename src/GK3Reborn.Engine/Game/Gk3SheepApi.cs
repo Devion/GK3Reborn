@@ -96,6 +96,9 @@ public sealed class Gk3SheepApi : ISheepApi
         // 2pm: the count says both were followed and nothing says where they went.
         DrivingTraffic.RecordWhereChasesEnded(State);
 
+        // LSRState follows the zodiac flags, as the retail refreshes it on every load.
+        Game.Sidney.SerpentRougeAnalysis.UpdateState(State);
+
         ActionSeconds = 0;
         ActingOn = string.Empty;
 

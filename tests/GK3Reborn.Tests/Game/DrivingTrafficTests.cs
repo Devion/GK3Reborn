@@ -440,16 +440,42 @@ public sealed class DrivingTrafficTests
     [Fact]
     public void The_evening_after_puts_all_three_on_the_map_regardless()
     {
-        var afternoon = new GameState { Timeblock = Block("104P"), Location = "PLO" };
+        var afternoon = new GameState { Timeblock = Block("102P"), Location = "PLO" };
 
         Assert.DoesNotContain(DrivingMap.Open(afternoon), s => s.Scene == "PL4");
         Assert.DoesNotContain(DrivingMap.Open(afternoon), s => s.Scene == "PL2");
 
-        var evening = new GameState { Timeblock = Block("106P"), Location = "PLO" };
+        var evening = new GameState { Timeblock = Block("104P"), Location = "PLO" };
 
         Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL4");
         Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL2");
         Assert.Contains(DrivingMap.Open(evening), s => s.Scene == "PL1");
+    }
+
+    /// <summary>Day 3's 2am is 202A, which the retail map counts after 205P, so Serres, the armchair and the tomb are on it.</summary>
+    [Fact]
+    public void The_night_after_the_second_day_keeps_the_places_the_afternoon_found()
+    {
+        var night = new GameState { Timeblock = Block("202A"), Location = "PLO" };
+
+        IReadOnlyList<DrivingStop> open = DrivingMap.Open(night);
+
+        Assert.Contains(open, s => s.Sprite == "dm_cse");
+        Assert.Contains(open, s => s.Sprite == "dm_arm");
+        Assert.Contains(open, s => s.Sprite == "dm_pou");
+    }
+
+    /// <summary>The hint button on the map: at 202A, Blanchefort until the manuscript is found, then home.</summary>
+    [Fact]
+    public void The_map_hint_points_at_the_manuscript_then_home()
+    {
+        var night = new GameState { Timeblock = Block("202A"), Location = "PLO" };
+
+        Assert.Equal(["dm_plo"], DrivingHints.For(night));
+
+        night.Inventory.Add(night.Ego, "BLOODLINE_MANUSCRIPT");
+
+        Assert.Equal(["dm_rlc"], DrivingHints.For(night));
     }
 
     /// <summary>The five places the map opens with are still the five it opens with.</summary>

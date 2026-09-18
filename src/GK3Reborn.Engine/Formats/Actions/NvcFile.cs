@@ -139,8 +139,25 @@ public sealed partial class NvcFile
             }
         }
 
+        foreach ((string file, string caseName, string shipped, string corrected) in Corrections)
+        {
+            if (Path.GetFileName(name).Equals(file, StringComparison.OrdinalIgnoreCase)
+                && cases.TryGetValue(caseName, out string? expression) && expression == shipped)
+            {
+                cases[caseName] = corrected;
+            }
+        }
+
         return new NvcFile(name, actions, cases);
     }
+
+    // Shipped case expressions that are plainly wrong, replaced only while they still read as shipped.
+    private static readonly (string File, string Case, string Shipped, string Corrected)[] Corrections =
+    [
+        // Copied from NOT_LOOKED_UP_ASMODEUS without dropping the "!", so Grace spoke Gabriel's lines at the Asmodeus engraving.
+        ("MS3_ALL.NVC", "LOOKED_UP_ASMODEUS_ON_SIDNEY",
+            "!GetFlag(\"Asmodeus\") && IsCurrentEgo(\"GRACE\")", "GetFlag(\"Asmodeus\") && IsCurrentEgo(\"GRACE\")"),
+    ];
 
     private static bool TryParseAction(
         string line, string source, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out NvcAction? action)

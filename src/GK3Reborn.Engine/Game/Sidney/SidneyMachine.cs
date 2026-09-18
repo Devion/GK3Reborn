@@ -266,6 +266,10 @@ public sealed class SidneyMachine
             case "EMAIL3":
                 Speak("02O570OPF1");
                 break;
+            case "EMAIL4":
+            case "EMAIL5":
+                Speak("02OXR0OPF1");
+                break;
             default:
                 break;
         }
@@ -390,7 +394,234 @@ public sealed class SidneyMachine
         {
             Speak("0264G2ZPF1");
         }
+
+        // The first file list opened on the first morning says there is nothing in it yet.
+        if (screen is SidneyScreen.Files or SidneyScreen.Analyze or SidneyScreen.Translate or SidneyScreen.Suspects &&
+            _state.Timeblock == new Timeblock(2, 7, IsAfternoon: false) && !_state.GetFlag("PlayedEmptyFilelistDialog"))
+        {
+            _state.SetFlag("PlayedEmptyFilelistDialog");
+            Speak("026Y22Z291");
+        }
     }
+
+    /// <summary>Whether the hint button offers Grace a thought on Le Serpent Rouge (retail: Grace, with the poem, up to 312P).</summary>
+    public bool CanHint =>
+        !Gabriel && _state.Inventory.Has(_state.Ego, "LSR") && Index <= 14 && DrivingMap.SerpentRougeSigns(_state) < 13;
+
+    /// <summary>Grace's thought on the verse in hand, as the retail hint button has it.</summary>
+    public void Hint()
+    {
+        if (!_state.Inventory.Has(_state.Ego, "LSR"))
+        {
+            return;
+        }
+
+        bool Has(string item) => _state.Inventory.Has(_state.Ego, item);
+        bool Flag(string name) => _state.GetFlag(name);
+        int Count(string noun, string verb) => _state.GetNounVerbCount(noun, verb);
+        bool Loose(MapShape shape) => Map.Laid.Any(l => l.Shape == shape && !l.Fixed);
+        bool Near(float x, float y) => Map.HasNear(new(x, y), 30f) || Map.HasFixedNear(new(x, y));
+
+        switch (DrivingMap.SerpentRougeSigns(_state))
+        {
+            case 0:
+                if (!Has("CHURCH_PAMPHLET"))
+                {
+                    Speak("2GLSV62OU1", 2);
+                }
+                else if (!_state.HasSidneyFile("fileMap"))
+                {
+                    Speak("2GLSV628C1");
+                }
+                else if (Flag("RA"))
+                {
+                    Speak("2GLSV628D1", 2);
+                }
+                else
+                {
+                    Speak("10L0M0LL31", 2);
+                }
+                break;
+
+            case 1:
+                if (!Flag("AnalyzedGeomParchment1") || !Flag("AnalyzedGeomParchment2") || !Shapes.Contains(MapShape.Circle))
+                {
+                    Speak("10L0S0L891");
+                    Speak("2GLSV62892");
+                    break;
+                }
+
+                bool places = Near(267, 415) && Near(403, 273) && Near(300, 982) && Near(990, 1042);
+
+                if (Loose(MapShape.Circle))
+                {
+                    Speak(places ? "2GLSV62RK1" : "2GLSV62R01");
+                }
+                else if (places)
+                {
+                    Speak("2GLSV62QO1");
+                }
+                else
+                {
+                    Speak("2GLSV628E1", 2);
+                }
+                break;
+
+            case 2:
+                if (!Flag("Quaternity") && !Flag("StMichael"))
+                {
+                    Speak("2GLSV628J1");
+                }
+                else if (Loose(MapShape.Square))
+                {
+                    Speak("2GLSV62SD1");
+                }
+                else
+                {
+                    Speak("2GLSV628M1", 2);
+                }
+                break;
+
+            case 3:
+                if (Flag("PlacedMeridianLine"))
+                {
+                    Speak("2GLSV628V1");
+                }
+                else if (Count("BLUE_APPLES_RIDDLE", "THINK") > 0)
+                {
+                    Speak("2GLSV62Y41");
+                }
+                else
+                {
+                    Speak("2GLSV628R1", 2);
+
+                    if (Has("BLUE_APPLES_RIDDLE"))
+                    {
+                        Speak("2GLSV628R3");
+                    }
+                }
+
+                break;
+
+            case 4:
+            case 5:
+                Speak(Flag("Chessboard") || Count("CHESSBOARD", "THINK") > 0 ? "2GLSV62921" : "2GLSV62901");
+                break;
+
+            case 6:
+                bool used = Count("CAVE_OPENING", "TENIERS_POSTCARD_NO_TEMP") > 0;
+
+                if ((!Has("POUSSIN_POSTCARD") && !_state.HasSidneyFile("filePainting1")) ||
+                    (!Has("TENIERS_POSTCARD_NO_TEMP") && !_state.HasSidneyFile("filePainting3")))
+                {
+                    Speak("10LCI0L8B1");
+                }
+                else if (!Flag("AnalyzedBasePainting3") && !used)
+                {
+                    Speak("2GLSV629B1");
+                }
+                else if (Flag("AnalyzedGeomPainting1") && Flag("AnalyzedGeomPainting3"))
+                {
+                    Speak(used ? "10LCI0LB91" : "2GLSV62NH1", used ? 1 : 2);
+                }
+                else
+                {
+                    Speak("2GLSV62Y91");
+                    Speak("2GLSV62892");
+                }
+
+                break;
+
+            case 7:
+                if (!Flag("TempleFloorplan"))
+                {
+                    Speak("2GLSV629E1");
+                }
+                else if (Count("CAVE", "EXIT_UP") == 0 && Count("TENIERS_POSTCARD_NO_TEMP", "THINK") == 0)
+                {
+                    Speak("2GLSV629F1", 2);
+                }
+                else
+                {
+                    Speak("2GLSV629F1");
+                    Speak("2GLSV629L1");
+                }
+
+                break;
+
+            case 8:
+                if (Flag("Hexagram"))
+                {
+                    Speak("2GLSV627H1", 2);
+                }
+                else
+                {
+                    Speak("2GLSV629V1");
+                }
+                break;
+
+            case 9:
+                if (Index < 14)
+                {
+                    Speak("2G1SV621N1");
+                }
+                else if (!Flag("OpenedTempleDiagram") && !Flag("PlacedTempleDivisions"))
+                {
+                    Speak("2GLSV62R61");
+                }
+                else if (Flag("PlacedTempleDivisions"))
+                {
+                    Speak("2GLSV62R91", 2);
+                }
+                else
+                {
+                    Speak("10L7M0LR72");
+                }
+                break;
+
+            case 10:
+                if (!Flag("SavedArcadiaText"))
+                {
+                    Speak("2GLSV62TG1");
+                }
+                else if (!_state.HasSidneyFile("fileSUMNote") && !Flag("ArcadiaComplete"))
+                {
+                    Speak("2GLSV62TH1", 2);
+                }
+                else if (!Flag("ArcadiaTranslated"))
+                {
+                    Speak("2GLSV62RM1", 2);
+                }
+                else if (!Flag("ArcadiaComplete"))
+                {
+                    Speak(Flag("StartArcadiaAnagram") ? "2GLSV62AH1" : "2GLSV62TH1");
+                }
+                else if (Flag("StartArcadiaAnagram"))
+                {
+                    Speak("2GLSV62AG1", 2);
+                }
+                else
+                {
+                    Speak("107DX0LRR1");
+                    Speak("2GLSV62RR2");
+                }
+
+                break;
+
+            case 11:
+                Speak("2GLSV62AO1");
+                break;
+
+            case 12:
+                Speak("1072W0LAX1");
+                break;
+        }
+    }
+
+    /// <summary>The retail engine's timeblock number, which counts 202A after 205P.</summary>
+    private int Index => Story.TimeblockRules.Order(_state.Timeblock) + 1;
+
+    private bool Gabriel => string.Equals(_state.Ego, "GABRIEL", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The line Gabriel says instead of opening a screen, or null when he will.</summary>
     /// <param name="screen">Which screen was pressed.</param>
@@ -566,12 +797,10 @@ public sealed class SidneyMachine
                 break;
 
             case SidneyKind.Teniers:
-                actions.Add(SidneyAction.ViewGeometry);
-
-                // Only the one with no temple in it. The pair differ by a building painted
-                // out, and the verse heading the zoom reads is on that one alone.
+                // Only the one with no temple in it; the other has nothing to find.
                 if (Is(file, "TENIERS_POSTCARD_NO_TEMP"))
                 {
+                    actions.Add(SidneyAction.ViewGeometry);
                     actions.Add(SidneyAction.ZoomAndClarify);
                 }
 
@@ -634,7 +863,7 @@ public sealed class SidneyMachine
                 SidneyKind.Parchment1 => "GeometryParch1",
                 SidneyKind.Parchment2 => "GeometryParch2",
                 SidneyKind.Poussin => "GeometryPous",
-                SidneyKind.Teniers => "GeometryTenier2",
+                SidneyKind.Teniers => TeniersGeometry(file),
                 _ => "AnalyzeTemp",
             }),
             // Two different things under one menu item, which is what the original has:
@@ -642,7 +871,7 @@ public sealed class SidneyMachine
             // map it turns the template laid over the country.
             SidneyAction.RotateShape => file.Kind == SidneyKind.Map
                 ? Turned()
-                : Finished("RotateParch2"),
+                : RotatedParchment(),
             SidneyAction.ZoomAndClarify => Zoomed(file),
             SidneyAction.AnagramParser => Parsed(),
             SidneyAction.Translate => Finished("AnalyzeSUM"),
@@ -899,12 +1128,27 @@ public sealed class SidneyMachine
                 string.Join(' ', anagram.Reading().Select(w => w.Latin)) + "\n\n" +
                 $"{Say("RebusMsg")}\n{Say("TransMsg")}");
         }
+        else if (anagram.Remaining.Trim().Length == 0)
+        {
+            // Every letter used and still not it.
+            Speak("02OFT2ZBC1");
+            Showing = new SidneyResult(Say("SelectMsg"));
+        }
+        else if (anagram.Stuck)
+        {
+            // Short of three words, Grace says it is not working instead of the machine asking again.
+            if (anagram.Chosen.Count < 3)
+            {
+                Speak("02OFT2ZRO4");
+            }
+
+            Showing = new SidneyResult(anagram.Chosen.Count < 3
+                ? $"{Say("CheckingMsg")}\n{Say("NoMatchMsg")}"
+                : $"{Say("CheckingMsg")}\n{Say("NoMatchMsg")}\n{Say("TryAgain")}");
+        }
         else
         {
-            Showing = new SidneyResult(
-                anagram.Stuck
-                    ? $"{Say("CheckingMsg")}\n{Say("NoMatchMsg")}\n{Say("TryAgain")}"
-                    : Say("SelectMsg"));
+            Showing = new SidneyResult(Say("SelectMsg"));
         }
 
         return Showing;
@@ -931,6 +1175,14 @@ public sealed class SidneyMachine
     /// <param name="file">Which file, or null to close the one open.</param>
     public void OpenForTranslation(SidneyFile? file)
     {
+        // Gabriel leaves the Arcadia text to Grace.
+        if (Gabriel && file is not null && Is(file, "POUSSIN_POSTCARD"))
+        {
+            Speak("02O4Z2ZZ81");
+
+            return;
+        }
+
         Translating = file;
         Showing = null;
         Appending = false;
@@ -958,6 +1210,16 @@ public sealed class SidneyMachine
             string.Equals(From, text.Language, StringComparison.OrdinalIgnoreCase))
         {
             Award(SidneyScores.Translated(translated.Item));
+
+            // The retail engine's progress flag for each translation.
+            if (translated.Item.ToUpperInvariant() switch
+                {
+                    "ABBE_TAPE" => "TranslatedAbbeTape", "BUCHELLI_TAPE" => "TranslatedBuchTape", "I_AM_WORDS" => "TranslatedSUM",
+                    "POUSSIN_POSTCARD" => "ArcadiaTranslated", _ => null,
+                } is { } progress)
+            {
+                _state.SetFlag(progress);
+            }
 
             // Gabriel's remark on hearing each tape in English, once.
             string? remark = translated.Item.ToUpperInvariant() switch { "ABBE_TAPE" => "02OD95EPF2", "BUCHELLI_TAPE" => "02O945EPF2", _ => null };
@@ -1003,6 +1265,7 @@ public sealed class SidneyMachine
             _state.SetFlag("SavedArcadiaText");
             _state.SetFlag("ArcadiaComplete");
             Appending = false;
+            Speak("02OFS2ZPF5");
         }
 
         return Showing;
@@ -1154,6 +1417,15 @@ public sealed class SidneyMachine
     {
         Suspect = suspect;
         Showing = null;
+
+        // Before the second evening, whoever did not enter the suspects says who did, once each.
+        string seen = Gabriel ? "GabeSawSuspects" : "GraceSawSuspects";
+
+        if (suspect is not null && Index < 10 && !_state.GetFlag(seen))
+        {
+            _state.SetFlag(seen);
+            Speak(Gabriel ? "02OC52ZPF2" : "02OC52ZPF1");
+        }
     }
 
     /// <summary>
@@ -1245,6 +1517,19 @@ public sealed class SidneyMachine
         // was crediting these, so a whole afternoon of filing evidence scored zero.
         Award(SidneyScores.Linked(suspect.Index, file.Item));
 
+        // Gabriel, filing Grace's work under a suspect, says it is hers to deal with; once per file.
+        if (Gabriel && Index <= 11 && file.Kind switch
+            {
+                SidneyKind.Map => "GabeLinkedMap",
+                SidneyKind.Parchment1 => "GabeLinkedParchment1",
+                SidneyKind.Parchment2 => "GabeLinkedParchment2",
+                _ => null,
+            } is { } linked && !_state.GetFlag(linked))
+        {
+            _state.SetFlag(linked);
+            Speak("02TX54DPF1");
+        }
+
         Showing = new SidneyResult($"{file.Label} linked to {suspect.Name}.");
 
         return Showing;
@@ -1284,6 +1569,15 @@ public sealed class SidneyMachine
             Showing = new SidneyResult(Ask("NoSuspect"));
 
             return Showing;
+        }
+
+        // A link the evidence settled stays: the suspect's own print, their licence, a print matched to them.
+        if ((SidneyScores.OwnPrint(suspect.Index) is { } own && Is(file, own)) || Identifies(suspect, file) is not null ||
+            (SidneyScores.Identifies(file.Item) == suspect.Index && _state.GetFlag($"Matched{suspect.Noun}")))
+        {
+            Speak(Gabriel ? "2FL8S27AS1" : "02O9H7Z411");
+
+            return Showing ?? new SidneyResult(string.Empty);
         }
 
         _state.ClearFlag(Link(suspect, file));
@@ -1549,7 +1843,6 @@ public sealed class SidneyMachine
         (SidneyKind.Parchment1, [MapShape.Circle]),
         (SidneyKind.Parchment2, [MapShape.Square, MapShape.Circle]),
         (SidneyKind.Poussin, [MapShape.Triangle, MapShape.Hexagram]),
-        (SidneyKind.Teniers, [MapShape.Square]),
     ];
 
     /// <summary>
@@ -1567,6 +1860,22 @@ public sealed class SidneyMachine
         }
 
         Choosing = false;
+
+        // A figure a verse has settled is not laid twice (the square once turned: the port turns it by picking it up), and the hexagram waits on the walls.
+        if (shape switch { MapShape.Circle => "LockedCircle", MapShape.Square => "LockedSquare", MapShape.Hexagram => "LockedHexagram", _ => null }
+            is { } settled && _state.GetFlag(settled))
+        {
+            Speak("02O0I27731");
+
+            return Showing ?? new SidneyResult(string.Empty);
+        }
+
+        if (shape == MapShape.Hexagram && DrivingMap.SerpentRougeSigns(_state) >= 8 && !_state.GetFlag("PlacedWalls"))
+        {
+            Speak("02O1K2ZIM1");
+
+            return Showing ?? new SidneyResult(string.Empty);
+        }
 
         // <b>Choosing a figure never throws one away.</b> Pressing the same button again
         // used to take the figure off and its places with it, which is a lot to lose to a
@@ -2210,10 +2519,18 @@ public sealed class SidneyMachine
 
     private SidneyResult Ruled()
     {
-        // The list of sizes the game offers, rather than one size chosen for the player.
+        // The chessboard is down; there will not be another.
+        if (_state.GetFlag("PlacedGrid"))
+        {
+            Speak("02O0I27731");
+
+            return new SidneyResult(string.Empty);
+        }
+
+        // The list of sizes the game offers, rather than one size chosen for the player; asked again, it is put away.
         if (Map.Grid == 0)
         {
-            Ruling = true;
+            Ruling = !Ruling;
 
             return new SidneyResult(Say("GridList"));
         }
@@ -2233,6 +2550,13 @@ public sealed class SidneyMachine
 
     private SidneyResult Unruled()
     {
+        if (_state.GetFlag("PlacedGrid"))
+        {
+            Speak("02OD32Z931");
+
+            return new SidneyResult(string.Empty);
+        }
+
         if (!Map.EraseGrid())
         {
             return new SidneyResult(Say("NoGridEraseNote"));
@@ -2251,7 +2575,7 @@ public sealed class SidneyMachine
         SidneyKind.Parchment1 => "AnalyzeParch1",
         SidneyKind.Parchment2 => "AnalyzeParch2",
         SidneyKind.Poussin => "AnalyzePous",
-        SidneyKind.Teniers => "GeometryTenier1",
+        SidneyKind.Teniers => TeniersAnalysed(file),
         SidneyKind.Symbols => "AnalyzeHermNote",
         SidneyKind.Note => "AnalyzeSUM",
         SidneyKind.KnownPrint => "AnalyzeKPrint",
@@ -2301,6 +2625,47 @@ public sealed class SidneyMachine
         string said = _library.Say(key, "Analyze Screen");
 
         return said.Length > 0 ? said : _library.Say(key);
+    }
+
+    /// <summary>Turning parchment 2's device, which spells SION.</summary>
+    private SidneyResult RotatedParchment()
+    {
+        Speak("02OEV2Z4L1");
+
+        return Finished("RotateParch2");
+    }
+
+    /// <summary>What analysing a Teniers postcard says: only the one with no temple has anything in it.</summary>
+    private string TeniersAnalysed(SidneyFile file)
+    {
+        if (!Is(file, "TENIERS_POSTCARD_NO_TEMP"))
+        {
+            return "AnalyzeTemp";
+        }
+
+        if (!_state.GetFlag("AnalyzedBasePainting3"))
+        {
+            Speak("02O3H2ZQ32");
+            _state.SetFlag("AnalyzedBasePainting3");
+        }
+
+        return "AnalyzePous";
+    }
+
+    /// <summary>The end of the Teniers geometry analysis, and Grace's remark on it the first time.</summary>
+    private string TeniersGeometry(SidneyFile file)
+    {
+        if (!Is(file, "TENIERS_POSTCARD_NO_TEMP"))
+        {
+            return "AnalyzeTemp";
+        }
+
+        if (!_state.GetFlag("AnalyzedGeomPainting3"))
+        {
+            Speak("02O2F2ZQ37", 2);
+        }
+
+        return "GeometryTenier5";
     }
 
     private void Record(SidneyFile file, SidneyAction action)

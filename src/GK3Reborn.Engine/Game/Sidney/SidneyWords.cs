@@ -182,6 +182,15 @@ public sealed class SidneyWords
             "O SCHATGPT vai terminar o mapa: a linha do nascer do sol, o círculo, o quadrado "
                 + "à volta e o tabuleiro de xadrez por cima.",
         ],
+        ["Hint"] =
+        [
+            "Hint",
+            "Tipp",
+            "Pista",
+            "Indice",
+            "Aiuto",
+            "Dica",
+        ],
         ["Pockets"] =
         [
             "Pockets",

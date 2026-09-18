@@ -216,6 +216,23 @@ public sealed class ActionCaseTests
         Assert.All(file.Actions, a => Assert.Equal("wait StartVoiceOver(\"10P7544PF1\",1);", a.Script));
     }
 
+    /// <summary>MS3's Grace case for after the Sidney page lost none of its "!" and so never held once she had read it.</summary>
+    [Fact]
+    public void The_asmodeus_case_for_after_the_sidney_page_asks_for_the_flag()
+    {
+        NvcFile file = NvcFile.Parse(
+            """
+            ASMODEUS, LOOK, LOOKED_UP_ASMODEUS_ON_SIDNEY, script={}
+
+            [LOGIC]
+            LOOKED_UP_ASMODEUS_ON_SIDNEY      ={!GetFlag("Asmodeus") && IsCurrentEgo("GRACE")}
+            """,
+            "MS3_ALL.NVC",
+            new DiagnosticBag());
+
+        Assert.Equal("GetFlag(\"Asmodeus\") && IsCurrentEgo(\"GRACE\")", file.Cases["LOOKED_UP_ASMODEUS_ON_SIDNEY"]);
+    }
+
     [Fact]
     public void A_case_ending_in_a_semicolon_is_still_an_expression()
     {

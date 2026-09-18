@@ -294,50 +294,54 @@ public static class SidneyMapView
         Origin = origin;
         Shown = shown;
 
-        float used = Figures(surface, machine, bounds, column);
+        float used;
 
-        // The way out of a fine motor task: the next place the survey has a cross on.
-        float assist = surface.Line + surface.Em(10);
-        var helper = new Vector4(
-            bounds.X + bounds.Z + (column * 0.08f),
-            bounds.Y + used,
-            column - (column * 0.14f),
-            assist);
-
-        surface.Button("sidney:assist", helper, "SCHATGPT");
-
-        used += assist + surface.Em(8);
-
-        // The rulings the game offers, when one has been asked for.
+        // While a grid is being chosen the choices take the column; the figures come back once one is.
         if (machine.Ruling)
         {
             float row = surface.Line + surface.Em(10);
-            float wide = column - (column * 0.16f);
-            float at = bounds.Y + used;
+            float gap = surface.Em(4);
             float x = bounds.X + bounds.Z + (column * 0.08f);
+            float wide = column - (column * 0.08f) - gap;
+            float at = bounds.Y;
 
+            // Where the grid goes: two choices, the lit one in force.
             if (machine.Map.Laid.Count > 0)
             {
-                surface.Button(
-                    "sidney:fill:shape",
-                    new Vector4(x, at, wide, row),
-                    machine.Library.Say(
-                        machine.RuleInShape ? "GridFillShape" : "GridFillScreen",
-                        "Analyze Screen"),
-                    machine.RuleInShape);
-
-                at += row + surface.Em(4);
+                surface.Button("sidney:fill:screen", new Vector4(x, at, wide, row),
+                    machine.Library.Say("GridFillScreen", "Analyze Screen"), !machine.RuleInShape);
+                at += row + gap;
+                surface.Button("sidney:fill:shape", new Vector4(x, at, wide, row),
+                    machine.Library.Say("GridFillShape", "Analyze Screen"), machine.RuleInShape);
+                at += row + (gap * 3);
             }
 
-            foreach ((int cells, string label) in machine.Grids)
+            IReadOnlyList<(int Cells, string Label)> grids = machine.Grids;
+            float half = (wide - gap) / 2;
+
+            for (int i = 0; i < grids.Count; i++)
             {
-                surface.Button(
-                    $"sidney:grid:{cells}", new Vector4(x, at, wide, row), label);
-
-                at += row + surface.Em(4);
+                surface.Button($"sidney:grid:{grids[i].Cells}",
+                    new Vector4(x + ((i % 2) * (half + gap)), at + ((i / 2) * (row + gap)), half, row), grids[i].Label);
             }
 
-            used = at - bounds.Y + surface.Em(6);
+            used = at + (((grids.Count + 1) / 2) * (row + gap)) - bounds.Y + surface.Em(6);
+        }
+        else
+        {
+            used = Figures(surface, machine, bounds, column);
+
+            // The way out of a fine motor task: the next place the survey has a cross on.
+            float assist = surface.Line + surface.Em(10);
+            var helper = new Vector4(
+                bounds.X + bounds.Z + (column * 0.08f),
+                bounds.Y + used,
+                column - (column * 0.14f),
+                assist);
+
+            surface.Button("sidney:assist", helper, "SCHATGPT");
+
+            used += assist + surface.Em(8);
         }
 
         // What the machine says, in the column beside the picture — and scrolling, because

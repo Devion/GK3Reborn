@@ -240,6 +240,17 @@ public sealed class SidneyScoreTests
             Looking(new GameState { Ego = "GRACE" }, "TENIERS_POSTCARD_NO_TEMP").Available());
     }
 
+    /// <summary>The Teniers with the temple has no picture and nothing to find; only the other has geometry.</summary>
+    [Fact]
+    public void The_Teniers_with_the_temple_has_nothing_in_it()
+    {
+        SidneyMachine temple = Looking(new GameState { Ego = "GRACE" }, "TENIERS_POSTCARD_TEMP");
+
+        Assert.Equal([SidneyAction.Analyse], temple.Available());
+        Assert.Null(SidneyPictures.Of(temple.Open));
+        Assert.Contains(SidneyAction.ViewGeometry, Looking(new GameState { Ego = "GRACE" }, "TENIERS_POSTCARD_NO_TEMP").Available());
+    }
+
     [Fact]
     public void Zooming_the_Teniers_postcard_is_worth_its_points_and_fetches_the_verse()
     {

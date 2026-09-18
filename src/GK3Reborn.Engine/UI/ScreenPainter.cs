@@ -1675,6 +1675,12 @@ public sealed class ScreenPainter
 
             Overlay.Picture(marker, bounds.X, bounds.Y, bounds.Z, bounds.W, Vector4.One);
 
+            // The hint button's places blink on and off while it runs.
+            if (view.Traffic is { HintSeconds: > 0 } hinting && hinting.Hinted.Contains(stop.Sprite) && (int)(hinting.HintSeconds * 3) % 2 == 0)
+            {
+                Ring(new Vector4(bounds.X - (3 * unit), bounds.Y - (3 * unit), bounds.Z + (6 * unit), bounds.W + (6 * unit)), unit);
+            }
+
             marked.Add((stop, bounds));
             _hits.Add(("drive:" + stop.Scene, bounds));
 
@@ -1715,6 +1721,15 @@ public sealed class ScreenPainter
             body.X + (20 * unit),
             top + mapHeight + (10 * unit),
             Dim);
+
+        // The original's hint button: the places still worth a visit blink.
+        string hint = Text.Say("driving.hintButton", "HINT");
+        float hintWidth = Overlay.Measure(hint) + (20 * unit);
+        var hintAt = new Vector4(left + mapWidth - hintWidth, top + mapHeight + (4 * unit), hintWidth, Overlay.LineHeight + (12 * unit));
+
+        Overlay.Rect(hintAt.X, hintAt.Y, hintAt.Z, hintAt.W, Inside(_pointer, hintAt) ? PanelLit : Panel);
+        Overlay.Text(hint, hintAt.X + (10 * unit), hintAt.Y + (6 * unit), Ink);
+        _hits.Add(("driving:hint", hintAt));
     }
 
     /// <summary>How wide a traveller's marker is, in the map's own pixels.</summary>

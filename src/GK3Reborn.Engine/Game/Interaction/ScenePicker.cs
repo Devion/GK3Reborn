@@ -59,7 +59,11 @@ public sealed class ScenePicker
 
         foreach (SceneModel model in scene.Definition.Models())
         {
-            declared[model.Name] = model;
+            // The room object's line describes the geometry when a loaded model shares its name.
+            if (model.IsInRoom || !declared.ContainsKey(model.Name))
+            {
+                declared[model.Name] = model;
+            }
         }
 
         if (scene.Geometry is { } bsp)
@@ -166,11 +170,32 @@ public sealed class ScenePicker
     /// <returns>The nearest thing it met, or null if it met nothing.</returns>
     public ScenePick? Pick(Ray ray, IReadOnlySet<string>? ignoring = null)
     {
+        ScenePick? nearest = Cast(ray, ignoring, float.MaxValue, sunk: false);
+
+        // A named prop lying just under a nameless room surface is taken instead of it: LER's dug X sits under the hole's lid.
+        if (nearest is { Kind: PickKind.Geometry, IsInteractive: false } lid &&
+            Cast(ray, ignoring, lid.Distance + SunkSlack, sunk: true) is { } under)
+        {
+            return under;
+        }
+
+        return nearest;
+    }
+
+    /// <summary>How far behind a nameless room surface a named prop may lie and still be clicked, in scene units.</summary>
+    private const float SunkSlack = 3f;
+
+    private ScenePick? Cast(Ray ray, IReadOnlySet<string>? ignoring, float best, bool sunk)
+    {
         ScenePick? nearest = null;
-        float best = float.MaxValue;
 
         foreach (Target target in _targets)
         {
+            if (sunk && (target.Kind != PickKind.Prop || target.Noun is not { Length: > 0 }))
+            {
+                continue;
+            }
+
             if (ignoring is { Count: > 0 } skip && skip.Contains(target.Name))
             {
                 continue;

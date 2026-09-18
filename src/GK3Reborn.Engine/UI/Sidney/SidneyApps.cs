@@ -1330,10 +1330,15 @@ public static class SidneyApps
         }
 
         float listWidth = MathF.Max(body.Z * 0.26f, MathF.Min(body.Z * 0.36f, surface.Em(110)));
-        var list = new Vector4(body.X, body.Y, listWidth, body.W);
-
         float row = surface.Line + surface.Em(12);
         float step = row + surface.Em(4);
+
+        // On the map, its everyday operations sit under the file list, so none of them hides in a menu.
+        SidneyAction[] tools = machine.Open?.Kind == SidneyKind.Map
+            ? [.. ((SidneyAction[])[SidneyAction.Analyse, SidneyAction.EnterPoints, SidneyAction.RotateShape]).Where(machine.Available().Contains)]
+            : [];
+        float toolbar = tools.Length == 0 ? 0 : (tools.Length * step) + surface.Em(12);
+        var list = new Vector4(body.X, body.Y, listWidth, body.W - toolbar);
         float offset = surface.BeginScroll("analyze", list, files.Count * step);
         float width = surface.Room(list, files.Count * step);
 
@@ -1360,6 +1365,12 @@ public static class SidneyApps
         }
 
         surface.EndScroll();
+
+        for (int i = 0; i < tools.Length; i++)
+        {
+            surface.Button($"sidney:do:{tools[i]}", new Vector4(list.X, list.Y + list.W + surface.Em(12) + (i * step), listWidth, row),
+                machine.Words.Action(tools[i]), tools[i] == SidneyAction.EnterPoints && machine.Marking);
+        }
 
         var pane = new Vector4(
             body.X + listWidth + surface.Em(12),
@@ -1457,7 +1468,6 @@ public static class SidneyApps
 
             y += row + surface.Em(6);
         }
-
         y += row + surface.Em(12);
 
         if (machine.Open?.Kind == SidneyKind.Map)

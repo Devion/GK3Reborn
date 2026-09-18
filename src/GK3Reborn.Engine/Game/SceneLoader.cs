@@ -1205,10 +1205,7 @@ public sealed class SceneLoader
     }
 
     /// <summary>Whether a model refers to geometry inside the BSP rather than a file.</summary>
-    private static bool IsBakedIn(SceneModel model) =>
-        !string.Equals(model.Type, "prop", StringComparison.OrdinalIgnoreCase) &&
-        !string.Equals(model.Type, "gasprop", StringComparison.OrdinalIgnoreCase) &&
-        !SceneModel.IsDecal(model);
+    private static bool IsBakedIn(SceneModel model) => model.IsInRoom;
 
     /// <summary>Reads the bitmap that says where actors may stand.</summary>
     /// <summary>

@@ -269,14 +269,14 @@ public sealed class SceneDefinition
 
         foreach (SceneModel model in general.Concat(specific))
         {
-            if (!merged.TryGetValue(model.Name, out SceneModel? seen))
+            if (!merged.TryGetValue(model.Key, out SceneModel? seen))
             {
-                order.Add(model.Name);
-                merged[model.Name] = model;
+                order.Add(model.Key);
+                merged[model.Key] = model;
                 continue;
             }
 
-            merged[model.Name] = ConditionsResolved
+            merged[model.Key] = ConditionsResolved
                 ? model
                 : model with
                 {

@@ -151,6 +151,13 @@ public sealed class AngelTracing : SceneMechanism
     {
         if (!Drawn(0) || !Drawn(1) || !Drawn(2) || !Drawn(3) || Drawn(4) || Drawn(5))
         {
+            // Every line drawn, diagonals too: "I'd better start over", and it is rubbed out.
+            if (_drawn.All(d => d))
+            {
+                Say(Story.Ego.StartsWith("GAB", StringComparison.OrdinalIgnoreCase) ? "18L9M0MZ82" : "18P9M0MTB1");
+                Then(HoldSeconds, () => Erase());
+            }
+
             return;
         }
 

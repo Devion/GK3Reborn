@@ -343,6 +343,10 @@ public static partial class Application
                 sidney.Home();
                 break;
 
+            case "hint":
+                sidney.Hint();
+                break;
+
             // Opening a message marks it read, which is what turns the corner's notification off.
             case "mail":
                 sidney.ReadMail(sidney.Mail().FirstOrDefault(m => m.Id == which));
@@ -385,7 +389,7 @@ public static partial class Application
                 break;
 
             case "fill":
-                sidney.RuleInShape = !sidney.RuleInShape;
+                sidney.RuleInShape = which == "shape";
                 break;
 
             case "from":

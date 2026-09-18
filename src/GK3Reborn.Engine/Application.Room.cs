@@ -1488,6 +1488,21 @@ public static partial class Application
 
                         trafficFor = opened;
 
+                        // 202A: the black sedan got away, said once over the map; the count of two is the once-mark.
+                        if (panel.Subject is null && string.Equals(story.Timeblock.ToString(), "202A", StringComparison.OrdinalIgnoreCase) &&
+                            story.GetNounVerbCount("CAR", DrivingMap.Follow) == 1)
+                        {
+                            story.IncrementNounVerbCount("CAR", DrivingMap.Follow);
+
+                            new ActionRunner(api).Run(new Formats.Actions.NvcAction
+                            {
+                                Noun = "CAR", Verb = DrivingMap.Follow, Case = "MISSED", Script = "wait StartDialogue(\"2136L3W3K1\", 2)",
+                                Source = "the map",
+                            });
+
+                            Log.Info("Missed the black sedan: 2136L3W3K1");
+                        }
+
                         if (traffic.Destination is { } riding)
                         {
                             Log.Info($"Riding from {traffic.From} to {riding}");
@@ -1669,6 +1684,12 @@ public static partial class Application
                         Enum.TryParse(chose[13..], ignoreCase: true, out Game.Sidney.MapShape picked))
                     {
                         console.Print(sidney.LayShape(picked).Text);
+                    }
+                    else if (chose == "driving:hint" && traffic is not null)
+                    {
+                        traffic.Hinted = DrivingHints.For(story);
+                        traffic.HintSeconds = DrivingHints.Seconds;
+                        Log.Info($"Driving hint: {string.Join(", ", traffic.Hinted)}");
                     }
                     else if (chose == "sidney:mark" && sidney is not null && screens.MapBounds is { Z: > 0 } drawn)
                     {
@@ -1978,6 +1999,13 @@ public static partial class Application
                 menu = null;
             }
 
+            // The hint button: Grace thinks aloud about the verse in hand.
+            else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) && hud?.ButtonAt(pointer) == "sidney:hint" &&
+                sidney is not null && !update.Acting)
+            {
+                sidney.Hint();
+            }
+
             // The top bar's two buttons, which are the only way in that a player who has not read a key list will find.
             else if (!console.Open && window.WasClicked(Platform.PointerButton.Primary) && hud?.ButtonAt(pointer) is { Length: > 0 } opening &&
                 story.Screens.InventoryReachable)
@@ -2170,7 +2198,8 @@ public static partial class Application
                             .Where(a => IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs)) .Select(a => a.LocalizedVerb)],
                         window.IsHeld(Platform.CameraAction.ShowHotspots) ? OnScreen( interaction.Nouns(), view, window.FramebufferWidth,
                                 window.FramebufferHeight) : null, icons, verbIcons, (api.Mechanism as Game.Mechanisms.CoordinateDevice)?.Reading(),
-                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair, own),
+                        artwork, Game.Radio.WornAt(story.Timeblock), topics, radioOpen, radioIndex, api.Mechanism?.Offers, crosshair, own,
+                        sidney?.CanHint == true),
                     window.FramebufferWidth, window.FramebufferHeight);
 
                 renderer.SetOverlay(hud.Overlay);

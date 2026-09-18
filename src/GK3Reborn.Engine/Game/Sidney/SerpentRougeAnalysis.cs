@@ -243,6 +243,13 @@ public static class SerpentRougeAnalysis
         {
             outcome = CheckTempleDivisions(map, story, scores);
         }
+        else if (virgo && !libra && story.GetFlag("OpenedTempleDiagram") && !story.GetFlag("PlacedTempleDivisions") &&
+                 TempleDivisions.Any(point => map.HasNear(point)))
+        {
+            // The temple's divisions before the hexagram: swept away, with Grace putting it off.
+            map.ClearPoints();
+            outcome = new SerpentRougeOutcome(true, Cues: [Say("0213H2ZR81")]);
+        }
 
         // Sagittarius may be tried at any time, and the game answers even when it is the
         // wrong time for it — the retail engine's own oddity, kept.
@@ -745,6 +752,14 @@ public static class SerpentRougeAnalysis
 
         story.SetFlag("PlacedTempleDivisions");
         Award(story, scores, "e_sidney_map_temple");
+
+        // A Site already marked is taken at once: "And now I need to mark the site itself, but I think I already have."
+        if (map.HasNear(Site))
+        {
+            SerpentRougeOutcome site = CheckSite(map, story, scores);
+
+            return new SerpentRougeOutcome(true, site.Note, Cues: [Say("02O3H2ZR82"), Say("02O3H2ZR84")]);
+        }
 
         // "That matches the temple diagram!" Progress towards Scorpio, not Scorpio.
         return new SerpentRougeOutcome(true, Cues: [Say("02O3H2ZR82")]);

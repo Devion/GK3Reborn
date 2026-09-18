@@ -124,6 +124,12 @@ public sealed class DrivingTraffic
     /// </summary>
     public bool Said { get; set; }
 
+    /// <summary>The map sprites the hint button is flashing.</summary>
+    public IReadOnlySet<string> Hinted { get; set; } = new HashSet<string>();
+
+    /// <summary>How much longer they flash, in seconds.</summary>
+    public double HintSeconds { get; set; }
+
     /// <summary>Where the player is riding to, as a scene code, or null when nowhere.</summary>
     public string? Destination { get; }
 
@@ -238,6 +244,8 @@ public sealed class DrivingTraffic
     /// <param name="seconds">How long since the last frame.</param>
     public void Advance(double seconds)
     {
+        HintSeconds = Math.Max(0, HintSeconds - seconds);
+
         float step = (float)seconds * (Moving ? Chasing : Wandering);
 
         foreach (Rider one in _riders)

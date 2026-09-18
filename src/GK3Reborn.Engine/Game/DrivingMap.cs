@@ -197,35 +197,35 @@ public sealed class DrivingMap
     /// </summary>
     private static bool Found(GameState story, DrivingStop stop)
     {
-        Timeblock now = story.Timeblock;
+        // The retail map's own order, which puts 202A after 205P; clock order would put it before 202P.
+        int now = Story.TimeblockRules.Order(story.Timeblock);
 
         return stop.Sprite switch
         {
-            // L'Ermitage, at the end of Wilkes's ride out of Blanchefort. Handed over
-            // from the evening after; during the afternoon itself only the chase earns it.
-            "dm_ler" => now > At("104P") ||
+            // L'Ermitage, at the end of Wilkes's ride out of Blanchefort; from 104P on without it.
+            "dm_ler" => now >= Index("104P") ||
                         story.GetNounVerbCount("WILKES", Follow) > 1,
 
             // Coume Sourde and L'Homme Mort, at the end of Madeleine's.
-            "dm_csd" or "dm_lhm" => now > At("104P") ||
+            "dm_csd" or "dm_lhm" => now >= Index("104P") ||
                                     story.GetNounVerbCount("BUTHANE", Follow) > 1,
 
             // Where Lady Howard and Estelle dig, at the end of theirs.
-            "dm_wod" => now >= At("307A") ||
+            "dm_wod" => now >= Index("307A") ||
                         story.GetNounVerbCount("LADY_HOWARD", Follow) > 1,
 
-            "dm_arm" or "dm_pou" or "dm_cse" => now >= At("202P"),
+            "dm_arm" or "dm_pou" or "dm_cse" => now >= Index("202P"),
 
             // The two arms of the hexagram are only worth a ride the one noon they matter.
-            "dm_bec" or "dm_mcb" => now == At("312P"),
+            "dm_bec" or "dm_mcb" => now == Index("312P"),
 
             // Orange Rock, once it has been looked at through the binoculars.
-            "dm_bmb" => now == At("303P") ||
+            "dm_bmb" => now == Index("303P") ||
                         story.GetNounVerbCount("VIEW_OF_ORANGE_ROCK", "BINOCULARS") > 0,
 
             // The Site, only that noon and only once Le Serpent Rouge has given up ten of
             // its signs — Aquarius through Scorpio — which is what puts Cardou on the map.
-            "dm_tre" => now == At("312P") && SerpentRougeSigns(story) >= 10,
+            "dm_tre" => now == Index("312P") && SerpentRougeSigns(story) >= 10,
 
             _ => false,
         };
@@ -234,6 +234,10 @@ public sealed class DrivingMap
     /// <summary>A point in the story, by its code.</summary>
     private static Timeblock At(string timeblock) =>
         Timeblock.TryParse(timeblock, out Timeblock parsed) ? parsed : throw new ArgumentException(timeblock);
+
+    /// <summary>A timeblock's place in the retail map's order, by its code.</summary>
+    private static int Index(string timeblock) =>
+        Story.TimeblockRules.Order(At(timeblock));
 
     /// <summary>
     /// The signs of Le Serpent Rouge in the order Sidney works through them.

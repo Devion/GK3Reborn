@@ -54,17 +54,49 @@ public sealed class SerpentRougeAnalysisTests
         var sidney = new SidneyMachine(SidneyLibrary.From(Text), state);
 
         // The pictures that hand over the circle, the square and the hexagram.
-        foreach (string item in new[] { "PARCHMENT_2", "TENIERS_POSTCARD_TEMP", "POUSSIN_POSTCARD" })
+        foreach (string item in new[] { "PARCHMENT_2", "TENIERS_POSTCARD_NO_TEMP", "POUSSIN_POSTCARD" })
         {
             sidney.Scan(item);
             sidney.OpenFile(sidney.Files.First(f => f.Item == item));
             sidney.Perform(SidneyAction.ViewGeometry);
         }
 
+        // What Grace says over the pictures is not the map's.
+        while (sidney.TakeCue() is not null)
+        {
+        }
+
         sidney.Scan("MAP");
         sidney.OpenFile(sidney.Files.First(f => f.Item == "MAP"));
 
         return sidney;
+    }
+
+    /// <summary>The retail hint button: before the sunrise line, Grace wonders about RA, then where it goes once she has read about it.</summary>
+    [Fact]
+    public void The_hint_follows_the_verse_in_hand()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        sidney.Hint();
+        Assert.Equal(["10L0M0LL31"], Lines(sidney));
+
+        state.SetFlag("RA");
+        sidney.Hint();
+        Assert.Equal(["2GLSV628D1"], Lines(sidney));
+        Assert.True(sidney.CanHint);
+    }
+
+    /// <summary>A figure a verse has settled is not laid again.</summary>
+    [Fact]
+    public void A_settled_circle_is_not_laid_twice()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+
+        state.SetFlag("LockedCircle");
+        sidney.LayShape(MapShape.Circle);
+
+        Assert.Equal(["02O0I27731"], Lines(sidney));
     }
 
     private static string Analyse(SidneyMachine sidney) => sidney.Perform(SidneyAction.Analyse).Text;

@@ -196,6 +196,23 @@ public sealed class SceneFileTests
         Assert.Null(untouched.Heading);
     }
 
+    /// <summary>MS2 307A hides the rack in the room and loads it as a model under the same name; both lines stand.</summary>
+    [Fact]
+    public void A_room_object_and_a_loaded_model_of_the_same_name_are_both_kept()
+    {
+        const string Text = """
+            [MODELS]
+            model=ms2_rackspin, type=prop, initanim=graMS2XTurnA
+            model=ms2_rackspin, type=scene, hidden
+            """;
+
+        IReadOnlyList<SceneModel> models = SceneInitFile.Parse(Text, "MS2.SIF").Models();
+
+        Assert.Equal(2, models.Count);
+        Assert.Contains(models, m => !m.IsInRoom && !m.Hidden && m.InitialAnimation == "graMS2XTurnA");
+        Assert.Contains(models, m => m.IsInRoom && m.Hidden);
+    }
+
     [Fact]
     public void A_later_block_refines_the_type_and_noun_of_an_earlier_one()
     {

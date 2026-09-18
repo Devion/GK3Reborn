@@ -33,12 +33,14 @@ namespace GK3Reborn.UI;
 /// <param name="Prompt">The one control the room itself is asking for, drawn large under the picture.</param>
 /// <param name="Crosshair">Whether to mark the middle of the screen, which is what the player is looking at and so what a click acts on.</param>
 /// <param name="Self">What the player can do to themselves, on numbered buttons, or null when there is nobody to right-click.</param>
+/// <param name="Hint">Whether the hint button is offered.</param>
 public readonly record struct HudState( string? Noun, IReadOnlyList<string> Verbs, string? Verb, Vector2 At, bool MenuOpen, int MenuIndex,
     Vector2 MenuAt, string? Speaker, string? Caption, IReadOnlyList<string> Inventory, string? Held, bool InventoryOpen, string Place,
     GameConsole? Console = null, string? Score = null, IReadOnlyList<string>? Items = null, IReadOnlyList<(string Noun, Vector2 At)>? Hotspots = null,
     Func<string, ItemIcon>? Icons = null, Func<string, bool, ItemIcon>? VerbIcons = null, Game.Mechanisms.GpsReading? Gps = null,
     Func<string, ItemIcon>? Pictures = null, bool RadioWorn = false, IReadOnlyList<Game.RadioTopic>? Radio = null, bool RadioOpen = false,
-    int RadioIndex = 0, Game.Mechanisms.MechanismButton? Prompt = null, bool Crosshair = false, IReadOnlyList<string>? Self = null);
+    int RadioIndex = 0, Game.Mechanisms.MechanismButton? Prompt = null, bool Crosshair = false, IReadOnlyList<string>? Self = null,
+    bool Hint = false);
 
 /// <summary>The game's interface, laid out fresh every frame.</summary>
 public sealed class GameHud
@@ -369,6 +371,12 @@ public sealed class GameHud
 
         // The two screens a player opens by hand, where the eye already goes for the score.
         right = Button( state, Text.Say("hud.journal", "Journal"), right, height, unit, "open:journal");
+
+        // The original's hint button, while Grace has Le Serpent Rouge to think about.
+        if (state.Hint)
+        {
+            right = Button( state, Text.Say("hud.hint", "Hint"), right, height, unit, "sidney:hint");
+        }
 
         Button( state, Text.Say("hud.pockets", "Pockets"), right, height, unit, "open:inventory");
     }
