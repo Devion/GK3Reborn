@@ -21,6 +21,31 @@ public readonly record struct TerrainTreeVertex(
 public readonly record struct TerrainTreePart(
     int Texture, uint FirstIndex, uint IndexCount, bool Leaves);
 
+/// <summary>A low-poly building restored to the distant terrain.</summary>
+public sealed record TerrainLandmark
+{
+    /// <summary>What to call it in diagnostics.</summary>
+    public required string Name { get; init; }
+
+    /// <summary>Its corners, in metres with its base at the origin.</summary>
+    public required TerrainTreeVertex[] Vertices { get; init; }
+
+    /// <summary>Its triangles.</summary>
+    public required uint[] Indices { get; init; }
+
+    /// <summary>Its parts, grouped by texture.</summary>
+    public required IReadOnlyList<TerrainTreePart> Parts { get; init; }
+
+    /// <summary>Where its base stands in backdrop metres.</summary>
+    public required Vector3 Position { get; init; }
+
+    /// <summary>Uniform size multiplier.</summary>
+    public required float Scale { get; init; }
+
+    /// <summary>Yaw in backdrop radians.</summary>
+    public required float Rotation { get; init; }
+}
+
 /// <summary>
 /// One of the grown trees, at one level of detail, for the backdrop to draw.
 /// </summary>
@@ -107,4 +132,7 @@ public sealed record TerrainBackdrop
 
     /// <summary>The bark and foliage those models are painted with.</summary>
     public IReadOnlyList<DecodedImage> TreeTextures { get; init; } = [];
+
+    /// <summary>Buildings restored to the skyline from the game's own room geometry.</summary>
+    public IReadOnlyList<TerrainLandmark> Landmarks { get; init; } = [];
 }

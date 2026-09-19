@@ -129,9 +129,22 @@ public sealed class SceneDefinition
                 string.Equals(c.Key, name, StringComparison.OrdinalIgnoreCase))
             ?.Camera;
 
+        // Every line the scene gives the noun, not only the one a .MOD was placed for: a
+        // noun is routinely declared on a prop *and* on the room's own geometry, and the
+        // close-up is usually keyed on the geometry. Thirteen nouns in the corpus are
+        // reached only this way, WDB's WILKES among them — its close-ups are on
+        // wdb_wilkes_body and deadwilkes_head, both BSP surfaces, while the noun's only
+        // loaded model is Wi3, a character model the scene never positions. Without this
+        // the view fell back to framing Wi3, which stands in its bind pose at the world
+        // origin, so inspecting Wilkes' body showed him on his feet in the void.
+        // Reported as such.
         return Look(key, byModel: false)
             ?? Look(key, byModel: true)
-            ?? (model is { Length: > 0 } ? Look(model, byModel: true) : null);
+            ?? (model is { Length: > 0 } ? Look(model, byModel: true) : null)
+            ?? Models()
+                .Where(m => string.Equals(m.Noun, key, StringComparison.OrdinalIgnoreCase))
+                .Select(m => Look(m.Name, byModel: true))
+                .FirstOrDefault(found => found is not null);
     }
 
     /// <summary>Any camera the scene names, of whatever kind.</summary>

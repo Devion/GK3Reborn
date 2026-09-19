@@ -129,9 +129,26 @@ public sealed class Faces
     /// </param>
     public void Say(AnimationFile? line)
     {
+        // Only the people the incoming line names are taken off what they were saying.
+        // A line that starts over another one is somebody talking *as well*, not somebody
+        // being silenced, and a mouth left running closes itself at its own last frame.
+        // The one place in the game that needs it is R33310A's pair of "Nah."s.
+        HashSet<Face>? taking = line is null ? null : [];
+
+        if (line is not null)
+        {
+            foreach (AnimationMouth cue in line.Mouths)
+            {
+                if (_faces.TryGetValue(cue.Actor, out Face? whose))
+                {
+                    taking!.Add(whose);
+                }
+            }
+        }
+
         foreach (Face face in _order)
         {
-            if (face.Line is not null)
+            if (face.Line is not null && (taking is null || taking.Contains(face)))
             {
                 face.Line = null;
                 face.Said = 0;
@@ -140,18 +157,15 @@ public sealed class Faces
             }
         }
 
-        if (line is null)
+        if (taking is null)
         {
             return;
         }
 
-        foreach (AnimationMouth cue in line.Mouths)
+        foreach (Face face in taking)
         {
-            if (_faces.TryGetValue(cue.Actor, out Face? face))
-            {
-                face.Line = line;
-                face.Said = 0;
-            }
+            face.Line = line;
+            face.Said = 0;
         }
     }
 

@@ -114,6 +114,7 @@ public sealed class ContentPackStage
         new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.r32"),
         new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.f32"),
         new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.json"),
+        new(RebarnKind.Raw, "enhanced/terrain", null, false, 0, "Reborn", "*.glb"),
 
         // **The two maps go through the encoder, and the splat is not colour.** Both are
         // always 1024 square, so decoding them cost a fixed 160 ms of every outdoor scene

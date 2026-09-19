@@ -696,9 +696,24 @@ public sealed class SidneyMachine
                 }
             }
 
+            // The inscription the zoom lifts off Poussin's tomb, which the original keeps
+            // as a file of its own. The port kept it on the painting it came off, so the
+            // only way to the translate screen and the anagram parser was to open a
+            // postcard and remember why. Reported as such.
+            if (_state.GetFlag("SavedArcadiaText"))
+            {
+                files.Add(SidneyFiles.Arcadia(Inscription));
+            }
+
             return files;
         }
     }
+
+    /// <summary>
+    /// What the saved inscription reads as, which gains its last word when it is finished.
+    /// </summary>
+    private string Inscription =>
+        Say(_state.GetFlag("ArcadiaComplete") ? "ArcadiaText" : "ArcadiaText2");
 
     /// <summary>
     /// What one of the player's things is called.
@@ -794,6 +809,11 @@ public sealed class SidneyMachine
                     actions.Add(SidneyAction.AnagramParser);
                 }
 
+                break;
+
+            // The inscription itself, which is what the original offers the parser on.
+            case SidneyKind.Note when Is(file, SidneyFiles.ArcadiaItem):
+                actions.Add(SidneyAction.AnagramParser);
                 break;
 
             case SidneyKind.Teniers:
@@ -1175,8 +1195,9 @@ public sealed class SidneyMachine
     /// <param name="file">Which file, or null to close the one open.</param>
     public void OpenForTranslation(SidneyFile? file)
     {
-        // Gabriel leaves the Arcadia text to Grace.
-        if (Gabriel && file is not null && Is(file, "POUSSIN_POSTCARD"))
+        // Gabriel leaves the Arcadia text to Grace, whichever file carries it.
+        if (Gabriel && file is not null &&
+            (Is(file, "POUSSIN_POSTCARD") || Is(file, SidneyFiles.ArcadiaItem)))
         {
             Speak("02O4Z2ZZ81");
 
@@ -1187,13 +1208,21 @@ public sealed class SidneyMachine
         Showing = null;
         Appending = false;
         From = null;
+
+        // And the sentence is unfinished in the language it is written in: "Sum" is Latin,
+        // so the machine offers it here rather than waiting for the English to be asked
+        // for. Reported as such.
+        if (!_state.GetFlag("ArcadiaComplete") && Translator.Unfinished(file) is { } asking)
+        {
+            Showing = asking;
+        }
     }
 
     /// <summary>Translates the open file out of the language chosen.</summary>
     /// <returns>What the machine says.</returns>
     public SidneyResult Translate()
     {
-        Showing = Translator.Translate(Translating, From);
+        Showing = Translator.Translate(Translating, From, _state.GetFlag("ArcadiaComplete"));
         Appending = false;
 
         if (Showing.Choices is { Count: > 0 } && Translating is { } file)

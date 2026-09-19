@@ -74,6 +74,11 @@ public sealed class SceneAudio
     private AudioVoice _line;
 
     /// <summary>
+    /// Voices a later line started over, left to finish rather than cut off.
+    /// </summary>
+    private readonly List<AudioVoice> _chorus = [];
+
+    /// <summary>
     /// How much longer a line with a caption and no recording is held for.
     /// </summary>
     private double _silent;
@@ -109,6 +114,9 @@ public sealed class SceneAudio
 
     /// <summary>How many lines are still queued behind this one.</summary>
     public int Queued => _speaking.Count;
+
+    /// <summary>How many earlier lines are still sounding under the one being said.</summary>
+    public int Chorus => _chorus.Count;
 
     /// <summary>What the room is playing under everything, if anything.</summary>
     public string? Ambience { get; private set; }
@@ -366,10 +374,23 @@ public sealed class SceneAudio
     {
         ArgumentNullException.ThrowIfNull(plate);
 
-        // Replacing the line, not ending the room: whatever it had left to do to the music
-        // still happens. The reference does not stop the outgoing line's animation at all,
-        // so its nodes go on firing there; this is the nearest thing with one voice.
-        Hush(performed: true);
+        // A line begun in the same frame as the one already sounding is somebody speaking
+        // *with* them rather than over them, and it is left to be heard: R33310A starts
+        // Gabriel's "Nah." and Mosely's inside one wait block so the two land together,
+        // and cutting the first off lost Gabriel's. Reported as such. It is the only
+        // place in the corpus that does it, and a frame is the discriminator because a
+        // player interrupting a line cannot do it inside the frame the line started in —
+        // there, replacing is still right.
+        //
+        // Either way whatever the outgoing line had left to do to the music still happens.
+        if (_sounding is not null && _spoken <= 0)
+        {
+            Displace();
+        }
+        else
+        {
+            Hush(performed: true);
+        }
 
         if (plate.Length == 0)
         {
@@ -453,6 +474,8 @@ public sealed class SceneAudio
             _line = AudioVoice.None;
         }
 
+        Quieten(_chorus);
+
         _silent = 0;
 
         // Tapping through the words does not tap through what they do to the room. The
@@ -470,6 +493,30 @@ public sealed class SceneAudio
         return true;
     }
 
+    /// <summary>
+    /// Hands the line being spoken over to a new one, leaving it to finish out loud.
+    /// </summary>
+    private void Displace()
+    {
+        if (_line.Exists)
+        {
+            _chorus.Add(_line);
+            _line = AudioVoice.None;
+        }
+
+        _silent = 0;
+
+        Ended(performed: true);
+
+        _speaking.Clear();
+        Saying = null;
+        Caption = null;
+        Speaker = null;
+
+        // The mouth is left alone: Faces.Say clears only the people the incoming line
+        // names, so somebody talking over is not somebody silenced.
+    }
+
     /// <summary>Stops whatever is being said and forgets the rest of it.</summary>
     public void Hush() => Hush(performed: false);
 
@@ -484,6 +531,8 @@ public sealed class SceneAudio
             _backend.Silence(_line);
             _line = AudioVoice.None;
         }
+
+        Quieten(_chorus);
 
         _silent = 0;
 
@@ -784,6 +833,26 @@ public sealed class SceneAudio
                 }
             }
         }
+
+        for (int i = _chorus.Count - 1; i >= 0; i--)
+        {
+            if (!_backend.IsPlaying(_chorus[i]))
+            {
+                _chorus.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>Stops a list of voices and empties it.</summary>
+    /// <param name="voices">The voices.</param>
+    private void Quieten(List<AudioVoice> voices)
+    {
+        foreach (AudioVoice voice in voices)
+        {
+            _backend.Silence(voice);
+        }
+
+        voices.Clear();
     }
 
     /// <summary>Starts the next line when the last one has finished.</summary>

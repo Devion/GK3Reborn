@@ -115,11 +115,18 @@ public sealed class UiText
     /// <param name="key">Its identifier, which is the same in every language.</param>
     /// <param name="english">What it says in English, which is the last resort.</param>
     /// <returns>The phrase.</returns>
-    public string Say(string key, string english)
+    public string Say(string key, string english) => Said(key) ?? english;
+
+    /// <summary>
+    /// One phrase, or nothing when this language has none for the key.
+    /// </summary>
+    /// <param name="key">Its identifier, which is the same in every language.</param>
+    /// <returns>The phrase, or null, for a caller with somewhere else to look.</returns>
+    public string? Said(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        return _said.TryGetValue(key, out string? said) && said.Length > 0 ? said : english;
+        return _said.TryGetValue(key, out string? said) && said.Length > 0 ? said : null;
     }
 
     /// <summary>

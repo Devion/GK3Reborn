@@ -37,6 +37,7 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     private D3D12Pipeline? _ground;
     private D3D12Pipeline? _trees;
     private D3D12Pipeline? _models;
+    private D3D12Pipeline? _landmarks;
     private D3D12Pipeline? _sky;
 
     private D3D12DescriptorHeap? _views;
@@ -54,6 +55,9 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     private D3D12Buffer? _modelVertices;
     private D3D12Buffer? _modelIndices;
     private D3D12Buffer? _modelInstances;
+    private D3D12Buffer? _landmarkVertices;
+    private D3D12Buffer? _landmarkIndices;
+    private D3D12Buffer? _landmarkInstances;
 
     private bool _disposed;
 
@@ -97,6 +101,7 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
             pass.UploadMesh();
             pass.UploadTrees();
             pass.UploadTreeModels(backdrop);
+            pass.UploadLandmarks();
             pass.Describe();
             pass.BuildPipelines(compiler, colorFormat, depthFormat);
 
@@ -251,6 +256,46 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
             }
         }
 
+        if (_landmarks is not null && _landmarkInstances is not null)
+        {
+            BindGround(list, _landmarks, &push);
+
+            streams[0] = _landmarkVertices!.AsVertices(TreeVertexStride);
+            streams[1] = _landmarkInstances.AsVertices(InstanceStride);
+            IndexBufferView corners = _landmarkIndices!.AsIndices(sixteenBit: false);
+
+            list->IASetVertexBuffers(0, 2, streams);
+            list->IASetIndexBuffer(&corners);
+
+            int sheetViews = _landmarks.Signature.ParameterFor(1);
+            int sheetSamplers = _landmarks.Signature.SamplerParameterFor(1);
+            int bound = -1;
+
+            foreach (TerrainLandmarkDraw landmark in _plan.Landmarks)
+            {
+                foreach ((int sheet, uint firstIndex, uint indexCount) in landmark.Parts)
+                {
+                    if (sheet != bound && sheetViews >= 0)
+                    {
+                        list->SetGraphicsRootDescriptorTable(
+                            (uint)sheetViews, _views.Gpu(GroundTextures + (uint)sheet));
+
+                        if (sheetSamplers >= 0)
+                        {
+                            list->SetGraphicsRootDescriptorTable(
+                                (uint)sheetSamplers,
+                                _samplers.Gpu(GroundTextures + (uint)sheet));
+                        }
+
+                        bound = sheet;
+                    }
+
+                    list->DrawIndexedInstanced(
+                        indexCount, 1, firstIndex, landmark.VertexOffset, landmark.Instance);
+                }
+            }
+        }
+
         // --- the sky last, at the far plane, over exactly the pixels nothing claimed ---
         if (_sky is not null)
         {
@@ -347,14 +392,14 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
     /// </summary>
     private void UploadTreeModels(TerrainBackdrop backdrop)
     {
-        if (_plan.Models.Length == 0)
-        {
-            return;
-        }
-
         foreach (DecodedImage image in backdrop.TreeTextures)
         {
             _sheets.Add(D3D12TextureUpload.Create(_context, image));
+        }
+
+        if (_plan.Models.Length == 0)
+        {
+            return;
         }
 
         _modelVertices = D3D12Buffer.CreateDeviceLocal<TerrainTreeVertex>(
@@ -366,6 +411,21 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
         // and sized for the widest band the budget could ever ask for.
         _modelInstances = D3D12Buffer.CreateHostVisible(
             _context, (ulong)(_plan.ModelInstanceData.Length * sizeof(float)));
+    }
+
+    private void UploadLandmarks()
+    {
+        if (_plan.Landmarks.Length == 0)
+        {
+            return;
+        }
+
+        _landmarkVertices = D3D12Buffer.CreateDeviceLocal<TerrainTreeVertex>(
+            _context, _plan.LandmarkVertices, ResourceStates.VertexAndConstantBuffer);
+        _landmarkIndices = D3D12Buffer.CreateDeviceLocal<uint>(
+            _context, _plan.LandmarkIndices, ResourceStates.IndexBuffer);
+        _landmarkInstances = D3D12Buffer.CreateDeviceLocal<float>(
+            _context, _plan.LandmarkInstances, ResourceStates.VertexAndConstantBuffer);
     }
 
     /// <summary>Writes every descriptor the pass will bind, once.</summary>
@@ -514,6 +574,44 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
                 cull: CullMode.None);
         }
 
+        if (_plan.Landmarks.Length > 0 && _sheets.Count > 0)
+        {
+            var landmarkLayout = new ShaderLayout(
+                [
+                    .. ground,
+                    new ShaderBinding(
+                        1, 0, ShaderBindingKind.CombinedImageSampler, ShaderStages.Fragment),
+                ],
+                pushBytes);
+
+            VertexInput[] landmarks =
+            [
+                new(0, Format.FormatR32G32B32Float, 0),
+                new(1, Format.FormatR32G32B32Float, 12),
+                new(2, Format.FormatR32G32Float, 24),
+                new(3, Format.FormatR32G32B32A32Float, 0, 1),
+                new(4, Format.FormatR32Float, 16, 1),
+                new(5, Format.FormatR32Float, 20, 1),
+            ];
+
+            _landmarks = D3D12Pipeline.CreateGraphics(
+                _context.Device,
+                compiler,
+                TerrainShaders.LandmarkVertex,
+                TerrainShaders.TreeModelFragment,
+                "horizon-landmark",
+                landmarkLayout,
+                [colorFormat],
+                depthFormat,
+                landmarks,
+                [new VertexBufferLayout(TreeVertexStride), instanced[1]],
+                ShaderLanguage.Glsl,
+                depthWrite: true,
+                depthTest: true,
+                depthEqual: true,
+                cull: CullMode.None);
+        }
+
         // The sky: no vertex input at all, and no depth writes — it must lose to everything
         // and stop nothing.
         _sky = D3D12Pipeline.CreateGraphics(
@@ -545,6 +643,7 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
         _disposed = true;
 
         _sky?.Dispose();
+        _landmarks?.Dispose();
         _models?.Dispose();
         _trees?.Dispose();
         _ground?.Dispose();
@@ -552,6 +651,9 @@ public sealed unsafe class D3D12TerrainPass : IDisposable
         _modelInstances?.Dispose();
         _modelIndices?.Dispose();
         _modelVertices?.Dispose();
+        _landmarkInstances?.Dispose();
+        _landmarkIndices?.Dispose();
+        _landmarkVertices?.Dispose();
         _treeInstances?.Dispose();
         _treeIndices?.Dispose();
         _treeVertices?.Dispose();

@@ -1237,6 +1237,17 @@ public static partial class Application
             // Putting Sidney away runs the room's own ExitSidney, as the original does whenever Sidney is closed: it stands Grace up from the desk.
             bool sidneyUp = story.Screens.IsOpen(ScreenKind.Sidney);
 
+            // And the chime on the way in, when there is post waiting. Nothing else on the screen says so — the e-mail button looks the same either
+            // way — so without it a player has no reason to open the inbox at all. Reported against day 3 at 312P, where the e-mail is the puzzle.
+            if (sidneyUp && !sidneyWasUp && sidney is { Unread: > 0 } waiting)
+            {
+                // Said either way, because a sound the archives do not hold plays nothing and says nothing about it.
+                bool heard = room?.Play(Game.Sidney.SidneySounds.NewMail) == true;
+
+                Log.Info(string.Create(CultureInfo.InvariantCulture, $"Sidney: {waiting.Unread} unread message(s)") +
+                    (heard ? string.Empty : $", and {Game.Sidney.SidneySounds.NewMail} did not play"));
+            }
+
             if (sidneyWasUp && !sidneyUp && !update.Acting && string.Equals(here, "R25", StringComparison.OrdinalIgnoreCase))
             {
                 new ActionRunner(api).Run(new Formats.Actions.NvcAction
@@ -2180,6 +2191,9 @@ public static partial class Application
 
                 // The pointer says what a click would do, before the bar has to be read: the arrow over nothing, a glass over what can be looked at.
                 window.PointerShape = PointerChoice.For(hover, claimed, menu is not null, scene.Actions?.Verbs);
+
+                // And the words the topics read as, for the one moment whose topics are answers rather than questions.
+                hud.Wording = Game.TopicWording.For(story, here);
 
                 hud.Build( new HudState( showing.Label, advertised ? [claimed!] : [.. showing.Actions
                                 .Where(a => !IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs)) .Select(a => a.LocalizedVerb)],

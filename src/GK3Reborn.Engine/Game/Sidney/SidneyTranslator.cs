@@ -47,6 +47,10 @@ public sealed class SidneyTranslator
         ("BUCHELLI_TAPE", "BuchTape", "Italian", false),
         ("I_AM_WORDS", "SUMScript", "Latin", false),
         ("POUSSIN_POSTCARD", "ArcadiaText", "Latin", true),
+
+        // The same inscription as its own file, which is where the original keeps it and
+        // the only place the player can open it without going back to the painting.
+        (SidneyFiles.ArcadiaItem, "ArcadiaText", "Latin", true),
     ];
 
     private readonly SidneyLibrary _library;
@@ -118,8 +122,11 @@ public sealed class SidneyTranslator
     /// <param name="from">
     /// What the player says it is written in, as the file keys that language.
     /// </param>
+    /// <param name="finished">
+    /// Whether the missing word has already been supplied, which only the caller knows.
+    /// </param>
     /// <returns>What the machine says back.</returns>
-    public SidneyResult Translate(SidneyFile? file, string? from)
+    public SidneyResult Translate(SidneyFile? file, string? from, bool finished = false)
     {
         if (Find(file) is not { } text)
         {
@@ -133,6 +140,14 @@ public sealed class SidneyTranslator
 
         string done = string.Join("\n", text.English);
 
+        // A sentence that has been finished translates as the finished one and asks
+        // nothing more: the file reads "Et in Arcadia Ego Sum" by then, and answering that
+        // with "And (while) in Arcadia I..." is the half the player has already solved.
+        if (text.Incomplete && finished)
+        {
+            return new SidneyResult(Finished() ?? done);
+        }
+
         if (!text.Incomplete)
         {
             return new SidneyResult(done);
@@ -145,6 +160,43 @@ public sealed class SidneyTranslator
                 new SidneyChoice("Yes", _library.Say("Yes", Section)),
                 new SidneyChoice("No", _library.Say("No", Section)),
             ]);
+    }
+
+    /// <summary>
+    /// An unfinished sentence, offered the moment the file is open.
+    /// </summary>
+    /// <param name="file">The file.</param>
+    /// <returns>What to show, or null when the file has no unfinished sentence.</returns>
+    /// <remarks>
+    /// "Sum" is a Latin word and the sentence it finishes is in Latin, so the offer need
+    /// not wait on the English: the machine made it only after a translation had been
+    /// asked for, which left a player reading the inscription in the language it was
+    /// written in with nothing to do. Reported as such. Whoever calls this decides whether
+    /// the sentence has been finished already; this only knows which file has one.
+    /// </remarks>
+    public SidneyResult? Unfinished(SidneyFile? file)
+    {
+        if (Find(file) is not { Incomplete: true } text)
+        {
+            return null;
+        }
+
+        return new SidneyResult(
+            string.Join("\n", text.Original) + "\n\n" + _library.Say("Subject", Section),
+            _library.Say("Question", Section),
+            [
+                new SidneyChoice("Yes", _library.Say("Yes", Section)),
+                new SidneyChoice("No", _library.Say("No", Section)),
+            ]);
+    }
+
+    /// <summary>The finished inscription, once the missing word has been supplied.</summary>
+    /// <returns>Its English, or null when the text has none.</returns>
+    public string? Finished()
+    {
+        IReadOnlyList<string> whole = _library.Lines(Section, "ArcSUMTextT");
+
+        return whole.Count > 0 ? string.Join("\n", whole) : null;
     }
 
     /// <summary>

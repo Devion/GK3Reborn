@@ -926,12 +926,33 @@ public sealed class GameHud
     /// <summary>What a thing in the room is called.</summary>
     /// <returns>The game's own name for it, or the tidied identifier.</returns>
     /// <param name="noun">Its noun, as the action files spell it: MASKING_TAPE.</param>
-    private string Thing(string noun) => Names.Item(noun) ?? Text.Say("noun." + noun.ToUpperInvariant(), Pretty(noun));
+    // The port's own name first: ESTRINGS keys its tooltips by verb, so a noun sharing a verb's name borrows the verb's phrase — MOSELY the man read "Call Mosely".
+    private string Thing(string noun) => Text.Said("noun." + noun.ToUpperInvariant()) ?? Names.Item(noun) ?? Pretty(noun);
+
+    /// <summary>
+    /// A moment whose topics read differently from everywhere else, or null.
+    /// </summary>
+    /// <remarks>See <see cref="Game.TopicWording"/>. The room loop sets it every frame.</remarks>
+    public string? Wording { get; set; }
 
     /// <summary>What a verb is called under the cursor and in the menu.</summary>
     /// <returns>The word, in the player's own language where there is one.</returns>
     /// <param name="verb">Its noun, as the action files spell it: PICK_UP.</param>
-    private string Verb(string verb) => verb.Length == 0 ? verb : Text.Say("verb." + verb.ToUpperInvariant(), Pretty(verb));
+    private string Verb(string verb)
+    {
+        if (verb.Length == 0)
+        {
+            return verb;
+        }
+
+        string name = verb.ToUpperInvariant();
+
+        // The moment's own words first, for the handful of topics that are answers rather
+        // than questions. A moment that has none for this verb falls through to the
+        // ordinary one, so a set need only carry what it changes.
+        return (Wording is { Length: > 0 } moment ? Text.Said($"verb.{moment}.{name}") : null)
+            ?? Text.Say("verb." + name, Pretty(verb));
+    }
 
     /// <summary>The strip along the bottom, which is no longer drawn.</summary>
     private void Inventory(HudState state, int width, int height)

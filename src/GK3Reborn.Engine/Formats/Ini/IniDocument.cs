@@ -325,11 +325,56 @@ public sealed class IniDocument
                     yield return line[start..i];
                     start = i + 1;
                     break;
+                case ' ' or '\t' when depth == 0 && StartsAKey(line, i, start):
+                    yield return line[start..i];
+                    start = i + 1;
+                    break;
                 default:
                     break;
             }
         }
 
         yield return line[start..];
+    }
+
+    /// <summary>
+    /// Whether a run of blanks is a comma somebody left out.
+    /// </summary>
+    /// <param name="line">The line.</param>
+    /// <param name="at">The first blank.</param>
+    /// <param name="start">Where the entry being read began.</param>
+    /// <returns>True when what follows is another <c>key=</c> of its own.</returns>
+    /// <remarks>
+    /// One line in the game needs this — HAL.SIF's <c>GABE_LISTEN_33, pos={...},
+    /// heading=181.83 camera=RM33</c>, the spot Gabriel stands on to put a glass to
+    /// Mosely's door. Without it the heading reads "181.83 camera=RM33", which is not a
+    /// number, so he took the default nought and listened at the wall behind him — the
+    /// authored heading is 181.83, so it came out exactly reversed. Reported as such.
+    /// Measured over the 12,271 files this parser reads: that line and nothing else.
+    /// </remarks>
+    private static bool StartsAKey(string line, int at, int start)
+    {
+        // Only inside an entry that already has a value, so a value made of several words
+        // is never cut in half.
+        if (line.AsSpan(start, at - start).IndexOf('=') < 0)
+        {
+            return false;
+        }
+
+        int i = at;
+
+        while (i < line.Length && (line[i] == ' ' || line[i] == '\t'))
+        {
+            i++;
+        }
+
+        int name = i;
+
+        while (i < line.Length && (char.IsAsciiLetterOrDigit(line[i]) || line[i] == '_'))
+        {
+            i++;
+        }
+
+        return i > name && i < line.Length && line[i] == '=';
     }
 }

@@ -75,6 +75,26 @@ public static class SidneyFiles
         ("I_AM_WORDS", "fileSUMNote", "The words", SidneyKind.Note),
     ];
 
+    /// <summary>
+    /// The inscription Sidney lifts off Poussin's tomb, which is a file of its own and
+    /// nothing the player carries, so it is not in <see cref="Named"/>.
+    /// </summary>
+    public const string ArcadiaItem = "ARCADIA_TEXT";
+
+    /// <summary>What the story would call that file.</summary>
+    public const string ArcadiaFile = "fileArcadiaText";
+
+    /// <summary>
+    /// The file the zoom produces.
+    /// </summary>
+    /// <param name="label">
+    /// What it reads as, which is the inscription itself and gains its last word when the
+    /// translate screen supplies it. The caller takes it out of the game's own text.
+    /// </param>
+    /// <returns>The file.</returns>
+    public static SidneyFile Arcadia(string label) =>
+        new(ArcadiaFile, ArcadiaItem, label, SidneyKind.Note);
+
     /// <summary>The file an inventory item becomes when it is scanned.</summary>
     /// <param name="item">The item's noun.</param>
     /// <returns>The file, or null when the item is not something the scanner takes.</returns>
@@ -86,6 +106,11 @@ public static class SidneyFiles
         }
 
         string name = item.Trim().ToUpperInvariant();
+
+        if (string.Equals(name, ArcadiaItem, StringComparison.Ordinal))
+        {
+            return Arcadia("Et in Arcadia Ego");
+        }
 
         foreach ((string known, string id, string label, SidneyKind kind) in Named)
         {

@@ -133,6 +133,9 @@ public static class Program
             case "floor-materials":
                 return FloorMaterials(options, diagnostics);
 
+            case "cut-buildings":
+                return CutBuildings(options, diagnostics);
+
             case "compile-content":
             case "inspect":
                 Console.Error.WriteLine($"{options.Command}: not implemented yet.");
@@ -276,6 +279,24 @@ public static class Program
 
         bool ok = new FloorMaterialStage(Console.WriteLine).Run(
             options.Source, options.Workspace, diagnostics);
+
+        Report(diagnostics);
+        return ok ? 0 : 3;
+    }
+
+    private static int CutBuildings(Options options, DiagnosticBag diagnostics)
+    {
+        if (options.Source is null || options.Workspace is null)
+        {
+            Console.Error.WriteLine("cut-buildings requires --source and --workspace.");
+            return 2;
+        }
+
+        bool ok = new HorizonBuildingStage(Console.WriteLine).Run(
+            options.Source,
+            options.Output ?? Path.Combine(options.Workspace, "enhanced", "buildings"),
+            options.Model,
+            diagnostics);
 
         Report(diagnostics);
         return ok ? 0 : 3;
@@ -782,6 +803,7 @@ public static class Program
               head-solve        Measure how rigidly every character's head moves.
               video-info        Decode every movie and report what played.
               floor-materials   Say which textures the game walks on, and how each is finished.
+              cut-buildings     Cut the horizon's buildings out of the rooms that hold them.
               check-cut-content Apply the cut-content table and report every edit.
                                 --all adds the puzzle tier, --rebuilt the unmodelled objects.
               import-textures   Check generated texture candidates and take the sound ones.

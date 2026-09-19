@@ -1,4 +1,5 @@
-﻿using GK3Reborn.Formats.Ini;
+﻿using System.Numerics;
+using GK3Reborn.Formats.Ini;
 using Xunit;
 
 namespace GK3Reborn.Tests.Formats;
@@ -8,6 +9,44 @@ namespace GK3Reborn.Tests.Formats;
 /// </summary>
 public sealed class IniDocumentTests
 {
+    [Fact]
+    public void A_comma_somebody_left_out_still_separates_two_keys()
+    {
+        // HAL.SIF line 204, verbatim. The spot Gabriel stands on to put a glass to
+        // Mosely's door is the only line in the 12,271 files this parser reads that is
+        // missing one, and without this the heading read "181.83 camera=RM33" — not a
+        // number, so nought — and he listened at the wall behind him. The authored
+        // heading is 181.83, so it came out exactly reversed. Reported as such.
+        IniDocument document = IniDocument.Parse(
+            """
+            [POSITIONS]
+            GABE_LISTEN_33, pos={176.06, 2.72, 358.48}, heading=181.83 camera=RM33
+            """);
+
+        IniLine line = document.LinesOf("POSITIONS").Single();
+
+        Assert.Equal(181.83f, line.Number("heading")!.Value, 2);
+        Assert.Equal("RM33", line.Value("camera"));
+        Assert.Equal(new Vector3(176.06f, 2.72f, 358.48f), line.Vector("pos"));
+    }
+
+    [Fact]
+    public void A_value_of_several_words_is_not_cut_in_half()
+    {
+        // The rule only fires where what follows the blank is itself a key=, so an
+        // ordinary value with a space in it is left whole.
+        IniDocument document = IniDocument.Parse(
+            """
+            [GK3]
+            0, SPEAKER=Lady Howard, CAPTION=Nothing at all is equal to nothing
+            """);
+
+        IniLine line = document.LinesOf("GK3").Single();
+
+        Assert.Equal("Lady Howard", line.Value("SPEAKER"));
+        Assert.Equal("Nothing at all is equal to nothing", line.Value("CAPTION"));
+    }
+
     [Fact]
     public void Commas_inside_braces_belong_to_the_value()
     {

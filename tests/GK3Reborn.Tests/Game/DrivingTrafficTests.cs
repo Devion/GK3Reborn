@@ -520,6 +520,14 @@ public sealed class DrivingTrafficTests
 
         Assert.Equal("TWO_MEN", circling.Noun);
         Assert.Equal(DrivingTraffic.TwoMenFace, circling.Portrait);
+
+        // And the player's own marker wears whoever is driving. Gabriel's face rode it
+        // whatever the story said, so Grace crossing the valley on the third day watched
+        // Gabriel do it. Reported as such.
+        Assert.Equal(DrivingTraffic.EgoFace, DrivingTraffic.FaceOf("GABRIEL"));
+        Assert.Equal(DrivingTraffic.GraceFace, DrivingTraffic.FaceOf("GRACE"));
+        Assert.Equal(DrivingTraffic.GraceFace, DrivingTraffic.FaceOf("Grace"));
+        Assert.Equal(DrivingTraffic.EgoFace, DrivingTraffic.FaceOf(null));
         Assert.Equal(DrivingTraffic.TwoMenFace, DrivingTraffic.Chased(5, "PLO")!.Portrait);
         Assert.DoesNotContain(DrivingTraffic.TwoMenFace, GK3Reborn.Game.Sidney.SidneySuspect.Portraits);
     }

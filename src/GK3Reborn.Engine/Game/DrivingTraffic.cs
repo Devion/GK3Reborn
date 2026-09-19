@@ -195,7 +195,7 @@ public sealed class DrivingTraffic
             var riding = new DrivingTraffic(map, null, from, going.ToUpperInvariant());
 
             riding.Ride(
-                new Traveller(story.Ego, Ego, EgoFace, [from, going], Loops: false, 0, []),
+                new Traveller(story.Ego, Ego, FaceOf(story.Ego), [from, going], Loops: false, 0, []),
                 [from, going],
                 player: true);
 
@@ -215,7 +215,7 @@ public sealed class DrivingTraffic
             // beside: two dots on one road at one speed read as one dot, and the whole
             // point of the picture is that somebody is being followed.
             traffic.Ride(
-                new Traveller(story.Ego, Ego, EgoFace, chase.Junctions, Loops: false, 0, []),
+                new Traveller(story.Ego, Ego, FaceOf(story.Ego), chase.Junctions, Loops: false, 0, []),
                 chase.Junctions,
                 player: true);
 
@@ -416,9 +416,28 @@ public sealed class DrivingTraffic
     public const string TwoMenFace = "PORTRAIT_MAL";
 
     /// <summary>
-    /// Gabriel, which is the marker the player is watching.
+    /// Gabriel, which is the marker the player is watching for most of the game.
     /// </summary>
     public const string EgoFace = "PORTRAIT_GAB";
+
+    /// <summary>
+    /// And Grace, who drives herself on the third day.
+    /// </summary>
+    public const string GraceFace = "PORTRAIT_GRA";
+
+    /// <summary>
+    /// Whose face the player's own marker wears.
+    /// </summary>
+    /// <param name="ego">The actor the player is controlling.</param>
+    /// <returns>A portrait name.</returns>
+    /// <remarks>
+    /// Gabriel's face rode the marker whoever was driving, so Grace crossing the valley
+    /// on the third day watched Gabriel do it. Reported as such.
+    /// </remarks>
+    public static string FaceOf(string? ego) =>
+        ego is { Length: > 0 } who && who.StartsWith("GRA", StringComparison.OrdinalIgnoreCase)
+            ? GraceFace
+            : EgoFace;
 
     /// <summary>A colour the retail engine holds as one number.</summary>
     private static Vector4 Paint(uint rgb) => new(

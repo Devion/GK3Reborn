@@ -567,6 +567,54 @@ public static class TerrainShaders
         }
         """;
 
+    public const string LandmarkVertex = """
+        #version 450
+
+        layout(location = 0) in vec3 inPosition;
+        layout(location = 1) in vec3 inNormal;
+        layout(location = 2) in vec2 inTexCoord;
+        layout(location = 3) in vec4 inPlace;   // xyz: base; w: uniform scale
+        layout(location = 4) in float inTurn;   // yaw, radians
+        layout(location = 5) in float inKind;   // unused; keeps the shared instance layout
+
+        layout(push_constant) uniform Push
+        {
+            mat4 viewProjection;
+            vec4 sun;
+            vec4 params;
+            vec4 eye;
+            vec4 haze;
+        } push;
+
+        layout(location = 0) out vec3 vWorld;
+        layout(location = 1) out vec3 vNormal;
+        layout(location = 2) out vec2 vTexCoord;
+        layout(location = 3) out float vSeed;
+        layout(location = 4) out float vCrown;
+
+        void main()
+        {
+            float c = cos(inTurn);
+            float s = sin(inTurn);
+            mat3 turn = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+
+            vec3 world = inPlace.xyz + (turn * (inPosition * inPlace.w));
+            vWorld = world;
+            vNormal = turn * inNormal;
+            vTexCoord = inTexCoord;
+
+            // The shared textured-model fragment stage varies trees and darkens their
+            // lower canopy. A building wants neither effect.
+            vSeed = 0.5 / 31.7;
+            vCrown = 1.0;
+
+            vec4 clip = push.viewProjection * vec4(world, 1.0);
+            float zNdc = clamp(clip.z / max(clip.w, 1e-4), 0.0, 1.0);
+            clip.z = (0.9990 + 0.000999 * zNdc) * clip.w;
+            gl_Position = clip;
+        }
+        """;
+
     public const string TreeModelFragment = """
         #version 450
 

@@ -41,13 +41,18 @@ public sealed unsafe class TerrainPipeline : IDisposable
     private VulkanBuffer? _treeInstances;
     private ShaderModule _modelVertexModule;
     private ShaderModule _modelFragmentModule;
+    private ShaderModule _landmarkVertexModule;
     private DescriptorSetLayout _sheetLayout;
     private DescriptorPool _sheetPool;
     private PipelineLayout _modelLayout;
     private Pipeline _modelPipeline;
+    private Pipeline _landmarkPipeline;
     private VulkanBuffer? _modelVertices;
     private VulkanBuffer? _modelIndices;
     private VulkanBuffer? _modelInstances;
+    private VulkanBuffer? _landmarkVertices;
+    private VulkanBuffer? _landmarkIndices;
+    private VulkanBuffer? _landmarkInstances;
     private readonly List<VulkanTexture> _sheets = [];
     private readonly List<DescriptorSet> _sheetSets = [];
     private readonly VulkanTexture?[] _textures = new VulkanTexture?[6];
@@ -112,6 +117,9 @@ public sealed unsafe class TerrainPipeline : IDisposable
             pipeline._modelFragmentModule = pipeline.CreateModule(compiler.Compile(
                 TerrainShaders.TreeModelFragment, ShaderStage.Fragment, "horizon-tree-model.frag",
                 "main", ShaderLanguage.Glsl));
+            pipeline._landmarkVertexModule = pipeline.CreateModule(compiler.Compile(
+                TerrainShaders.LandmarkVertex, ShaderStage.Vertex, "horizon-landmark.vert",
+                "main", ShaderLanguage.Glsl));
 
             pipeline.UploadMesh();
             pipeline.UploadTrees();
@@ -152,6 +160,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             // Before the pipelines, because the models' own descriptor layout is one of
             // the two the pipeline that draws them is built against.
             pipeline.UploadTreeModels(backdrop);
+            pipeline.UploadLandmarks();
             pipeline.BuildPipelines(colorFormat, depthFormat);
 
             return pipeline;
@@ -290,6 +299,47 @@ public sealed unsafe class TerrainPipeline : IDisposable
             }
         }
 
+        if (_landmarkPipeline.Handle != 0 && _landmarkInstances is not null)
+        {
+            _vk.CmdBindPipeline(command, PipelineBindPoint.Graphics, _landmarkPipeline);
+
+            DescriptorSet ground = _set;
+            _vk.CmdBindDescriptorSets(
+                command, PipelineBindPoint.Graphics, _modelLayout, 0, 1, in ground, 0, null);
+            _vk.CmdPushConstants(
+                command, _modelLayout, ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                0, (uint)Marshal.SizeOf<TerrainConstants>(), &push);
+
+            Silk.NET.Vulkan.Buffer* streams = stackalloc Silk.NET.Vulkan.Buffer[2]
+            {
+                _landmarkVertices!.Handle,
+                _landmarkInstances.Handle,
+            };
+            ulong* offsets = stackalloc ulong[2] { 0, 0 };
+            _vk.CmdBindVertexBuffers(command, 0, 2, streams, offsets);
+            _vk.CmdBindIndexBuffer(command, _landmarkIndices!.Handle, 0, IndexType.Uint32);
+
+            int bound = -1;
+            foreach (TerrainLandmarkDraw landmark in _plan.Landmarks)
+            {
+                foreach ((int sheet, uint firstIndex, uint indexCount) in landmark.Parts)
+                {
+                    if (sheet != bound)
+                    {
+                        DescriptorSet painted = _sheetSets[sheet];
+                        _vk.CmdBindDescriptorSets(
+                            command, PipelineBindPoint.Graphics, _modelLayout, 1, 1,
+                            in painted, 0, null);
+                        bound = sheet;
+                    }
+
+                    _vk.CmdDrawIndexed(
+                        command, indexCount, 1, firstIndex,
+                        landmark.VertexOffset, landmark.Instance);
+                }
+            }
+        }
+
         // The sky last, at the far plane, over exactly the pixels nothing claimed.
         TerrainSkyConstants skyPush = frame.Sky;
 
@@ -306,6 +356,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
         DestroyPipeline(ref _pipeline);
         DestroyPipeline(ref _treePipeline);
         DestroyPipeline(ref _skyPipeline);
+        DestroyPipeline(ref _landmarkPipeline);
 
         if (_layout.Handle != 0)
         {
@@ -352,6 +403,12 @@ public sealed unsafe class TerrainPipeline : IDisposable
         _modelIndices = null;
         _modelInstances?.Dispose();
         _modelInstances = null;
+        _landmarkVertices?.Dispose();
+        _landmarkVertices = null;
+        _landmarkIndices?.Dispose();
+        _landmarkIndices = null;
+        _landmarkInstances?.Dispose();
+        _landmarkInstances = null;
 
         foreach (VulkanTexture sheet in _sheets)
         {
@@ -396,6 +453,7 @@ public sealed unsafe class TerrainPipeline : IDisposable
             _vk.DestroyShaderModule(_context.Device, _modelFragmentModule, null);
             _modelFragmentModule = default;
         }
+        DestroyModule(ref _landmarkVertexModule);
         _treeInstances?.Dispose();
         _treeInstances = null;
 
@@ -456,11 +514,6 @@ public sealed unsafe class TerrainPipeline : IDisposable
     /// <param name="backdrop">The backdrop, for the textures the plan does not hold.</param>
     private void UploadTreeModels(TerrainBackdrop backdrop)
     {
-        if (_plan.Models.Length == 0)
-        {
-            return;
-        }
-
         foreach (Formats.Bitmaps.DecodedImage image in backdrop.TreeTextures)
         {
             _sheets.Add(VulkanTexture.Create(_context, image));
@@ -469,6 +522,11 @@ public sealed unsafe class TerrainPipeline : IDisposable
         if (_sheets.Count > 0)
         {
             CreateSheetSets();
+        }
+
+        if (_plan.Models.Length == 0)
+        {
+            return;
         }
 
         _modelVertices = VulkanBuffer.CreateDeviceLocal<TerrainTreeVertex>(
@@ -482,6 +540,21 @@ public sealed unsafe class TerrainPipeline : IDisposable
             _context,
             (ulong)(_plan.ModelInstanceData.Length * sizeof(float)),
             BufferUsageFlags.VertexBufferBit);
+    }
+
+    private void UploadLandmarks()
+    {
+        if (_plan.Landmarks.Length == 0)
+        {
+            return;
+        }
+
+        _landmarkVertices = VulkanBuffer.CreateDeviceLocal<TerrainTreeVertex>(
+            _context, _plan.LandmarkVertices, BufferUsageFlags.VertexBufferBit);
+        _landmarkIndices = VulkanBuffer.CreateDeviceLocal<uint>(
+            _context, _plan.LandmarkIndices, BufferUsageFlags.IndexBufferBit);
+        _landmarkInstances = VulkanBuffer.CreateDeviceLocal<float>(
+            _context, _plan.LandmarkInstances, BufferUsageFlags.VertexBufferBit);
     }
 
     /// <summary>A descriptor set for each of the trees' own textures.</summary>
@@ -778,7 +851,8 @@ public sealed unsafe class TerrainPipeline : IDisposable
         // The modelled trees of the near band. Two descriptor sets rather than one: the
         // splat and the tint it shares with the ground, and the one sheet it is painted
         // with, which changes per part.
-        if (_plan.Models.Length > 0 && _sheetLayout.Handle != 0)
+        if ((_plan.Models.Length > 0 || _plan.Landmarks.Length > 0) &&
+            _sheetLayout.Handle != 0)
         {
             DescriptorSetLayout* modelSets = stackalloc DescriptorSetLayout[2]
             {
@@ -829,9 +903,19 @@ public sealed unsafe class TerrainPipeline : IDisposable
                     new() { Location = 5, Binding = 1, Format = Format.R32Sfloat, Offset = 20 },
                 };
 
-            _modelPipeline = BuildOne(
-                colorFormat, depthFormat, _modelVertexModule, _modelFragmentModule, _modelLayout,
-                2, modelBindings, 6, modelAttributes, depthWrite: true);
+            if (_plan.Models.Length > 0)
+            {
+                _modelPipeline = BuildOne(
+                    colorFormat, depthFormat, _modelVertexModule, _modelFragmentModule, _modelLayout,
+                    2, modelBindings, 6, modelAttributes, depthWrite: true);
+            }
+
+            if (_plan.Landmarks.Length > 0)
+            {
+                _landmarkPipeline = BuildOne(
+                    colorFormat, depthFormat, _landmarkVertexModule, _modelFragmentModule,
+                    _modelLayout, 2, modelBindings, 6, modelAttributes, depthWrite: true);
+            }
         }
 
         // The sky: no vertex input at all, and no depth writes — it must lose to

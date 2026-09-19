@@ -31,6 +31,14 @@ public readonly record struct TerrainModelDraw(
     int VertexOffset,
     (int Sheet, uint FirstIndex, uint IndexCount)[] Parts);
 
+/// <summary>Where one landmark's geometry sits in the shared buffers.</summary>
+public readonly record struct TerrainLandmarkDraw(
+    string Name,
+    uint FirstIndex,
+    int VertexOffset,
+    (int Sheet, uint FirstIndex, uint IndexCount)[] Parts,
+    uint Instance);
+
 /// <summary>What one frame of the backdrop is drawn with.</summary>
 /// <param name="Ground">The block the ground, the impostors and the models all read.</param>
 /// <param name="Sky">The block the generated sky reads.</param>
@@ -195,6 +203,18 @@ public sealed class TerrainPlan
     /// <summary>How many trees are drawn as models this frame.</summary>
     public uint ModelCount { get; private set; }
 
+    /// <summary>The restored landmarks' corners, in one buffer.</summary>
+    public TerrainTreeVertex[] LandmarkVertices { get; private set; } = [];
+
+    /// <summary>The restored landmarks' triangles, in one buffer.</summary>
+    public uint[] LandmarkIndices { get; private set; } = [];
+
+    /// <summary>Where each restored landmark sits in the shared buffers.</summary>
+    public TerrainLandmarkDraw[] Landmarks { get; private set; } = [];
+
+    /// <summary>Six floats per landmark: position, scale, yaw and an unused kind.</summary>
+    public float[] LandmarkInstances { get; private set; } = [];
+
     /// <summary>Whether there is any ground to draw at all.</summary>
     public bool HasGround => Indices.Length > 0;
 
@@ -221,6 +241,7 @@ public sealed class TerrainPlan
         plan.BuildMesh(backdrop);
         plan.BuildTrees(backdrop);
         plan.BuildTreeModels(backdrop, sheets);
+        plan.BuildLandmarks(backdrop, sheets);
 
         return plan;
     }
@@ -594,6 +615,58 @@ public sealed class TerrainPlan
         int capacity = Math.Clamp(ModelTriangleBudget / cheapest, 64, 20_000);
 
         ModelInstanceData = new float[capacity * Stride];
+    }
+
+    private void BuildLandmarks(TerrainBackdrop backdrop, int sheets)
+    {
+        if (backdrop.Landmarks.Count == 0 || sheets <= 0)
+        {
+            return;
+        }
+
+        var corners = new List<TerrainTreeVertex>();
+        var indices = new List<uint>();
+        var draws = new List<TerrainLandmarkDraw>();
+        var instances = new List<float>();
+
+        foreach (TerrainLandmark landmark in backdrop.Landmarks)
+        {
+            int vertexOffset = corners.Count;
+            uint firstIndex = (uint)indices.Count;
+            var parts = new List<(int, uint, uint)>();
+
+            corners.AddRange(landmark.Vertices);
+            indices.AddRange(landmark.Indices);
+
+            foreach (TerrainTreePart part in landmark.Parts)
+            {
+                if (part.Texture >= 0 && part.Texture < sheets && part.IndexCount > 0)
+                {
+                    parts.Add((part.Texture, firstIndex + part.FirstIndex, part.IndexCount));
+                }
+            }
+
+            if (landmark.Vertices.Length == 0 || parts.Count == 0)
+            {
+                continue;
+            }
+
+            uint instance = (uint)(instances.Count / Stride);
+            instances.Add(landmark.Position.X);
+            instances.Add(landmark.Position.Y);
+            instances.Add(landmark.Position.Z);
+            instances.Add(MathF.Max(landmark.Scale, 0.001f));
+            instances.Add(landmark.Rotation);
+            instances.Add(0f);
+
+            draws.Add(new TerrainLandmarkDraw(
+                landmark.Name, firstIndex, vertexOffset, [.. parts], instance));
+        }
+
+        LandmarkVertices = [.. corners];
+        LandmarkIndices = [.. indices];
+        LandmarkInstances = [.. instances];
+        Landmarks = [.. draws];
     }
 
     /// <summary>

@@ -83,6 +83,7 @@ public sealed partial class UiTextTests
             "picture.latency.boost", "display.backend.automatic", "menu.title.paused",
             "verb.SELECT", "verb.TOUCH", "verb.PET", "verb.TURN_ON", "verb.WRITE",
             "verb.PULL", "verb.PUSH", "verb.EXIT", "verb.EXIT_ARROW", "verb.USE",
+            "noun.MOSELY", "noun.MESMI",
         };
 
         foreach (string code in Carried.Where(c => c != "en"))
@@ -332,6 +333,117 @@ public sealed partial class UiTextTests
         // A noun nobody has written stays the tidied identifier rather than becoming blank.
         Assert.Equal("Mod Gadget", Label(hud, "MOD_GADGET"));
     }
+
+    [Fact]
+    public void A_person_is_called_by_their_name_and_not_by_what_the_phone_does()
+    {
+        // ESTRINGS keys its tooltips by verb, and three names in the corpus are a noun and
+        // a verb at once: MOSELY the man and MOSELY the button on the hotel's phone panel,
+        // MESMI, and EXIT. Reading the table first gave the man the button's phrase, so
+        // pointing at Mosely anywhere in the game read "Call Mosely". Reported as such.
+        var hud = new GameHud(new Overlay(Atlas()))
+        {
+            Text = UiText.Carried("en"),
+            Names = GameStrings.Parse(
+                """
+                [ToolTips]
+                v_mosely=Call Mosely
+                v_mesmi=Ask Mesmi
+                v_masking_tape=Masking tape
+                """),
+        };
+
+        Assert.Equal("Mosely", Label(hud, "MOSELY"));
+        Assert.Equal("Mesmi", Label(hud, "MESMI"));
+
+        // And the table still answers for everything the port has no word of its own for,
+        // which is the 293 things the player carries.
+        Assert.Equal("Masking tape", Label(hud, "MASKING_TAPE"));
+    }
+
+    [Fact]
+    public void Every_verb_and_noun_is_keyed_in_the_case_the_lookup_asks_for()
+    {
+        // The table is ordinal, and both lookups upper-case the identifier before asking,
+        // so one lower-cased letter in a key is a row that can never be found. There was
+        // one — verb.T_GRACE_310a — and the topic it answers for drew as "T Grace 310a",
+        // which is the tidier's output wrapped around the identifier itself. Reported
+        // against day 3 at 310A, where that topic is the only way to raise Grace.
+        foreach (string code in Carried)
+        {
+            foreach (string key in Words(code).Keys)
+            {
+                if (!key.StartsWith("verb.", StringComparison.Ordinal) &&
+                    !key.StartsWith("noun.", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                string name = key[5..];
+
+                // verb.use is the port's own row standing for "use something on this",
+                // and is deliberately not one of the game's verbs.
+                Assert.True(
+                    string.Equals(name, "use", StringComparison.Ordinal) || !name.Any(char.IsLower),
+                    $"{code}: {key} is keyed in a case the lookup never asks for");
+            }
+        }
+    }
+
+    [Fact]
+    public void The_denouement_reads_as_answers_rather_than_as_questions()
+    {
+        // Day 3 at 303P is a quiz whose answers are conversation topics, so naming the
+        // thief read "Ask about Mosely" and burying the manuscript read "Ask about the
+        // burial". Reported as such. A moment that reads differently names a set of its
+        // own; everything it does not carry falls through to the ordinary words.
+        var hud = new GameHud(new Overlay(Atlas())) { Text = UiText.Carried("en") };
+
+        Assert.Equal("Ask about Mosely", Verb(hud, "T_MOSELY"));
+
+        hud.Wording = GK3Reborn.Game.TopicWording.Denouement;
+
+        Assert.Equal("Accuse Mosely", Verb(hud, "T_MOSELY"));
+        Assert.Equal("Say they buried it", Verb(hud, "T_BURYING"));
+
+        // A topic the moment says nothing about, and a verb that is not a topic at all.
+        Assert.Equal("Ask about the Abbé", Verb(hud, "T_ABBE"));
+        Assert.Equal("Look", Verb(hud, "LOOK"));
+    }
+
+    [Fact]
+    public void Every_language_answers_the_denouement_in_its_own_words()
+    {
+        // Nine rows, in eight files: a language missing one would fall back to its own
+        // question and read as the fault this fixed.
+        string[] topics =
+        [
+            "T_MOSELY", "T_BUTHANE", "T_BUCHELLI", "T_EMILIO", "T_HOTEL_STAFF",
+            "T_QUESTION", "T_BURYING", "T_BURNING", "T_SELLING",
+        ];
+
+        foreach (string code in Carried)
+        {
+            var asking = new GameHud(new Overlay(Atlas())) { Text = UiText.Carried(code) };
+
+            var answering = new GameHud(new Overlay(Atlas()))
+            {
+                Text = UiText.Carried(code),
+                Wording = GK3Reborn.Game.TopicWording.Denouement,
+            };
+
+            foreach (string topic in topics)
+            {
+                Assert.NotEqual(Verb(asking, topic), Verb(answering, topic));
+            }
+        }
+    }
+
+    /// <summary>What the hud would draw for a verb.</summary>
+    private static string Verb(GameHud hud, string verb) =>
+        (string)typeof(GameHud)
+            .GetMethod("Verb", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(hud, [verb])!;
 
     /// <summary>A sheet with letters on it, because a hud has to be given an overlay.</summary>
     private static OverlayAtlas Atlas()

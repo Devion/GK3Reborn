@@ -291,11 +291,21 @@ public static class SidneyApps
         IReadOnlyList<SidneyLibrary.MailLine> attached = machine.Library.Attachment(reading.Id);
         float plate = MathF.Min(surface.Em(52), pane.Z * 0.22f);
 
-        foreach (SidneyLibrary.MailLine line in attached)
+        // The temple's ten lines are drawn as the plan they describe rather than listed.
+        bool temple = IsTempleLayout(reading.Id, attached);
+
+        if (temple)
         {
-            tall += line.Picture is null
-                ? surface.Lines(line.Text, wrap) * surface.Line
-                : MathF.Max(plate, surface.Line) + surface.Em(6);
+            tall += (surface.Line * (2 + TempleRows(surface, attached, wrap))) + surface.Em(40);
+        }
+        else
+        {
+            foreach (SidneyLibrary.MailLine line in attached)
+            {
+                tall += line.Picture is null
+                    ? surface.Lines(line.Text, wrap) * surface.Line
+                    : MathF.Max(plate, surface.Line) + surface.Em(6);
+            }
         }
 
         if (attached.Count > 0)
@@ -367,6 +377,14 @@ public static class SidneyApps
             y += surface.Line;
         }
 
+        if (temple)
+        {
+            TempleLayout(surface, attached, pane.X, y, wrap);
+            surface.EndScroll();
+
+            return;
+        }
+
         foreach (SidneyLibrary.MailLine line in attached)
         {
             if (line.Picture is null)
@@ -397,6 +415,151 @@ public static class SidneyApps
         }
 
         surface.EndScroll();
+    }
+
+    /// <summary>
+    /// Whether a message's attachment is the Temple of Solomon's plan.
+    /// </summary>
+    /// <param name="id">Which message.</param>
+    /// <param name="attached">Its attachment.</param>
+    /// <returns>True when it is, and has the ten lines every release writes.</returns>
+    private static bool IsTempleLayout(string id, IReadOnlyList<SidneyLibrary.MailLine> attached) =>
+        attached.Count == TempleLines && id.Equals("EMail4", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A heading and three chambers of three lines each.</summary>
+    private const int TempleLines = 10;
+
+    /// <summary>
+    /// The plan the Temple of Solomon message describes but never drew.
+    /// </summary>
+    /// <param name="surface">Where to draw.</param>
+    /// <param name="attached">The message's ten lines.</param>
+    /// <param name="x">The left edge of the pane.</param>
+    /// <param name="y">Where the attachment begins.</param>
+    /// <param name="width">How wide the pane is.</param>
+    /// <remarks>
+    /// The three chambers take a quarter, a half and a quarter of the temple's length,
+    /// and that proportion is the only thing in the message the player needs: the map
+    /// wants the line between the two towers divided in exactly those places. Nine
+    /// sentences in a column do not show it, and the original drew nothing either.
+    /// Reported as such. Every release writes the same ten lines, in the same order.
+    /// </remarks>
+    private static void TempleLayout(
+        SidneySurface surface,
+        IReadOnlyList<SidneyLibrary.MailLine> attached,
+        float x,
+        float y,
+        float width)
+    {
+        surface.Write(attached[0].Text, x, y, SidneyPalette.Amber);
+
+        bool named = NamesFitTheirChambers(surface, attached, width);
+        float top = y + surface.Line + surface.Em(10);
+        float tall = named ? surface.Line + surface.Em(14) : surface.Em(18);
+
+        surface.Fill(x, top, width, tall, SidneyPalette.Panel);
+        surface.Frame(new Vector4(x, top, width, tall), SidneyPalette.Amber);
+
+        float at = x;
+        float under = top + tall + surface.Em(8);
+
+        for (int cell = 0; cell < TempleParts.Length; cell++)
+        {
+            float wide = width * TempleParts[cell];
+            string name = attached[1 + (cell * 3)].Text;
+
+            // The dividing walls, which are where the map's marks go.
+            if (cell > 0)
+            {
+                surface.Fill(at, top, 1, tall, SidneyPalette.Amber);
+            }
+
+            if (named)
+            {
+                surface.Write( name, at + ((wide - surface.Measure(name)) / 2), top + surface.Em(7), SidneyPalette.Ink);
+            }
+
+            float line = under;
+            float room = wide - surface.Em(8);
+
+            // Wrapped rather than ellipsised: a chamber's share of the length is the one
+            // thing the message is for, and "(middle 1/2 of t..." says nothing.
+            foreach (string said in Rows(attached, cell, named))
+            {
+                line = surface.Paragraph( said, at + surface.Em(4), line, room, float.MaxValue,
+                    named || said != name ? SidneyPalette.Dim : SidneyPalette.Ink);
+            }
+
+            at += wide;
+        }
+    }
+
+    /// <summary>A quarter, a half and a quarter, which is the whole of the message.</summary>
+    private static ReadOnlySpan<float> TempleParts => [0.25f, 0.5f, 0.25f];
+
+    /// <summary>What goes under the plan for one chamber.</summary>
+    /// <param name="attached">The message's ten lines.</param>
+    /// <param name="cell">Which chamber.</param>
+    /// <param name="named">Whether the names are written inside the plan.</param>
+    /// <returns>The lines, in order.</returns>
+    private static string[] Rows(IReadOnlyList<SidneyLibrary.MailLine> attached, int cell, bool named) =>
+        named
+            ? [attached[2 + (cell * 3)].Text, attached[3 + (cell * 3)].Text]
+            : [attached[1 + (cell * 3)].Text, attached[2 + (cell * 3)].Text, attached[3 + (cell * 3)].Text];
+
+    /// <summary>
+    /// Whether all three chambers can be labelled inside the plan.
+    /// </summary>
+    /// <param name="surface">Where it will be drawn, for the measurements.</param>
+    /// <param name="attached">The message's ten lines.</param>
+    /// <param name="width">How wide the pane is.</param>
+    /// <returns>True when every name fits its own chamber.</returns>
+    /// <remarks>
+    /// All three or none, so the plan reads as one drawing: the Spanish for the Holy of
+    /// Holies is thirty-five characters against a chamber a quarter of a pane wide, and
+    /// one name below the plan beside two inside it looks like a mistake.
+    /// </remarks>
+    private static bool NamesFitTheirChambers(
+        SidneySurface surface, IReadOnlyList<SidneyLibrary.MailLine> attached, float width)
+    {
+        for (int cell = 0; cell < TempleParts.Length; cell++)
+        {
+            if (surface.Measure(attached[1 + (cell * 3)].Text) + surface.Em(8) > width * TempleParts[cell])
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// How many lines of labels the plan needs under it.
+    /// </summary>
+    /// <param name="surface">Where it will be drawn, for the measurements.</param>
+    /// <param name="attached">The message's ten lines.</param>
+    /// <param name="width">How wide the pane is.</param>
+    /// <returns>The tallest of the three columns, in lines.</returns>
+    private static int TempleRows(
+        SidneySurface surface, IReadOnlyList<SidneyLibrary.MailLine> attached, float width)
+    {
+        bool named = NamesFitTheirChambers(surface, attached, width);
+        int most = 0;
+
+        for (int cell = 0; cell < TempleParts.Length; cell++)
+        {
+            float room = (width * TempleParts[cell]) - surface.Em(8);
+            int rows = 0;
+
+            foreach (string said in Rows(attached, cell, named))
+            {
+                rows += surface.Lines(said, room);
+            }
+
+            most = Math.Max(most, rows);
+        }
+
+        return most;
     }
 
     /// <summary>The scanner: what in the player's pockets Sidney will take.</summary>

@@ -139,6 +139,38 @@ public sealed class TerrainPlanTests
     }
 
     [Fact]
+    public void A_landmark_keeps_its_placement_and_texture_ranges()
+    {
+        TerrainTreeVertex[] vertices =
+        [
+            new(Vector3.Zero, Vector3.UnitY, Vector2.Zero),
+            new(Vector3.UnitX, Vector3.UnitY, Vector2.UnitX),
+            new(Vector3.UnitZ, Vector3.UnitY, Vector2.UnitY),
+        ];
+
+        var landmark = new TerrainLandmark
+        {
+            Name = "tower",
+            Vertices = vertices,
+            Indices = [0, 1, 2],
+            Parts = [new TerrainTreePart(0, 0, 3, Leaves: false)],
+            Position = new Vector3(12f, 34f, 56f),
+            Scale = 2f,
+            Rotation = 0.75f,
+        };
+
+        TerrainPlan plan = TerrainPlan.Create(
+            Flat() with { Landmarks = [landmark] }, sheets: 1);
+
+        Assert.Single(plan.Landmarks);
+        Assert.Equal(vertices, plan.LandmarkVertices);
+        Assert.Equal([0u, 1u, 2u], plan.LandmarkIndices);
+        Assert.Equal([12f, 34f, 56f, 2f, 0.75f, 0f], plan.LandmarkInstances);
+        Assert.Equal([(0, 0u, 3u)], plan.Landmarks[0].Parts);
+        Assert.Equal(0u, plan.Landmarks[0].Instance);
+    }
+
+    [Fact]
     public void The_camera_moves_through_the_backdrop_in_metres()
     {
         TerrainPlan plan = TerrainPlan.Create(Flat(extent: 1000f), sheets: 0);

@@ -320,8 +320,9 @@ public sealed class ScreenPainter
     /// <summary>
     /// What one of the player's things reads as.
     /// </summary>
+    // The port's own name first, for the same reason GameHud.Thing does it: ESTRINGS names an item by what using it does, not by what it is.
     private string Owned(string item) =>
-        Names.Item(item) ?? Text.Say("noun." + item.ToUpperInvariant(), Pretty(item));
+        Text.Said("noun." + item.ToUpperInvariant()) ?? Names.Item(item) ?? Pretty(item);
 
     /// <summary>
     /// What a verb reads as on a screen's own menu.

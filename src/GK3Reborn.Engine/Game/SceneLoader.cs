@@ -2525,6 +2525,10 @@ public sealed class SceneLoader
     private readonly record struct TerrainTree(
         float X, float Y, float Z, float S, float R, float K);
 
+    /// <summary>One building placement written by the terrain publisher.</summary>
+    private readonly record struct TerrainLandmarkPlacement(
+        string Model, float X, float Y, float Z, float S, float R);
+
     /// <summary>
     /// The backdrop's forest, as the instance stream both tree pipelines read.
     /// </summary>
@@ -2618,6 +2622,62 @@ public sealed class SceneLoader
         return TerrainPacks?.Read(Formats.Rebarn.RebarnKind.Raw, $"{set}.{part}");
     }
 
+    private List<TerrainLandmark> TerrainLandmarks(
+        string set, List<DecodedImage> textures, DiagnosticBag diagnostics)
+    {
+        if (ReadTerrainPart(set, "landmarks.json") is not { } bytes ||
+            JsonSerializer.Deserialize<List<TerrainLandmarkPlacement>>(bytes, TerrainJson)
+                is not { Count: > 0 } placements)
+        {
+            return [];
+        }
+
+        var landmarks = new List<TerrainLandmark>();
+        var named = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        int Texture(string name)
+        {
+            if (named.TryGetValue(name, out int already))
+            {
+                return already;
+            }
+
+            if (TerrainTile(name, diagnostics) is not { } image)
+            {
+                return -1;
+            }
+
+            named[name] = textures.Count;
+            textures.Add(image);
+            return textures.Count - 1;
+        }
+
+        foreach (TerrainLandmarkPlacement placement in placements)
+        {
+            string part = $"landmark.{placement.Model}.glb";
+
+            if (ReadTerrainPart(set, part) is not { } modelBytes ||
+                GlbReader.TryParse(modelBytes, $"{set}.{part}", diagnostics) is not { } model ||
+                Flatten(model, 0, 0, placement.Model, Texture) is not { } flat)
+            {
+                continue;
+            }
+
+            landmarks.Add(new TerrainLandmark
+            {
+                Name = placement.Model,
+                Vertices = flat.Vertices,
+                Indices = flat.Indices,
+                Parts = flat.Parts,
+                Position = new Vector3(placement.X, placement.Y, placement.Z),
+                Scale = placement.S,
+                Rotation = placement.R,
+            });
+        }
+
+        return landmarks;
+    }
+
     private void LoadTerrain(
         ISceneSink geometry, SkyboxDefinition sky, Vector3? sunDirection,
         DiagnosticBag diagnostics)
@@ -2699,6 +2759,8 @@ public sealed class SceneLoader
             List<DecodedImage> modelTextures = [];
             List<TerrainTreeModel> models =
                 trees.Length > 0 ? TerrainTrees(modelTextures, diagnostics) : [];
+            List<TerrainLandmark> landmarks =
+                TerrainLandmarks(set, modelTextures, diagnostics);
 
             geometry.SetTerrain(new TerrainBackdrop
             {
@@ -2721,6 +2783,7 @@ public sealed class SceneLoader
                 Azimuth = sky.Azimuth,
                 TreeModels = models,
                 TreeTextures = modelTextures,
+                Landmarks = landmarks,
 
                 // The scene's own centre, which is where the painted sky was
                 // conceptually seen from.
@@ -2736,7 +2799,7 @@ public sealed class SceneLoader
             _log?.Invoke(string.Create(
                 System.Globalization.CultureInfo.InvariantCulture,
                 $"terrain: {set}, {meta.Grid}x{meta.Grid} over {meta.ExtentMeters:F0} m, " +
-                $"{trees.Length / 6} trees{grown}"));
+                $"{trees.Length / 6} trees{grown}, {landmarks.Count} landmark(s)"));
         }
         catch (Exception error) when (
             error is IOException or JsonException or Formats.FormatParseException)

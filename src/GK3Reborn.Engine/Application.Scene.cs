@@ -611,7 +611,8 @@ public static partial class Application
             // The suspects' faces, rendered from their own heads by the offline tool.
             List<string> everybody =
             [
-                .. Game.Sidney.SidneySuspect.Portraits, Game.DrivingTraffic.EgoFace, Game.DrivingTraffic.TwoMenFace, ];
+                .. Game.Sidney.SidneySuspect.Portraits, Game.DrivingTraffic.EgoFace, Game.DrivingTraffic.GraceFace,
+                Game.DrivingTraffic.TwoMenFace, ];
 
             int portraits = 0;
 
