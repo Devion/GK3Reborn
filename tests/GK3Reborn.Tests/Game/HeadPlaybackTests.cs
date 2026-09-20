@@ -116,12 +116,15 @@ public sealed class HeadPlaybackTests
             _inner.TurnMesh(placement, mesh, turn);
         }
 
-        /// <summary>What each texture of each model has been painted over with.</summary>
-        public Dictionary<(int Placement, string Texture), string?> Painted { get; } =
+        /// <summary>What each part of each model has been painted over with.</summary>
+        public Dictionary<(int Placement, int Mesh, int Submesh), string?> Painted { get; } =
             new();
 
         public void Repaint(ModelPlacement placement, string texture, string? painted) =>
-            Painted[(placement.Id, texture)] = painted;
+            Painted[(placement.Id, -1, -1)] = painted;
+
+        public void RepaintPart(ModelPlacement placement, int mesh, int submesh, string? painted) =>
+            Painted[(placement.Id, mesh, submesh)] = painted;
 
         /// <summary>Which models have been hidden, and which shown again.</summary>
         public Dictionary<int, bool> Visible { get; } = [];

@@ -864,8 +864,11 @@ public sealed class SceneUpdate
             }
 
             // Who is talking decides which of the three scripts a character runs.
-            FidgetKind wanted = fidget.Forced ?? (speaker is null ? FidgetKind.Idle
-                : Same(fidget.Model, speaker) ? FidgetKind.Talk : FidgetKind.Listen);
+            FidgetKind wanted = fidget.Forced is { } forced &&
+                (forced != FidgetKind.Idle || speaker is null)
+                    ? forced
+                    : speaker is null ? FidgetKind.Idle
+                    : Same(fidget.Model, speaker) ? FidgetKind.Talk : FidgetKind.Listen;
 
             if (wanted != fidget.Mode)
             {
@@ -1040,7 +1043,7 @@ public sealed class SceneUpdate
                 continue;
             }
 
-            _geometry.Repaint(model.Placement, parts[swap.Submesh].TextureName, swap.Texture);
+            _geometry.RepaintPart(model.Placement, swap.Mesh, swap.Submesh, swap.Texture);
         }
     }
 

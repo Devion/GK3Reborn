@@ -167,6 +167,13 @@ public interface ISceneSink
     /// <param name="painted">What to draw instead, or null to put the model's own back.</param>
     void Repaint(ModelPlacement placement, string texture, string? painted);
 
+    /// <summary>Paints one authored part of a model without changing matching neighbours.</summary>
+    /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
+    /// <param name="mesh">The mesh index from the animation.</param>
+    /// <param name="submesh">The submesh index from the animation.</param>
+    /// <param name="painted">What to draw instead, or null to put the model's own back.</param>
+    void RepaintPart(ModelPlacement placement, int mesh, int submesh, string? painted);
+
     /// <summary>Moves one mesh of a model that is already standing.</summary>
     /// <param name="placement">The handle its <see cref="Add"/> returned.</param>
     /// <param name="mesh">Which of the model's meshes.</param>

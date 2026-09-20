@@ -858,6 +858,38 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         }
     }
 
+    public void RepaintPart(ModelPlacement placement, int mesh, int submesh, string? painted)
+    {
+        if (!placement.Exists || placement.Id >= _placements.Count)
+        {
+            return;
+        }
+
+        if (!_parts[placement.Id].TryGetValue((mesh, submesh), out int part) ||
+            !_placements[placement.Id].TryGetValue(part, out List<int>? batches))
+        {
+            return;
+        }
+
+        foreach (int index in batches)
+        {
+            Batch batch = _batches[index];
+
+            if (string.Equals(batch.Painted, painted, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            _batches[index] = batch with
+            {
+                Painted = painted,
+                Material = painted is { Length: > 0 } picture
+                    ? MaterialFor(picture, batch.TextureName)
+                    : MaterialFor(batch.TextureName, batch.TextureName),
+            };
+        }
+    }
+
     /// <summary>A material set drawing one picture with another surface's normal map.</summary>
     private IGeometryMaterial MaterialFor(string picture, string surface, bool lit = false)
     {

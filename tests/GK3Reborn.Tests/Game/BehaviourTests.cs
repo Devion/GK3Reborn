@@ -277,7 +277,7 @@ public sealed class BehaviourTests
     }
 
     [Fact]
-    public void A_fidget_asked_for_by_name_overrides_who_is_speaking()
+    public void An_explicit_idle_gives_way_to_dialogue()
     {
         SceneUpdate update = World(
             Actor("gab", "GABRIEL", 0,
@@ -288,7 +288,7 @@ public sealed class BehaviourTests
         update.StartFidget("gab", FidgetKind.Idle);
         update.Advance(0.1);
 
-        Assert.Equal("gabBreath", Played(update)[^1]);
+        Assert.Equal("gabListen", Played(update)[^1]);
     }
 
     [Fact]

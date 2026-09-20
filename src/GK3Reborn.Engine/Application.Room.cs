@@ -486,6 +486,7 @@ public static partial class Application
 
         // Whether Sidney was up last frame, so that putting it away can run what the original runs then.
         bool sidneyWasUp = false;
+        bool sidneySaying = false;
         Vector2? pinned = Pinned(options);
         bool forceMenu = options.Contains("--menu", StringComparer.OrdinalIgnoreCase);
 
@@ -1201,7 +1202,14 @@ public static partial class Application
             }
 
             // What Sidney has to do outside its own screen: a line Grace says over it, a room the story leaves for, Sidney put away — one at a time.
-            if (sidney is { HasCues: true } && !update.Acting && sidney.TakeCue() is { } cue)
+            if (sidneySaying && !update.Acting)
+            {
+                sidneySaying = false;
+            }
+
+            if (!sidneySaying && sidney is { HasCues: true } &&
+                (story.Screens.IsOpen(ScreenKind.Sidney) || !update.Acting) &&
+                sidney.TakeCue() is { } cue)
             {
                 switch (cue.Kind)
                 {
@@ -1211,6 +1219,7 @@ public static partial class Application
                             Noun = "SIDNEY", Verb = "SAYS", Case = "ALL", Script = string.Create( CultureInfo.InvariantCulture,
                                 $"wait StartDialogue(\"{cue.Plate}\", {cue.Lines})"), Source = "Sidney",
                         });
+                        sidneySaying = true;
 
                         Log.Info($"Sidney: {cue.Plate}");
                         break;

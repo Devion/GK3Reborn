@@ -230,6 +230,8 @@ public sealed class HeadlessSceneSink : ISceneSink
     /// <inheritdoc/>
     public void Repaint(ModelPlacement placement, string texture, string? painted) => RepaintCount++;
 
+    public void RepaintPart(ModelPlacement placement, int mesh, int submesh, string? painted) => RepaintCount++;
+
     /// <summary>How many models the scene asked to be kept out of sight.</summary>
     public int HiddenCount { get; private set; }
 

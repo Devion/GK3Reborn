@@ -260,7 +260,7 @@ public static class SceneMechanisms
     /// The rooms whose code is a patch rather than a mechanism.
     /// </summary>
     private static RoomPatches? Patched(string location, SceneUpdate world, Gk3SheepApi api) =>
-        location.ToUpperInvariant() is "LBY" or "MS3" or "CD1" or "CSE"
+        location.ToUpperInvariant() is "LBY" or "MS3" or "CD1" or "CSE" or "DIN" or "HAL"
             ? new RoomPatches(location, world, api)
             : null;
 }

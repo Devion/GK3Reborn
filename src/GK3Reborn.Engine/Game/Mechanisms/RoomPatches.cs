@@ -2,7 +2,7 @@
 
 namespace GK3Reborn.Game.Mechanisms;
 
-/// <summary>The four rooms whose code is a patch for a bug in the game's own data.</summary>
+/// <summary>The rooms whose code is a patch for a bug in the game's own data.</summary>
 public sealed class RoomPatches : SceneMechanism
 {
     private readonly string _room;
@@ -51,6 +51,14 @@ public sealed class RoomPatches : SceneMechanism
                 Lobby();
                 break;
 
+            case "DIN":
+                DiningRoom();
+                break;
+
+            case "HAL":
+                Hallway();
+                break;
+
             default:
                 break;
         }
@@ -66,13 +74,22 @@ public sealed class RoomPatches : SceneMechanism
     /// <summary>The chateau's east side: a one-pixel gap in the walk boundary.</summary>
     private void Chateau()
     {
+        if (Story.Timeblock == new Timeblock(3, 3, true) &&
+            Story.GetLocationCount(Story.Ego, "CSE") == 0)
+        {
+            Api.Invoke("StopSoundTrack", [Sheep.SheepValue.FromString("CSEFOUNTAIN2D.STK")]);
+            _did = "stopped the fountain before the opening cellar cutscene";
+        }
+
         if (World.Boundary is not { } boundary || (Story.Timeblock != new Timeblock(2, 2, true) && Story.Timeblock != new Timeblock(3, 3, true)))
         {
             return;
         }
 
         boundary.SetRegionOpen(6, open: false);
-        _did = "closed walker region 6, which is a one-pixel path through a door";
+        _did = _did.StartsWith("stopped", StringComparison.Ordinal)
+            ? _did + " and closed walker region 6"
+            : "closed walker region 6, which is a one-pixel path through a door";
     }
 
     /// <summary>Chateau de Blanchefort: Emilio does not sit where the data says he sits.</summary>
@@ -101,5 +118,40 @@ public sealed class RoomPatches : SceneMechanism
         {
             _did = "put Buchelli's glass down, which the room's opening poses do not";
         }
+    }
+
+    /// <summary>The dining room: two incorrect opening visibility states.</summary>
+    private void DiningRoom()
+    {
+        if (Story.Timeblock == new Timeblock(3, 3, true) &&
+            World.ModelNamed("dinchair07") is { } chair)
+        {
+            World.Show(chair, false);
+            _did = "hid Mosely's duplicate chair";
+        }
+
+        if (Story.Timeblock == new Timeblock(3, 6, true) &&
+            World.ActorNamed("mad") is { } madeline)
+        {
+            World.Show(madeline, true);
+            _did = "restored Madeline's dining-room visibility";
+        }
+    }
+
+    /// <summary>The hotel hallway: preserve Emilio's departure if R25 failed to arm it.</summary>
+    private void Hallway()
+    {
+        if (Story.Timeblock != new Timeblock(3, 6, true) ||
+            Story.GetVariable("EmilioPath") != 0 ||
+            !string.Equals(Story.GetActorLocation("EMILIO"), "R27", StringComparison.OrdinalIgnoreCase) ||
+            Story.Timers.Pending.Any(timer =>
+                timer.Noun.Equals("GRACE", StringComparison.OrdinalIgnoreCase) &&
+                timer.Verb.Equals("EMILIO_TIMER", StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        Story.Timers.Set("GRACE", "EMILIO_TIMER", 50);
+        _did = "restored Emilio's missing departure timer";
     }
 }

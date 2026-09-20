@@ -112,6 +112,9 @@ public sealed class HeldPropTests
         public void Repaint(ModelPlacement placement, string texture, string? painted) =>
             _inner.Repaint(placement, texture, painted);
 
+        public void RepaintPart(ModelPlacement placement, int mesh, int submesh, string? painted) =>
+            _inner.RepaintPart(placement, mesh, submesh, painted);
+
         public bool SetSceneObjectVisible(string objectName, bool visible) => true;
 
         public bool PaintSceneObject(string objectName, string? texture) => true;
