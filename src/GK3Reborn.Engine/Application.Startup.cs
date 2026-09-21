@@ -414,6 +414,7 @@ public static partial class Application
     /// <param name="frameLimit">Stop after this many frames, or zero to run until closed.</param>
     private static int RenderFrames(int frameLimit)
     {
+        Rendering.Vulkan.VulkanContext.PrepareWindowing();
         using var window = Platform.SilkGameWindow.Open("GK3Reborn");
 
         // The one caller that wants the bring-up triangle: there is no room to draw and the point is to prove the chain reaches the screen at all.
@@ -527,6 +528,7 @@ public static partial class Application
             }
         }
 
+        Rendering.Vulkan.VulkanContext.PrepareWindowing();
         Platform.SilkGameWindow vulkanWindow = Platform.SilkGameWindow.Open( title, width, height, Platform.WindowGraphics.Vulkan, visible: false);
 
         Rendering.Upscaling.Streamline? streamline = null;

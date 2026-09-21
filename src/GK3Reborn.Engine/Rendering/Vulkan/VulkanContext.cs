@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using Silk.NET.Core.Native;
 using Silk.NET.Vulkan;
+using Glfw = Silk.NET.GLFW.Glfw;
 
 namespace GK3Reborn.Rendering.Vulkan;
 
@@ -9,6 +10,9 @@ namespace GK3Reborn.Rendering.Vulkan;
 /// </summary>
 public sealed unsafe class VulkanContext : IDisposable
 {
+    private static readonly Lock LoaderGate = new();
+    private static Glfw? _windowingApi;
+
     private readonly bool _owned;
 
     private VulkanContext(Vk vk, bool owned = true)
@@ -95,6 +99,35 @@ public sealed unsafe class VulkanContext : IDisposable
             when (ex is DllNotFoundException or EntryPointNotFoundException or FileNotFoundException)
         {
             throw new VulkanException("No Vulkan loader is present on this machine.", ex);
+        }
+    }
+
+    /// <summary>
+    /// Gives GLFW the Vulkan loader the renderer will use, before GLFW initialises.
+    /// </summary>
+    /// <remarks>
+    /// GLFW normally opens Vulkan by its platform loader name. On macOS that is
+    /// <c>libvulkan.1.dylib</c>, while the copy shipped with the game is MoltenVK's
+    /// <c>libMoltenVK.dylib</c>. GLFW 3.4 can instead be handed the loader's entry point;
+    /// this also keeps window creation and the renderer on the same loader elsewhere.
+    /// Neither API is disposed: GLFW retains the function pointer for its lifetime.
+    /// </remarks>
+    internal static void PrepareWindowing()
+    {
+        lock (LoaderGate)
+        {
+            if (_windowingApi is not null)
+            {
+                return;
+            }
+
+            Vk vulkan = LoadApi();
+            Glfw glfw = Glfw.GetApi();
+            nint initializeLoader = glfw.Context.GetProcAddress("glfwInitVulkanLoader");
+            nint getInstanceProcAddress = vulkan.Context.GetProcAddress("vkGetInstanceProcAddr");
+
+            ((delegate* unmanaged<nint, void>)initializeLoader)(getInstanceProcAddress);
+            _windowingApi = glfw;
         }
     }
 

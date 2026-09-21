@@ -83,6 +83,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
     <PackageReference Include="NLayer" />
     <PackageReference Include="Silk.NET.Core" />
+    <PackageReference Include="Silk.NET.GLFW" />
     <PackageReference Include="Silk.NET.Input" />
     <PackageReference Include="Silk.NET.Maths" />
     <PackageReference Include="Silk.NET.OpenAL" />
