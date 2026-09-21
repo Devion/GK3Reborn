@@ -6,6 +6,8 @@ namespace GK3Reborn.Game.Mechanisms;
 public sealed class RoomPatches : SceneMechanism
 {
     private readonly string _room;
+    private bool _emilioTimerObserved;
+    private bool _emilioDepartureRecovered;
 
     /// <summary>Creates the patch for one room.</summary>
     /// <param name="room">Which room, as the game names the location.</param>
@@ -29,6 +31,39 @@ public sealed class RoomPatches : SceneMechanism
 
     /// <inheritdoc/>
     public override bool Perform(string asked) => false;
+
+    /// <inheritdoc/>
+    public override void Advance(double seconds)
+    {
+        if (_room != "HAL" || _emilioDepartureRecovered || !WaitingForEmilio())
+        {
+            return;
+        }
+
+        if (HasEmilioTimer())
+        {
+            _emilioTimerObserved = true;
+            return;
+        }
+
+        if (!_emilioTimerObserved)
+        {
+            return;
+        }
+
+        // The timer has been consumed, but its global action did not start the authored
+        // departure (EmilioPath is still zero). This is observable in saves as a correctly
+        // armed timer followed by Emilio remaining in R27 indefinitely. Run the very same
+        // room function the global action names, once, instead of inventing a second path.
+        Api.Perform("CallSheep",
+        [
+            Sheep.SheepValue.FromString("hal306p"),
+            Sheep.SheepValue.FromString("EmilioToCem_Background"),
+        ]);
+
+        _emilioDepartureRecovered = true;
+        _did = "started Emilio's departure after its timer action was lost";
+    }
 
     /// <inheritdoc/>
     public override void Begin()
@@ -123,35 +158,46 @@ public sealed class RoomPatches : SceneMechanism
     /// <summary>The dining room: two incorrect opening visibility states.</summary>
     private void DiningRoom()
     {
-        if (Story.Timeblock == new Timeblock(3, 3, true) &&
-            World.ModelNamed("dinchair07") is { } chair)
+        if (Story.Timeblock == new Timeblock(3, 3, true))
         {
-            World.Show(chair, false);
-            _did = "hid Mosely's duplicate chair";
-        }
+            // DIN303P puts a movable dinchair07 under Mosely, while DIN's baked geometry
+            // still contains another dinchair07 on its side. They share a name but not an
+            // owner: ShowModel finds the former, and hiding it takes Mosely's own chair
+            // away. The unwanted one is the room object.
+            World.Geometry.SetSceneObjectVisible("dinchair07", false);
 
-        if (Story.Timeblock == new Timeblock(3, 6, true) &&
-            World.ActorNamed("mad") is { } madeline)
-        {
-            World.Show(madeline, true);
-            _did = "restored Madeline's dining-room visibility";
+            if (World.ActorNamed("mad") is { } madeline)
+            {
+                World.Show(madeline, true);
+            }
+
+            _did = "hid Mosely's duplicate chair and restored Madeline's dining-room visibility";
         }
     }
 
     /// <summary>The hotel hallway: preserve Emilio's departure if R25 failed to arm it.</summary>
     private void Hallway()
     {
-        if (Story.Timeblock != new Timeblock(3, 6, true) ||
-            Story.GetVariable("EmilioPath") != 0 ||
-            !string.Equals(Story.GetActorLocation("EMILIO"), "R27", StringComparison.OrdinalIgnoreCase) ||
-            Story.Timers.Pending.Any(timer =>
-                timer.Noun.Equals("GRACE", StringComparison.OrdinalIgnoreCase) &&
-                timer.Verb.Equals("EMILIO_TIMER", StringComparison.OrdinalIgnoreCase)))
+        if (!WaitingForEmilio())
         {
             return;
         }
 
-        Story.Timers.Set("GRACE", "EMILIO_TIMER", 50);
-        _did = "restored Emilio's missing departure timer";
+        if (!HasEmilioTimer())
+        {
+            Story.Timers.Set("GRACE", "EMILIO_TIMER", 50);
+            _did = "restored Emilio's missing departure timer";
+        }
+
+        _emilioTimerObserved = true;
     }
+
+    private bool WaitingForEmilio() =>
+        Story.Timeblock == new Timeblock(3, 6, true) &&
+        Story.GetVariable("EmilioPath") == 0 &&
+        string.Equals(Story.GetActorLocation("EMILIO"), "R27", StringComparison.OrdinalIgnoreCase);
+
+    private bool HasEmilioTimer() => Story.Timers.Pending.Any(timer =>
+        timer.Noun.Equals("GRACE", StringComparison.OrdinalIgnoreCase) &&
+        timer.Verb.Equals("EMILIO_TIMER", StringComparison.OrdinalIgnoreCase));
 }

@@ -865,29 +865,31 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             return;
         }
 
+        // _parts stores the render-batch index itself. _placements is keyed by mesh index,
+        // so looking the batch up there treated (for example) batch 1 as mesh 1 and
+        // repainted that mesh's every submesh. PHOTO1 has two photo cards on neighbouring
+        // meshes; that mistake made each new image spill onto the other card as Grace
+        // flipped through Estelle's photographs.
         if (!_parts[placement.Id].TryGetValue((mesh, submesh), out int part) ||
-            !_placements[placement.Id].TryGetValue(part, out List<int>? batches))
+            part < 0 || part >= _batches.Count)
         {
             return;
         }
 
-        foreach (int index in batches)
+        Batch batch = _batches[part];
+
+        if (string.Equals(batch.Painted, painted, StringComparison.OrdinalIgnoreCase))
         {
-            Batch batch = _batches[index];
-
-            if (string.Equals(batch.Painted, painted, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            _batches[index] = batch with
-            {
-                Painted = painted,
-                Material = painted is { Length: > 0 } picture
-                    ? MaterialFor(picture, batch.TextureName)
-                    : MaterialFor(batch.TextureName, batch.TextureName),
-            };
+            return;
         }
+
+        _batches[part] = batch with
+        {
+            Painted = painted,
+            Material = painted is { Length: > 0 } picture
+                ? MaterialFor(picture, batch.TextureName)
+                : MaterialFor(batch.TextureName, batch.TextureName),
+        };
     }
 
     /// <summary>A material set drawing one picture with another surface's normal map.</summary>

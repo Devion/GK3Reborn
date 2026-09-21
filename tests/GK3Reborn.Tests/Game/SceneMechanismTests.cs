@@ -57,7 +57,7 @@ public sealed class SceneMechanismTests
     }
 
     [Fact]
-    public void The_four_rooms_whose_code_is_a_patch_are_keyed_by_location()
+    public void Rooms_whose_code_is_a_patch_are_keyed_by_location()
     {
         // These declare no custom= at all: the original ran <location>-init on every scene
         // load, and four rooms use that to fix something their own data gets wrong.
@@ -68,6 +68,89 @@ public sealed class SceneMechanismTests
 
         api.State.Location = "R25";
         Assert.Null(SceneMechanisms.For(null, world, api));
+    }
+
+    [Fact]
+    public void The_303p_dining_patch_hides_the_baked_duplicate_not_Moselys_prop()
+    {
+        var state = new GameState
+        {
+            Location = "DIN",
+            Timeblock = new Timeblock(3, 3, true),
+        };
+        var api = new Gk3SheepApi(state);
+        var sink = new HeadlessSceneSink();
+        var scene = new LoadedScene(
+            "DIN",
+            Read("[GENERAL]"),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 0,
+            Placed: []);
+        var world = new SceneUpdate(scene, api, new Glances(), sink);
+
+        new RoomPatches("DIN", world, api).Begin();
+
+        Assert.Equal(["dinchair07"], sink.SceneObjectsToggled);
+        Assert.Equal(0, sink.HiddenCount);
+    }
+
+    [Fact]
+    public void The_dining_patch_does_not_run_a_timeblock_late()
+    {
+        var state = new GameState
+        {
+            Location = "DIN",
+            Timeblock = new Timeblock(3, 6, true),
+        };
+        var api = new Gk3SheepApi(state);
+        var sink = new HeadlessSceneSink();
+        var scene = new LoadedScene(
+            "DIN",
+            Read("[GENERAL]"),
+            Asset: null,
+            Lightmaps: null,
+            ModelsPlaced: 0,
+            Placed: []);
+        var world = new SceneUpdate(scene, api, new Glances(), sink);
+
+        new RoomPatches("DIN", world, api).Begin();
+
+        Assert.Empty(sink.SceneObjectsToggled);
+    }
+
+    [Fact]
+    public void A_consumed_Emilio_timer_that_started_nothing_runs_the_authored_departure()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.Location = "HAL";
+        api.State.Timeblock = new Timeblock(3, 6, true);
+        api.State.SetActorLocation("EMILIO", "r27");
+        api.State.Timers.Set("GRACE", "EMILIO_TIMER", 49.49);
+
+        IReadOnlyList<SheepValue>? called = null;
+        api.Register("CallSheep", arguments =>
+        {
+            called = [.. arguments];
+            return SheepValue.FromInt(0);
+        });
+
+        var patch = new RoomPatches("HAL", world, api);
+        patch.Begin();
+
+        api.State.Timers.Advance(50);
+        Assert.NotNull(api.State.Timers.TakeDue());
+
+        patch.Advance(1.0 / 60);
+
+        Assert.NotNull(called);
+        Assert.Equal("hal306p", called[0].AsString());
+        Assert.Equal("EmilioToCem_Background", called[1].AsString());
+
+        // It is a recovery edge, not a second background departure every frame.
+        called = null;
+        patch.Advance(1.0 / 60);
+        Assert.Null(called);
     }
 
     [Fact]
