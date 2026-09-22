@@ -26,6 +26,10 @@ public readonly record struct BlinkChoice(string Animation, int Weight);
 /// <param name="Blinks">The blink animations, with the odds of each.</param>
 /// <param name="BlinkFrom">Shortest gap between blinks, in seconds.</param>
 /// <param name="BlinkTo">Longest gap between blinks, in seconds.</param>
+/// <param name="LeftEye">The resting texture for the left eye, if listed.</param>
+/// <param name="RightEye">The resting texture for the right eye, if listed.</param>
+/// <param name="LeftEyeOffset">Where the left eye goes on the face bitmap.</param>
+/// <param name="RightEyeOffset">Where the right eye goes on the face bitmap.</param>
 public sealed record FaceConfig(
     string Identifier,
     string FaceTexture,
