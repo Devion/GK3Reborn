@@ -208,11 +208,10 @@ public sealed class FlameTests
     }
 
     [Fact]
-    public void A_fire_the_artists_left_dark_is_given_a_light_that_averages_to_nothing()
+    public void The_hexagram_cauldron_is_given_a_steady_light_that_flickers()
     {
-        // The temple's bowl of fire, the bar's fireplace and MA1's brazier are lit entirely
-        // by the bake. A light added for them has to add movement without adding exposure,
-        // or the room gets brighter than it has ever been.
+        // The temple's bowl of fire has no nearby authored light. Its synthesized light
+        // must illuminate the corner even when the flicker is at its low point.
         var bowl = new Flame("te4firetransp", new Vector3(-110, 39, -213), 12.6f, 6f, true);
 
         AuthoredLight lantern = Light("alantern_omni3", new Vector3(-42, 39, -213));
@@ -224,7 +223,7 @@ public sealed class FlameTests
 
         FlameFlicker added = Assert.NotNull(rig[1].Flicker);
 
-        Assert.Equal(0f, added.Bias);
+        Assert.Equal(1f, added.Bias);
         Assert.True(added.Swing > 0f, "a synthesized flame light with no swing lights nothing");
     }
 

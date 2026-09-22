@@ -565,6 +565,10 @@ public sealed class SceneLoader
         Reached(AtSceneFiles + (2 * (AtRoomGeometry - AtSceneFiles) / 3));
 
         MulFile? lightmaps = ReadLightmaps(asset?.Name, scene, timeblock, diagnostics);
+        if (lightmaps is not null && scene.Equals("TE4", StringComparison.OrdinalIgnoreCase))
+        {
+            lightmaps = RepairHexagramPlinthLightmaps(lightmaps, bsp);
+        }
         Timeline?.Stamp("lightmaps (.MUL)");
         Reached(AtRoomGeometry);
 
@@ -1399,6 +1403,63 @@ public sealed class SceneLoader
             $"No scene asset for {scene}; taking the BSP of the same name."));
 
         return null;
+    }
+
+    private static MulFile RepairHexagramPlinthLightmaps(MulFile lightmaps, BspFile bsp)
+    {
+        // TE4A and TE4B bake bright green into the unused triangular half of the
+        // five plinth-top lightmaps. Filtering/displacement samples that half and
+        // paints the inscriptions green. Extend the nearest valid baked texel into it.
+        HashSet<string> plinths = new(StringComparer.OrdinalIgnoreCase)
+            { "TE4PATH", "TE4ONE", "TE4MIND", "TE4MASTER", "TE4BODY" };
+        List<DecodedImage> repaired = [.. lightmaps.Lightmaps];
+
+        for (int i = 0; i < Math.Min(repaired.Count, bsp.Surfaces.Count); i++)
+        {
+            if (!plinths.Contains(bsp.Surfaces[i].TextureName))
+            {
+                continue;
+            }
+
+            DecodedImage image = repaired[i];
+            byte[] pixels = image.Pixels;
+            List<int> valid = [];
+            List<int> keyed = [];
+            for (int at = 0; at < pixels.Length; at += 4)
+            {
+                if (pixels[at] <= 2 && pixels[at + 1] >= 250 && pixels[at + 2] <= 2)
+                {
+                    keyed.Add(at);
+                }
+                else
+                {
+                    valid.Add(at);
+                }
+            }
+
+            if (keyed.Count == 0 || valid.Count == 0)
+            {
+                continue;
+            }
+
+            byte[] filled = (byte[])pixels.Clone();
+            foreach (int at in keyed)
+            {
+                int x = (at / 4) % image.Width;
+                int y = (at / 4) / image.Width;
+                int nearest = valid.MinBy(source =>
+                {
+                    int dx = (source / 4) % image.Width - x;
+                    int dy = (source / 4) / image.Width - y;
+                    return dx * dx + dy * dy;
+                });
+                Array.Copy(pixels, nearest, filled, at, 4);
+            }
+
+            repaired[i] = image with { Pixels = filled };
+        }
+
+        return MulFile.FromParts(lightmaps.Name, repaired);
     }
 
     private MulFile? ReadLightmaps(

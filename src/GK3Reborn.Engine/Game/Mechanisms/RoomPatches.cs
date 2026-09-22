@@ -94,8 +94,28 @@ public sealed class RoomPatches : SceneMechanism
                 Hallway();
                 break;
 
+            case "TE4":
+                Hexagram();
+                break;
+
             default:
                 break;
+        }
+    }
+
+    /// <summary>Reapply visibility after opening animations and the enter action.</summary>
+    public void AfterOpening()
+    {
+        if (_room == "DIN" &&
+            (Story.Timeblock == new Timeblock(3, 3, true) || Story.Timeblock == new Timeblock(3, 6, true)) &&
+            World.ActorNamed("mad") is { } madeline)
+        {
+            World.Show(madeline, true);
+        }
+
+        if (_room == "TE4")
+        {
+            Hexagram();
         }
     }
 
@@ -166,12 +186,19 @@ public sealed class RoomPatches : SceneMechanism
             // away. The unwanted one is the room object.
             World.Geometry.SetSceneObjectVisible("dinchair07", false);
 
+            _did = "hid Mosely's duplicate chair";
+        }
+
+        // Both dinner scenes place Madeline through an initial animation. On returning
+        // to the room her actor can retain the hidden state from an earlier scene.
+        if (Story.Timeblock == new Timeblock(3, 3, true) ||
+            Story.Timeblock == new Timeblock(3, 6, true))
+        {
             if (World.ActorNamed("mad") is { } madeline)
             {
                 World.Show(madeline, true);
+                _did += "; restored Madeline's dining-room visibility";
             }
-
-            _did = "hid Mosely's duplicate chair and restored Madeline's dining-room visibility";
         }
     }
 
@@ -190,6 +217,20 @@ public sealed class RoomPatches : SceneMechanism
         }
 
         _emilioTimerObserved = true;
+    }
+
+    /// <summary>Restore the glove plinths to match the inventory in a loaded save.</summary>
+    private void Hexagram()
+    {
+        foreach ((string item, string model) in new[]
+                 { ("GILT_GLOVE", "goldglove"), ("LEATHER_GLOVE", "lthrglove") })
+        {
+            if (Story.Inventory.Has("GABRIEL", item) && World.ModelNamed(model) is { } glove)
+            {
+                World.Show(glove, false);
+                _did = "restored the glove plinths from the saved inventory";
+            }
+        }
     }
 
     private bool WaitingForEmilio() =>

@@ -44,6 +44,11 @@ public sealed class Gk3SheepApi : ISheepApi
 
         RegisterStateFunctions();
         RegisterRecordedFunctions();
+        Register("FinishedScreen", _ =>
+        {
+            FinishedRequested = true;
+            return SheepValue.FromInt(0);
+        });
     }
 
     /// <summary>
@@ -84,6 +89,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>The state these functions operate on.</summary>
     public GameState State { get; }
 
+    /// <summary>The ending script has finished its last film.</summary>
+    public bool FinishedRequested { get; private set; }
+
     /// <summary>Puts a saved game back, and drops what the load has orphaned.</summary>
     /// <param name="save">The save.</param>
     public void RestoreGame(SaveGame save)
@@ -91,6 +99,7 @@ public sealed class Gk3SheepApi : ISheepApi
         ArgumentNullException.ThrowIfNull(save);
 
         State.Restore(save);
+        FinishedRequested = false;
 
         // A save from before a chase recorded where it left its quarry has Day 1 stuck at
         // 2pm: the count says both were followed and nothing says where they went.

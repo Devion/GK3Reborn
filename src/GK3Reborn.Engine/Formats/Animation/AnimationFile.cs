@@ -47,6 +47,12 @@ public enum FacePart
 
     /// <summary>The forehead, which is where the brows are.</summary>
     Forehead,
+
+    /// <summary>The eye on the left side of the face bitmap.</summary>
+    LeftEye,
+
+    /// <summary>The eye on the right side of the face bitmap.</summary>
+    RightEye,
 }
 
 /// <summary>A mouth shape an animation puts on somebody's face.</summary>
@@ -647,8 +653,7 @@ public sealed class AnimationFile
                     break;
 
                 // <frame>,FACETEX,<noun>,<bitmap>,<part> and <frame>,UNFACETEX,<noun>,<part>.
-                // A part nothing here paints — L and R, the two eyes, twenty nodes in the
-                // whole corpus — is left alone rather than painted over the wrong region.
+                // L and R are the eye overlays, including Montreaux's red-eye change.
                 case "FACETEX":
                     if (line.Entries.Count > 3 && PartOf(line, 4) is { } painted)
                     {
@@ -683,6 +688,8 @@ public sealed class AnimationFile
                 "M" => FacePart.Mouth,
                 "E" => FacePart.Eyelids,
                 "H" => FacePart.Forehead,
+                "L" => FacePart.LeftEye,
+                "R" => FacePart.RightEye,
                 _ => null,
             };
 

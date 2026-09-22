@@ -36,7 +36,11 @@ public sealed record FaceConfig(
     FaceSpot ForeheadOffset,
     IReadOnlyList<BlinkChoice> Blinks,
     double BlinkFrom,
-    double BlinkTo)
+    double BlinkTo,
+    string? LeftEye = null,
+    string? RightEye = null,
+    FaceSpot LeftEyeOffset = default,
+    FaceSpot RightEyeOffset = default)
 {
     /// <summary>The bitmap a face part rests at when nothing is painted over it.</summary>
     /// <param name="part">Which part.</param>
@@ -45,6 +49,8 @@ public sealed record FaceConfig(
     {
         Formats.Animation.FacePart.Eyelids => $"{Identifier}_EYELIDS",
         Formats.Animation.FacePart.Forehead => $"{Identifier}_FOREHEAD",
+        Formats.Animation.FacePart.LeftEye => LeftEye ?? string.Empty,
+        Formats.Animation.FacePart.RightEye => RightEye ?? string.Empty,
         _ => MouthTexture("MOUTH00"),
     };
 
@@ -126,7 +132,11 @@ public sealed class FaceLibrary
                 Spot(section, "Forehead Offset") ?? default,
                 Blinks(section),
                 from,
-                to);
+                to,
+                Value(section, "Left Eye Name")?.ToUpperInvariant(),
+                Value(section, "Right Eye Name")?.ToUpperInvariant(),
+                Spot(section, "Left Eye Offset") ?? default,
+                Spot(section, "Right Eye Offset") ?? default);
         }
 
         return library;
@@ -152,6 +162,7 @@ public sealed class FaceLibrary
         {
             "WI2" => "WIL",
             "LH2" => "LHO",
+            "MOV" => "MON",
             _ => identifier,
         };
 

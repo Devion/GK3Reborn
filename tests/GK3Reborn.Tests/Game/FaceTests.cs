@@ -66,7 +66,7 @@ public sealed class FaceTests
     }
 
     [Fact]
-    public void The_three_face_parts_are_told_apart_by_one_letter()
+    public void The_face_parts_are_told_apart_by_one_letter()
     {
         AnimationFile animation = Read(
             "[HEADER]\n2\n\n[GK3]\n3\n" +
@@ -74,11 +74,11 @@ public sealed class FaceTests
             "0,FACETEX,ABBE,ABE_MOUTH_SMILE,M\n" +
             "1,FACETEX,ABBE,ABE_SQUINT,L\n");
 
-        // H is the forehead and M the mouth. L is one of the eyes, which nothing here
-        // paints, and painting it into the wrong region would be worse than leaving it.
-        Assert.Equal(2, animation.Faces.Count);
+        // H is the forehead, M the mouth, and L the eye the mood animation repaints.
+        Assert.Equal(3, animation.Faces.Count);
         Assert.Equal(FacePart.Forehead, animation.Faces[0].Part);
         Assert.Equal(FacePart.Mouth, animation.Faces[1].Part);
+        Assert.Equal(FacePart.LeftEye, animation.Faces[2].Part);
     }
 
     private const string Faces =
@@ -165,6 +165,7 @@ public sealed class FaceTests
         // A scene places gabclothes110a and the file lists GAB. The first three letters are
         // the character, which is the same rule CHARACTERS.TXT is read by.
         Assert.Equal("GAB", FaceLibrary.Parse(Faces).Of("gabclothes110a")?.Identifier);
+        Assert.Equal("MON", FaceLibrary.Parse("[MON]\nMouth Offset=1,2\nMouth Size=3x4\n").Of("mov")?.Identifier);
         Assert.Null(FaceLibrary.Parse(Faces).Of("lbyfan"));
     }
 

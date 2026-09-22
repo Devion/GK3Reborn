@@ -274,6 +274,17 @@ public sealed class ScriptHost
                 return SheepValue.FromInt(0);
             }
 
+            // TE6 starts DemWalk_Background on the first fight tick. Its first call is
+            // unwaited, and the fight calls it again each tick, so skipping it briefly
+            // gives the player time to radio Grace without changing the Sheep script.
+            if (_api.Mechanism is Mechanisms.DemonFight fight &&
+                arguments[0].AsString().Equals("te6", StringComparison.OrdinalIgnoreCase) &&
+                arguments[1].AsString().Equals("DemWalk_Background", StringComparison.OrdinalIgnoreCase) &&
+                fight.HoldDemonWalk())
+            {
+                return SheepValue.FromInt(0);
+            }
+
             return Nested(arguments[0].AsString(), arguments[1].AsString());
         }, waitable: true);
 

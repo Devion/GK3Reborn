@@ -103,6 +103,8 @@ public sealed class Faces
             Mouth = artwork.RestingTexture(FacePart.Mouth),
             Eyelids = artwork.RestingTexture(FacePart.Eyelids),
             Forehead = artwork.RestingTexture(FacePart.Forehead),
+            LeftEye = artwork.RestingTexture(FacePart.LeftEye),
+            RightEye = artwork.RestingTexture(FacePart.RightEye),
         };
 
         _order.Add(face);
@@ -383,7 +385,7 @@ public sealed class Faces
 
     /// <summary>The three regions, in the order they are pasted on.</summary>
     private static readonly FacePart[] Parts =
-        [FacePart.Forehead, FacePart.Eyelids, FacePart.Mouth];
+        [FacePart.LeftEye, FacePart.RightEye, FacePart.Forehead, FacePart.Eyelids, FacePart.Mouth];
 
     /// <summary>Whether a region is the character's own rather than something put on it.</summary>
     private static bool Rested(Face face, FacePart part) =>
@@ -395,6 +397,8 @@ public sealed class Faces
     {
         FacePart.Eyelids => face.Eyelids,
         FacePart.Forehead => face.Forehead,
+        FacePart.LeftEye => face.LeftEye,
+        FacePart.RightEye => face.RightEye,
         _ => face.Mouth,
     };
 
@@ -465,6 +469,14 @@ public sealed class Faces
                 face.Forehead = wanted;
                 break;
 
+            case FacePart.LeftEye:
+                face.LeftEye = wanted;
+                break;
+
+            case FacePart.RightEye:
+                face.RightEye = wanted;
+                break;
+
             default:
                 face.Mouth = wanted;
                 break;
@@ -503,7 +515,7 @@ public sealed class Faces
     /// <summary>Composes a face from its parts and puts it on the character's head.</summary>
     private void Paint(Face face)
     {
-        string name = $"__FACE:{face.Config.Identifier}:{face.Forehead}:{face.Eyelids}:{face.Mouth}";
+        string name = $"__FACE:{face.Config.Identifier}:{face.LeftEye}:{face.RightEye}:{face.Forehead}:{face.Eyelids}:{face.Mouth}";
 
         if (_composed.Add(name))
         {
@@ -515,6 +527,16 @@ public sealed class Faces
             byte[] pixels = [.. start.Pixels];
             var composed = new DecodedImage(
                 start.Width, start.Height, pixels, start.HasAlpha, "face");
+
+            if (!Rested(face, FacePart.LeftEye))
+            {
+                Over(composed, face.LeftEye, face.Config.LeftEyeOffset, null);
+            }
+
+            if (!Rested(face, FacePart.RightEye))
+            {
+                Over(composed, face.RightEye, face.Config.RightEyeOffset, null);
+            }
 
             Over(composed, Painted(face, face.Forehead), face.Config.ForeheadOffset, null);
             // The eyelids' alpha channel belongs to the resting eyelids and to nothing
@@ -559,6 +581,8 @@ public sealed class Faces
             face.Mouth = artwork.RestingTexture(FacePart.Mouth);
             face.Eyelids = artwork.RestingTexture(FacePart.Eyelids);
             face.Forehead = artwork.RestingTexture(FacePart.Forehead);
+            face.LeftEye = artwork.RestingTexture(FacePart.LeftEye);
+            face.RightEye = artwork.RestingTexture(FacePart.RightEye);
 
             Paint(face);
             changed++;
@@ -711,6 +735,10 @@ public sealed class Faces
         public required string Eyelids { get; set; }
 
         public required string Forehead { get; set; }
+
+        public required string LeftEye { get; set; }
+
+        public required string RightEye { get; set; }
 
         /// <summary>The line they are saying, if they are saying one.</summary>
         public AnimationFile? Line { get; set; }

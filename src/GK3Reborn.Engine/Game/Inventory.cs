@@ -8,6 +8,12 @@ public sealed class Inventory
     private readonly Dictionary<string, HashSet<string>> _byOwner = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _active = new(StringComparer.OrdinalIgnoreCase);
 
+    // The disguise changes Gabriel's actor, not whose pockets he is carrying. TE4
+    // switches ego to this actor while a glove is in hand, then asks whether ego owns
+    // that glove; separate inventories let him pick up both and duplicate them on load.
+    private static string PocketOf(string owner) =>
+        owner.Equals("GABRIEL_DISGUISED", StringComparison.OrdinalIgnoreCase) ? "GABRIEL" : owner;
+
     /// <summary>Gives an item to someone.</summary>
     /// <param name="owner">Who receives it.</param>
     /// <param name="item">The item.</param>
@@ -15,6 +21,7 @@ public sealed class Inventory
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(item);
+        owner = PocketOf(owner);
 
         if (!_byOwner.TryGetValue(owner, out HashSet<string>? items))
         {
@@ -33,6 +40,7 @@ public sealed class Inventory
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(item);
+        owner = PocketOf(owner);
 
         if (string.Equals(ActiveItemOf(owner), item.Trim(), StringComparison.OrdinalIgnoreCase))
         {
@@ -49,6 +57,7 @@ public sealed class Inventory
     public string? ActiveItemOf(string owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        owner = PocketOf(owner);
         return _active.GetValueOrDefault(owner);
     }
 
@@ -58,6 +67,7 @@ public sealed class Inventory
     public void SetActive(string owner, string? item)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        owner = PocketOf(owner);
 
         if (item is { Length: > 0 })
         {
@@ -84,6 +94,7 @@ public sealed class Inventory
     {
         ArgumentNullException.ThrowIfNull(owner);
         ArgumentNullException.ThrowIfNull(item);
+        owner = PocketOf(owner);
 
         return _byOwner.TryGetValue(owner, out HashSet<string>? items) && items.Contains(item.Trim());
     }
@@ -94,6 +105,7 @@ public sealed class Inventory
     public IReadOnlyList<string> ItemsOf(string owner)
     {
         ArgumentNullException.ThrowIfNull(owner);
+        owner = PocketOf(owner);
 
         return _byOwner.TryGetValue(owner, out HashSet<string>? items)
             ? [.. items.OrderBy(i => i, StringComparer.OrdinalIgnoreCase)]

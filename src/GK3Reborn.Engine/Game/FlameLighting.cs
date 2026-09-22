@@ -121,7 +121,9 @@ public static class FlameLighting
             MathF.Max(flame.Width * 0.5f, 1f))
         {
             Flicker = new FlameFlicker(
-                flame.Swing, 0f, flame.Rate, Spread(flame.Position)),
+                flame.Swing,
+                flame.Model.Equals("te4firetransp", StringComparison.OrdinalIgnoreCase) ? 1f : 0f,
+                flame.Rate, Spread(flame.Position)),
         };
     }
 

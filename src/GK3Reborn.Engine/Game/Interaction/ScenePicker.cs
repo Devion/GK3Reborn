@@ -47,6 +47,7 @@ public readonly record struct ScenePick(
 /// </summary>
 public sealed class ScenePicker
 {
+    private readonly LoadedScene _scene;
     private readonly List<Target> _targets = [];
 
     /// <summary>Builds a picker for a loaded scene.</summary>
@@ -54,6 +55,7 @@ public sealed class ScenePicker
     public ScenePicker(LoadedScene scene)
     {
         ArgumentNullException.ThrowIfNull(scene);
+        _scene = scene;
 
         Dictionary<string, SceneModel> declared = new(StringComparer.OrdinalIgnoreCase);
 
@@ -171,6 +173,22 @@ public sealed class ScenePicker
     public ScenePick? Pick(Ray ray, IReadOnlySet<string>? ignoring = null)
     {
         ScenePick? nearest = Cast(ray, ignoring, float.MaxValue, sunk: false);
+
+        // TE4's acid surface lies above its stone. A ray hitting the water must be
+        // allowed to reach the visible stone underneath it.
+        if (_scene.Name.Equals("TE4", StringComparison.OrdinalIgnoreCase) &&
+            nearest is { Name: "te4acidreflect" or "te4acidbasinbase" or "te4acidbasin" })
+        {
+            var throughWater = new HashSet<string>(ignoring ?? Enumerable.Empty<string>(), StringComparer.OrdinalIgnoreCase)
+            {
+                "te4acidreflect", "te4acidbasinbase", "te4acidbasin",
+            };
+            if (Cast(ray, throughWater, float.MaxValue, sunk: false) is
+                { Noun: "BOWL_OF_ACID_STONE" } stone)
+            {
+                return stone;
+            }
+        }
 
         // A named prop lying just under a nameless room surface is taken instead of it: LER's dug X sits under the hole's lid.
         if (nearest is { Kind: PickKind.Geometry, IsInteractive: false } lid &&

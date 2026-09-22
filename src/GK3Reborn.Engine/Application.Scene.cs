@@ -1679,7 +1679,7 @@ public static partial class Application
 
             // Registered again for the new room, and after the update exists because the walking functions need something to walk in.
             SceneScripting.Attach(api, scene, loader.Glances, room, update, Behaviour);
-            Showing(api, movies);
+            Showing(api, movies, room);
 
             // What is under the pointer, and — for the rooms that fire something into theirs — what is in front of a laser beam.
             var interaction = new SceneInteraction(scene, api)
@@ -1926,6 +1926,11 @@ public static partial class Application
                 Log.Info($"entered: SCENE:ENTER [{entering.Case}]");
             }
 
+            if (api.Mechanism is Game.Mechanisms.RoomPatches roomPatches)
+            {
+                roomPatches.AfterOpening();
+            }
+
             // Back from a room the game never had.
             if (api.Returning is { } returning && request.Counts)
             {
@@ -2143,6 +2148,31 @@ public static partial class Application
             first = false;
         }
 
+        if (api.FinishedRequested && frameLimit == 0 && !window.IsClosing)
+        {
+            room?.Leave();
+            TitleScreen finished = Art(archives, Pictures(settings.EnhancedTextures, packsOnly, enhancedDirectory,
+                overrides, language: language), null, diagnostics, "FINISHED.BMP");
+            finished.Show(renderer);
+            renderer.SetOverlay(null);
+            window.Forget();
+
+            while (!window.IsClosing)
+            {
+                window.PumpEvents();
+                if (window.WasClicked(Platform.PointerButton.Primary) ||
+                    window.WasPressed(Platform.EditKey.Enter) ||
+                    window.WasPressed(Platform.EditKey.Escape))
+                {
+                    break;
+                }
+
+                window.EndFrame();
+                renderer.SetScene(null, null);
+                renderer.DrawFrame(0f, 0f, 0f);
+            }
+        }
+
         audio?.Dispose();
         localized?.Dispose();
 
@@ -2193,7 +2223,8 @@ public static partial class Application
     /// <summary>Lets the scripts play a movie.</summary>
     /// <param name="api">The host.</param>
     /// <param name="movies">What plays them.</param>
-    private static void Showing(Gk3SheepApi api, Game.MoviePlayer movies)
+    /// <param name="room">The room audio to stop before a film.</param>
+    private static void Showing(Gk3SheepApi api, Game.MoviePlayer movies, Game.SceneAudio? room)
     {
         double Start(IReadOnlyList<SheepValue> arguments)
         {
@@ -2204,6 +2235,12 @@ public static partial class Application
 
             string name = arguments[0].AsString();
             double seconds = movies.Play(name);
+            // A full-screen film supplies its own complete mix. Clear the room as
+            // soon as a film actually starts, including tracks on the music bus.
+            if (seconds > 0)
+            {
+                room?.Leave();
+            }
 
             Log.Info(seconds > 0 ? $"Movie: {name}, {seconds:F1}s" : movies.Skipping ? $"Movie: {name} skipped"
                     : $"Movie: {name} could not be played");
@@ -2218,7 +2255,7 @@ public static partial class Application
 
         // Asked before the call is performed, which is why it opens the movie to find out and the performing call then finds it already playing.
         api.MovieSeconds = name => movies.Playing && string.Equals( movies.Showing, name, StringComparison.OrdinalIgnoreCase)
-                ? movies.Seconds - movies.At : movies.Play(name);
+                ? movies.Seconds - movies.At : Start([SheepValue.FromString(name)]);
     }
 
     /// <summary>A sibling of the enhanced textures directory.</summary>

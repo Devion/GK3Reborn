@@ -8,6 +8,35 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SaveGameTests
 {
+    [Fact]
+    public void Loading_a_save_clears_a_pending_finished_screen()
+    {
+        var api = new Gk3SheepApi(new GameState());
+        api.Invoke("FinishedScreen", []);
+        Assert.True(api.FinishedRequested);
+
+        api.RestoreGame(new GameState().Capture());
+        Assert.False(api.FinishedRequested);
+    }
+
+    [Fact]
+    public void Gabriels_disguise_uses_the_same_inventory_after_a_reload()
+    {
+        var state = new GameState { Ego = "GABRIEL_DISGUISED" };
+        state.Inventory.Add("GABRIEL", "GILT_GLOVE");
+        state.Inventory.SetActive(state.Ego, "GILT_GLOVE");
+
+        Assert.True(state.Inventory.Has(state.Ego, "GILT_GLOVE"));
+
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+
+        Assert.True(restored.Inventory.Has("GABRIEL", "GILT_GLOVE"));
+        Assert.True(restored.Inventory.Has("GABRIEL_DISGUISED", "GILT_GLOVE"));
+        Assert.Equal("GILT_GLOVE", restored.Inventory.ActiveItemOf("GABRIEL"));
+        Assert.Equal(["GABRIEL"], restored.Inventory.Owners);
+    }
+
     /// <summary>A game with something of everything in it.</summary>
     private static GameState Played()
     {

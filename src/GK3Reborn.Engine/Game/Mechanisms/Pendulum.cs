@@ -110,6 +110,10 @@ public sealed class Pendulum : SceneMechanism
     /// <summary>And inside which it is survivable.</summary>
     private float _safe = 3f * MathF.PI / 180f;
 
+    // The original landing window is too narrow for the input and animation latency of
+    // this implementation. Keep the authored drop window, but accept a wider landing.
+    private const float MinimumLandingAngle = 10f * MathF.PI / 180f;
+
     /// <inheritdoc/>
     public override string Report() =>
         string.Create(
@@ -564,16 +568,22 @@ public sealed class Pendulum : SceneMechanism
     /// <summary>Lets go, over the altar or over the shaft.</summary>
     private void Drop()
     {
-        if (MathF.Abs(Angle()) >= _allowed)
+        float releaseAngle = MathF.Abs(Angle());
+
+        if (releaseAngle >= _allowed)
         {
             return;
         }
+
+        // Decide at release. The blade keeps swinging while the fall clip plays, so
+        // testing its angle in the completion callback makes the same click arbitrary.
+        bool lands = releaseAngle <= MathF.Min(_allowed, MathF.Max(_safe, MinimumLandingAngle));
 
         double falling = World.Play("GABJMPOFFPEN");
 
         Then(falling, () =>
         {
-            if (MathF.Abs(Angle()) < _safe)
+            if (lands)
             {
                 Arrive();
             }

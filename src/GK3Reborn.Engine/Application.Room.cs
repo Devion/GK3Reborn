@@ -605,6 +605,12 @@ public static partial class Application
             window.PumpEvents();
             Run(presented);
 
+            if (api.FinishedRequested && !movies.Playing)
+            {
+                update.Cancel();
+                return new RoomExit(0, null);
+            }
+
             double now = stopwatch.Elapsed.TotalSeconds;
             float delta = recording?.Step ?? (float)Math.Min(0.1, now - previous);
             previous = now;

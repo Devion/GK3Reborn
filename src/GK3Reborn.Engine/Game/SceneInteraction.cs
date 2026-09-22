@@ -201,6 +201,11 @@ public sealed class SceneInteraction
     /// <param name="offered">What it answers to, for when the model declares no verb.</param>
     private string? Called(string noun, ScenePick pick, IReadOnlyList<AvailableAction> offered)
     {
+        if (IsCharlie(noun, pick.Name))
+        {
+            return "Charlie";
+        }
+
         if (Stranger(noun) is { Length: > 0 } unmet)
         {
             return unmet;
@@ -313,7 +318,13 @@ public sealed class SceneInteraction
     /// <returns>The label.</returns>
     /// <param name="noun">What the scene calls it.</param>
     /// <param name="model">The object it was found on, which carries a door's number.</param>
-    private string Labelled(string noun, string model) => Stranger(noun) ?? Unidentified(noun) ?? Numbered(noun, model) ?? OneOfSeveral(noun) ?? noun;
+    private string Labelled(string noun, string model) => IsCharlie(noun, model) ? "Charlie" :
+        Stranger(noun) ?? Unidentified(noun) ?? Numbered(noun, model) ?? OneOfSeveral(noun) ?? noun;
+
+    private bool IsCharlie(string noun, string model) =>
+        _scene.Name.Equals("TE6", StringComparison.OrdinalIgnoreCase) &&
+        noun.Equals("CROW", StringComparison.OrdinalIgnoreCase) &&
+        model.Equals("bab", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The scene's own model for a noun, when it places one.</summary>
     private PlacedModel? ModelOf(string noun) => _scene.Models.FirstOrDefault( m => string.Equals(m.Noun, noun, StringComparison.OrdinalIgnoreCase));
