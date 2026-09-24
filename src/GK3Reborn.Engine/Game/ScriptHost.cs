@@ -145,6 +145,16 @@ public sealed class ScriptHost
             return new SheepThread(EmptyScript.Instance, functionName, 0);
         }
 
+        // A retry must discard TE6's live fight threads, walks and animation cues.
+        // Calling Restart/PostDeath alongside them leaves the old encounter running.
+        if (_api.Mechanism is Mechanisms.DemonFight encounter &&
+            AssetId.From(scriptName) == AssetId.From("TE6") &&
+            functionName.TrimEnd('$').Equals("Die", StringComparison.OrdinalIgnoreCase))
+        {
+            encounter.Retry();
+            return new SheepThread(script, functionName, 0) { State = SheepThreadState.Completed };
+        }
+
         // Plot armour. The five temple scripts each declare a Die that stops the music,
         // puts up the death screen and resets the puzzle behind it; with the assistance on,
         // the reset and the restart run and the death does not. Here rather than in the
@@ -197,9 +207,10 @@ public sealed class ScriptHost
             called = _nested.Pop();
         }
 
-        // And this thread is one of the enclosing function's calls, if there is one, so
-        // that a wait two levels up covers everything underneath it.
-        if (_nested.Count > 0)
+        // Only calls made inside the caller's wait block become dependencies.
+        // TE6 starts its stun in the background and then waits 0.1s to poll input;
+        // waiting for the stun as well discards the entire dagger opportunity.
+        if (_nested.Count > 0 && (_vm.Current is null || _vm.Current.InWaitBlock))
         {
             _nested.Peek().Add(thread);
         }

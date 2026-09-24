@@ -824,7 +824,7 @@ public sealed class ClipPlaybackTests
     /// <summary>
     /// An actor the scene stood nowhere, opened by an absolute pose and idling afterwards.
     /// </summary>
-    private static (SceneUpdate Update, Sink Sink) Unplaced()
+    private static (SceneUpdate Update, Sink Sink) Unplaced(bool explicitPlacement = true)
     {
         var sink = new Sink();
         sink.Add(Model());
@@ -855,7 +855,8 @@ public sealed class ClipPlaybackTests
             Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
             {
                 // Eight numbers, so the pose says where in the room it happens.
-                "LEDGE.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Ledge,0,0,0,0,0,0,0,0\n",
+                "LEDGE.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Ledge" +
+                    (explicitPlacement ? ",0,0,0,0,0,0,0,0\n" : "\n"),
 
                 // Four, so the fidget plays wherever the model is standing.
                 "FIDGET.ANM" => "[HEADER]\n31\n\n[ACTIONS]\n1\n0,door_Fidget,0,0,0,0\n",
@@ -878,10 +879,12 @@ public sealed class ClipPlaybackTests
     private static float Drawn(Sink sink) => Vector3.Transform(
         sink.Poses[(0, 0)].Translation, sink.TransformOf(new ModelPlacement(0))).X;
 
-    [Fact]
-    public void An_actor_the_scene_stood_nowhere_is_stood_where_their_opening_pose_leaves_them()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void An_actor_the_scene_stood_nowhere_is_stood_where_their_opening_pose_leaves_them(bool explicitPlacement)
     {
-        (SceneUpdate update, Sink sink) = Unplaced();
+        (SceneUpdate update, Sink sink) = Unplaced(explicitPlacement);
 
         Assert.Equal(1, update.Open());
 

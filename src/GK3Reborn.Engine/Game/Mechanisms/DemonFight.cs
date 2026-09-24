@@ -5,9 +5,10 @@ namespace GK3Reborn.Game.Mechanisms;
 /// </summary>
 public sealed class DemonFight : SceneMechanism
 {
-    private const double OpeningGraceSeconds = 6.0;
+    private const double OpeningGraceSeconds = 10.0;
     private double _openingGrace;
     private bool _approachRequested;
+    private SaveGame? _entry;
 
     /// <summary>Creates the mechanism.</summary>
     /// <param name="world">The room.</param>
@@ -26,6 +27,19 @@ public sealed class DemonFight : SceneMechanism
     /// <inheritdoc/>
     public override bool Perform(string asked) => false;
 
+    /// <inheritdoc/>
+    public override void Begin() => _entry = Story.Capture("Holy of Holies retry");
+
+    /// <summary>Rebuild the encounter from its entry state after a death.</summary>
+    public void Retry()
+    {
+        _entry ??= Story.Capture("Holy of Holies retry");
+        Api.Invoke(Assists.Silence, []);
+        Api.RestoreGame(_entry);
+        Api.Wanted = _entry.Location;
+        World.Cancel();
+    }
+
     /// <summary>Hold the first approach while Gabriel can ask Grace for help.</summary>
     public bool HoldDemonWalk()
     {
@@ -41,7 +55,7 @@ public sealed class DemonFight : SceneMechanism
     /// <inheritdoc/>
     public override void Advance(double seconds)
     {
-        if (_approachRequested)
+        if (_approachRequested && !World.Acting && Story.Screens.InTheRoom)
         {
             _openingGrace = Math.Max(0, _openingGrace - seconds);
         }

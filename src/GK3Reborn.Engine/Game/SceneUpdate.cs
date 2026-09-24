@@ -584,8 +584,17 @@ public sealed class SceneUpdate
                     continue;
                 }
 
-                // Not turned to what the clip's opening frame faces.
-                var pose = new Playing( clip, target, action with { Frame = 0 }, repeat: false, moves: true, Where(target.Name),
+                // An unplaced actor's initial pose establishes its authored room position.
+                // Some initanims omit the optional placement columns (DIN306P's
+                // MadSitGnricTlkFig01). Treating those as a running relative fidget
+                // recentres the seated actor at the room origin.
+                AnimationAction initial = action with
+                {
+                    Frame = 0,
+                    Placement = action.Placement ?? (target.Kind == PlacedModelKind.Actor && !target.Spotted
+                        ? new AnimationPlacement(Vector3.Zero, 0) : null),
+                };
+                var pose = new Playing( clip, target, initial, repeat: false, moves: true, Where(target.Name),
                     _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
                 pose.Open(_geometry);
@@ -605,7 +614,7 @@ public sealed class SceneUpdate
                         Reseat( target, settled, wanted ?? Navigation.Walker.HeadingOf( _geometry.TransformOf(target.Placement)));
 
                         // Sampled again, against the placement they now have.
-                        pose = new Playing( clip, target, action with { Frame = 0 }, repeat: false, moves: true, Where(target.Name),
+                        pose = new Playing( clip, target, initial, repeat: false, moves: true, Where(target.Name),
                             _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
                         pose.Open(_geometry);
@@ -1044,6 +1053,16 @@ public sealed class SceneUpdate
             }
 
             _geometry.RepaintPart(model.Placement, swap.Mesh, swap.Submesh, swap.Texture);
+
+            // TE4's mirror cards split a shared material across several submeshes,
+            // but the animation names only the first. G-Engine's
+            // ModelTextureAnimNode::Play (GPL-3.0) documents the same asset quirk.
+            // Keep this scoped to the mirrors; photo albums swap individual cards.
+            if (model.Name.Equals("mirrorl", StringComparison.OrdinalIgnoreCase) ||
+                model.Name.Equals("mirrorr", StringComparison.OrdinalIgnoreCase))
+            {
+                _geometry.Repaint(model.Placement, parts[swap.Submesh].TextureName, swap.Texture);
+            }
         }
     }
 
@@ -3018,7 +3037,10 @@ public sealed class SceneUpdate
     public void Ended() => _quiet = _scripts?.Count ?? 0;
 
     /// <summary>Whether the story is in the middle of something.</summary>
-    public bool Occupied => Acting || (_quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
+    // TE6's background fight deliberately adds threads while accepting input.
+    // Its foreground actions and Gabriel's own animations still hold controls.
+    public bool Occupied => Acting || (Mechanism is not Mechanisms.DemonFight &&
+        _quiet >= 0 && (_scripts?.Count ?? 0) > _quiet);
 
     /// <summary>The scripts an action has said it is waiting on.</summary>
     private readonly List<SheepThread> _awaited = [];

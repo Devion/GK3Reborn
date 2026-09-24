@@ -186,6 +186,42 @@ public sealed class SheepVirtualMachineTests
     }
 
     [Fact]
+    public void Concurrent_functions_share_symbols_until_the_script_instance_finishes()
+    {
+        SheepScriptFile script = new ScriptBuilder().Import("Report", 0, 1)
+            .Variable("position$", SheepValueKind.Int, intValue: 1)
+            .Function("Fight$")
+            .Op(SheepOpcode.PushI, 4).Op(SheepOpcode.StoreI, 0)
+            .Op(SheepOpcode.Yield).Op(SheepOpcode.ReturnV)
+            .Function("Read$")
+            .Op(SheepOpcode.LoadI, 0).Op(SheepOpcode.PushI, 1)
+            .Op(SheepOpcode.CallSysFunctionV, 0).Op(SheepOpcode.Pop)
+            .Op(SheepOpcode.ReturnV).Build();
+        var api = new StubApi();
+        var vm = new SheepVirtualMachine(api);
+        SheepThread fight = vm.Execute(script, "Fight");
+        vm.Execute(script, "Read");
+        Assert.Equal(4, api.Calls[^1].Arguments[0].AsInt());
+        vm.Resume(fight);
+        vm.Execute(script, "Read");
+        Assert.Equal(1, api.Calls[^1].Arguments[0].AsInt());
+    }
+
+    [Fact]
+    public void Yielding_background_work_does_not_exhaust_a_lifetime_instruction_budget()
+    {
+        SheepScriptFile script = new ScriptBuilder().Function("Loop$")
+            .Op(SheepOpcode.Yield).Op(SheepOpcode.Branch, 0).Build();
+        var vm = new SheepVirtualMachine(new StubApi(), instructionLimit: 10);
+        SheepThread thread = vm.Execute(script, "Loop");
+        for (int i = 0; i < 30; i++)
+        {
+            vm.Resume(thread);
+            Assert.Equal(SheepThreadState.Yielded, thread.State);
+        }
+    }
+
+    [Fact]
     public void A_wait_block_suspends_only_when_it_called_something_waitable()
     {
         var builder = new ScriptBuilder().Import("WalkTo").Import("SetFlag");

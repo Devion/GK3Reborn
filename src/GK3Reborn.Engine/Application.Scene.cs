@@ -1766,7 +1766,13 @@ public static partial class Application
                 // and synchronously uploading an identical atlas every frame.
                 if (previousRelightBake is null || !baked.AsSpan().SequenceEqual(previousRelightBake))
                 {
-                    if (!geometry.SwapLightmaps(Formats.Lightmaps.MulFile.Parse(baked, name + ".MUL")))
+                    var lightmaps = Formats.Lightmaps.MulFile.Parse(baked, name + ".MUL");
+                    if (scene.Name.Equals("TE4", StringComparison.OrdinalIgnoreCase) && scene.Geometry is { } bsp)
+                    {
+                        lightmaps = Game.SceneLoader.RepairHexagramPlinthLightmaps(lightmaps, bsp);
+                    }
+
+                    if (!geometry.SwapLightmaps(lightmaps))
                     {
                         return false;
                     }
@@ -2226,6 +2232,12 @@ public static partial class Application
     /// <param name="room">The room audio to stop before a film.</param>
     private static void Showing(Gk3SheepApi api, Game.MoviePlayer movies, Game.SceneAudio? room)
     {
+        movies.Starting = () => room?.Leave();
+        if (room is not null)
+        {
+            room.Suppressed = () => movies.Playing;
+        }
+
         double Start(IReadOnlyList<SheepValue> arguments)
         {
             if (arguments.Count == 0)
@@ -2235,13 +2247,6 @@ public static partial class Application
 
             string name = arguments[0].AsString();
             double seconds = movies.Play(name);
-            // A full-screen film supplies its own complete mix. Clear the room as
-            // soon as a film actually starts, including tracks on the music bus.
-            if (seconds > 0)
-            {
-                room?.Leave();
-            }
-
             Log.Info(seconds > 0 ? $"Movie: {name}, {seconds:F1}s" : movies.Skipping ? $"Movie: {name} skipped"
                     : $"Movie: {name} could not be played");
 

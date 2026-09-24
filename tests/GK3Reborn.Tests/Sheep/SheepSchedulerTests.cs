@@ -137,12 +137,14 @@ public sealed class SheepSchedulerTests
         var vm = new SheepVirtualMachine(new Slow());
         var scheduler = new SheepScheduler(vm);
 
-        scheduler.Park(vm.Execute(Script(), "Main$"));
+        SheepThread abandoned = vm.Execute(Script(), "Main$");
+        scheduler.Park(abandoned);
         Assert.Equal(1, scheduler.Count);
 
         scheduler.Clear();
 
         Assert.Equal(0, scheduler.Count);
+        Assert.Equal(SheepThreadState.Halted, abandoned.State);
         Assert.Empty(scheduler.Advance(10));
     }
 }

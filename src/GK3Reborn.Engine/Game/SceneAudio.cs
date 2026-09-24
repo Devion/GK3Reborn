@@ -77,6 +77,7 @@ public sealed class SceneAudio
     /// Voices a later line started over, left to finish rather than cut off.
     /// </summary>
     private readonly List<AudioVoice> _chorus = [];
+    private readonly List<AudioVoice> _oneShots = [];
 
     /// <summary>
     /// How much longer a line with a caption and no recording is held for.
@@ -121,6 +122,12 @@ public sealed class SceneAudio
     /// <summary>What the room is playing under everything, if anything.</summary>
     public string? Ambience { get; private set; }
 
+    /// <summary>Whether a film currently owns the mix, including sounds requested by background scripts.</summary>
+    public Func<bool>? Suppressed { get; set; }
+
+    private AudioVoice PlayVoice(WavFile sound, AudioBus bus, bool repeat = false, AudioPlacement? at = null) =>
+        Suppressed?.Invoke() == true ? AudioVoice.None : _backend.Play(sound, bus, repeat, at);
+
     /// <summary>Starts a one-shot sound.</summary>
     /// <param name="name">Its name, extension and all.</param>
     /// <param name="bus">Which bus to mix it on.</param>
@@ -129,7 +136,18 @@ public sealed class SceneAudio
     {
         ArgumentNullException.ThrowIfNull(name);
 
-        return _sounds.Read(name) is { } sound && _backend.Play(sound, bus).Exists;
+        if (_sounds.Read(name) is not { } sound)
+        {
+            return false;
+        }
+
+        AudioVoice voice = PlayVoice(sound, bus);
+        if (voice.Exists)
+        {
+            _oneShots.Add(voice);
+        }
+
+        return voice.Exists;
     }
 
     /// <summary>Starts a one-shot sound somewhere in the room, at its own level.</summary>
@@ -148,7 +166,7 @@ public sealed class SceneAudio
             return false;
         }
 
-        AudioVoice voice = _backend.Play(
+        AudioVoice voice = PlayVoice(
             sound, bus, repeat: false, at is { } spot ? AudioPlacement.At(spot) : null);
 
         if (!voice.Exists)
@@ -160,6 +178,8 @@ public sealed class SceneAudio
         {
             _backend.SetVoiceGain(voice, Math.Clamp(gain, 0f, 1f));
         }
+
+        _oneShots.Add(voice);
 
         return true;
     }
@@ -186,7 +206,7 @@ public sealed class SceneAudio
 
         if (name is not null && _sounds.Read(name) is { } sound)
         {
-            _ambience = _backend.Play(sound, AudioBus.Ambience, repeat: true, at);
+            _ambience = PlayVoice(sound, AudioBus.Ambience, repeat: true, at);
 
             if (_ambience.Exists)
             {
@@ -300,7 +320,7 @@ public sealed class SceneAudio
             return 0;
         }
 
-        AudioVoice voice = _backend.Play(wav, Bus(playing.Program.Kind), repeat: false, at);
+        AudioVoice voice = PlayVoice(wav, Bus(playing.Program.Kind), repeat: false, at);
 
         if (!voice.Exists)
         {
@@ -607,6 +627,7 @@ public sealed class SceneAudio
     {
         Hush();
         Quiet();
+        Quieten(_oneShots);
 
         // A soundtrack says how its sound stops: play to the end, fade, or cut. Leaving
         // the room is the forced kind, so even "play to the end" stops — the reference
@@ -645,7 +666,7 @@ public sealed class SceneAudio
 
         // On the bus its soundtrack asks for. A bed is usually ambience, but a looping
         // soundtrack that says Music is music and belongs under that slider.
-        playing.Bed = _backend.Play(sound, Bus(playing.Program.Kind), repeat: true, at);
+        playing.Bed = PlayVoice(sound, Bus(playing.Program.Kind), repeat: true, at);
 
         if (!playing.Bed.Exists)
         {
@@ -823,6 +844,7 @@ public sealed class SceneAudio
     /// <summary>Drops the soundtrack sounds that have finished on their own.</summary>
     private void Spent()
     {
+        _oneShots.RemoveAll(voice => !_backend.IsPlaying(voice));
         foreach (Playing playing in _programs)
         {
             for (int i = playing.Voices.Count - 1; i >= 0; i--)
@@ -860,6 +882,12 @@ public sealed class SceneAudio
     public void Update(double seconds = 0)
     {
         _backend.Update();
+
+        if (Suppressed?.Invoke() == true)
+        {
+            Leave();
+            return;
+        }
 
         // What the line being spoken does to the music, first: a soundtrack it starts this
         // frame should be walked by the loop below on this frame rather than the next.
@@ -986,12 +1014,12 @@ public sealed class SceneAudio
                 // policy has existed since the audio layer was written with nothing
                 // reading it, so every line in the game came out of the middle.
                 _line = Placed(animation) is { } placed
-                    ? _backend.Play(sound, AudioBus.DialogueInWorld, repeat: false, placed)
+                    ? PlayVoice(sound, AudioBus.DialogueInWorld, repeat: false, placed)
                     : AudioVoice.None;
 
                 if (!_line.Exists)
                 {
-                    _line = _backend.Play(sound, AudioBus.DialogueCentered);
+                    _line = PlayVoice(sound, AudioBus.DialogueCentered);
                 }
 
                 if (_line.Exists)

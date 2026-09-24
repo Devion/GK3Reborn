@@ -88,7 +88,7 @@ public sealed class SheepThread
 
     internal List<SheepValue> Stack { get; } = [];
 
-    internal Dictionary<int, SheepValue> Variables { get; } = [];
+    internal Dictionary<int, SheepValue> Variables { get; set; } = [];
 
     internal bool InWaitBlock { get; set; }
 
@@ -107,6 +107,7 @@ public sealed class SheepVirtualMachine
 {
     private readonly ISheepApi _api;
     private readonly long _instructionLimit;
+    private readonly List<SheepThread> _active = [];
 
     /// <summary>Creates a virtual machine.</summary>
     /// <param name="api">The host to call into.</param>
@@ -146,18 +147,30 @@ public sealed class SheepVirtualMachine
 
         var started = new SheepThread(script, found.Name, found.Offset);
 
-        // Variables start at their declared initial values.
-        for (int i = 0; i < script.Variables.Count; i++)
+        // Functions in a live script instance share its symbols. TE6's fight and
+        // movement functions exchange their positions through these variables.
+        // Once every thread finishes, the next call starts a fresh instance.
+        _active.RemoveAll(t => t.State is SheepThreadState.Completed or SheepThreadState.Faulted or SheepThreadState.Halted);
+        SheepThread? instance = _active.Find(t => ReferenceEquals(t.Script, script));
+        if (instance is not null)
         {
-            SheepVariable variable = script.Variables[i];
-            started.Variables[i] = variable.Kind switch
+            started.Variables = instance.Variables;
+        }
+        else
+        {
+            for (int i = 0; i < script.Variables.Count; i++)
             {
-                SheepValueKind.Int => SheepValue.FromInt(variable.IntValue),
-                SheepValueKind.Float => SheepValue.FromFloat(variable.FloatValue),
-                _ => SheepValue.FromString(string.Empty),
-            };
+                SheepVariable variable = script.Variables[i];
+                started.Variables[i] = variable.Kind switch
+                {
+                    SheepValueKind.Int => SheepValue.FromInt(variable.IntValue),
+                    SheepValueKind.Float => SheepValue.FromFloat(variable.FloatValue),
+                    _ => SheepValue.FromString(string.Empty),
+                };
+            }
         }
 
+        _active.Add(started);
         return Resume(started);
     }
 
@@ -221,10 +234,12 @@ public sealed class SheepVirtualMachine
     {
         thread.State = SheepThreadState.Running;
         ReadOnlySpan<byte> code = thread.Script.Bytecode;
+        long instructions = 0;
 
         while (thread.State == SheepThreadState.Running)
         {
-            if (thread.InstructionsExecuted++ >= _instructionLimit)
+            thread.InstructionsExecuted++;
+            if (instructions++ >= _instructionLimit)
             {
                 Fault(thread, "GK3R3101", "Script exceeded its instruction limit.",
                     "a script that terminates",

@@ -135,6 +135,29 @@ public sealed class AnimationSoundtrackTests
     }
 
     [Fact]
+    public void A_movie_suppresses_late_scene_cues_without_stopping_its_own_voice()
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "");
+        audio.Play("LINE.WAV", AudioBus.Music);
+        bool film = true;
+        audio.Suppressed = () => film;
+        audio.Leave();
+        Assert.Contains(device.Started[0].Voice, device.Stopped);
+        AudioVoice movie = device.Play(WavFile.Read(Wav(), "movie", new DiagnosticBag())!, AudioBus.Music);
+        int before = device.Started.Count;
+        Assert.False(audio.Play("LINE.WAV", AudioBus.Music));
+        Assert.False(audio.PlayAt("LINE.WAV", Vector3.Zero));
+        audio.Speak("YAK1", 1);
+        audio.Update(1);
+        Assert.Equal(before, device.Started.Count);
+        Assert.DoesNotContain(movie, device.Stopped);
+        Assert.Null(audio.Saying);
+        film = false;
+        Assert.True(audio.Play("LINE.WAV"));
+    }
+
+    [Fact]
     public void A_line_changes_the_music_on_its_own_frames_and_not_before()
     {
         var device = new Recorder();

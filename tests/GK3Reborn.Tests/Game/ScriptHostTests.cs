@@ -178,7 +178,7 @@ public sealed class ScriptHostTests
         host.Scheduler = scheduler;
         host.Add(Looker());
 
-        host.Run("BINOCS.SHP", "Enter$");
+        SheepThread entering = host.Run("BINOCS.SHP", "Enter$");
 
         Assert.False(state.GetFlag("Spoke"));
 
@@ -187,6 +187,11 @@ public sealed class ScriptHostTests
         scheduler.Advance(1.5);
 
         Assert.True(state.GetFlag("Spoke"), "the line after the unwaited call never ran");
+        Assert.False(state.GetFlag("Left"));
+
+        // The parent's next wait is not a join on the unwaited background call.
+        scheduler.Advance(0.1);
+        Assert.Equal(SheepThreadState.Completed, entering.State);
         Assert.False(state.GetFlag("Left"));
 
         scheduler.Advance(5.0);

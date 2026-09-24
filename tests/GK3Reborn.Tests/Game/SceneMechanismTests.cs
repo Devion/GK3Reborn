@@ -315,6 +315,41 @@ public sealed class SceneMechanismTests
     }
 
     [Fact]
+    public void Holy_retry_restores_entry_state_and_requests_a_room_rebuild()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.Location = "TE6";
+        api.State.Inventory.Add("GABRIEL", "DAGGER");
+        var fight = new DemonFight(world, api);
+        fight.Begin();
+        api.State.SetFlag("Te6Talisman");
+        api.State.SetNounVerbCount("SARCOPHAGUS", "CLIMB", 3);
+        api.State.Timers.Set("SCENE", "DAGGER", 0);
+        fight.Retry();
+        Assert.Equal("TE6", api.Wanted);
+        Assert.False(api.State.GetFlag("Te6Talisman"));
+        Assert.Equal(0, api.State.GetNounVerbCount("SARCOPHAGUS", "CLIMB"));
+        Assert.Empty(api.State.Timers.Pending);
+        Assert.True(api.State.Inventory.Has("GABRIEL", "DAGGER"));
+    }
+
+    [Fact]
+    public void The_opening_grace_period_counts_only_time_the_player_can_act()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var fight = new DemonFight(world, api);
+        Assert.True(fight.HoldDemonWalk());
+        api.ActionSeconds = 30;
+        fight.Advance(30);
+        Assert.True(fight.HoldDemonWalk());
+        api.ActionSeconds = 0;
+        fight.Advance(9);
+        Assert.True(fight.HoldDemonWalk());
+        fight.Advance(1);
+        Assert.False(fight.HoldDemonWalk());
+    }
+
+    [Fact]
     public void One_room_takes_the_click_on_its_own_floor()
     {
         // TE6: Gabriel is circling a pentagram and moves a step at a time in the room's own

@@ -1405,7 +1405,7 @@ public sealed class SceneLoader
         return null;
     }
 
-    private static MulFile RepairHexagramPlinthLightmaps(MulFile lightmaps, BspFile bsp)
+    internal static MulFile RepairHexagramPlinthLightmaps(MulFile lightmaps, BspFile bsp)
     {
         // TE4A and TE4B bake bright green into the unused triangular half of the
         // five plinth-top lightmaps. Filtering/displacement samples that half and

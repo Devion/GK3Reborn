@@ -126,7 +126,15 @@ public sealed class SheepScheduler
     }
 
     /// <summary>Gives up on everything that is waiting.</summary>
-    public void Clear() => _waiting.Clear();
+    public void Clear()
+    {
+        foreach (Waiting waiting in _waiting)
+        {
+            waiting.Thread.State = SheepThreadState.Halted;
+        }
+
+        _waiting.Clear();
+    }
 
     private sealed class Waiting(SheepThread thread, double remaining)
     {

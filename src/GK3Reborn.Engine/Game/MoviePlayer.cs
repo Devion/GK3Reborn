@@ -60,6 +60,9 @@ public sealed class MoviePlayer : IDisposable
     /// <summary>Whether a movie is on screen.</summary>
     public bool Playing => _movie is not null;
 
+    /// <summary>Stops scene audio before a successfully opened film starts its soundtrack.</summary>
+    public Action? Starting { get; set; }
+
     /// <summary>What is playing, or null.</summary>
     public string? Showing => _movie?.Name;
 
@@ -99,6 +102,7 @@ public sealed class MoviePlayer : IDisposable
         }
 
         _elapsed = 0;
+        Starting?.Invoke();
         Speaker = null;
         Caption = null;
 
