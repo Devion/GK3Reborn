@@ -1363,13 +1363,48 @@ public sealed class SceneUpdateTests
     }
 
     [Fact]
-    public void And_says_so_plainly_when_nothing_was_holding_it()
+    public void Getting_unstuck_also_recovers_a_free_camera_when_no_script_is_busy()
     {
-        // Nothing to report is a real answer, and the caller says as much to the player:
-        // somebody who reached for this and was told nothing was wrong has learned
-        // something about where to look next.
+        // A free camera can be trapped in geometry even when the player and scripts are free.
         (SceneUpdate update, _, _, _) = World();
 
-        Assert.Empty(update.Unstick());
+        update.StartAt(new Camera { Position = new Vector3(9999), Target = Vector3.Zero });
+        Assert.Contains(update.Unstick(), reason => reason.Contains("camera", StringComparison.Ordinal));
+        Assert.NotEqual(new Vector3(9999), update.View!.Position);
+        Camera recovered = update.View;
+        update.Advance(0.1);
+        Assert.Same(recovered, update.View);
+    }
+
+    [Fact]
+    public void Returning_to_the_same_camera_is_a_new_cut()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+        state.CameraAngle = "FAR";
+        state.CameraGliding = false;
+        update.Advance(0.1);
+        Camera first = update.View!;
+        update.Starting();
+        state.CameraAngle = "FAR";
+        update.Advance(0.1);
+        Assert.True(update.Framed);
+        Assert.NotSame(first, update.View);
+        Assert.Equal(first.Position, update.View!.Position);
+    }
+
+    [Fact]
+    public void A_finished_cut_with_a_custom_lens_does_not_retake_the_camera_every_frame()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+        state.CameraAngle = "FAR";
+        state.CameraGliding = false;
+        state.CameraFieldOfView = 0.4f;
+        update.Advance(0.1);
+        Camera first = update.View!;
+        update.Advance(0.1);
+        Assert.Same(first, update.View);
+        state.CameraFieldOfView = null;
+        update.Advance(0.1);
+        Assert.NotEqual(0.4f, update.View!.FieldOfView);
     }
 }

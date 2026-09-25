@@ -45,6 +45,7 @@ public static class SceneScripting
 
         if (audio is not null && world is not null)
         {
+            audio.Skipped = world.SkipDialogue;
             Speak(api, audio, scene, world);
         }
 
@@ -657,6 +658,12 @@ public static class SceneScripting
         }
 
         api.State.Talking = true;
+
+        // A script may have cut just before StartDialogue in this same frame.
+        if (world.CameraRequested)
+        {
+            return;
+        }
 
         // On foot the pair are watched from the player's own head, which is where the conversation is happening: the room's own two-shot and the
         // composed fallback are both refused, so nobody is taken out of their body to be shown a conversation they are standing in.

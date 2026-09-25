@@ -98,6 +98,9 @@ public sealed class SheepThread
     /// How long the wait block this thread is in still has to run.
     /// </summary>
     public double WaitSeconds { get; internal set; }
+
+    /// <summary>Durations of individual calls in the current wait block.</summary>
+    internal List<(string Name, double Seconds)> WaitDurations { get; } = [];
 }
 
 /// <summary>
@@ -192,6 +195,7 @@ public sealed class SheepVirtualMachine
         thread.PendingWaits = 0;
         thread.InWaitBlock = false;
         thread.WaitSeconds = 0;
+        thread.WaitDurations.Clear();
 
         if (thread.State == SheepThreadState.Blocked)
         {
@@ -331,6 +335,7 @@ public sealed class SheepVirtualMachine
                 break;
 
             case SheepOpcode.BeginWait:
+                thread.WaitDurations.Clear();
                 thread.InWaitBlock = true;
                 thread.PendingWaits = 0;
                 thread.WaitSeconds = 0;
@@ -502,8 +507,9 @@ public sealed class SheepVirtualMachine
             thread.PendingWaits++;
 
             // The longest call in the block decides when the block is over.
-            thread.WaitSeconds = Math.Max(
-                thread.WaitSeconds, _api.SecondsFor(import.Name, arguments));
+            double duration = _api.SecondsFor(import.Name, arguments);
+            thread.WaitDurations.Add((import.Name, duration));
+            thread.WaitSeconds = Math.Max(thread.WaitSeconds, duration);
         }
 
         thread.Calls.Add(new SheepCall(import.Name, arguments, waited));

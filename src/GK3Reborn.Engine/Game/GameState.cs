@@ -34,7 +34,20 @@ public sealed class GameState
     public Inventory Inventory { get; } = new();
 
     /// <summary>Which of the scene's cameras the view is at, or empty for the scene's default.</summary>
-    public string CameraAngle { get; set; } = string.Empty;
+    public string CameraAngle
+    {
+        get => _cameraAngle;
+        set
+        {
+            _cameraAngle = value;
+            CameraRevision++;
+        }
+    }
+
+    private string _cameraAngle = string.Empty;
+
+    /// <summary>Each camera request, including a return to the same named shot.</summary>
+    public long CameraRevision { get; private set; }
 
     /// <summary>What the view is looking at closely, or empty when it is looking at the room.</summary>
     public string Inspecting { get; set; } = string.Empty;

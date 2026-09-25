@@ -179,6 +179,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>How much longer the action that is running has to run.</summary>
     public double ActionSeconds { get; set; }
 
+    /// <summary>Whether the current inline action's timed wait is entirely speech.</summary>
+    public bool ActionWaitsForDialogue { get; set; }
+
     /// <summary>Told as an action begins, before anything of it has happened.</summary>
     public Action? Starts { get; set; }
 

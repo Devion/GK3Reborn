@@ -259,6 +259,8 @@ public sealed class ActionRunner
         // trigger the player has walked onto, a timer coming due — asks this before it does,
         // the way the original asks its action manager whether an action is playing.
         _api.ActionSeconds = Math.Max(_api.ActionSeconds, outcome.Seconds);
+        _api.ActionWaitsForDialogue = statements.Any(s => s.Seconds > 0) &&
+            statements.Where(s => s.Seconds > 0).All(s => SheepScheduler.IsDialogue(s.Call));
 
         return outcome;
     }

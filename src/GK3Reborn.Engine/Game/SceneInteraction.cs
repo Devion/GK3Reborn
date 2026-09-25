@@ -445,9 +445,31 @@ public sealed class SceneInteraction
             return null;
         }
 
+        // The topic menu exposes topics directly, whereas the original first ran TALK
+        // to approach the speaker and install the conversation's seated/standing poses.
+        if (chosen.StartsWith("T_", StringComparison.OrdinalIgnoreCase) &&
+            (!string.Equals(_talkedTo, noun, StringComparison.OrdinalIgnoreCase) ||
+             _api.State.Conversation is not { Length: > 0 }) &&
+            _actions.Find(noun, "TALK", _api.State.Ego) is { } talk)
+        {
+            rule = rule with
+            {
+                Approach = talk.Approach ?? rule.Approach,
+                Target = talk.Target ?? rule.Target,
+                Script = (talk.Script ?? string.Empty).TrimEnd().TrimEnd(';') + ";" + rule.Script,
+            };
+            _talkedTo = noun;
+        }
+        else if (chosen.Equals("TALK", StringComparison.OrdinalIgnoreCase))
+        {
+            _talkedTo = noun;
+        }
+
         Last = _runner.Run(rule, hurry, approach);
         return Last;
     }
+
+    private string? _talkedTo;
 
     /// <summary>Where a click would send the player, when it landed on the floor and nothing else.</summary>
     /// <returns>A spot to walk to, or null when the click was not a click on open floor.</returns>

@@ -11,6 +11,42 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SilentLineTests
 {
+    [Fact]
+    public void Starting_dialogue_does_not_replace_the_scripts_explicit_camera_cut()
+    {
+        var state = new GK3Reborn.Game.GameState { DefaultDialogueCamera = "WIDE" };
+        var api = new GK3Reborn.Game.Gk3SheepApi(state);
+        var scene = new GK3Reborn.Game.LoadedScene("TEST",
+            new GK3Reborn.Game.SceneDefinition(GK3Reborn.Formats.Scenes.SceneInitFile.Parse("""
+                [ROOM_CAMERAS]
+                WIDE, angle={0,0}, pos={0,0,0}, Default
+                CLOSE, angle={0,0}, pos={0,0,100}
+                """, "TEST.SIF")), null, null, 0);
+        var world = new GK3Reborn.Game.SceneUpdate(scene, api, new GK3Reborn.Game.Actors.Glances(),
+            new GK3Reborn.Rendering.HeadlessSceneSink());
+        GK3Reborn.Game.SceneScripting.Attach(api, scene, world: world, audio: Audio(new Recorder()));
+        world.Starting();
+        GK3Reborn.Sheep.SheepExpression.Evaluate("CutToCameraAngle(\"CLOSE\")", api);
+        GK3Reborn.Sheep.SheepExpression.Evaluate("StartDialogue(\"YAK1\",1)", api);
+        Assert.Equal("CLOSE", state.CameraAngle);
+    }
+
+    [Fact]
+    public void Skipping_reports_only_the_unplayed_time_of_each_line()
+    {
+        GK3Reborn.Game.SceneAudio audio = Audio(new Recorder());
+        var skipped = new List<double>();
+        audio.Skipped = skipped.Add;
+        audio.Speak("YAK1", 2);
+        audio.Update(1);
+        Assert.True(audio.Skip());
+        Assert.Equal(2, Assert.Single(skipped), 3);
+        Assert.True(audio.Skip());
+        Assert.Equal(3, skipped[1], 3);
+        Assert.False(audio.Skip());
+        Assert.Equal(2, skipped.Count);
+    }
+
     /// <summary>A device that plays nothing and would say so if it were asked to.</summary>
     private sealed class Recorder : GK3Reborn.Audio.IAudioBackend
     {

@@ -17,6 +17,37 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class BehaviourTests
 {
+    [Fact]
+    public void A_bystander_keeps_reading_when_somebody_else_speaks()
+    {
+        SceneUpdate update = World(Actor("eml", "EMILIO", 0,
+            idle: "ANIM readPaper\nWAIT 20\nLOOP\n",
+            listen: "ANIM standAndListen\nWAIT 20\nLOOP\n"));
+        update.Advance(0.1);
+        update.Speaking = () => "gab";
+        update.Advance(0.1);
+        Assert.Contains("readPaper", Played(update));
+        Assert.DoesNotContain("standAndListen", Played(update));
+    }
+
+    [Fact]
+    public void Putting_a_prop_away_finishes_before_the_talking_pose_starts()
+    {
+        SceneUpdate update = World(Actor("gab", "GABRIEL", 0,
+            idle: "USE CLEANUP hold, putAway\nANIM hold\nWAIT 20\nLOOP\n",
+            talk: "ANIM talk\nWAIT 20\nLOOP\n"));
+        update.Advance(0.1);
+        update.Speaking = () => "gab";
+        update.Advance(0.1);
+        Assert.Contains("putAway", Played(update));
+        Assert.DoesNotContain("talk", Played(update));
+        update.Advance(0.2);
+        Assert.DoesNotContain("talk", Played(update));
+        update.Advance(2);
+        update.Advance(0.1);
+        Assert.Contains("talk", Played(update));
+    }
+
     /// <summary>
     /// Every animation the player has started, in order.
     /// </summary>

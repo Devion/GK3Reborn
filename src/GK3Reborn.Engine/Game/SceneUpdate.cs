@@ -108,6 +108,7 @@ public sealed class SceneUpdate
     private readonly LoadedScene _scene;
 
     private string _angle = string.Empty;
+    private long _cameraRevision = -1;
     private Camera? _from;
     private Camera? _to;
     private double _glided;
@@ -805,26 +806,20 @@ public sealed class SceneUpdate
     /// <param name="fidget">The character's scripts.</param>
     private bool Tidy(Fidget fidget)
     {
-        if (fidget.Stopped || fidget.Running is not { } running)
+        if (fidget.Stopped || fidget.Cleanups >= 8 || fidget.Running is not { } running)
         {
             return false;
         }
 
-        bool did = false;
-
-        for (int guard = 0; guard < 8; guard++)
+        if (running.Playing is not { Length: > 0 } was || running.Script.CleanupFor(was) is not { Length: > 0 } tidied)
         {
-            if (running.Playing is not { Length: > 0 } was || running.Script.CleanupFor(was) is not { Length: > 0 } tidied)
-            {
-                break;
-            }
-
-            Play(tidied, fromBehaviour: true);
-            running.Playing = tidied;
-            did = true;
+            return false;
         }
 
-        return did;
+        fidget.Cleaning = Math.Max(Play(tidied, fromBehaviour: true), Animations?.SecondsOf(tidied) ?? 0);
+        fidget.Cleanups++;
+        running.Playing = tidied;
+        return true;
     }
 
     /// <summary>Sets a character fidgeting again.</summary>
@@ -866,23 +861,39 @@ public sealed class SceneUpdate
 
         foreach (Fidget fidget in _fidgets.Values)
         {
+            if (fidget.Cleaning > 0)
+            {
+                fidget.Cleaning = Math.Max(0, fidget.Cleaning - seconds);
+                continue;
+            }
+
             // Told to stand still, standing still because the story is animating them, or busy walking.
             if (fidget.Stopped || _held.Contains(fidget.Model.Name) || Crossing(fidget.Model))
             {
                 continue;
             }
 
-            // Who is talking decides which of the three scripts a character runs.
+            // Only participants listen. Switching every bystander into a standing
+            // listen pose separates seated readers from their animated props.
+            bool participant = Conversation is { Length: > 0 }
+                ? _lent.ContainsKey(fidget.Model.Name)
+                : fidget.Mode is FidgetKind.Talk or FidgetKind.Listen ||
+                    Same(fidget.Model, _api.State.Ego) || Same(fidget.Model, _api.ActingOn);
+            bool talking = speaker is not null && Same(fidget.Model, speaker);
             FidgetKind wanted = fidget.Forced is { } forced &&
                 (forced != FidgetKind.Idle || speaker is null)
                     ? forced
-                    : speaker is null ? FidgetKind.Idle
-                    : Same(fidget.Model, speaker) ? FidgetKind.Talk : FidgetKind.Listen;
+                    : talking ? FidgetKind.Talk
+                    : participant && (speaker is not null || Conversation is { Length: > 0 })
+                        ? FidgetKind.Listen : FidgetKind.Idle;
 
             if (wanted != fidget.Mode)
             {
                 // Out of whatever the last one left them holding, before the next begins.
-                Tidy(fidget);
+                if (Tidy(fidget))
+                {
+                    continue;
+                }
                 fidget.Enter(wanted, fidget.Model);
             }
 
@@ -922,6 +933,11 @@ public sealed class SceneUpdate
             }
 
             _lent[model.Name] = (model.Talk, model.Listen);
+
+            if (_fidgets.TryGetValue(model.Name, out Fidget? fidget))
+            {
+                Tidy(fidget);
+            }
 
             if (setting.Talk is { Length: > 0 } talk)
             {
@@ -2580,6 +2596,9 @@ public sealed class SceneUpdate
     /// <summary>One character's three scripts, and which of them is running.</summary>
     private sealed class Fidget(PlacedModel model)
     {
+        public double Cleaning { get; set; }
+        public int Cleanups { get; set; }
+
         public PlacedModel Model { get; } = model;
 
         /// <summary>Which of the three is running, if any.</summary>
@@ -2597,6 +2616,7 @@ public sealed class SceneUpdate
         /// <summary>Switches to one of the three and starts it from the top.</summary>
         public void Enter(FidgetKind mode, PlacedModel owner)
         {
+            Cleanups = 0;
             Mode = mode;
 
             Formats.Animation.GasFile? script = mode switch
@@ -3019,9 +3039,27 @@ public sealed class SceneUpdate
     /// <summary>How many scripts the room was left holding, as of the last action.</summary>
     private int _quiet = -1;
 
+    private long _cameraAtStart;
+
+    /// <summary>Whether this action has already requested an authored shot.</summary>
+    public bool CameraRequested => _api.State.CameraRevision != _cameraAtStart;
+
+    /// <summary>Releases only the time belonging to skipped speech.</summary>
+    public void SkipDialogue(double seconds)
+    {
+        _scripts?.SkipDialogue(seconds);
+        if (_api.ActionWaitsForDialogue)
+        {
+            _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
+        }
+    }
+
     /// <summary>Notes what was already running, before an action adds to it.</summary>
     public void Starting()
     {
+        _cameraAtStart = _api.State.CameraRevision;
+        _api.ActionWaitsForDialogue = false;
+        Stage(null);
         // A new thing to do is a new chance for the story to point a camera.
         Framed = false;
 
@@ -3127,7 +3165,17 @@ public sealed class SceneUpdate
         }
 
         _api.State.Talking = false;
+        _api.State.CameraForced = false;
         WarpNextWalk = false;
+        _awaited.Clear();
+        Stage(null);
+        _from = null;
+        _to = null;
+        _angle = _api.State.CameraAngle;
+        _cameraRevision = _api.State.CameraRevision;
+        Framed = false;
+        View = SceneLoader.CameraFor(_scene, _geometry);
+        let.Add("the camera returned to the room's starting view");
 
         // And onto ground they can walk on.
         if (_scene.Walkable is { } boundary && Where(_api.State.Ego) is { } standing && !boundary.IsWalkable(standing) &&
@@ -3209,8 +3257,10 @@ public sealed class SceneUpdate
             return;
         }
 
-        if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(wanted, _angle, StringComparison.OrdinalIgnoreCase) ||
+            _cameraRevision != _api.State.CameraRevision)
         {
+            _cameraRevision = _api.State.CameraRevision;
             _angle = wanted;
             _from = Elsewhere ?? View;
             _to = Pointing(wanted);
@@ -3377,6 +3427,9 @@ public sealed class SceneUpdate
                Occupies(noun) is not null;
     }
 
+    private Camera? _narrowedFrom;
+    private Camera? _narrowed;
+
     /// <summary>Applies whatever field of view a script has asked for.</summary>
     private Camera Narrowed(Camera camera)
     {
@@ -3385,7 +3438,13 @@ public sealed class SceneUpdate
             return camera;
         }
 
-        return new Camera
+        if (ReferenceEquals(camera, _narrowedFrom) && _narrowed?.FieldOfView == wanted)
+        {
+            return _narrowed;
+        }
+
+        _narrowedFrom = camera;
+        return _narrowed = new Camera
         {
             Position = camera.Position, Target = camera.Target, Up = camera.Up, FieldOfView = wanted, NearPlane = camera.NearPlane,
             FarPlane = camera.FarPlane,

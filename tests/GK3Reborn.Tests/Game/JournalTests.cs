@@ -1,5 +1,6 @@
 ﻿using GK3Reborn.Game;
 using GK3Reborn.Game.Story;
+using GK3Reborn.Sheep;
 using GK3Reborn.UI;
 using Xunit;
 
@@ -13,6 +14,61 @@ public sealed class JournalTests
     private static readonly Quests Table = Quests.Open();
     private static readonly Walkthrough Guide = Walkthrough.Open();
     private static readonly ScoreEvents Points = ScoreEvents.Open();
+
+    // Names cross-checked against the original R25_ALL, LBY_ALL/LBY110A,
+    // PHO110A, DIN110A, RC1110A, MS2110A and MS3 ChangeScore calls.
+    [Theory]
+    [InlineData(1, "e_110a_r25_tape,e_110a_r25_hanger")]
+    [InlineData(2, "e_110a_lby_talk_jean_two_men")]
+    [InlineData(3, "e_110a_lby_read_register")]
+    [InlineData(4, "e_110a_pho_phone_prince_james")]
+    [InlineData(5, "e_110a_din_enter")]
+    [InlineData(6, "e_110a_lby_talk_emilio_introduce,e_110a_lby_talk_emilio_checkin")]
+    [InlineData(7, "e_110a_rc1_talk_madeline_checkin,e_110a_rc1_talk_madeline_tour")]
+    [InlineData(8, "e_110a_lby_talk_jean_tour")]
+    [InlineData(9, "e_110a_rc1_look_at_grail_book")]
+    [InlineData(10, "e_110a_ms2_talk_girard_introduce,e_110a_ms2_talk_girard_grail,e_110a_ms2_talk_girard_treasure_2nd_time")]
+    [InlineData(11, "e_110a_ms3_hoverhear_howard_estelle,e_110a_ms3_talk_howard_estelle_introduce,e_110a_ms3_talk_howard_estelle_treasure")]
+    public void First_timeblock_script_awards_check_off_the_matching_entry_and_survive_loading(int ordinal, string events)
+    {
+        var story = new GameState { Timeblock = new Timeblock(1, 10, false) };
+        var api = new Gk3SheepApi(story);
+        var journal = new Journal(story);
+        Assert.False(journal.Read()[0].Chapters[0].Entries[ordinal - 1].Done);
+
+        foreach (string name in events.Split(','))
+        {
+            api.Invoke("ChangeScore", [SheepValue.FromString(name.ToUpperInvariant())]);
+        }
+
+        JournalEntry completed = journal.Read()[0].Chapters[0].Entries[ordinal - 1];
+        Assert.True(completed.Done);
+        Assert.Equal(1f, completed.Progress);
+        Assert.Single(journal.Read()[0].Chapters[0].Entries, entry => entry.Done);
+
+        var loaded = new GameState();
+        loaded.Restore(story.Capture());
+        Assert.True(new Journal(loaded).Read()[0].Chapters[0].Entries[ordinal - 1].Done);
+    }
+
+    [Fact]
+    public void Overhearing_the_women_is_recorded_separately_from_the_two_conversation_requirements()
+    {
+        var story = new GameState { Timeblock = new Timeblock(1, 10, false) };
+        var api = new Gk3SheepApi(story);
+        var journal = new Journal(story);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_110a_ms3_hoverhear_howard_estelle")]);
+
+        JournalEntry entry = journal.Read()[0].Chapters[0].Entries[10];
+        Assert.False(entry.Done);
+        Assert.Equal(1f / 3, entry.Progress, 3);
+        Assert.Equal(2, story.Score);
+
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_110a_ms3_talk_howard_estelle_introduce")]);
+        Assert.Equal(2f / 3, journal.Read()[0].Chapters[0].Entries[10].Progress, 3);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_110a_ms3_talk_howard_estelle_treasure")]);
+        Assert.True(journal.Read()[0].Chapters[0].Entries[10].Done);
+    }
 
     [Fact]
     public void The_table_the_engine_ships_can_be_read()

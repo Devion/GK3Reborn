@@ -116,6 +116,9 @@ public sealed class SceneAudio
     /// <summary>How many lines are still queued behind this one.</summary>
     public int Queued => _speaking.Count;
 
+    /// <summary>Notifies the script clock of the unplayed portion of a skipped line.</summary>
+    public Action<double>? Skipped { get; set; }
+
     /// <summary>How many earlier lines are still sounding under the one being said.</summary>
     public int Chorus => _chorus.Count;
 
@@ -487,6 +490,8 @@ public sealed class SceneAudio
         {
             return false;
         }
+
+        Skipped?.Invoke(Math.Max(0, (_sounding?.Duration ?? 0) - _spoken));
 
         if (_line.Exists)
         {

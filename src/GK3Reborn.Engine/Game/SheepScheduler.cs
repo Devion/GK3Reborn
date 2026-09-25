@@ -63,6 +63,11 @@ public sealed class SheepScheduler
         {
             Waiting waiting = _waiting[i];
             waiting.Remaining -= seconds;
+            for (int call = 0; call < waiting.Durations.Count; call++)
+            {
+                var duration = waiting.Durations[call];
+                waiting.Durations[call] = (duration.Name, Math.Max(0, duration.Seconds - seconds));
+            }
 
             if (waiting.Remaining > 0 || Outstanding(waiting.Until))
             {
@@ -136,8 +141,35 @@ public sealed class SheepScheduler
         _waiting.Clear();
     }
 
+    /// <summary>Removes skipped speech time without advancing concurrent animations or timers.</summary>
+    public void SkipDialogue(double seconds)
+    {
+        foreach (Waiting waiting in _waiting)
+        {
+            for (int i = 0; i < waiting.Durations.Count; i++)
+            {
+                var call = waiting.Durations[i];
+                if (IsDialogue(call.Name))
+                {
+                    waiting.Durations[i] = (call.Name, Math.Max(0, call.Seconds - seconds));
+                }
+            }
+
+            if (waiting.Durations.Count > 0)
+            {
+                waiting.Remaining = waiting.Durations.Max(call => call.Seconds);
+            }
+        }
+    }
+
+    /// <summary>Calls whose duration belongs to spoken dialogue.</summary>
+    public static bool IsDialogue(string name) => name.ToUpperInvariant() is
+        "STARTDIALOGUE" or "STARTDIALOGUENOFIDGETS" or "CONTINUEDIALOGUE" or
+        "CONTINUEDIALOGUENOFIDGETS" or "STARTVOICEOVER" or "STARTYAK";
+
     private sealed class Waiting(SheepThread thread, double remaining)
     {
+        public List<(string Name, double Seconds)> Durations { get; } = [.. thread.WaitDurations];
         public SheepThread Thread { get; } = thread;
 
         public double Remaining { get; set; } = remaining;
