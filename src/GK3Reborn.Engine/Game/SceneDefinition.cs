@@ -10,14 +10,17 @@ public sealed class SceneDefinition
 {
     private readonly SceneInitFile? _general;
     private readonly SceneInitFile? _specific;
+    private readonly Sight? _binocularSight;
 
     /// <summary>Creates a definition.</summary>
     /// <param name="general">The location's file, if it has one.</param>
     /// <param name="specific">The location-and-timeblock file, if it has one.</param>
-    public SceneDefinition(SceneInitFile? general, SceneInitFile? specific = null)
+    /// <param name="binocularSight">Scenery and floor to substitute while retaining the lookout's staging.</param>
+    public SceneDefinition(SceneInitFile? general, SceneInitFile? specific = null, Sight? binocularSight = null)
     {
         _general = general;
         _specific = specific;
+        _binocularSight = binocularSight;
     }
 
     /// <summary>The location's own file.</summary>
@@ -36,7 +39,7 @@ public sealed class SceneDefinition
     /// <summary>The scene asset to load, which in turn names the geometry and lights.</summary>
     /// <returns>The name, or null if neither file gives one.</returns>
     public string? SceneAsset() =>
-        Later(_specific?.SceneAsset(ConditionsResolved), _general?.SceneAsset(ConditionsResolved));
+        _binocularSight?.Location ?? Later(_specific?.SceneAsset(ConditionsResolved), _general?.SceneAsset(ConditionsResolved));
 
     /// <summary>Where the scene's global light sits.</summary>
     /// <returns>The position, or null.</returns>
@@ -44,16 +47,16 @@ public sealed class SceneDefinition
 
     /// <summary>Where actors may stand.</summary>
     /// <returns>The declaration, or null if neither file gives one.</returns>
-    public SceneBoundary? Boundary() => _specific?.Boundary() ?? _general?.Boundary();
+    public SceneBoundary? Boundary() => _binocularSight is null ? _specific?.Boundary() ?? _general?.Boundary() : null;
 
     /// <summary>The object in the geometry that is the floor.</summary>
     /// <returns>Its name, or null if neither file says.</returns>
-    public string? FloorObject() => _specific?.FloorObject() ?? _general?.FloorObject();
+    public string? FloorObject() => _binocularSight?.Floor ?? _specific?.FloorObject() ?? _general?.FloorObject();
 
     /// <summary>The models that fence the camera in.</summary>
     /// <returns>Their names, general file first.</returns>
     public IReadOnlyList<string> CameraBounds() =>
-        Join(_general?.CameraBounds(), _specific?.CameraBounds());
+        _binocularSight is null ? Join(_general?.CameraBounds(), _specific?.CameraBounds()) : [];
 
     /// <summary>The mechanism the room needs code for, if it declares one.</summary>
     /// <returns>The name, timeblock file first; null where neither file declares one.</returns>

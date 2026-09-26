@@ -375,7 +375,7 @@ public sealed class ScreenPainterTests
         var screen = new Screen(ScreenKind.Binoculars);
 
         painter.Build(
-            new ScreenView(screen, [], null, Panorama: view, Aim: new Vector2(180, 5)), Width, Height);
+            new ScreenView(screen, [], null, Panorama: view, Aim: new Vector2(180, -5)), Width, Height);
 
         Assert.NotNull(Middle(painter, "zoom:MA3_a"));
 

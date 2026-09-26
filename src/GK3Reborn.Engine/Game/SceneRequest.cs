@@ -8,6 +8,7 @@ public sealed class SceneRequest
     private SceneRequest(string scene, string? assetSuffix, GameState? state, Gk3SheepApi? api = null)
     {
         Scene = scene;
+        DefinitionScene = scene;
         AssetSuffix = assetSuffix;
         State = state;
         Api = state is null ? null : api ?? new Gk3SheepApi(state);
@@ -16,6 +17,12 @@ public sealed class SceneRequest
 
     /// <summary>The scene's name, which is also its three-letter location code.</summary>
     public string Scene { get; }
+
+    /// <summary>The lookout's staging is retained while its scenery is viewed through binoculars.</summary>
+    public string DefinitionScene { get; private init; }
+
+    /// <summary>The scenery and floor explicitly selected by BINOCS.TXT.</summary>
+    public Sight? BinocularSight { get; private init; }
 
     /// <summary>The <c>M</c>/<c>A</c>/<c>E</c>/<c>N</c> suffix to prefer, if the caller gave one.</summary>
     public string? AssetSuffix { get; }
@@ -88,7 +95,12 @@ public sealed class SceneRequest
         ArgumentNullException.ThrowIfNull(api);
         ArgumentNullException.ThrowIfNull(scene);
 
-        return new SceneRequest(scene.ToUpperInvariant(), null, api.State, api) { Counts = false };
+        return new SceneRequest(scene.ToUpperInvariant(), null, api.State, api)
+        {
+            Counts = false,
+            DefinitionScene = api.Leaning?.From ?? scene.ToUpperInvariant(),
+            BinocularSight = api.Leaning?.Sight,
+        };
     }
 
     /// <summary>

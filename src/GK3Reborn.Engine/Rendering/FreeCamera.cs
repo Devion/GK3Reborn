@@ -146,8 +146,9 @@ public sealed class FreeCamera
 
     /// <summary>Builds the camera to render with.</summary>
     /// <param name="template">Camera to take the lighting and background from.</param>
+    /// <param name="fieldOfView">Optional lens override, in radians.</param>
     /// <returns>The camera.</returns>
-    public Camera ToCamera(Camera template)
+    public Camera ToCamera(Camera template, float? fieldOfView = null)
     {
         ArgumentNullException.ThrowIfNull(template);
 
@@ -156,7 +157,7 @@ public sealed class FreeCamera
             Position = Position,
             Target = Position + Forward,
             Up = Vector3.UnitY,
-            FieldOfView = template.FieldOfView,
+            FieldOfView = fieldOfView ?? template.FieldOfView,
             NearPlane = NearPlane,
             FarPlane = FarPlane,
             LightDirection = template.LightDirection,

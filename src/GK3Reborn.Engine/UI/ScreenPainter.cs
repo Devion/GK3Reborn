@@ -1399,7 +1399,7 @@ public sealed class ScreenPainter
 
         Subtitle(view, width, height, unit);
 
-        Sight? sighted = panorama?.At(view.Aim.X, view.Aim.Y);
+        Sight? sighted = panorama?.At(view.Aim.X, -view.Aim.Y);
 
         float readout = height - (46 * unit);
 
@@ -1521,7 +1521,7 @@ public sealed class ScreenPainter
         foreach (Sight sight in panorama.Sights.OrderBy(s => Wrapped(s.Middle.X - view.Aim.X)))
         {
             float away = Wrapped(sight.Middle.X - view.Aim.X);
-            bool lit = sight.Holds(view.Aim.X, view.Aim.Y);
+            bool lit = sight.Holds(view.Aim.X, -view.Aim.Y);
             float x = centre + (Math.Clamp(away, -Span / 2, Span / 2) / (Span / 2) * half);
             bool beyond = MathF.Abs(away) > Span / 2;
 

@@ -194,6 +194,7 @@ public static partial class Application
 
         // Whether the binoculars have been raised to the player's eyes this time round.
         bool throughEyes = false;
+        HashSet<string> binocularRemarks = new(StringComparer.OrdinalIgnoreCase);
 
         // The last caption logged, so each line is said once.
         string? captioned = null;
@@ -942,7 +943,7 @@ public static partial class Application
             }
 
             // The story moving the camera takes it back off the player, for as long as it is moving.
-            if (!ReferenceEquals(update.View, directing) && update.View is { } directed)
+            if (api.Leaning is null && !ReferenceEquals(update.View, directing) && update.View is { } directed)
             {
                 directing = update.View;
                 template = directed;
@@ -1107,7 +1108,7 @@ public static partial class Application
                 camera.Update(window, delta);
             }
 
-            Camera view = camera.ToCamera(template);
+            Camera view = camera.ToCamera(template, api.Leaning is null ? null : MathF.PI / 6f);
 
             if (recording?.View(presented, view) is { } railed)
             {
@@ -1423,6 +1424,7 @@ public static partial class Application
             if (story.Screens.Top?.Kind != ScreenKind.Binoculars)
             {
                 throughEyes = false;
+                binocularRemarks.Clear();
             }
 
             if (screens is not null && story.Screens.Top is { } panel)
@@ -1757,7 +1759,7 @@ public static partial class Application
                                 update.Facing(story.Ego) ?? 0, camera.Position, camera.Aim);
 
                             api.Wanted = sight.Scene;
-                            api.WantedCamera = (sight.Position, sight.Angle);
+                            api.WantedCamera = (sight.Position, sight.Aim);
 
                             story.Screens.Replace(new Screen( ScreenKind.Binoculars, $"{Screen.Zoomed}:{sight.Scene}"));
                         }
@@ -1766,7 +1768,7 @@ public static partial class Application
                             story.Screens.Back();
 
                             camera.Position = sight.Position;
-                            camera.Aim = sight.Angle;
+                            camera.Aim = sight.Aim;
                         }
                     }
 
@@ -1933,7 +1935,18 @@ public static partial class Application
                     {
                         camera.Update(window, (float)delta);
                     }
+
+                    if (!update.Acting && room?.Talking != true &&
+                        seen.Heard(camera.Aim.X, -camera.Aim.Y) is { Licence.Length: > 0 } remark &&
+                        binocularRemarks.Add(remark.Licence))
+                    {
+                        api.Perform("StartVoiceOver", [Sheep.SheepValue.FromString(remark.Licence), Sheep.SheepValue.FromInt(1)]);
+                    }
                 }
+
+                // Overlay screens skip the normal room update below. Speech must still
+                // advance, including inventory remarks and their queued lines.
+                room?.Update(delta);
 
                 screens.Build( new ScreenView( panel, story.Inventory.ItemsOf(story.Ego), story.Inventory.ActiveItemOf(story.Ego), sidney,
                         Reachable(panel, scene, story), panel.Subject, map, DrivingMap.Open(story, scene.Name), renderer.OverlayPicture, seen,

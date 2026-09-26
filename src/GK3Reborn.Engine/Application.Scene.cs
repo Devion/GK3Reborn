@@ -1915,16 +1915,15 @@ public static partial class Application
                 }
             }
 
+            // Clear the previous room's audio before an entry script can start a voice-over.
+            room?.Leave();
+
             // What the binoculars ask of the room they are looking into, out of the game's own BINOCS.SHP: hide its exits so it cannot be walked out.
-            if (!request.Counts && api.Leaning is { Sight.Entering.Length: > 0 } leaning && api.Perform( "CallSheep",
-                    [
-                        Sheep.SheepValue.FromString("binocs"), Sheep.SheepValue.FromString(leaning.Sight.Entering), ]) is not null)
+            if (!request.Counts && api.Leaning is { } leaning)
             {
+                leaning.Enter(api);
                 Log.Info($"Binoculars: {leaning.Sight.Entering} staged {scene.Name}");
             }
-
-            // Before the room is entered, not after.
-            room?.Leave();
 
             if (request.Counts && scene.Actions?.Find("SCENE", "ENTER") is { } entering)
             {

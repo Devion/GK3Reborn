@@ -36,6 +36,9 @@ public sealed record Sight(
     /// <summary>The room this is a view of.</summary>
     public string Scene => Location.Length >= 3 ? Location[..3].ToUpperInvariant() : Location;
 
+    /// <summary>Renderer aim: authored positive pitch looks down, while FreeCamera's looks up.</summary>
+    public Vector2 Aim => new(Angle.X, -Angle.Y);
+
     /// <summary>The middle of the patch it occupies.</summary>
     public Vector2 Middle => (From + To) / 2;
 
@@ -57,7 +60,36 @@ public sealed record Sight(
 /// <param name="Eye">Where the view was before they leaned in.</param>
 /// <param name="Look">Which way it was pointed.</param>
 public sealed record BinocularView(
-    string From, Sight Sight, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look);
+    string From, Sight Sight, Vector3 Standing, float Facing, Vector3 Eye, Vector2 Look)
+{
+    /// <summary>Stages the view and plays its authored remarks, including any shared entry function.</summary>
+    public void Enter(Gk3SheepApi api)
+    {
+        ArgumentNullException.ThrowIfNull(api);
+        string shared = From + "ALL" + Sight.Scene + "Ent$";
+        string specific = Sight.Entering.TrimEnd('$') + "$";
+        List<string> calls = [];
+        if (api.Declares?.Invoke("binocs", shared) == true &&
+            !shared.Equals(specific, StringComparison.OrdinalIgnoreCase))
+        {
+            calls.Add(shared);
+        }
+
+        if (Sight.Entering.Length > 0)
+        {
+            calls.Add(specific);
+        }
+
+        if (calls.Count > 0)
+        {
+            new ActionRunner(api).Run(new Formats.Actions.NvcAction
+            {
+                Noun = Sight.Scene, Verb = "BINOCULARS", Case = "ALL", Source = "BINOCS.TXT",
+                Script = string.Join("; ", calls.Select(name => $"wait CallSheep(\"binocs\", \"{name}\")")),
+            });
+        }
+    }
+}
 
 /// <summary>
 /// Where the player stood in a room when they left it for one the game never had. See

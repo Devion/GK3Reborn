@@ -24,6 +24,7 @@ public sealed class DialogueRoutingTests
         public int Playing => Started.Count;
 
         public List<(string Name, AudioBus Bus, AudioPlacement? At)> Started { get; } = [];
+        public List<AudioVoice> Stopped { get; } = [];
 
         public AudioVoice Play(
             WavFile sound, AudioBus bus, bool repeat = false, AudioPlacement? at = null)
@@ -50,6 +51,7 @@ public sealed class DialogueRoutingTests
 
         public void Silence(AudioVoice voice)
         {
+            Stopped.Add(voice);
         }
 
         public void StopBus(AudioBus bus)
@@ -169,5 +171,50 @@ public sealed class DialogueRoutingTests
 
         Assert.Single(device.Started);
         Assert.Equal(AudioBus.DialogueCentered, device.Started[0].Bus);
+    }
+
+    [Theory]
+    [InlineData("GABRIEL", "StartVoiceOver", GK3Reborn.UI.ScreenKind.Inventory)]
+    [InlineData("GRACE", "StartVoiceOver", GK3Reborn.UI.ScreenKind.InventoryInspect)]
+    [InlineData("GABRIEL", "StartDialogue", GK3Reborn.UI.ScreenKind.InventoryInspect)]
+    [InlineData("GRACE", "StartDialogueNoFidgets", GK3Reborn.UI.ScreenKind.Inventory)]
+    [InlineData("GRACE", "StartYak", GK3Reborn.UI.ScreenKind.InventoryInspect)]
+    public void A_new_inventory_remark_cuts_off_the_previous_voice_and_queued_lines(
+        string speaker, string function, GK3Reborn.UI.ScreenKind screen)
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, speaker);
+        var state = new GameState { Ego = speaker };
+        var api = new Gk3SheepApi(state);
+        var scene = new LoadedScene("TEST", new SceneDefinition(null), null, null, 0);
+        var world = new SceneUpdate(scene, api, new GK3Reborn.Game.Actors.Glances(),
+            new GK3Reborn.Rendering.HeadlessSceneSink());
+        SceneScripting.Attach(api, scene, world: world, audio: audio);
+        state.Screens.Show(new GK3Reborn.UI.Screen(screen, "OLD_ITEM"));
+        api.Invoke("StartVoiceOver", [GK3Reborn.Sheep.SheepValue.FromString("OLDYAK1"), GK3Reborn.Sheep.SheepValue.FromInt(3)]);
+
+        // Reproduce rapid inspection even without an intervening audio update.
+        state.Screens.Replace(new GK3Reborn.UI.Screen(screen, "NEW_ITEM"));
+        api.Invoke(function, [GK3Reborn.Sheep.SheepValue.FromString("NEWYAK1"), GK3Reborn.Sheep.SheepValue.FromInt(1)]);
+
+        Assert.Contains(new AudioVoice(1), device.Stopped);
+        Assert.Equal("NEWYAK1", audio.Saying);
+        Assert.Equal(speaker, audio.Speaker);
+        Assert.Equal(2, device.Started.Count);
+        audio.Skip();
+        Assert.False(audio.Talking);
+        Assert.Null(audio.Caption);
+        Assert.Equal(2, device.Started.Count); // OLDYAK2 and OLDYAK3 never start.
+    }
+
+    [Fact]
+    public void Scene_dialogue_can_still_start_two_voices_together()
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device, "GABRIEL");
+        audio.Speak("OLDYAK1", 1);
+        audio.Speak("NEWYAK1", 1);
+        Assert.Equal(2, device.Started.Count);
+        Assert.Empty(device.Stopped);
     }
 }

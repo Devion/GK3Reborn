@@ -1335,6 +1335,9 @@ public sealed class SceneLoader
     private SceneDefinition ReadDefinition(
         string scene, SceneRequest request, DiagnosticBag diagnostics)
     {
+        // BINOCS.TXT explicitly keeps the originating SIF's actors, props and positions.
+        // The destination's normal visit setup places different actors at different spots.
+        scene = request.DefinitionScene;
         SceneInitFile? general = ReadInit(scene, request, diagnostics, required: true);
 
         // The timeblock file is where the story lives: the actors present, the props they
@@ -1344,7 +1347,7 @@ public sealed class SceneLoader
             ? ReadInit(scene + code, request, diagnostics, required: false)
             : null;
 
-        var definition = new SceneDefinition(general, specific);
+        var definition = new SceneDefinition(general, specific, request.BinocularSight);
 
         _log?.Invoke(
             $"init: {Named(general)}{(specific is null ? string.Empty : " + " + Named(specific))}, " +
@@ -1501,6 +1504,14 @@ public sealed class SceneLoader
         if (!string.IsNullOrEmpty(declared))
         {
             yield return declared;
+
+            // Retail BINOCS.TXT and LHM.SIF request this morning asset, but the
+            // archives omit it. Keep the undug LHM_A geometry; a later morning
+            // variant would reveal the excavation before it happens.
+            if (declared.Equals("LHM_A_M", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return "LHM_A_A";
+            }
         }
 
         foreach (string suffix in TimeblockSuffixes)

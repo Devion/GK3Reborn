@@ -543,6 +543,19 @@ public static class SceneScripting
     /// <param name="world">Where the speakers are standing.</param>
     private static void Speak( Gk3SheepApi api, SceneAudio audio, LoadedScene scene, SceneUpdate world)
     {
+        void Begin(string plate, int lines)
+        {
+            // Inventory clicks replace the previous remark, even when no audio tick
+            // separates them. Scene dialogue can still deliberately start two voices
+            // together in one script frame.
+            if (api.State.Screens.Top?.Kind is UI.ScreenKind.Inventory or UI.ScreenKind.InventoryInspect)
+            {
+                audio.Hush();
+            }
+
+            audio.Speak(plate, lines);
+        }
+
         api.Register("PlaySound", arguments =>
         {
             if (arguments.Count > 0)
@@ -557,7 +570,7 @@ public static class SceneScripting
         {
             if (arguments.Count > 0)
             {
-                audio.Speak( arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                Begin(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
             }
 
             return SheepValue.FromInt(0);
@@ -572,7 +585,7 @@ public static class SceneScripting
 
                 if (arguments.Count > 0)
                 {
-                    audio.Speak( arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                    Begin(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
                 }
 
                 return SheepValue.FromInt(0);
@@ -602,7 +615,7 @@ public static class SceneScripting
         {
             if (arguments.Count > 0)
             {
-                audio.Speak(arguments[0].AsString(), 1);
+                Begin(arguments[0].AsString(), 1);
             }
 
             return SheepValue.FromInt(0);
