@@ -138,6 +138,7 @@ public sealed class ScenePicker
             Vector3 maximum = new(float.MinValue);
             bool any = false;
 
+            Refresh(target);
             foreach (Part part in target.Parts)
             {
                 // Where the group is now, then where the model is now — the same pair the
@@ -241,6 +242,7 @@ public sealed class ScenePicker
             // moves: a clip replaces each group's own transform and the model's placement
             // is applied on top, so a character an animation has put somewhere is nowhere
             // near the placement the scene gave them.
+            Refresh(target);
             foreach (Part part in target.Parts)
             {
                 if (Into(ray, target, part) is not { } local)
@@ -515,7 +517,7 @@ public sealed class ScenePicker
     private static int Cell(float at) => Math.Clamp((int)at, 0, StandCells - 1);
 
     /// <summary>Gathers one placed prop or actor, in the model's own space.</summary>
-    private void AddModel(PlacedModel placed)
+    private static Part[] PartsOf(PlacedModel placed)
     {
         List<Part> parts = [];
 
@@ -526,13 +528,15 @@ public sealed class ScenePicker
             // Untransformed, because the group's own transform is what a clip replaces.
             // Baking it in here is what left an animated character's hotspot standing in
             // the pose the artist modelled them in.
-            foreach (ModSubmesh submesh in placed.Model.Meshes[group].Submeshes)
+            for (int index = 0; index < placed.Model.Meshes[group].Submeshes.Count; index++)
             {
+                ModSubmesh submesh = placed.Model.Meshes[group].Submeshes[index];
+                IReadOnlyList<Vector3> positions = placed.ShapeOf(group, index);
                 for (int i = 0; i + 2 < submesh.Indices.Length; i += 3)
                 {
-                    triangles.Add(submesh.Positions[submesh.Indices[i]]);
-                    triangles.Add(submesh.Positions[submesh.Indices[i + 1]]);
-                    triangles.Add(submesh.Positions[submesh.Indices[i + 2]]);
+                    triangles.Add(positions[submesh.Indices[i]]);
+                    triangles.Add(positions[submesh.Indices[i + 1]]);
+                    triangles.Add(positions[submesh.Indices[i + 2]]);
                 }
             }
 
@@ -542,7 +546,22 @@ public sealed class ScenePicker
             }
         }
 
-        if (parts.Count == 0)
+        return [.. parts];
+    }
+
+    private static void Refresh(Target target)
+    {
+        if (target.Of is { } model && target.ShapeRevision != model.ShapeRevision)
+        {
+            target.Parts = PartsOf(model);
+            target.ShapeRevision = model.ShapeRevision;
+        }
+    }
+
+    private void AddModel(PlacedModel placed)
+    {
+        Part[] parts = PartsOf(placed);
+        if (parts.Length == 0)
         {
             return;
         }
@@ -863,7 +882,9 @@ public sealed class ScenePicker
         public PickKind Kind { get; }
 
         /// <summary>The pieces it is made of, each of which can be moved on its own.</summary>
-        public Part[] Parts { get; }
+        public Part[] Parts { get; set; }
+
+        public int ShapeRevision { get; set; }
 
         public bool FrontFacingOnly { get; }
     }

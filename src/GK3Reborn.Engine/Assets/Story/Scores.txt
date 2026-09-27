@@ -15,8 +15,6 @@
 //score_code = score_points
 e_110a_r25_tape = 2
 e_110a_r25_hanger = 2
-e_303p_din_manuscript_prints = 10
-e_212p_cse_open_cellar_doors = 3
 e_210a_r29_enter_from_balcony = 4
 e_110a_din_enter = 4
 

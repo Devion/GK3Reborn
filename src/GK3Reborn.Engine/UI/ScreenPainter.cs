@@ -121,8 +121,8 @@ public sealed class ScreenPainter
     /// <summary>A shape the marked places confirm, told apart from one merely laid.</summary>
     private static readonly Vector4 Locked = new(0.45f, 0.90f, 0.55f, 1f);
 
-    /// <summary>What is outside the binoculars: not quite black, so the room shows through.</summary>
-    private static readonly Vector4 Eyepiece = new(0.01f, 0.01f, 0.015f, 0.97f);
+    /// <summary>Opaque black outside the binoculars, independent of the scene's brightness.</summary>
+    private static readonly Vector4 Eyepiece = new(0f, 0f, 0f, 1f);
 
     /// <summary>The crosshairs.</summary>
     private static readonly Vector4 Reticle = new(0.85f, 0.84f, 0.80f, 0.55f);
@@ -1437,7 +1437,7 @@ public sealed class ScreenPainter
             string label = Landmark(view, sighted.Scene);
             float nameWidth = Overlay.Measure(label);
 
-            Overlay.Text(label, centreX - (nameWidth / 2), centreY - (radius * 0.62f), Accent);
+            OutlinedLabel(label, centreX - (nameWidth / 2), centreY - (radius * 0.62f), Accent, unit);
         }
         else if (!bearings && panorama is { Any: true })
         {
@@ -1450,6 +1450,22 @@ public sealed class ScreenPainter
 
         // The way out, in the same corner it is on every other screen.
         Corner(Text.Say("binoculars.lower", "LOWER"), "close", width, unit);
+    }
+
+    private void OutlinedLabel(string label, float left, float top, Vector4 colour, float unit)
+    {
+        for (int y = -2; y <= 2; y++)
+        {
+            for (int x = -2; x <= 2; x++)
+            {
+                if (x != 0 || y != 0)
+                {
+                    Overlay.Text(label, left + (x * unit), top + (y * unit),
+                        new Vector4(0, 0, 0, Math.Abs(x) + Math.Abs(y) <= 2 ? 0.35f : 0.12f));
+                }
+            }
+        }
+        Overlay.Text(label, left, top, colour);
     }
 
     /// <summary>A button in the corner every screen puts its way out in.</summary>
@@ -1554,11 +1570,9 @@ public sealed class ScreenPainter
 
             filled[row] = at + wide + (10 * unit);
 
-            Overlay.Text(
-                name,
-                at,
+            OutlinedLabel(name, at,
                 baseline + (10 * unit) + (row * (Overlay.LineHeight + (2 * unit))),
-                lit ? Accent : Dim);
+                lit ? Accent : Dim, unit);
         }
 
         return true;

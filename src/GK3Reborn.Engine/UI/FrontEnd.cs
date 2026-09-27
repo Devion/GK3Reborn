@@ -234,7 +234,7 @@ public sealed class FrontEnd
             case "play":
                 return FrontEndOutcome.Play;
 
-            case "intro":
+            case "intro" when Page == FrontEndPage.Main:
                 return FrontEndOutcome.Intro;
 
             case "resume":

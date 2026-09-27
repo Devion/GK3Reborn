@@ -109,6 +109,7 @@ public sealed class SceneUpdate
 
     private string _angle = string.Empty;
     private long _cameraRevision = -1;
+    private Camera? _beforeInspect;
     private Camera? _from;
     private Camera? _to;
     private double _glided;
@@ -3246,6 +3247,25 @@ public sealed class SceneUpdate
         string wanted = _api.State.Inspecting is { Length: > 0 } close ? "\u0000" + close : _staged is not null
                 ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture) : _api.State.CameraAngle;
 
+        bool inspecting = wanted.Length > 0 && wanted[0] == '\u0000';
+        if (inspecting && _beforeInspect is null)
+        {
+            _beforeInspect = Elsewhere ?? View;
+        }
+        else if (!inspecting && _beforeInspect is { } previous)
+        {
+            _beforeInspect = null;
+            if (_cameraRevision == _api.State.CameraRevision)
+            {
+                _angle = wanted;
+                _from = null;
+                _to = null;
+                Framed = false;
+                View = previous;
+                return;
+            }
+        }
+
         // On foot the view is the player's own head, and a shot the story merely names is not taken out of it.
         if (Theirs(wanted))
         {
@@ -3273,6 +3293,8 @@ public sealed class SceneUpdate
         {
             return;
         }
+
+        Framed |= inspecting;
 
         _glided += seconds;
 
@@ -3989,6 +4011,7 @@ public sealed class SceneUpdate
                     if (Clip.ShapeAt(mesh, submesh, at, _repeat) is { } shape)
                     {
                         geometry.ShapeMesh(Target.Placement, mesh, submesh, shape);
+                        Target.Shape(mesh, submesh, shape);
                     }
                 }
             }
@@ -4222,6 +4245,7 @@ public sealed class SceneUpdate
                     if (_clip.ShapeAt(mesh, submesh, at, cycles: true) is { } shape)
                     {
                         geometry.ShapeMesh(_target.Placement, mesh, submesh, shape);
+                        _target.Shape(mesh, submesh, shape);
                     }
                 }
             }

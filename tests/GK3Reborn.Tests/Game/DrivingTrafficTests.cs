@@ -498,12 +498,13 @@ public sealed class DrivingTrafficTests
     [Fact]
     public void Every_chase_but_Lady_Howards_leaves_the_map_open()
     {
-        foreach (int follow in new[] { 1, 2, 5, 6, 7 })
+        foreach (int follow in new[] { 1, 2, 6, 7 })
         {
             Assert.True(DrivingTraffic.Chased(follow, "PLO")!.LeavesMapOpen, $"follow {follow}");
         }
 
         Assert.False(DrivingTraffic.Chased(4, "PLO")!.LeavesMapOpen);
+        Assert.False(DrivingTraffic.Chased(5, "PLO")!.LeavesMapOpen);
     }
 
     /// <summary>

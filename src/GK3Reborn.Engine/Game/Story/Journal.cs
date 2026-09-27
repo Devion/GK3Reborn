@@ -167,11 +167,14 @@ public sealed class Journal
         return new JournalEntry(
             quest,
             Text.Say(quest.TitleKey, quest.Title),
-            quest.Done(_story.HasScored, past),
-            quest.Progress(_story.HasScored, past),
+            quest.Done(_story.HasScored, past || StoryDone(quest)),
+            quest.Progress(_story.HasScored, past || StoryDone(quest)),
             [.. lines.Take(shown)],
             shown < lines.Count);
     }
+
+    private bool StoryDone(Quest quest) => quest.TitleKey == "quest.104P.3" &&
+        _story.GetTopicCount("GABRIEL", "WILKES", "T_ROQUE_NEGRE") > 0;
 
     /// <summary>The lines an objective points at, in the language being played.</summary>
     private IReadOnlyList<string> Said(Quest quest) =>

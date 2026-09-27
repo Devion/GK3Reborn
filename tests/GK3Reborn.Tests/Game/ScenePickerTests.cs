@@ -13,6 +13,23 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ScenePickerTests
 {
+    [Fact]
+    public void Picking_tracks_vertex_animation_as_an_actor_stands_up()
+    {
+        PlacedModel actor = Model("guest", "GUEST", 40, PlacedModelKind.Actor);
+        var picker = new ScenePicker(Scene(Room(("back", 100)), "", actor));
+        var standingRay = new Ray(new Vector3(0, 60, 0), Vector3.UnitZ);
+        Assert.NotEqual("GUEST", picker.Pick(standingRay)?.Noun);
+
+        actor.Shape(0, 0, [new Vector3(-10, 50, 0), new Vector3(0, 80, 0), new Vector3(10, 50, 0)]);
+        Assert.Equal("GUEST", picker.Pick(standingRay)?.Noun);
+        Assert.NotEqual("GUEST", picker.Pick(new Ray(Vector3.Zero, Vector3.UnitZ))?.Noun);
+
+        actor.Shape(0, 0, actor.Model.Meshes[0].Submeshes[0].Positions);
+        Assert.NotEqual("GUEST", picker.Pick(standingRay)?.Noun);
+        Assert.Equal("GUEST", picker.Pick(new Ray(Vector3.Zero, Vector3.UnitZ))?.Noun);
+    }
+
     /// <summary>A camera at the origin looking down +Z, the way the fixtures are built.</summary>
     private static Camera Looking() =>
         new() { Position = Vector3.Zero, Target = new Vector3(0, 0, 1), Up = Vector3.UnitY };

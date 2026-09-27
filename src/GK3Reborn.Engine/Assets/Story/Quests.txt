@@ -65,7 +65,7 @@ Complete the disguise | score:e_102p_ms2_pickup_cap,e_102p_inventory_complete_mo
 Make the passport match | score:e_102p_lby_pickup_pen,e_102p_inventory_pen_draw_moustache | 18,19
 Get yourself a bike | score:e_102p_mop_disguise_gabe | 20,21
 Follow Wilkes | score:e_102p_map_follow_wilkes | 22,23,24
-Find out what Wilkes is doing out there | score:e_102p_tr2_think_about_arrivals | 25,26
+Find out what Wilkes is doing out there | score:e_notebook_wilkes_license,e_talk_wilkes_machine,e_talk_wilkes_treasure,e_talk_wilkes_grail | 25,26
 Follow Madeleine | score:e_102p_map_follow_buthane | 27,28
 Watch Madeleine from a distance | score:e_102p_cd1_zoom_in_madeline | 29
 Ask at the train station about the two men | score:e_102p_tr1_wallet_taxi_driver_2nd_time,e_102p_tr2_talk_marci_train_from_naples,e_102p_tr2_talk_marci_otr_arrivals | 30,31,32,33,34,35
@@ -78,7 +78,7 @@ Overhear the abbe | score:e_104p_cem_overhear_abbe_buthane | 10
 Find Larry Chester | score:e_104p_lhe_knock,e_104p_lhi_talk_larry_grail,e_104p_lhi_talk_larry_rlc,e_104p_lhi_talk_larry_templars_1st_time,e_104p_lhi_talk_larry_templars_2nd_time,e_104p_lhi_talk_larry_treasure_2nd_time | 11,12,13
 
 [106P]
-Write down the last of the bike numbers | story | 1,2
+Write down the last of the bike numbers | score:e_notebook_howard_estelle_license,e_notebook_buchelli_license | 1,2
 Talk to the evening receptionist | score:e_106p_lby_talk_simone_checkin,e_106p_lby_talk_simone_two_men_trunk | 3,4
 Overhear Buchelli and Wilkes | score:e_106p_din_overhear_buchelli_wilkes | 5,6
 Find out what Prince James's men want | score:e_106p_cem_hide_behind_tomb | 7,8

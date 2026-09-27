@@ -112,6 +112,47 @@ public sealed class DrivingTraffic
     /// <summary>Who is being chased, or null when the player is riding where they like.</summary>
     public Traveller? Chase { get; }
 
+    /// <summary>Records a completed chase, including awards normally made by roadside scripts.</summary>
+    /// <param name="story">The game receiving the chase's outcome.</param>
+    /// <returns>The destination to enter, or null to leave the map open.</returns>
+    public string? Complete(GameState story)
+    {
+        ArgumentNullException.ThrowIfNull(story);
+        if (!Arrived || Chase is not { } quarry)
+        {
+            return null;
+        }
+
+        story.SetNounVerbCount(quarry.Counted, DrivingMap.Follow, quarry.Reveals.Count > 0 ? 2 : 1);
+        foreach (string place in quarry.Reveals)
+        {
+            DrivingMap.Reveal(story, place);
+        }
+        if (quarry.LeavesThemAt is { } at)
+        {
+            story.SetActorLocation(quarry.Noun, at);
+        }
+
+        string? award = quarry.Follow switch
+        {
+            1 => "e_102p_map_follow_buthane",
+            2 => "e_102p_map_follow_wilkes",
+            5 => "e_106p_map_follow_two_men",
+            6 => "e_202p_map_follow_howard",
+            _ => null,
+        };
+        if (award is not null)
+        {
+            story.AwardScore(award, ScoreEvents.Open().Worth(award));
+        }
+        if (quarry.Follow == 5)
+        {
+            story.SetVariable("TwoMenState", 5);
+            return "PLO";
+        }
+        return quarry.LeavesMapOpen ? null : quarry.Arrives ?? From ?? story.Location;
+    }
+
     /// <summary>Where the chase set out from, as a scene code.</summary>
     public string? From { get; }
 
@@ -659,7 +700,7 @@ public sealed class DrivingTraffic
                 [])
             {
                 Says = "21F6L3WBH1",
-                LeavesMapOpen = true,
+                LeavesMapOpen = false,
             },
 
             // Estelle, to where she and Lady Howard are digging.

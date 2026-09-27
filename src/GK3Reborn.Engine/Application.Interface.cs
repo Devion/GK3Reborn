@@ -517,33 +517,7 @@ public static partial class Application
     /// <param name="story">The game.</param>
     private static string? Arrive(Game.DrivingTraffic traffic, GameState story)
     {
-        if (traffic.Chase is not { } quarry)
-        {
-            return null;
-        }
-
-        // Two only where the chase led somewhere new.
-        story.SetNounVerbCount( quarry.Counted, DrivingMap.Follow, quarry.Reveals.Count > 0 ? 2 : 1);
-
-        foreach (string place in quarry.Reveals)
-        {
-            if (DrivingMap.Reveal(story, place))
-            {
-                Log.Info($"The map now knows {place}");
-            }
-        }
-
-        // And where they are now.
-        if (quarry.LeavesThemAt is { } at)
-        {
-            story.SetActorLocation(quarry.Noun, at);
-        }
-
-        string arrived = quarry.Arrives ?? traffic.From ?? story.Location;
-
-        Log.Info(quarry.LeavesMapOpen ? $"Followed {quarry.Noun} to {arrived}; the map stays open" : $"Followed {quarry.Noun} to {arrived}");
-
-        return quarry.LeavesMapOpen ? null : arrived;
+        return traffic.Complete(story);
     }
 
     /// <summary>Why a room was left.</summary>

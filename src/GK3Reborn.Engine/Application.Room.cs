@@ -930,6 +930,17 @@ public static partial class Application
                 Log.Info($"  {update.Diagnostics.Items[said]}");
             }
 
+            bool leavingInspect = !typing && story.Screens.InTheRoom && !update.Directing &&
+                story.Inspecting.Length > 0 &&
+                (Pushing(window) != Vector2.Zero || pushed != Vector2.Zero ||
+                 Looking(window, front.Settings, delta) != Vector2.Zero ||
+                 (window.IsDragging && window.PointerDelta != Vector2.Zero) ||
+                 window.IsHeld(Platform.CameraAction.Up) || window.IsHeld(Platform.CameraAction.Down));
+            if (leavingInspect)
+            {
+                story.Inspecting = string.Empty;
+            }
+
             foreach (string happened in update.Advance(delta))
             {
                 Log.Info(string.Create( CultureInfo.InvariantCulture, $"  [{stopwatch.Elapsed.TotalSeconds:F2}s] {happened}"));
@@ -1005,7 +1016,9 @@ public static partial class Application
 
                 walker.Speed = front.Settings.FirstPersonSpeed;
 
-                var asked = new Game.Navigation.FirstPersonInput( Pushing(window) + pushed, Looking(window, front.Settings, delta),
+                var asked = new Game.Navigation.FirstPersonInput(
+                    leavingInspect ? Vector2.Zero : Pushing(window) + pushed,
+                    leavingInspect ? Vector2.Zero : Looking(window, front.Settings, delta),
                     window.IsHeld(Platform.CameraAction.Fast));
 
                 // Reaching for the mouse takes the view back, so a turn the story started is never fought over.
@@ -1103,7 +1116,7 @@ public static partial class Application
                 camera.Position = eye;
                 camera.Aim = new Vector2(yaw * 180f / MathF.PI, pitch * 180f / MathF.PI);
             }
-            else if (theirs && !OnFoot())
+            else if (theirs && !OnFoot() && !leavingInspect)
             {
                 camera.Update(window, delta);
             }
@@ -1137,7 +1150,7 @@ public static partial class Application
             }
 
             // Where the view actually is, while the player is the one holding it.
-            update.Elsewhere = onFoot ? view : null;
+            update.Elsewhere = !update.Framed ? view : null;
 
             // What GK3's billboard flag has always meant, done here because here is where the frame's camera is finally known — the free camera and.
             geometry.TurnBillboards(view.Position);

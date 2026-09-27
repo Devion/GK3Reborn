@@ -233,7 +233,7 @@ public sealed class SaveStore
     /// </summary>
     /// <param name="save">The save as read.</param>
     /// <returns>The save this build understands.</returns>
-    private static SaveGame Migrate(SaveGame save)
+    internal static SaveGame Migrate(SaveGame save)
     {
         if (save.SchemaVersion < 2)
         {
@@ -243,6 +243,39 @@ public sealed class SaveStore
         if (save.SchemaVersion < 3)
         {
             save = ToSchema3(save);
+        }
+
+        if (save.SchemaVersion < 4)
+        {
+            // Before actor ownership was recorded, day-one history was Gabriel's.
+            // Later saves cannot disambiguate shared topics. Keep those with the saved
+            // protagonist; do not invent completed conversations for the other one.
+            string actor = save.Day == 1 || (save.Day == 2 && save.Hour == 7 && !save.Afternoon)
+                ? "GABRIEL" : save.Ego.ToUpperInvariant();
+            save = save with
+            {
+                SchemaVersion = 4,
+                TopicCounts = save.TopicCounts.ToDictionary(
+                    pair => actor + "|" + pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase),
+                SaidTopics = [.. save.SaidTopics.Select(line => actor + "\u0001" + line)],
+            };
+
+            if (save.Day == 2 && save.Hour == 7 && !save.Afternoon)
+            {
+                var topics = new Dictionary<string, int>(save.TopicCounts, StringComparer.OrdinalIgnoreCase);
+                foreach ((string score, string topic) in new[]
+                {
+                    ("e_207a_ma3_talk_abbe_introduce", "GRACE|ABBE|T_INTRODUCE"),
+                    ("e_207a_din_talk_buthan_tour_group", "GRACE|BUTHANE|T_TOUR_GROUP"),
+                })
+                {
+                    if (save.Scored.Contains(score, StringComparer.OrdinalIgnoreCase))
+                    {
+                        topics[topic] = 1;
+                    }
+                }
+                save = save with { TopicCounts = topics };
+            }
         }
 
         return save;

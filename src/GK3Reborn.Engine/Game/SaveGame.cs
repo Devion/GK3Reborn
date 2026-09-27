@@ -57,7 +57,7 @@ public sealed record SavedTimer(string Noun, string Verb, double Seconds);
 public sealed record SaveGame
 {
     /// <summary>The schema this build writes.</summary>
-    public const int CurrentSchema = 3;
+    public const int CurrentSchema = 4;
 
     /// <summary>Which schema this save was written with.</summary>
     public required int SchemaVersion { get; init; }

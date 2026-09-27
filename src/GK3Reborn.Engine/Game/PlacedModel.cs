@@ -83,6 +83,29 @@ public sealed record PlacedModel(
 
     private Matrix4x4?[]? _posed;
 
+    private readonly Dictionary<(int Mesh, int Submesh), IReadOnlyList<Vector3>> _shapes = [];
+
+    /// <summary>Changes whenever animation replaces vertices used by the scene picker.</summary>
+    public int ShapeRevision { get; private set; }
+
+    /// <summary>Remembers the same animated vertices sent to the renderer.</summary>
+    public void Shape(int mesh, int submesh, IReadOnlyList<Vector3> positions)
+    {
+        ArgumentNullException.ThrowIfNull(positions);
+        if (mesh < 0 || mesh >= Model.Meshes.Count || submesh < 0 ||
+            submesh >= Model.Meshes[mesh].Submeshes.Count ||
+            positions.Count != Model.Meshes[mesh].Submeshes[submesh].Positions.Length)
+        {
+            return;
+        }
+        _shapes[(mesh, submesh)] = positions;
+        ShapeRevision++;
+    }
+
+    /// <summary>The current vertices of a submesh, including any animation deformation.</summary>
+    public IReadOnlyList<Vector3> ShapeOf(int mesh, int submesh) =>
+        _shapes.GetValueOrDefault((mesh, submesh)) ?? Model.Meshes[mesh].Submeshes[submesh].Positions;
+
     /// <summary>Notes where a clip has put one of the mesh groups.</summary>
     /// <param name="mesh">Which group.</param>
     /// <param name="meshToLocal">Its transform, replacing the one the model was built with.</param>

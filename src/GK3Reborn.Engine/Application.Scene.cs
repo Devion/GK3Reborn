@@ -955,6 +955,18 @@ public static partial class Application
         // At the start, not only when something changes: a stored setting has to reach the game on a run where the player never opens the menu at.
         Apply(settings);
 
+        void TimeCard()
+        {
+            Announce( window, renderer, pages, strings, api.State.Timeblock, Art( archives, Pictures(
+                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides, language: language), settings.EnhancedTextures
+                            ? CompressedTextures.Open( packsOnly ? string.Empty : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
+                                packs, overrides, localized) : overrides is null && localized is null ? null
+                                : CompressedTextures.Open(string.Empty, null, overrides, localized), diagnostics, $"TBT{api.State.Timeblock}.BMP"),
+
+                    // Always out of the archives, whatever the paintings are being read from.
+                    Game.TimeblockCard.Read(archives, api.State.Timeblock.ToString()), audio, sounds);
+        }
+
         if (frontEnd && pages is not null)
         {
             // The game's own title screen: the angel, with the name painted into it.
@@ -1142,6 +1154,10 @@ public static partial class Application
                 request = SceneRequest.Continuing(api, api.State.Location);
                 Log.Info($"Restored {chosenSlot}: {titleSave.Title}");
                 asked = FrontEndOutcome.Play;
+            }
+            else if (asked == FrontEndOutcome.Play)
+            {
+                TimeCard();
             }
 
             if (asked != FrontEndOutcome.Play)
@@ -2108,14 +2124,7 @@ public static partial class Application
                 }
 
                 // And then say so.
-                Announce( window, renderer, pages, strings, api.State.Timeblock, Art( archives, Pictures(
-                    settings.EnhancedTextures, packsOnly, enhancedDirectory, overrides, language: language), settings.EnhancedTextures
-                            ? CompressedTextures.Open( packsOnly ? string.Empty : CompressedTextureDirectory(args, enhancedDirectory ?? string.Empty),
-                                packs, overrides, localized) : overrides is null && localized is null ? null
-                                : CompressedTextures.Open(string.Empty, null, overrides, localized), diagnostics, $"TBT{api.State.Timeblock}.BMP"),
-
-                    // Always out of the archives, whatever the paintings are being read from.
-                    Game.TimeblockCard.Read(archives, api.State.Timeblock.ToString()), audio, sounds);
+                TimeCard();
 
                 // The film the new timeblock opens on, after its card, as GameProgress::StartTimeblock plays it: 212PBEGIN and 310ABEGIN.
                 if (movies.Play(api.State.Timeblock + "begin") is > 0 and { } opening)

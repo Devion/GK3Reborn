@@ -217,10 +217,13 @@ public sealed class GameState
     public void IncrementNounVerbCount(string noun, string verb) => SetNounVerbCount(Ego, noun, verb, GetNounVerbCount(Ego, noun, verb) + 1);
 
     /// <summary>How many times a conversation topic has come up.</summary>
-    public int GetTopicCount(string noun, string topic) => _topicCounts.GetValueOrDefault(Pair(noun, topic));
+    public int GetTopicCount(string noun, string topic) => GetTopicCount(Ego, noun, topic);
+
+    /// <summary>How often a particular protagonist has discussed a topic.</summary>
+    public int GetTopicCount(string actor, string noun, string topic) => _topicCounts.GetValueOrDefault(Triple(actor, noun, topic));
 
     /// <summary>Sets a topic count.</summary>
-    public void SetTopicCount(string noun, string topic, int value) => _topicCounts[Pair(noun, topic)] = value;
+    public void SetTopicCount(string noun, string topic, int value) => _topicCounts[Triple(Ego, noun, topic)] = value;
 
     /// <summary>Whether one particular line of a topic has already been said.</summary>
     /// <returns>True when it has been said before.</returns>
@@ -235,7 +238,7 @@ public sealed class GameState
     /// <param name="condition">The case under which that line applied.</param>
     public void Said(string noun, string topic, string condition) => _saidTopics.Add(Line(noun, topic, condition));
 
-    private static string Line(string noun, string topic, string condition) => $"{noun}\u0001{topic}\u0001{condition}";
+    private string Line(string noun, string topic, string condition) => $"{Ego}\u0001{noun}\u0001{topic}\u0001{condition}";
 
     /// <summary>The conversation the player is in, or null when they are not in one.</summary>
     public string? Conversation { get; set; }
@@ -551,6 +554,7 @@ public sealed class GameState
     public void Restore(SaveGame save)
     {
         ArgumentNullException.ThrowIfNull(save);
+        save = SaveStore.Migrate(save);
 
         // Preferences rather than facts about the story, so they survive the load: see EasterEggs and PlotArmour.
         bool eggs = EasterEggs;
@@ -755,8 +759,6 @@ public sealed class GameState
 
     /// <summary>The key a visit is counted under.</summary>
     private static string LocationKey(string actor, string location, string timeblock) => $"{Key(actor)}|{Key(location)}|{timeblock}";
-
-    private static string Pair(string first, string second) => $"{Key(first)}|{Key(second)}";
 
     private static string Triple(string first, string second, string third) => $"{Key(first)}|{Key(second)}|{Key(third)}";
 }
