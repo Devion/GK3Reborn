@@ -104,6 +104,9 @@ public sealed class ScenePicker
     /// Things a script has switched off, by name.
     /// </summary>
     public ISet<string>? Blocked { get; init; }
+
+    /// <summary>Whether a noun has been revealed by the story, checked for both picking and hotspot labels.</summary>
+    public Func<string, bool>? Revealed { get; init; }
     /// <summary>
     /// Everything in the room the player can act on, and where it is.
     /// </summary>
@@ -129,6 +132,7 @@ public sealed class ScenePicker
             if (target.Noun is not { Length: > 0 } noun ||
                 target.Of is { Visible: false } ||
                 Blocked?.Contains(target.Name) == true ||
+                Revealed?.Invoke(noun) == false ||
                 !seen.Add(noun))
             {
                 continue;
@@ -211,6 +215,11 @@ public sealed class ScenePicker
         foreach (Target target in _targets)
         {
             if (sunk && (target.Kind != PickKind.Prop || target.Noun is not { Length: > 0 }))
+            {
+                continue;
+            }
+
+            if (target.Noun is { Length: > 0 } noun && Revealed?.Invoke(noun) == false)
             {
                 continue;
             }

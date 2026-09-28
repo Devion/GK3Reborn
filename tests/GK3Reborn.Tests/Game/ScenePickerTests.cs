@@ -13,6 +13,80 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ScenePickerTests
 {
+    [Theory]
+    [InlineData("DU1", "drr25", "NORTH_EXIT_DOOR", "25")]
+    [InlineData("DU1", "drr27", "SOUTH_EXIT_DOOR", "27")]
+    [InlineData("du2", "drr27", "north_exit_door", "21")]
+    [InlineData("DU2", "drr25", "SOUTH_EXIT_DOOR", "23")]
+    public void Shaft_doors_are_named_for_the_destination_at_both_platform_heights(
+        string room, string model, string noun, string number)
+    {
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var actions = new ActionResolver(api);
+        var scene = Scene(Room(), "", Model(model, noun, 40, PlacedModelKind.Prop)) with
+        {
+            Name = room, Actions = actions,
+        };
+        var interaction = new SceneInteraction(scene, api);
+        foreach (int height in new[] { 0, 1 })
+        {
+            state.SetNounVerbCount("PULLEY_GE", "USE", height);
+            state.SetNounVerbCount("PULLEY_WB", "USE", height);
+            Assert.Equal("Room " + number, interaction.At(new Ray(Vector3.Zero, Vector3.UnitZ)).Label);
+            Assert.Equal("Room " + number, Assert.Single(interaction.Nouns()).Noun);
+            Assert.Equal("Room " + number, interaction.NameOf(noun));
+        }
+    }
+
+    [Theory]
+    [InlineData("R27", "r27_emlclth", "LINEN_CLOTH", "BED2", "SEARCH", 1)]
+    [InlineData("R21", "r21_collar", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
+    [InlineData("R21", "r21pshirt", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
+    public void Covered_items_cannot_be_picked_listed_or_inspected_until_revealed(
+        string room, string model, string noun, string covering, string verb, int revealed)
+    {
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var scene = Scene(Room(("back", 100)), "", Model(model, noun, 40, PlacedModelKind.Prop)) with
+        {
+            Name = room, Actions = new ActionResolver(api),
+        };
+        var interaction = new SceneInteraction(scene, api);
+        var ray = new Ray(Vector3.Zero, Vector3.UnitZ);
+        Assert.NotEqual(noun, interaction.At(ray).Noun);
+        Assert.Empty(interaction.Nouns());
+        Assert.Null(interaction.Do(noun, "INSPECT"));
+
+        state.SetNounVerbCount(covering, verb, revealed);
+        Assert.Equal(noun, interaction.At(ray).Noun);
+        Assert.Equal(noun, Assert.Single(interaction.Nouns()).Noun);
+        Assert.NotNull(interaction.Do(noun, "INSPECT"));
+
+        // Closing the drawer removes the hotspot again, without rebuilding the picker.
+        state.SetNounVerbCount(covering, verb, revealed - 1);
+        Assert.NotEqual(noun, interaction.At(ray).Noun);
+        Assert.Empty(interaction.Nouns());
+        Assert.Null(interaction.Do(noun, "INSPECT"));
+        Assert.Equal(0, state.Score);
+    }
+
+    [Fact]
+    public void The_collar_is_not_a_hotspot_in_the_church_even_after_opening_Buchellis_drawer()
+    {
+        var state = new GameState();
+        state.SetNounVerbCount("WARDROBE", "OPEN", 2);
+        var api = new Gk3SheepApi(state);
+        var scene = Scene(Room(("confessional", 100)), "model=confessional,noun=CONFESSIONAL,type=scene",
+            Model("r21_collar", "PRIEST_COLLAR_IN_SUITCASE", 40, PlacedModelKind.Prop)) with
+        {
+            Name = "CHU", Actions = new ActionResolver(api),
+        };
+        var interaction = new SceneInteraction(scene, api);
+        Assert.Equal("CONFESSIONAL", interaction.At(new Ray(Vector3.Zero, Vector3.UnitZ)).Noun);
+        Assert.Equal("CONFESSIONAL", Assert.Single(interaction.Nouns()).Noun);
+    }
+
     [Fact]
     public void Picking_tracks_vertex_animation_as_an_actor_stands_up()
     {

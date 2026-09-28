@@ -54,7 +54,7 @@ public sealed class SceneInteraction
         ArgumentNullException.ThrowIfNull(api);
 
         _scene = scene;
-        _picker = new ScenePicker(scene) { Blocked = api.State.BlockedHitTests };
+        _picker = new ScenePicker(scene) { Blocked = api.State.BlockedHitTests, Revealed = Revealed };
         _actions = scene.Actions;
         _runner = new ActionRunner(api);
         _api = api;
@@ -63,6 +63,17 @@ public sealed class SceneInteraction
 
     /// <summary>What the last click did, for whoever wants to say so.</summary>
     public ActionOutcome? Last { get; private set; }
+
+    // These props are present in the original scene even while covered. Geometry alone
+    // can expose them through the pillow or drawer, and Alt lists them without a ray.
+    private bool Revealed(string noun) => noun.ToUpperInvariant() switch
+    {
+        "LINEN_CLOTH" => _scene.Name.Equals("R27", StringComparison.OrdinalIgnoreCase) &&
+            _api.State.GetNounVerbCount("BED2", "SEARCH") > 0,
+        "PRIEST_COLLAR_IN_SUITCASE" => _scene.Name.Equals("R21", StringComparison.OrdinalIgnoreCase) &&
+            _api.State.GetNounVerbCount("WARDROBE", "OPEN") == 2,
+        _ => true,
+    };
 
     /// <summary>Asks what a ray meets, for something that is not the pointer.</summary>
     /// <returns>The nearest thing it met, or null.</returns>
@@ -242,6 +253,20 @@ public sealed class SceneInteraction
     /// <param name="model">The model's own name, which carries the room number.</param>
     private string? Numbered(string noun, string model)
     {
+        // The second shaft reuses drr25/drr27, but its doors lead to Wilkes and Buchelli.
+        string? destination = (_scene.Name.ToUpperInvariant(), noun.ToUpperInvariant()) switch
+        {
+            ("DU1", "NORTH_EXIT_DOOR") => "25",
+            ("DU1", "SOUTH_EXIT_DOOR") => "27",
+            ("DU2", "NORTH_EXIT_DOOR") => "21",
+            ("DU2", "SOUTH_EXIT_DOOR") => "23",
+            _ => null,
+        };
+        if (destination is not null)
+        {
+            return Text.Say("noun.ROOM", "Room {0}").Replace("{0}", destination, StringComparison.Ordinal);
+        }
+
         if (!noun.EndsWith("_DOOR", StringComparison.OrdinalIgnoreCase))
         {
             return null;
@@ -414,7 +439,7 @@ public sealed class SceneInteraction
     {
         ArgumentNullException.ThrowIfNull(noun);
 
-        if (noun.Length == 0 || _actions is null)
+        if (noun.Length == 0 || _actions is null || !Revealed(noun))
         {
             return null;
         }

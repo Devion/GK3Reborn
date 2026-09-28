@@ -966,12 +966,14 @@ public static partial class Application
             // And while it is telling one, the camera is the story's rather than the player's: see SceneUpdate.Directing, which is the whole rule.
             bool theirs = !typing && story.Screens.InTheRoom && !(update.Directing && !Flying());
 
-            // The mouse is taken for looking about only while the player is in the room with nothing in front of it.
-            window.PointerLocked = OnFoot() && !typing && story.Screens.InTheRoom && menu is null && !movies.Playing &&
-                !window.IsHeld(Platform.CameraAction.FreeCursor);
-
             // Standing in the room rather than floating over it.
             bool onFoot = OnFoot() && !typing && story.Screens.InTheRoom && !Flying() && !update.Framed;
+
+            // A forced view can wait for input (the handshake and dumbwaiter shafts).
+            // Capture the mouse only when it steers the view; otherwise it must be a cursor.
+            window.PointerLocked = onFoot && menu is null && !movies.Playing &&
+                !window.IsHeld(Platform.CameraAction.FreeCursor);
+
             bool walking = false;
             bool shouldered = false;
 
