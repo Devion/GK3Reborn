@@ -11,6 +11,29 @@ namespace GK3Reborn.Tests.UI;
 /// </summary>
 public sealed class ControlsTests
 {
+    [Fact]
+    public void A_pointer_binding_waits_for_a_button_when_a_letter_is_pressed()
+    {
+        FrontEnd front = Controls();
+        front.Choose(new MenuAction("ptr:Primary"));
+        Assert.False(front.Captured(InputKey.K, GamepadButton.None));
+        Assert.True(front.Listening);
+        Assert.Equal(GamepadButton.South, front.Bindings.Button(PointerButton.Primary));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Clearing_a_pad_row_preserves_the_keyboard_binding(bool explicitClear)
+    {
+        FrontEnd front = Controls();
+        front.Choose(new MenuAction("pad:Inventory"));
+        front.Captured(explicitClear ? InputKey.None : InputKey.Backspace, GamepadButton.None, explicitClear);
+        Assert.Equal(GamepadButton.None, front.Bindings.Button(CameraAction.Inventory));
+        Assert.Equal([InputKey.I], front.Bindings.Keys(CameraAction.Inventory));
+        Assert.Equal(GamepadButton.None, InputBindings.Restore(front.Settings.Bindings).Button(CameraAction.Inventory));
+    }
+
     private static FrontEnd Controls()
     {
         var front = new FrontEnd(new Settings());

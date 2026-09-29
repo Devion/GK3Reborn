@@ -96,6 +96,10 @@ public sealed class FreeCamera
             _pitch = Math.Clamp(_pitch - (input.PointerDelta.Y * LookSensitivity), -PitchLimit, PitchLimit);
         }
 
+        Vector2 look = GamepadSticks.Pushed(input.Sticks.Right) * (2.8f * seconds);
+        _yaw += look.X;
+        _pitch = Math.Clamp(_pitch - look.Y, -PitchLimit, PitchLimit);
+
         Vector3 forward = Forward;
 
         // cross(up, forward), the left-handed order, because the view matrix is
@@ -103,7 +107,9 @@ public sealed class FreeCamera
         // negative, and strafes the wrong way.
         Vector3 right = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, forward));
 
-        var movement = Vector3.Zero;
+        // With the pointer disabled, the left stick drives the camera instead.
+        Vector2 stick = input.PointerSpeed <= 0f ? GamepadSticks.Pushed(input.Sticks.Left) : Vector2.Zero;
+        Vector3 movement = (right * stick.X) - (forward * stick.Y);
 
         if (input.IsHeld(CameraAction.Forward))
         {
@@ -138,7 +144,7 @@ public sealed class FreeCamera
         if (movement.LengthSquared() > 1e-9f)
         {
             float speed = Speed * (input.IsHeld(CameraAction.Fast) ? 4f : 1f);
-            Vector3 step = Vector3.Normalize(movement) * speed * seconds;
+            Vector3 step = (movement.LengthSquared() > 1f ? Vector3.Normalize(movement) : movement) * speed * seconds;
 
             Position = Confine is { } fence ? fence(Position, step) : Position + step;
         }

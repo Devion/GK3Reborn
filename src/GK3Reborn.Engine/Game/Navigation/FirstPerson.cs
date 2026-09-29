@@ -250,17 +250,7 @@ public sealed class FirstPerson
     /// <summary>What a stick is asking for, with the dead zone taken out.</summary>
     /// <returns>The same direction, rescaled so the first movement out of the middle is a small one rather than a jump to a fifth of.</returns>
     /// <param name="stick">Where it is pushed, each axis from -1 to 1.</param>
-    public static Vector2 Pushed(Vector2 stick)
-    {
-        float reach = stick.Length();
-
-        if (reach <= DeadZone)
-        {
-            return Vector2.Zero;
-        }
-
-        return stick / reach * MathF.Min(1f, (reach - DeadZone) / (1f - DeadZone));
-    }
+    public static Vector2 Pushed(Vector2 stick) => Platform.GamepadSticks.Pushed(stick);
 
     /// <summary>Whether a foot lands now, taking the stride off the tally when it does.</summary>
     /// <returns>True once per stride walked.</returns>

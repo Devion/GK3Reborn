@@ -121,7 +121,8 @@ public static partial class Application
         }
 
         // The stick's Y grows downwards, so pushing it away from you is walking forward.
-        Vector2 stick = Game.Navigation.FirstPerson.Pushed(input.Sticks.Left);
+        Vector2 stick = input.IsHeld(Platform.CameraAction.FreeCursor) ? Vector2.Zero
+            : Game.Navigation.FirstPerson.Pushed(input.Sticks.Left);
 
         return move + new Vector2(stick.X, -stick.Y);
     }

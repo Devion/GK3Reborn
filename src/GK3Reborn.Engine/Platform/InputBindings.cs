@@ -42,6 +42,7 @@ public sealed class InputBindings
         [CameraAction.NextCamera] = GamepadButton.RightShoulder,
         [CameraAction.Reset] = GamepadButton.LeftShoulder,
         [CameraAction.Fast] = GamepadButton.LeftStick,
+        [CameraAction.FreeCursor] = GamepadButton.RightStick,
         [CameraAction.Quit] = GamepadButton.Start,
     };
 
@@ -325,6 +326,15 @@ public sealed record StoredBindings( Dictionary<string, string> Keys, Dictionary
 /// <param name="RightTrigger">The right trigger.</param>
 public readonly record struct GamepadSticks( System.Numerics.Vector2 Left, System.Numerics.Vector2 Right, float LeftTrigger, float RightTrigger)
 {
+    /// <summary>Filters stick drift and rescales the remaining travel to unit length.</summary>
+    public static System.Numerics.Vector2 Pushed(System.Numerics.Vector2 stick)
+    {
+        const float deadZone = 0.18f;
+        float reach = stick.Length();
+        return !float.IsFinite(reach) || reach <= deadZone ? System.Numerics.Vector2.Zero
+            : stick / reach * MathF.Min(1f, (reach - deadZone) / (1f - deadZone));
+    }
+
     /// <summary>A pad nobody is touching.</summary>
     public static GamepadSticks Still => default;
 

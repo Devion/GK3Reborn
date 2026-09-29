@@ -1025,7 +1025,8 @@ public sealed class FrontEnd
             return true;
         }
 
-        if (clear || key == InputKey.Backspace)
+        clear |= key == InputKey.Backspace;
+        if (clear)
         {
             key = InputKey.None;
             button = GamepadButton.None;
@@ -1041,12 +1042,18 @@ public sealed class FrontEnd
 
         if (what == "ptr" && Enum.TryParse(named, out PointerButton pointer))
         {
+            if (!clear && button == GamepadButton.None)
+            {
+                return false;
+            }
+
             bound = bound.With(pointer, button);
         }
         else if (Enum.TryParse(named, out CameraAction action))
         {
             // A key row answered with a pad button, or the other way round, binds what was actually pressed.
-            bound = button != GamepadButton.None ? bound.With(action, button) : bound.With(action, key);
+            bound = button != GamepadButton.None || (what == "pad" && clear)
+                ? bound.With(action, button) : bound.With(action, key);
         }
 
         Adopt(bound);

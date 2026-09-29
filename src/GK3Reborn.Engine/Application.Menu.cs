@@ -437,7 +437,7 @@ public static partial class Application
 
             heldLast = holding;
 
-            if (window.WasClicked(Platform.PointerButton.Primary))
+            if (window.WasClicked(Platform.PointerButton.Primary) && !window.WasPressed(Platform.EditKey.Enter))
             {
                 action = pages.Click(pointer, items);
 
@@ -447,7 +447,7 @@ public static partial class Application
                     scene?.Click(pointer, window.FramebufferWidth, window.FramebufferHeight);
                 }
             }
-            else if (window.IsDragging && pages.Drag(pointer, items, grabbed) is { Happened: true } dragged)
+            else if (!window.WasPressed(Platform.EditKey.Enter) && window.IsDragging && pages.Drag(pointer, items, grabbed) is { Happened: true } dragged)
             {
                 // Held rather than clicked: a volume is set by ear, which means hearing it move rather than hearing where it landed.
                 action = dragged;

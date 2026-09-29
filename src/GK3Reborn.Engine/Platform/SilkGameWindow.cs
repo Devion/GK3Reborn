@@ -105,9 +105,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>How far a trigger has to travel before it counts as a press.</summary>
     private const float TriggerPress = 0.5f;
 
-    /// <summary>How far a stick has to travel before it counts as a press.</summary>
-    private const float StickPress = 0.6f;
-
     /// <summary>Which key does which editing job.</summary>
     private static readonly (EditKey Edit, Key Which)[] Editing =
     [
@@ -395,10 +392,10 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public int ScrollDelta => _scroll;
 
     /// <inheritdoc/>
-    public bool IsDragging => _mouse is not null && (_mouse.IsButtonPressed(MouseButton.Left) || _mouse.IsButtonPressed(MouseButton.Right));
+    public bool IsDragging => IsHeld(PointerButton.Primary) || IsHeld(PointerButton.Secondary);
 
     /// <inheritdoc/>
-    public bool IsHeld(PointerButton button) => _clicked.Contains(button) || (_mouse is not null && _mouse.IsButtonPressed(button switch
+    public bool IsHeld(PointerButton button) => _padHeld.Contains(Bindings.Button(button)) || _clicked.Contains(button) || (_mouse is not null && _mouse.IsButtonPressed(button switch
          {
              PointerButton.Secondary => MouseButton.Right, PointerButton.Middle => MouseButton.Middle, _ => MouseButton.Left,
          }));
@@ -670,7 +667,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         _mouseAt = position;
 
         // Otherwise the left stick, if it is being pushed.
-        Vector2 push = Sticks.Left;
+        Vector2 push = GamepadSticks.Pushed(Sticks.Left);
         float reach = push.Length();
 
         if (seconds <= 0f || reach <= 0f || PointerSpeed <= 0f)
@@ -771,17 +768,6 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
             down.Add(GamepadButton.RightTrigger);
         }
 
-        // The left stick steps a menu as well as moving the cursor, because a page of settings is a list and a list is walked rather than pointed at.
-        if (left.Y <= -StickPress)
-        {
-            down.Add(GamepadButton.DPadUp);
-        }
-
-        if (left.Y >= StickPress)
-        {
-            down.Add(GamepadButton.DPadDown);
-        }
-
         foreach (GamepadButton button in down)
         {
             if (_padHeld.Add(button))
@@ -819,8 +805,24 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         {
             if (Bindings.Button(pointer) == button)
             {
-                _clicked.Add(pointer);
+                Click(pointer, _lastPointer, _window.Time);
             }
+        }
+    }
+
+    /// <summary>Records a pointer click from either device, including double clicks.</summary>
+    private void Click(PointerButton button, Vector2 at, double now)
+    {
+        _clicked.Add(button);
+        if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) && now - previous.At <= DoubleClickWindow &&
+            (at - previous.Where).Length() <= DoubleClickDistance)
+        {
+            _doubleClicked.Add(button);
+            _lastClick.Remove(button);
+        }
+        else
+        {
+            _lastClick[button] = (now, at);
         }
     }
 
@@ -876,23 +878,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
                     return;
                 }
 
-                _clicked.Add(button);
-
-                // The window's own clock, which is the one this layer is allowed to read.
-                double now = _window.Time;
-
-                if (_lastClick.TryGetValue(button, out (double At, Vector2 Where) previous) && now - previous.At <= DoubleClickWindow &&
-                    (at - previous.Where).Length() <= DoubleClickDistance)
-                {
-                    _doubleClicked.Add(button);
-
-                    // Forgotten, so a third click in quick succession starts a new pair rather than making every click after the second a double one.
-                    _lastClick.Remove(button);
-                }
-                else
-                {
-                    _lastClick[button] = (now, at);
-                }
+                Click(button, at, _window.Time);
             };
         }
 
