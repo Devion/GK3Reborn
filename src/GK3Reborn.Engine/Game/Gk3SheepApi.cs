@@ -161,6 +161,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>How long the next lines of the conversation in progress take.</summary>
     public Func<int, double>? ContinuedSeconds { get; set; }
 
+    /// <summary>Prices dialogue including any unfinished preceding lines.</summary>
+    public Func<string, int, double>? DialogueSeconds { get; set; }
+
     /// <summary>
     /// What sends an actor across the room, when there is a room to cross.
     /// </summary>
@@ -256,7 +259,11 @@ public sealed class Gk3SheepApi : ISheepApi
             // the next line, and starting a line abandons whatever is being said. Every
             // exchange in the game was cut off mid-sentence, and the longer the recording
             // the more of it was lost, which is exactly how it was reported.
-            "STARTVOICEOVER" or "STARTDIALOGUE" or "STARTDIALOGUENOFIDGETS" =>
+            "STARTDIALOGUE" or "STARTDIALOGUENOFIDGETS" =>
+                DialogueSeconds?.Invoke(first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ??
+                Animations?.SecondsOfVoiceOver(first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ?? 0,
+
+            "STARTVOICEOVER" =>
                 Animations?.SecondsOfVoiceOver(
                     first, arguments.Count > 1 ? arguments[1].AsInt() : 1) ?? 0,
 

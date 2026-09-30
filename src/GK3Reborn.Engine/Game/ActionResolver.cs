@@ -274,15 +274,12 @@ public sealed class ActionResolver
 
         found = Best(Wildcard, verb, verb, ego) ?? found;
 
-        foreach (string name in NamesOf(noun))
+        if (item)
         {
-            if (item)
-            {
-                found = Best(name, AnyItem, verb, ego) ?? found;
-            }
-
-            found = Best(name, verb, verb, ego) ?? found;
+            found = Best(noun, AnyItem, verb, ego, shared: true) ?? found;
         }
+
+        found = Best(noun, verb, verb, ego, shared: true) ?? found;
 
         return found is null ? null : Approaching(found, ego);
     }
@@ -373,8 +370,12 @@ public sealed class ActionResolver
     /// <param name="asked">The verb actually being done, which is what decides its kind.</param>
     /// <param name="ego">Who the player currently is.</param>
     /// <returns>The rule to run, or null when none of them applies.</returns>
-    private NvcAction? Best(string noun, string written, string asked, string ego)
+    /// <param name="shared">Whether character-group aliases also compete for this action.</param>
+    private NvcAction? Best(string noun, string written, string asked, string ego, bool shared = false)
     {
+        // A group is another name for the target, not a higher-priority rule. In
+        // particular its generic LOOK must not replace an individual's timed description.
+        string[] names = shared ? [.. NamesOf(noun)] : [noun];
         NvcAction? best = null;
         int score = 0;
         int from = int.MinValue;
@@ -385,10 +386,10 @@ public sealed class ActionResolver
 
             foreach (NvcAction action in file.Actions)
             {
-                if (!string.Equals(action.Noun, noun, StringComparison.OrdinalIgnoreCase) ||
+                if (!names.Contains(action.Noun, StringComparer.OrdinalIgnoreCase) ||
                     !string.Equals(action.Verb, written, StringComparison.OrdinalIgnoreCase) ||
                     Elsewhen(file, action) ||
-                    !IsCaseSatisfied(file, action.Case, ego, noun, asked))
+                    !IsCaseSatisfied(file, action.Case, ego, action.Noun, asked))
                 {
                     continue;
                 }

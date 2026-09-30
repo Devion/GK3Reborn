@@ -19,6 +19,29 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ClipPlaybackTests
 {
+    [Theory]
+    [InlineData("cs2stropn19")]
+    [InlineData("cs2stropn20")]
+    public void Restoring_the_open_library_stairs_samples_the_final_pose(string panel)
+    {
+        (SceneUpdate world, Sink sink) = World(panel, panel + "_open", panel, kind: PlacedModelKind.Prop);
+        var state = new GameState();
+        state.SetFlag("StaircaseOpen");
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        var mechanism = new GK3Reborn.Game.Mechanisms.LaserHeads(world, new Gk3SheepApi(restored));
+        mechanism.Begin();
+        mechanism.AfterOpening();
+        // Props keep the authored origin (500), plus the final frame's displacement.
+        Assert.Equal(530f, sink.Poses[(0, 0)].Translation.X, 3);
+        Assert.Equal(0, world.Animating);
+
+        world.Pose(panel, [panel], atEnd: false);
+        restored.ClearFlag("StaircaseOpen");
+        mechanism.AfterOpening();
+        Assert.Equal(500f, sink.Poses[(0, 0)].Translation.X, 3);
+    }
+
     /// <summary>
     /// Records what the renderer was told to do, and measures nothing.
     /// </summary>

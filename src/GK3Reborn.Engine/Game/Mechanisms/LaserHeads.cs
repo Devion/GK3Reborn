@@ -113,18 +113,28 @@ public sealed class LaserHeads : SceneMechanism
             // The middle angle, which is where the puzzle starts and where the scripts
             // expect to find it: Check_Staircase asks for all five at 1, at 3, at 0 or at 4,
             // and 2 is none of those.
-            _turned[i] = 2;
+            string variable = string.Create(CultureInfo.InvariantCulture, $"Cs2Head{i + 1}");
+            _turned[i] = Story.HasVariable(variable) ? Math.Clamp(Story.GetVariable(variable), 0, 4) : 2;
             _swinging[i] = TurnSeconds;
-            _facing[i] = Radians(i, 2);
+            _facing[i] = Radians(i, _turned[i]);
             _moved = true;
-            _home[i] = Centre - (Direction(_facing[i]) * HeadRadius);
+            _home[i] = Centre - (Direction(Radians(i, 2)) * HeadRadius);
             _home[i].Y = HeadHeight;
 
-            Story.SetVariable(
-                string.Create(CultureInfo.InvariantCulture, $"Cs2Head{i + 1}"), 2);
+            Story.SetVariable(variable, _turned[i]);
         }
 
         Settle();
+    }
+
+    /// <summary>Restore the opened floor after the scene's initial poses have been applied.</summary>
+    public void AfterOpening()
+    {
+        if (Story.GetFlag("StaircaseOpen"))
+        {
+            World.Pose("cs2stropn19", ["cs2stropn19"]);
+            World.Pose("cs2stropn20", ["cs2stropn20"]);
+        }
     }
 
     /// <inheritdoc/>

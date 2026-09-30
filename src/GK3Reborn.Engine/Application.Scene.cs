@@ -1952,6 +1952,11 @@ public static partial class Application
                 roomPatches.AfterOpening();
             }
 
+            if (api.Mechanism is Game.Mechanisms.LaserHeads laserHeads)
+            {
+                laserHeads.AfterOpening();
+            }
+
             // Back from a room the game never had.
             if (api.Returning is { } returning && request.Counts)
             {

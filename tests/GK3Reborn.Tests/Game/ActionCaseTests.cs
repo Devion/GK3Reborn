@@ -13,6 +13,28 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ActionCaseTests
 {
+    [Fact]
+    public void Individual_and_group_cases_compete_by_priority()
+    {
+        var state = new GameState();
+        ActionResolver resolver = Resolver(state, """
+            WILKES, LOOK, ALONE, script={SetFlag("alone");}
+            WILKES_N_BUCHELLI, LOOK, GABE_ALL, script={SetFlag("together");}
+            GRACE, LOOK, TIME_BLOCK_OVERRIDE, script={SetFlag("grace");}
+            GRACE_N_MOSE, LOOK, GABE_ALL, script={SetFlag("waiting");}
+            GRACE_N_MOSE, LOOK, DISCUSSION, script={SetFlag("discussion");}
+            [LOGIC]
+            ALONE={GetGameVariableInt("FiveMinTimer202p") < 5}
+            DISCUSSION={GetFlag("Discussion")}
+            """);
+        Assert.Equal("WILKES", resolver.Find("WILKES", "LOOK")!.Noun);
+        Assert.Equal("GRACE", resolver.Find("GRACE", "LOOK")!.Noun);
+        state.SetVariable("FiveMinTimer202p", 5);
+        Assert.Equal("WILKES_N_BUCHELLI", resolver.Find("WILKES", "LOOK")!.Noun);
+        state.SetFlag("Discussion");
+        Assert.Equal("DISCUSSION", resolver.Find("GRACE", "LOOK")!.Case);
+    }
+
     private static ActionResolver Resolver(GameState state, params string[] files)
     {
         var resolver = new ActionResolver(new Gk3SheepApi(state));

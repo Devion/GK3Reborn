@@ -426,10 +426,30 @@ public sealed class SceneAudio
         return Continue(lines);
     }
 
+    /// <summary>Continue an authored conversation without cutting off its preceding line.</summary>
+    public int Dialogue(string plate, int lines) => FollowsSpeech(plate) ? Enqueue(lines, start: false) : Speak(plate, lines);
+
+    /// <summary>Includes unfinished preceding lines when the script resumes the same conversation.</summary>
+    public double SecondsOfDialogue(string plate, int lines) =>
+        _animations.SecondsOfVoiceOver(plate, lines) + (FollowsSpeech(plate)
+            ? Math.Max(0, (_sounding?.Duration ?? 0) - _spoken) +
+              _speaking.Sum(yak => _animations.SecondsOf(yak))
+            : 0);
+
+    // ARM202P starts two lines without waiting, then waits on Mosely's gestures.
+    // Those gestures end before his second line does. The next numbered line is
+    // a continuation, whereas a new remark or a same-frame chorus still starts afresh.
+    private bool FollowsSpeech(string plate) => plate.Length > 0 && Talking && _spoken > 0 &&
+        string.Equals(_stem, plate[..^1], StringComparison.OrdinalIgnoreCase) &&
+        Sequence(plate[^1]) == _next;
+
     /// <summary>Says the next lines of whatever was last started.</summary>
     /// <param name="lines">How many more to say.</param>
     /// <returns>How many of them were found.</returns>
     public int Continue(int lines)
+        => Enqueue(lines, start: true);
+
+    private int Enqueue(int lines, bool start)
     {
         if (_stem is not { Length: > 0 } stem)
         {
@@ -451,7 +471,10 @@ public sealed class SceneAudio
             }
         }
 
-        Next();
+        if (start)
+        {
+            Next();
+        }
         return found;
     }
 

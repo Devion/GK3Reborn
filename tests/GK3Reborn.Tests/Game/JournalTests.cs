@@ -11,6 +11,22 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class JournalTests
 {
+    [Fact]
+    public void Library_route_completes_without_opening_the_exterior_cellar_doors()
+    {
+        var story = new GameState { Timeblock = new Timeblock(2, 12, true) };
+        var api = new Gk3SheepApi(story);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_212p_cs2_flip_hidden_switch")]);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_212p_cs2_five_heads_into_pentagram")]);
+        var restored = new GameState();
+        restored.Restore(story.Capture());
+        JournalEntry entry = new Journal(restored).Read().SelectMany(d => d.Chapters)
+            .Single(c => c.Timeblock == story.Timeblock).Entries[4];
+        Assert.True(entry.Done);
+        Assert.Equal(1f, entry.Progress);
+        Assert.Equal(story.Score, restored.Score);
+    }
+
     private static readonly Quests Table = Quests.Open();
     private static readonly Walkthrough Guide = Walkthrough.Open();
     private static readonly ScoreEvents Points = ScoreEvents.Open();

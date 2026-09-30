@@ -577,6 +577,7 @@ public static class SceneScripting
         });
 
         // What a conversation is actually said with.
+        api.DialogueSeconds = audio.SecondsOfDialogue;
         foreach (string start in new[] { "StartDialogue", "StartDialogueNoFidgets" })
         {
             api.Register(start, arguments =>
@@ -585,7 +586,14 @@ public static class SceneScripting
 
                 if (arguments.Count > 0)
                 {
-                    Begin(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                    if (api.State.Screens.Top?.Kind is UI.ScreenKind.Inventory or UI.ScreenKind.InventoryInspect)
+                    {
+                        Begin(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                    }
+                    else
+                    {
+                        audio.Dialogue(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                    }
                 }
 
                 return SheepValue.FromInt(0);

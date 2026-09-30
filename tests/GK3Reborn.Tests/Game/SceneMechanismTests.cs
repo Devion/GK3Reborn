@@ -18,6 +18,27 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SceneMechanismTests
 {
+    [Fact]
+    public void Laser_head_positions_survive_save_restore_including_zero()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var heads = new LaserHeads(world, api);
+        heads.Begin();
+        heads.Perform("turnR1");
+        heads.Perform("turnR1");
+        heads.Perform("turnL2");
+        heads.Advance(10);
+        SaveGame saved = api.State.Capture();
+        api.State.Restore(saved);
+        var restored = new LaserHeads(world, api);
+        restored.Begin();
+        Assert.Equal(0, api.State.GetVariable("Cs2Head1"));
+        Assert.Equal(3, api.State.GetVariable("Cs2Head2"));
+        Assert.Equal(2, api.State.GetVariable("Cs2Head3"));
+        restored.Perform("turnL1");
+        Assert.Equal(1, api.State.GetVariable("Cs2Head1"));
+    }
+
     private const string Chateau = """
         [GENERAL]
         custom=Laser

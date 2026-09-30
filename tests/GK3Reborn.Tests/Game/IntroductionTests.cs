@@ -16,6 +16,17 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class IntroductionTests
 {
+    [Theory]
+    [InlineData("BUCHELLI")]
+    [InlineData("WILKES")]
+    [InlineData("LADY_HOWARD")]
+    [InlineData("ESTELLE")]
+    public void Grace_knows_her_fellow_tour_guests_without_Gabriels_topic_counts(string noun)
+    {
+        var state = new GameState { Ego = "GRACE", Timeblock = new Timeblock(2, 12, true) };
+        Assert.True(Introductions.Open().Knows(noun, new Gk3SheepApi(state)));
+    }
+
     [Fact]
     public void The_table_the_engine_ships_can_be_read()
     {

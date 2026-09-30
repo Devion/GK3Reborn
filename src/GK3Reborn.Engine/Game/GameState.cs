@@ -172,6 +172,9 @@ public sealed class GameState
     /// <summary>Reads a game variable.</summary>
     public int GetVariable(string name) => _variables.GetValueOrDefault(Key(name));
 
+    /// <summary>Whether a variable has been set, including an explicitly stored zero.</summary>
+    public bool HasVariable(string name) => _variables.ContainsKey(Key(name));
+
     /// <summary>Writes a game variable.</summary>
     public void SetVariable(string name, int value) => _variables[Key(name)] = value;
 

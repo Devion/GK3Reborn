@@ -43,6 +43,14 @@ public sealed class ScenePickerTests
     [InlineData("R27", "r27_emlclth", "LINEN_CLOTH", "BED2", "SEARCH", 1)]
     [InlineData("R21", "r21_collar", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
     [InlineData("R21", "r21pshirt", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
+    [InlineData("CS3", "robes", "RED_ROBES_IN_WARD", "WARDROBE", "OPEN", 2)]
+    [InlineData("CS3", "symbols", "HERM_SYMBOLS_ON_ROBES", "WARDROBE", "OPEN", 2)]
+    [InlineData("CS3", "doll", "BABY_FOOT_IN_TRUNK", "TRUNK", "OPEN", 1)]
+    [InlineData("CS3", "blanket", "BLANKET_IN_TRUNK", "TRUNK", "OPEN", 1)]
+    [InlineData("CS3", "things", "OTHER_IN_TRUNK", "TRUNK", "OPEN", 1)]
+    [InlineData("CS2", "book", "BOOK_IN_DRAWER", "DESK_DRAWER", "OPEN", 1)]
+    [InlineData("CS2", "face", "MONTREAUX_PTG_FACE", "MONTREAUX_PORTRAIT", "LOOK", 1)]
+    [InlineData("CS2", "eyes", "MONT_POR_CU2_EYES", "MONTREAUX_PTG_FACE", "LOOK", 1)]
     public void Covered_items_cannot_be_picked_listed_or_inspected_until_revealed(
         string room, string model, string noun, string covering, string verb, int revealed)
     {

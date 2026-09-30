@@ -72,6 +72,16 @@ public sealed class SceneInteraction
             _api.State.GetNounVerbCount("BED2", "SEARCH") > 0,
         "PRIEST_COLLAR_IN_SUITCASE" => _scene.Name.Equals("R21", StringComparison.OrdinalIgnoreCase) &&
             _api.State.GetNounVerbCount("WARDROBE", "OPEN") == 2,
+        "RED_ROBES_IN_WARD" or "HERM_SYMBOLS_ON_ROBES" when _scene.Name == "CS3" =>
+            _api.State.GetNounVerbCount("WARDROBE", "OPEN") == 2,
+        "BABY_FOOT_IN_TRUNK" or "BLANKET_IN_TRUNK" or "OTHER_IN_TRUNK" when _scene.Name == "CS3" =>
+            _api.State.GetNounVerbCount("TRUNK", "OPEN") > 0,
+        "BOOK_IN_DRAWER" when _scene.Name == "CS2" =>
+            _api.State.GetNounVerbCount("DESK_DRAWER", "OPEN") > 0,
+        "MONTREAUX_PTG_FACE" when _scene.Name == "CS2" =>
+            _api.State.GetNounVerbCount("MONTREAUX_PORTRAIT", "LOOK") > 0,
+        "MONT_POR_CU2_EYES" when _scene.Name == "CS2" =>
+            _api.State.GetNounVerbCount("MONTREAUX_PTG_FACE", "LOOK") > 0,
         _ => true,
     };
 

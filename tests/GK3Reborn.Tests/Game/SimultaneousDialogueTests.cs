@@ -123,10 +123,45 @@ public sealed class SimultaneousDialogueTests
             "MOSE1" =>
                 "[HEADER]\n16\n\n[SOUNDS]\n1\n0,NAHMOSE.WAV,100\n\n[GK3]\n3\n" +
                 "0,SPEAKER,MOSELY\n0,CAPTION,Nah.\n15,DIALOGUECUE\n",
+            "MOSE2" =>
+                "[HEADER]\n17\n\n[SOUNDS]\n1\n0,NAHNEXT.WAV,100\n\n[GK3]\n3\n" +
+                "0,SPEAKER,MOSELY\n0,CAPTION,Next line.\n16,DIALOGUECUE\n",
             _ => null,
         });
 
         return new SceneAudio(sounds, animations, device);
+    }
+
+    [Fact]
+    public void Consecutive_scripted_dialogue_waits_for_the_unfinished_line()
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device);
+        audio.Dialogue("MOSE1", 1);
+        audio.Update(0.5);
+        Assert.Equal((16 + 17) / 15.0 - 0.5, audio.SecondsOfDialogue("MOSE2", 1), 5);
+        audio.Dialogue("MOSE2", 1);
+        Assert.Empty(device.Silenced);
+        Assert.Single(device.Started);
+        Assert.Equal(1, audio.Queued);
+        Assert.Equal("MOSE1", audio.Saying);
+
+        device.Silence(new AudioVoice(1));
+        audio.Update(0.1);
+        Assert.Equal("MOSE2", audio.Saying);
+        Assert.Equal(["NAHMOSE.WAV", "NAHNEXT.WAV"], device.Started);
+    }
+
+    [Fact]
+    public void A_new_conversation_still_replaces_an_unfinished_line()
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device);
+        audio.Dialogue("MOSE1", 1);
+        audio.Update(0.1);
+        audio.Dialogue("GABE1", 1);
+        Assert.Equal(["NAHMOSE.WAV"], device.Silenced);
+        Assert.Equal("GABE1", audio.Saying);
     }
 
     [Fact]

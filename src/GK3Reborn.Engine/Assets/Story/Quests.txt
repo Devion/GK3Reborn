@@ -113,7 +113,7 @@ Talk to the abbe at the estate | score:e_212p_cs8_chat_abbe | 1
 Find a way into the house | score:e_212p_cse_climb_back_wall,e_212p_cse_climb_vines | 2,3
 Search the attic | score:e_212p_cs3_open_trunk,e_212p_cs3_hide_wardrobe,e_212p_cs3_move_blanket,e_212p_cs3_skethcpad_symbols | 4,5,6,7
 Search the office | score:e_212p_cs2_move_chair_under_protrait,e_212p_cs2_cu_montreaux_eyes,e_212p_cs2_fingerprint_kit_immortals_book,e_212p_cs2_read_immortals_book | 8,9,10,11
-Find the way down | score:e_212p_cs2_flip_hidden_switch,e_212p_cs2_five_heads_into_pentagram,e_212p_cse_open_cellar_doors | 12,13
+Find the way down | score:e_212p_cs2_flip_hidden_switch,e_212p_cs2_five_heads_into_pentagram | 12,13
 See who is down in the cellar | score:e_212p_cs6_enter,e_212p_cs6_talk_old_lady | 14,15,16
 
 [202P]

@@ -9,6 +9,16 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class DialogueTimingTests
 {
+    [Theory]
+    [InlineData("StartDialogue")]
+    [InlineData("StartDialogueNoFidgets")]
+    public void Script_waits_include_the_unfinished_previous_dialogue(string call)
+    {
+        Gk3SheepApi api = Api();
+        api.DialogueSeconds = (plate, lines) => plate == "MOSE2" && lines == 1 ? 4.5 : 0;
+        Assert.Equal(4.5, api.SecondsFor(call, Args("MOSE2", 1)));
+    }
+
     private static Gk3SheepApi Api() => new(new GameState());
 
     private static IReadOnlyList<SheepValue> Args(params object[] values) =>
