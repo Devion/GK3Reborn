@@ -78,10 +78,6 @@ public sealed class SceneInteraction
             _api.State.GetNounVerbCount("TRUNK", "OPEN") > 0,
         "BOOK_IN_DRAWER" when _scene.Name == "CS2" =>
             _api.State.GetNounVerbCount("DESK_DRAWER", "OPEN") > 0,
-        "MONTREAUX_PTG_FACE" when _scene.Name == "CS2" =>
-            _api.State.GetNounVerbCount("MONTREAUX_PORTRAIT", "LOOK") > 0,
-        "MONT_POR_CU2_EYES" when _scene.Name == "CS2" =>
-            _api.State.GetNounVerbCount("MONTREAUX_PTG_FACE", "LOOK") > 0,
         _ => true,
     };
 

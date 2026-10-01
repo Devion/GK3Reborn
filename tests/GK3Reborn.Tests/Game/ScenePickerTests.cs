@@ -49,8 +49,6 @@ public sealed class ScenePickerTests
     [InlineData("CS3", "blanket", "BLANKET_IN_TRUNK", "TRUNK", "OPEN", 1)]
     [InlineData("CS3", "things", "OTHER_IN_TRUNK", "TRUNK", "OPEN", 1)]
     [InlineData("CS2", "book", "BOOK_IN_DRAWER", "DESK_DRAWER", "OPEN", 1)]
-    [InlineData("CS2", "face", "MONTREAUX_PTG_FACE", "MONTREAUX_PORTRAIT", "LOOK", 1)]
-    [InlineData("CS2", "eyes", "MONT_POR_CU2_EYES", "MONTREAUX_PTG_FACE", "LOOK", 1)]
     public void Covered_items_cannot_be_picked_listed_or_inspected_until_revealed(
         string room, string model, string noun, string covering, string verb, int revealed)
     {
@@ -77,6 +75,35 @@ public sealed class ScenePickerTests
         Assert.Empty(interaction.Nouns());
         Assert.Null(interaction.Do(noun, "INSPECT"));
         Assert.Equal(0, state.Score);
+    }
+
+    [Theory]
+    [InlineData("MONTREAUX_PORTRAIT")]
+    [InlineData("MONTREAUX_PTG_FACE")]
+    [InlineData("MONT_POR_CU2_EYES")]
+    public void Portrait_hotspots_are_available_before_looking_at_any_part(string noun)
+    {
+        var state = new GameState();
+        var api = new Gk3SheepApi(state);
+        var actions = new ActionResolver(api);
+        // A synthetic refusal verifies that INSPECT reaches the room's script instead
+        // of being blocked by discovery counts or opening the engine's generic zoom.
+        actions.Add(GK3Reborn.Formats.Actions.NvcFile.Parse(
+            $"{noun}, INSPECT, ALL, script={{SetFlag(\"InspectionHandled\");}}",
+            "TEST.NVC", new GK3Reborn.Foundation.Diagnostics.DiagnosticBag()));
+        var scene = Scene(Room(("back", 100)), "", Model("portrait", noun, 40, PlacedModelKind.Prop)) with
+        {
+            Name = "CS2", Actions = actions,
+        };
+        var interaction = new SceneInteraction(scene, api);
+        var hover = interaction.At(new Ray(Vector3.Zero, Vector3.UnitZ));
+
+        Assert.Equal(noun, hover.Noun);
+        Assert.Equal(noun, Assert.Single(interaction.Nouns()).Noun);
+        Assert.Contains(hover.Actions, action => action.LocalizedVerb == "INSPECT");
+        Assert.True(interaction.Do(noun, "INSPECT")?.Ran);
+        Assert.True(state.GetFlag("InspectionHandled"));
+        Assert.Empty(state.Inspecting);
     }
 
     [Fact]
