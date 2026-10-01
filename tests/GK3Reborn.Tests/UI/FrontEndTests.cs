@@ -28,7 +28,7 @@ public sealed class FrontEndTests
     {
         // The names the 1999 title screen used, in its order.
         Assert.Equal(
-            ["intro", "play", "load", "options", "quit"],
+            ["intro", "play", "load", "options", "quit", "report-bug"],
             Front().Items.Select(i => i.Id));
 
         Assert.Equal("Play", Row(Front(), "play").Text);

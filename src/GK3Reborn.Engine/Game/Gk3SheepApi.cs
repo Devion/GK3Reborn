@@ -626,7 +626,10 @@ public sealed class Gk3SheepApi : ISheepApi
         {
             string slot = Arg(a, 0) is { Length: > 0 } named ? named : SaveStore.QuickSlot;
 
-            if (Saves?.Read(slot, out SaveFault fault) is not { } save || fault != SaveFault.None)
+            SaveFault fault = SaveFault.Missing;
+            SaveGame? save = string.Equals(slot, SaveStore.QuickSlot, StringComparison.OrdinalIgnoreCase)
+                ? Saves?.ReadNewest(slot, out fault) : Saves?.Read(slot, out fault);
+            if (save is null || fault != SaveFault.None)
             {
                 return SheepValue.FromInt(0);
             }

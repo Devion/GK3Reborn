@@ -27,6 +27,50 @@ public sealed class SaveMenuTests
             .Where(i => i.Id.StartsWith("slot:", StringComparison.Ordinal))
             .Select(i => i.Id["slot:".Length..]);
 
+    [Fact]
+    public void Invalid_saves_have_an_error_below_them_and_cannot_be_loaded()
+    {
+        FrontEnd front = Paused();
+        front.Saves = [new SaveSlot("03", "broken", "", DateTimeOffset.MinValue, 0)
+            { Fault = SaveFault.Unreadable }];
+        front.Show(FrontEndPage.Load);
+        MenuItem[] items = front.Items.ToArray();
+        int row = Array.FindIndex(items, item => item.Id == "slot:03");
+        Assert.False(items[row].Enabled);
+        Assert.DoesNotContain("empty", items[row].Text);
+        Assert.Equal("incompatible save", items[row + 1].Text);
+        Assert.Equal(FrontEndOutcome.Stay, front.Choose(new MenuAction("slot:03")));
+    }
+
+    [Fact]
+    public void Matching_slot_names_from_two_folders_are_both_selectable()
+    {
+        FrontEnd front = Paused();
+        front.Saves = [
+            new SaveSlot("03", "installation", "", DateTimeOffset.UnixEpoch, 4),
+            new SaveSlot("@1:03.json", "user data", "", DateTimeOffset.UtcNow, 4) { Name = "03" },
+        ];
+        front.Show(FrontEndPage.Load);
+        Assert.Single(front.Items, item => item.Id == "slot:03");
+        Assert.Single(front.Items, item => item.Id == "slot:@1:03.json");
+        Assert.Equal(FrontEndOutcome.Load, front.Choose(new MenuAction("slot:@1:03.json")));
+        Assert.Equal("@1:03.json", front.Slot);
+    }
+
+    [Fact]
+    public void Saving_describes_the_copy_that_will_actually_be_overwritten()
+    {
+        FrontEnd front = Paused();
+        front.Saves = [
+            new SaveSlot("03", "writable copy", "", DateTimeOffset.UnixEpoch, 4),
+            new SaveSlot("@1:03.json", "other copy", "", DateTimeOffset.UtcNow, 4) { Name = "03" },
+        ];
+        front.Show(FrontEndPage.Save);
+        MenuItem row = front.Items.Single(item => item.Id == "slot:03");
+        Assert.Contains("writable copy", row.Text);
+        Assert.DoesNotContain("other copy", row.Text);
+    }
+
     private static MenuAction Chose(string id) => new(id);
 
     /// <summary>A save the player did not write is still a save they can load.</summary>

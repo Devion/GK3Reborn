@@ -140,11 +140,31 @@ public static unsafe class D3D12TextureUpload
             throw new D3D12Exception($"The compressed texture {source.Name} has no blocks.");
         }
 
-        Format format = FormatOf(source.Format);
+        // OPTIONS8.UnalignedBlockTexturesSupported is optional. Use the portable path
+        // for unaligned base levels on every device; lower mips of aligned BC textures
+        // may still be 2x2 or 1x1 and stay compressed. Padding the base would change UVs.
+        bool expand = source.Width % 4 != 0 || source.Height % 4 != 0;
+        Format format = expand
+            ? source.Format == BlockFormat.Bc7Srgb ? Format.FormatR8G8B8A8UnormSrgb : Format.FormatR8G8B8A8Unorm
+            : FormatOf(source.Format);
         uint mips = (uint)Math.Max(1, source.Mips);
 
-        D3D12Texture texture = D3D12Texture.CreateSampled(
-            context, format, source.Width, source.Height, mips, writable: false);
+        if (expand)
+        {
+            Foundation.Diagnostics.Log.Info(
+                $"Direct3D 12: expanding {source.Name} ({source.Width}x{source.Height}, {source.Format}, {mips} mip(s)) for block alignment.");
+        }
+
+        D3D12Texture texture;
+        try
+        {
+            texture = D3D12Texture.CreateSampled(
+                context, format, source.Width, source.Height, mips, writable: false);
+        }
+        catch (D3D12Exception error)
+        {
+            throw new D3D12Exception($"Texture '{source.Name}': {error.Message}", error);
+        }
 
         try
         {
@@ -170,7 +190,16 @@ public static unsafe class D3D12TextureUpload
 
                 // Sliced rather than copied: the blocks are a view of a memory-mapped pack,
                 // and copying each level out of it doubled what a room's textures cost.
-                levels.Add(source.Blocks.Slice(at, blocks));
+                if (expand)
+                {
+                    byte[] pixels = new byte[BlockDecoder.DecodedLength(width, height)];
+                    BlockDecoder.DecodeLevel(source.Format, source.Blocks.Span.Slice(at, blocks), width, height, pixels);
+                    levels.Add(pixels);
+                }
+                else
+                {
+                    levels.Add(source.Blocks.Slice(at, blocks));
+                }
                 at += blocks;
             }
 

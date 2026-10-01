@@ -460,6 +460,21 @@ public static partial class Application
             }
 
             FrontEndOutcome outcome = front.Choose(action);
+            if (outcome == FrontEndOutcome.ReportBug)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo("https://github.com/Devion/GK3Reborn/issues")
+                    {
+                        UseShellExecute = true,
+                    })?.Dispose();
+                }
+                catch (Exception error) when (error is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+                {
+                    Log.Warning($"Could not open the issue tracker: {error.Message}. https://github.com/Devion/GK3Reborn/issues");
+                }
+                outcome = FrontEndOutcome.Stay;
+            }
 
             if (action.Happened)
             {

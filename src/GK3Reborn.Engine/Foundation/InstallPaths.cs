@@ -12,7 +12,7 @@ public static class InstallPaths
     private static readonly string? _bundleResources = FindBundleResources(AppContext.BaseDirectory);
 
     /// <summary>
-    /// The per-user directory for anything the game writes that is not a saved game.
+    /// The platform-specific per-user directory, including fallback saved games.
     /// </summary>
     public static string UserData { get; } = OperatingSystem.IsMacOS()
         ? Path.Combine(

@@ -34,7 +34,14 @@ public enum SaveFault
 /// <param name="Written">When it was written, in UTC.</param>
 /// <param name="Schema">Which schema version it carries.</param>
 public sealed record SaveSlot(
-    string Slot, string Title, string Summary, DateTimeOffset Written, int Schema);
+    string Slot, string Title, string Summary, DateTimeOffset Written, int Schema)
+{
+    /// <summary>The original filename without its extension.</summary>
+    public string Name { get; init; } = Slot;
+
+    /// <summary>Why this entry cannot be restored.</summary>
+    public SaveFault Fault { get; init; }
+}
 
 /// <summary>
 /// Where saved games live, and the only thing that writes them.
@@ -59,15 +66,30 @@ public sealed class SaveStore
 
     private readonly string _directory;
 
-    /// <summary>Opens the store.</summary>
-    /// <param name="directory">Where saves live, or null for beside the game.</param>
-    public SaveStore(string? directory = null) =>
-        _directory = directory ?? DefaultDirectory;
+    private readonly string[] _directories;
+    private static StringComparer PathComparer => OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    /// <summary>Opens the writable store and the other locations to index.</summary>
+    /// <param name="directory">Where to write, or null for the game's usual location.</param>
+    /// <param name="additionalDirectories">Other save folders, or null for platform defaults.</param>
+    public SaveStore(string? directory = null, IEnumerable<string>? additionalDirectories = null)
+    {
+        _directory = Path.GetFullPath(directory ?? DefaultDirectory);
+        IEnumerable<string> others = additionalDirectories ?? (directory is null
+            ? [Path.Combine(AppContext.BaseDirectory, "saves"), Path.Combine(InstallPaths.UserData, "saves")]
+            : []);
+        _directories = [.. new[] { _directory }.Concat(others)
+            .Select(Path.GetFullPath).Distinct(PathComparer)];
+    }
 
     /// <summary>Where saves live.</summary>
     public static string DefaultDirectory => InstallPaths.WritableDirectory("saves");
 
-    /// <summary>Where this store keeps its files.</summary>
+    /// <summary>All folders indexed for saves, independently of write access.</summary>
+    public IReadOnlyList<string> SearchDirectories => _directories;
+
+    /// <summary>Where this store writes new saves.</summary>
     public string Directory => _directory;
 
     /// <summary>The name of a numbered slot.</summary>
@@ -133,16 +155,29 @@ public sealed class SaveStore
     /// <returns>The game, or null.</returns>
     public SaveGame? Read(string slot, out SaveFault fault)
     {
-        fault = SaveFault.Missing;
-
-        if (!IsSlotName(slot))
+        string? path = ReadPath(slot);
+        if (path is null)
         {
             fault = SaveFault.Unreadable;
             return null;
         }
+        return ReadFile(path, out fault);
+    }
 
-        string path = PathOf(slot);
+    /// <summary>Reads the newest compatible copy of a named slot across all save folders.</summary>
+    /// <param name="slot">The unqualified slot name, such as quicksave.</param>
+    /// <param name="fault">Why it could not be read.</param>
+    /// <returns>The most recent saved game, or null.</returns>
+    public SaveGame? ReadNewest(string slot, out SaveFault fault)
+    {
+        SaveSlot? newest = List().FirstOrDefault(entry =>
+            string.Equals(entry.Name, slot, StringComparison.OrdinalIgnoreCase) && entry.Fault == SaveFault.None);
+        return Read(newest?.Slot ?? slot, out fault);
+    }
 
+    private static SaveGame? ReadFile(string path, out SaveFault fault)
+    {
+        fault = SaveFault.Missing;
         if (!File.Exists(path))
         {
             return null;
@@ -152,7 +187,7 @@ public sealed class SaveStore
         {
             SaveGame? save = JsonSerializer.Deserialize<SaveGame>(File.ReadAllText(path), Json);
 
-            if (save is null)
+            if (save is null || !HasState(save))
             {
                 fault = SaveFault.Unreadable;
                 return null;
@@ -174,7 +209,8 @@ public sealed class SaveStore
         catch (Exception error) when (error is IOException
                                           or JsonException
                                           or UnauthorizedAccessException
-                                          or NotSupportedException)
+                                          or NotSupportedException
+                                          or ArgumentException)
         {
             fault = SaveFault.Unreadable;
             return null;
@@ -185,26 +221,83 @@ public sealed class SaveStore
     /// <returns>The slots, which is empty when nothing has been saved.</returns>
     public IReadOnlyList<SaveSlot> List()
     {
-        if (!System.IO.Directory.Exists(_directory))
-        {
-            return [];
-        }
-
         List<SaveSlot> slots = [];
-
-        foreach (string path in System.IO.Directory.EnumerateFiles(_directory, "*.json"))
+        for (int source = 0; source < _directories.Length; source++)
         {
-            string slot = Path.GetFileNameWithoutExtension(path);
-
-            if (Read(slot, out SaveFault fault) is { } save && fault == SaveFault.None)
+            string[] paths;
+            try
             {
-                slots.Add(new SaveSlot(
-                    slot, save.Title, save.Summary, save.Written, save.SchemaVersion));
+                paths = System.IO.Directory.GetFiles(_directories[source])
+                    .Where(path => string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(path => path, PathComparer).ToArray();
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                // A missing or inaccessible folder must not hide the other folder's saves.
+                continue;
+            }
+
+            foreach (string path in paths)
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                // Qualified keys address the exact file, including its extension's casing.
+                string key = source == 0 && IsSlotName(name) && Path.GetExtension(path) == ".json"
+                    ? name : $"@{source}:{Path.GetFileName(path)}";
+                SaveGame? save = ReadFile(path, out SaveFault fault);
+                slots.Add(new SaveSlot(key, save?.Title ?? name, save?.Summary ?? string.Empty,
+                    save?.Written ?? DateTimeOffset.MinValue, save?.SchemaVersion ?? 0)
+                {
+                    Name = name,
+                    Fault = fault,
+                });
             }
         }
-
         return [.. slots.OrderByDescending(s => s.Written)];
     }
+
+    private string? ReadPath(string slot)
+    {
+        if (string.IsNullOrEmpty(slot))
+        {
+            return null;
+        }
+        if (slot.StartsWith('@') && slot.IndexOf(':') is int colon && colon > 1 &&
+            int.TryParse(slot.AsSpan(1, colon - 1), out int source) && source >= 0 && source < _directories.Length)
+        {
+            string file = slot[(colon + 1)..];
+            if (file.Length > 0 && file.IndexOfAny(['/', '\\', ':', '\0']) < 0 &&
+                string.Equals(Path.GetExtension(file), ".json", StringComparison.OrdinalIgnoreCase))
+            {
+                return Path.Combine(_directories[source], file);
+            }
+            return null;
+        }
+        if (!IsSlotName(slot))
+        {
+            return null;
+        }
+        return _directories.Select(directory => Path.Combine(directory, slot + ".json"))
+            .FirstOrDefault(File.Exists) ?? PathOf(slot);
+    }
+
+    private static bool HasState(SaveGame save) =>
+        !string.IsNullOrWhiteSpace(save.Location) && !string.IsNullOrWhiteSpace(save.Ego) &&
+        save.Title is not null && save.LastLocation is not null && save.CameraAngle is not null &&
+        save.Flags is not null && save.Flags.All(x => x is not null) &&
+        save.Variables is not null && save.NounVerbCounts is not null && save.TopicCounts is not null &&
+        save.SaidTopics is not null && save.SaidTopics.All(x => x is not null) &&
+        save.ChatCounts is not null && save.LocationCounts is not null && save.ActorLocations is not null &&
+        save.ActorLocations.Values.All(x => x is not null) &&
+        save.Scored is not null && save.Scored.All(x => x is not null) &&
+        save.Introduced is not null && save.Introduced.All(x => x is not null) && save.Hints is not null &&
+        save.RandomState is not null &&
+        save.SidneyFiles is not null && save.SidneyFiles.All(x => x is not null) &&
+        save.SidneyScans is not null && save.SidneyScans.All(x => x is not null) &&
+        save.SidneyMarks is not null && save.SidneyMarks.All(x => x is not null) && save.SidneyFigures is not null &&
+        save.SidneyFigures.All(x => x is not null && x.Shape is not null && x.Points is not null && x.Points.All(point => point is not null)) &&
+        save.BlockedHitTests is not null && save.BlockedHitTests.All(x => x is not null) && save.Inventories is not null &&
+        save.Inventories.All(x => x is not null && x.Owner is not null && x.Items is not null && x.Items.All(i => i is not null)) &&
+        save.Timers is not null && save.Timers.All(x => x is not null && x.Noun is not null && x.Verb is not null);
 
     /// <summary>Deletes a slot.</summary>
     /// <param name="slot">Which slot.</param>
@@ -334,7 +427,7 @@ public sealed class SaveStore
     {
         ArgumentNullException.ThrowIfNull(slot);
 
-        return Path.Combine(_directory, slot + ".png");
+        return Path.ChangeExtension(ReadPath(slot) ?? throw new ArgumentException("Invalid save slot.", nameof(slot)), ".png");
     }
 
     /// <summary>
@@ -346,11 +439,15 @@ public sealed class SaveStore
     public bool Illustrate(string slot, Formats.Bitmaps.DecodedImage picture)
     {
         ArgumentNullException.ThrowIfNull(slot);
+        if (!IsSlotName(slot))
+        {
+            return false;
+        }
 
         try
         {
             AtomicFile.WriteAllBytes(
-                PictureOf(slot), Formats.Bitmaps.PngWriter.Encode(picture));
+                Path.Combine(_directory, slot + ".png"), Formats.Bitmaps.PngWriter.Encode(picture));
 
             return true;
         }

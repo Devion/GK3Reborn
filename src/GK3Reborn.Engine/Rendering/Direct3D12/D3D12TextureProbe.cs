@@ -41,6 +41,17 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
             _context, texture.Handle, texture.State, source.Width, source.Height);
     }
 
+    /// <summary>Uploads compressed content and reads one expanded mip back.</summary>
+    /// <param name="source">A texture whose unaligned base requires the RGBA fallback.</param>
+    /// <param name="level">Which authored mip to read.</param>
+    /// <returns>The uploaded pixels.</returns>
+    public DecodedImage LevelOf(CompressedImage source, uint level)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        using D3D12Texture texture = D3D12TextureUpload.Create(_context, source);
+        return ReadLevel(texture, level);
+    }
+
     /// <summary>Uploads a picture, builds its mips, and reads one level back.</summary>
     /// <param name="source">The picture.</param>
     /// <param name="level">Which level to read.</param>
@@ -81,8 +92,13 @@ public sealed unsafe class D3D12TextureProbe : IDisposable
         using D3D12Texture texture = D3D12TextureUpload.Create(
             _context, source, mipmaps: true, linear: !colour);
 
-        int width = Math.Max(1, source.Width >> (int)level);
-        int height = Math.Max(1, source.Height >> (int)level);
+        return ReadLevel(texture, level);
+    }
+
+    private DecodedImage ReadLevel(D3D12Texture texture, uint level)
+    {
+        int width = Math.Max(1, texture.Width >> (int)level);
+        int height = Math.Max(1, texture.Height >> (int)level);
 
         // The level is copied into a texture of its own, because the readback works on a
         // whole resource and reading subresource zero of the original would give the top

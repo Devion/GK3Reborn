@@ -50,6 +50,62 @@ public sealed class D3D12TextureTests
     }
 
     [Theory]
+    [InlineData(2, 2, BlockFormat.Bc7Srgb)]
+    [InlineData(1, 1, BlockFormat.Bc7Srgb)]
+    [InlineData(2, 8, BlockFormat.Bc7Srgb)]
+    [InlineData(8, 2, BlockFormat.Bc7Srgb)]
+    [InlineData(7, 5, BlockFormat.Bc7Srgb)]
+    [InlineData(2, 2, BlockFormat.Bc7Unorm)]
+    [InlineData(2, 2, BlockFormat.Bc5Unorm)]
+    [InlineData(2, 2, BlockFormat.Bc4Unorm)]
+    public void Unaligned_compressed_textures_preserve_dimensions_pixels_and_authored_mips(
+        int width, int height, BlockFormat format)
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+        int count = (int)Math.Log2(Math.Max(width, height)) + 1;
+        var source = new CompressedImage(width, height, count, format, default, "unaligned-regression.dds");
+        var last = source.Level(count - 1);
+        byte[] blocks = new byte[last.Offset + last.Length];
+        for (int level = 0; level < count; level++)
+        {
+            var mip = source.Level(level);
+            for (int offset = mip.Offset; offset < mip.Offset + mip.Length; offset += source.BlockSize)
+            {
+                Array.Fill(blocks, (byte)(17 * (level + 1)), offset, source.BlockSize);
+                if (format is BlockFormat.Bc7Srgb or BlockFormat.Bc7Unorm)
+                {
+                    blocks[offset] = 0x40; // A valid BC7 mode-six block.
+                }
+            }
+        }
+        source = source with { Blocks = blocks };
+        using D3D12TextureProbe probe = D3D12TextureProbe.Create();
+        for (int level = 0; level < count; level++)
+        {
+            var mip = source.Level(level);
+            byte[] expected = new byte[BlockDecoder.DecodedLength(mip.Width, mip.Height)];
+            BlockDecoder.DecodeLevel(source, level, expected);
+            DecodedImage actual = probe.LevelOf(source, (uint)level);
+            Assert.Equal(mip.Width, actual.Width);
+            Assert.Equal(mip.Height, actual.Height);
+            Assert.Equal(expected, actual.Pixels);
+        }
+        Assert.DoesNotContain(probe.Messages, message => !message.Contains("MessageSeverityInfo", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Aligned_bases_keep_compression_even_with_two_and_one_pixel_mips()
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+        using D3D12Context context = D3D12Context.Create(enableValidation: true);
+        using D3D12Texture texture = D3D12TextureUpload.Create(context,
+            new CompressedImage(4, 4, 3, BlockFormat.Bc7Srgb, new byte[48], "aligned.dds"));
+        Assert.Equal(Silk.NET.DXGI.Format.FormatBC7UnormSrgb, texture.Format);
+        Assert.Equal(3u, texture.Mips);
+        Assert.DoesNotContain(context.DrainMessages(), message => !message.Contains("MessageSeverityInfo", StringComparison.Ordinal));
+    }
+
+    [Theory]
     [InlineData(64, 64)]
     [InlineData(100, 60)]
     [InlineData(37, 91)]

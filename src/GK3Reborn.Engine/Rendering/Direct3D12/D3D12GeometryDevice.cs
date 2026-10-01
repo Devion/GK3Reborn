@@ -334,10 +334,13 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        return new D3D12GeometryTexture(
-            _context,
-            D3D12TextureUpload.Create(_context, image, (into as D3D12GeometryUploads)?.Uploads),
-            image.Blocks.Length);
+        D3D12Texture texture = D3D12TextureUpload.Create(
+            _context, image, (into as D3D12GeometryUploads)?.Uploads);
+        long bytes = texture.Format is Silk.NET.DXGI.Format.FormatR8G8B8A8Unorm or Silk.NET.DXGI.Format.FormatR8G8B8A8UnormSrgb
+            ? Enumerable.Range(0, (int)texture.Mips).Sum(level =>
+                (long)Math.Max(1, image.Width >> level) * Math.Max(1, image.Height >> level) * 4)
+            : image.Blocks.Length;
+        return new D3D12GeometryTexture(_context, texture, bytes);
     }
 
     /// <inheritdoc/>

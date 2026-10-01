@@ -324,7 +324,7 @@ public sealed class SaveStoreTests : IDisposable
     }
 
     [Fact]
-    public void The_list_is_newest_first_and_leaves_out_what_cannot_be_read()
+    public void The_list_is_newest_first_and_keeps_unreadable_saves_visible()
     {
         Store.Write("slot-01", Save("one") with { Written = DateTimeOffset.UtcNow.AddHours(-2) });
         Store.Write("slot-02", Save("two") with { Written = DateTimeOffset.UtcNow });
@@ -333,9 +333,115 @@ public sealed class SaveStoreTests : IDisposable
 
         IReadOnlyList<SaveSlot> slots = Store.List();
 
-        Assert.Equal(2, slots.Count);
+        Assert.Equal(3, slots.Count);
         Assert.Equal("two", slots[0].Title);
         Assert.Equal("one", slots[1].Title);
+        Assert.Equal("slot-03", slots[2].Slot);
+        Assert.Equal(SaveFault.Unreadable, slots[2].Fault);
+    }
+
+    [Fact]
+    public void Quickload_uses_the_newest_valid_copy_without_changing_explicit_menu_selection()
+    {
+        string other = Path.Combine(_directory, "user-data");
+        SaveGame older = Save("opened window") with { Written = DateTimeOffset.UtcNow.AddDays(-3) };
+        Store.Write(SaveStore.QuickSlot, older);
+        new SaveStore(other).Write(SaveStore.QuickSlot, Save("three days of progress"));
+        var combined = new SaveStore(_directory, [other]);
+        var api = new Gk3SheepApi(new GameState()) { Saves = combined };
+        Assert.Equal("three days of progress", combined.ReadNewest(SaveStore.QuickSlot, out _)!.Title);
+        Assert.Equal("opened window", combined.Read(SaveStore.QuickSlot, out _)!.Title);
+        // A malformed primary must not stop the shortcut reaching the valid copy either.
+        File.WriteAllText(Path.Combine(_directory, "quicksave.json"), "{");
+        Assert.Equal("three days of progress", combined.ReadNewest(SaveStore.QuickSlot, out _)!.Title);
+        api.Invoke("EngineLoadGame", []);
+        Assert.Equal("LBY", api.State.Location);
+    }
+
+    [Fact]
+    public void The_default_index_includes_both_platform_locations()
+    {
+        var store = new SaveStore();
+        Assert.Contains(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "saves")), store.SearchDirectories);
+        Assert.Contains(Path.GetFullPath(Path.Combine(GK3Reborn.Foundation.InstallPaths.UserData, "saves")), store.SearchDirectories);
+    }
+
+    [Fact]
+    public void Both_locations_keep_colliding_saves_and_their_own_thumbnails()
+    {
+        string other = Path.Combine(_directory, "user-data");
+        var user = new SaveStore(other);
+        Store.Write("01", Save("beside executable"));
+        user.Write("01", Save("user data"));
+        File.WriteAllBytes(Path.Combine(_directory, "01.png"), [1]);
+        File.WriteAllBytes(Path.Combine(other, "01.png"), [2]);
+        var combined = new SaveStore(_directory, [other, _directory]);
+
+        IReadOnlyList<SaveSlot> entries = combined.List();
+        Assert.Equal(2, entries.Count);
+        Assert.All(entries, entry => Assert.Equal("01", entry.Name));
+        foreach (SaveSlot entry in entries)
+        {
+            Assert.Equal(entry.Title, combined.Read(entry.Slot, out _)!.Title);
+            byte expected = entry.Title == "user data" ? (byte)2 : (byte)1;
+            Assert.Equal(expected, File.ReadAllBytes(combined.PictureOf(entry.Slot))[0]);
+        }
+        Assert.True(combined.Write("01", Save("new save")));
+        Assert.Equal("user data", user.Read("01", out _)!.Title);
+        Assert.False(combined.Write(entries.Single(e => e.Title == "user data").Slot, Save()));
+    }
+
+    [Fact]
+    public void A_missing_primary_folder_does_not_hide_user_saves_after_restarting()
+    {
+        string other = Path.Combine(_directory, "user-data");
+        new SaveStore(other).Write("quicksave", Save("survives restart"));
+        var restarted = new SaveStore(Path.Combine(_directory, "absent"), [other]);
+        SaveSlot entry = Assert.Single(restarted.List());
+        Assert.Equal("survives restart", restarted.Read(entry.Slot, out _)!.Title);
+        Assert.Equal("survives restart", restarted.Read("quicksave", out _)!.Title);
+    }
+
+    [Fact]
+    public void An_inaccessible_location_does_not_prevent_indexing_the_other_one()
+    {
+        Directory.CreateDirectory(_directory);
+        string notDirectory = Path.Combine(_directory, "a-file");
+        File.WriteAllText(notDirectory, "not a directory");
+        Store.Write("01", Save());
+        Assert.Single(new SaveStore(notDirectory, [_directory]).List());
+    }
+
+    [Fact]
+    public void Invalid_and_future_saves_in_either_folder_are_listed()
+    {
+        string other = Path.Combine(_directory, "user-data");
+        Store.Write("01", Save());
+        new SaveStore(other).Write("01", Save() with { SchemaVersion = 99 });
+        File.WriteAllText(Path.Combine(_directory, "broken.json"), "{");
+        new SaveStore(other).Write("null-state", Save());
+        string malformedPath = Path.Combine(other, "null-state.json");
+        var malformed = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(malformedPath))!;
+        malformed["topicCounts"] = null;
+        File.WriteAllText(malformedPath, malformed.ToJsonString());
+        var combined = new SaveStore(_directory, [other]);
+        IReadOnlyList<SaveSlot> entries = combined.List();
+        Assert.Equal(4, entries.Count);
+        Assert.Single(entries, e => e.Fault == SaveFault.None);
+        Assert.Single(entries, e => e.Fault == SaveFault.FromTheFuture);
+        Assert.Equal(2, entries.Count(e => e.Fault == SaveFault.Unreadable));
+    }
+
+    [Fact]
+    public void Renamed_valid_saves_are_indexed_and_qualified_keys_cannot_escape()
+    {
+        Store.Write("01", Save("renamed"));
+        File.Move(Path.Combine(_directory, "01.json"), Path.Combine(_directory, "My save.JSON"));
+        SaveSlot entry = Assert.Single(Store.List());
+        Assert.Equal("renamed", Store.Read(entry.Slot, out _)!.Title);
+        Assert.Null(Store.Read("@0:../outside.json", out SaveFault fault));
+        Assert.Equal(SaveFault.Unreadable, fault);
+        Assert.Null(Store.Read("@99:01.json", out _));
     }
 
     [Fact]

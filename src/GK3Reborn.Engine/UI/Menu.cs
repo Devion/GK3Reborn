@@ -74,6 +74,9 @@ public readonly record struct MenuItem(
     bool Enabled = true,
     int Picture = 0)
 {
+    /// <summary>Draw the final item as a small corner button, outside the main menu.</summary>
+    public bool Corner { get; init; }
+
     /// <summary>A row that does something.</summary>
     public static MenuItem Button(string id, string text, bool enabled = true) =>
         new(id, MenuItemKind.Button, text, Enabled: enabled);
@@ -356,13 +359,20 @@ public sealed class MenuPage
         Count = items.Count;
         Index = Math.Clamp(Index, 0, Math.Max(0, items.Count - 1));
 
+        MenuItem? corner = items.Count > 0 && items[^1].Corner ? items[^1] : null;
+        int cornerIndex = items.Count - 1;
+        if (corner is not null)
+        {
+            items = items.Take(cornerIndex).ToArray();
+        }
+
         Screen(width, height);
         Backdrop?.Invoke(Overlay);
 
         if (Horizontal && Sections.Count == 0)
         {
             Strip(items, width, height, at);
-
+            DrawCorner(corner, cornerIndex, width, height, at);
             return;
         }
 
@@ -671,6 +681,27 @@ public sealed class MenuPage
         {
             Scrollbar(x + panelWidth, top, viewport, total);
         }
+        DrawCorner(corner, cornerIndex, width, height, at);
+    }
+
+    private void DrawCorner(MenuItem? item, int index, int width, int height, Vector2 pointer)
+    {
+        if (item is not { } button)
+        {
+            return;
+        }
+        float unit = Overlay.LineHeight;
+        float wide = Math.Min(width - 2 * unit, Overlay.Measure(button.Text) + unit);
+        float tall = unit * 1.4f;
+        var bounds = new Vector4(width - wide - unit, height - tall - unit * 0.25f, wide, tall);
+        if (Inside(pointer, bounds))
+        {
+            Index = index;
+        }
+        Overlay.Rect(bounds.X, bounds.Y, bounds.Z, bounds.W, Panel);
+        Overlay.Text(button.Text, bounds.X + unit * 0.5f, bounds.Y + unit * 0.2f,
+            Index == index ? Accent : Ink);
+        _rows.Add((index, button.Id, bounds, button.Kind));
     }
 
     /// <summary>How much of a row's height is left around the lettering inside a button.</summary>
@@ -1245,14 +1276,10 @@ public sealed class MenuPage
         // Rows only where they can be seen. A page scrolled by pixels draws the top half of
         // a row against the bottom edge of the content, and the half hanging past it is
         // clipped away — so it must not be clickable either.
-        if (!Inside(point, _content))
-        {
-            return MenuAction.None;
-        }
-
         foreach ((int at, string id, Vector4 bounds, MenuItemKind kind) in _rows)
         {
-            if (at >= items.Count || !Inside(point, bounds) || !items[at].Selectable)
+            if (at >= items.Count || !Inside(point, bounds) || !items[at].Selectable ||
+                (!items[at].Corner && !Inside(point, _content)))
             {
                 continue;
             }

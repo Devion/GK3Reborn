@@ -51,6 +51,33 @@ public sealed class MenuBoundsTests
     }
 
     [Theory]
+    [InlineData(true, 800, 600)]
+    [InlineData(true, 1920, 1080)]
+    [InlineData(false, 800, 600)]
+    public void The_bug_button_is_visible_clickable_and_keyboard_accessible(bool horizontal, int width, int height)
+    {
+        var front = new FrontEnd(new Settings());
+        MenuPage page = Page();
+        page.Horizontal = horizontal;
+        page.Down = 0.905f;
+        IReadOnlyList<MenuItem> items = front.Items;
+        int index = items.Count - 1;
+        Assert.True(items[index].Corner);
+        page.Reset(items);
+        page.Build("", items, width, height, new Vector2(-1));
+        Vector4 bounds = page.Where(index)!.Value;
+        Assert.InRange(bounds.X, 0, width - bounds.Z);
+        Assert.InRange(bounds.Y, 0, height - bounds.W);
+        var centre = new Vector2(bounds.X + bounds.Z / 2, bounds.Y + bounds.W / 2);
+        Assert.Equal("report-bug", page.Click(centre, items).Id);
+        page.Reset(items);
+        page.Move(items, -1);
+        page.Build("", items, width, height, new Vector2(-1));
+        Assert.Equal("report-bug", page.Chose(items).Id);
+        Assert.Equal(FrontEndOutcome.ReportBug, front.Choose(page.Chose(items)));
+    }
+
+    [Theory]
     [InlineData(1280, 720)]
     [InlineData(1920, 1080)]
     [InlineData(2560, 1440)]

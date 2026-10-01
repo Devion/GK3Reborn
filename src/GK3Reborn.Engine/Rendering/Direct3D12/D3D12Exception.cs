@@ -23,6 +23,7 @@ public sealed class D3D12Exception : Exception
     public D3D12Exception(string message, Exception innerException)
         : base(message, innerException)
     {
+        Result = innerException is D3D12Exception direct ? direct.Result : 0;
     }
 
     /// <summary>The <c>HRESULT</c> behind the failure, when there was one.</summary>

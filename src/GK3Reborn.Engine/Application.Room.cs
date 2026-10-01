@@ -890,7 +890,7 @@ public static partial class Application
 
             if (!typing && window.WasPressed(Platform.CameraAction.QuickLoad))
             {
-                Game.SaveGame? loaded = api.Saves?.Read(Game.SaveStore.QuickSlot, out Game.SaveFault fault) is { } read &&
+                Game.SaveGame? loaded = api.Saves?.ReadNewest(Game.SaveStore.QuickSlot, out Game.SaveFault fault) is { } read &&
                     fault == Game.SaveFault.None ? read : null;
 
                 if (loaded is null)

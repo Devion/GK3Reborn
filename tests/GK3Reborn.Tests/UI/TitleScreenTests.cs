@@ -348,11 +348,12 @@ public sealed class TitleScreenTests : IDisposable
         page.Build(front.Title, items, 1920, 1080, new Vector2(-1, -1));
 
         List<Vector4> where = [.. Enumerable.Range(0, items.Count)
+            .Where(i => !items[i].Corner)
             .Select(i => page.Where(i))
             .Where(r => r is not null)
             .Select(r => r!.Value)];
 
-        Assert.Equal(items.Count, where.Count);
+        Assert.Equal(items.Count(i => !i.Corner), where.Count);
 
         // One line: every button shares a top edge.
         Assert.Single(where.Select(r => r.Y).Distinct());

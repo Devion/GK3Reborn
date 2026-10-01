@@ -52,6 +52,9 @@ public enum FrontEndOutcome
     /// <summary>Play the films the game opens with, then come back here.</summary>
     Intro,
 
+    /// <summary>Open the project's issue tracker in the browser.</summary>
+    ReportBug,
+
     /// <summary>Leave the game.</summary>
     Quit,
 
@@ -243,6 +246,9 @@ public sealed class FrontEnd
             case "unstick":
                 return FrontEndOutcome.Unstick;
 
+            case "report-bug" when Page == FrontEndPage.Main:
+                return FrontEndOutcome.ReportBug;
+
             case "quit":
                 return FrontEndOutcome.Quit;
 
@@ -290,6 +296,10 @@ public sealed class FrontEnd
                 if (action.Id.StartsWith("slot:", StringComparison.Ordinal))
                 {
                     Slot = action.Id[5..];
+                    if (Page == FrontEndPage.Load && !Saves.Any(s => s.Slot == Slot && s.Fault == SaveFault.None))
+                    {
+                        return FrontEndOutcome.Stay;
+                    }
 
                     return Page == FrontEndPage.Save ? FrontEndOutcome.Save : FrontEndOutcome.Load;
                 }
@@ -403,7 +413,8 @@ public sealed class FrontEnd
 
             MenuItem.Button("load", Text.Say("menu.load", "Restore")),
 
-            MenuItem.Button("options", Text.Say("menu.options", "Settings")), MenuItem.Button("quit", Text.Say("menu.quit", "Quit")), ];
+            MenuItem.Button("options", Text.Say("menu.options", "Settings")), MenuItem.Button("quit", Text.Say("menu.quit", "Quit")),
+            MenuItem.Button("report-bug", Text.Say("menu.reportBug", "Report a bug")) with { Corner = true }, ];
 
     /// <summary>The slots, as rows.</summary>
     /// <returns>One row per slot, and a way back.</returns>
@@ -411,47 +422,50 @@ public sealed class FrontEnd
     private List<MenuItem> Slots(bool writing)
     {
         List<MenuItem> rows = [];
+        HashSet<string> shown = new(StringComparer.Ordinal);
 
-        foreach (string slot in Reserved)
+        void Add(string slot, SaveSlot? save)
         {
-            if (!writing)
+            string key = writing ? slot : save?.Slot ?? slot;
+            rows.Add(MenuItem.Button("slot:" + key, Described(slot, save),
+                enabled: writing || save?.Fault == SaveFault.None) with
             {
-                rows.Add(MenuItem.Button( "slot:" + slot, Described(slot), enabled: Written(slot) is not null) with
+                Picture = Illustrations?.Invoke(save?.Slot ?? slot) ?? 0,
+            });
+            if (save is not null)
+            {
+                shown.Add(save.Slot);
+                if (save.Fault != SaveFault.None)
                 {
-                    Picture = Illustrations?.Invoke(slot) ?? 0,
-                });
+                    rows.Add(MenuItem.Label(Text.Say("save.incompatible", "incompatible save")));
+                }
             }
         }
 
+        if (!writing)
+        {
+            foreach (string slot in Reserved)
+            {
+                Add(slot, Written(slot));
+            }
+        }
         for (int at = 1; at <= SaveStore.NumberedSlots; at++)
         {
             string slot = at.ToString("00", CultureInfo.InvariantCulture);
-
-            rows.Add(MenuItem.Button( "slot:" + slot, Described(slot), enabled: writing || Written(slot) is not null) with
-            {
-                Picture = Illustrations?.Invoke(slot) ?? 0,
-            });
+            // Saving replaces the writable copy, not a newer copy in another folder.
+            Add(slot, writing ? Saves.FirstOrDefault(save => save.Slot == slot) : Written(slot));
         }
-
-        // Everything else the store holds, which is how a save the player did not write gets on the page at all.
         if (!writing)
         {
             foreach (SaveSlot save in Saves)
             {
-                if (Reserved.Contains(save.Slot, StringComparer.OrdinalIgnoreCase) || IsNumbered(save.Slot))
+                if (!shown.Contains(save.Slot))
                 {
-                    continue;
+                    Add(save.Name, save);
                 }
-
-                rows.Add(MenuItem.Button("slot:" + save.Slot, Described(save.Slot)) with
-                {
-                    Picture = Illustrations?.Invoke(save.Slot) ?? 0,
-                });
             }
         }
-
         rows.Add(MenuItem.Button("back", Text.Say("menu.back", "Back")));
-
         return rows;
     }
 
@@ -463,10 +477,14 @@ public sealed class FrontEnd
     private static readonly string[] Reserved = [SaveStore.QuickSlot, SaveStore.AutoSlot];
 
     /// <summary>What a slot has in it, or null when it is free.</summary>
-    private SaveSlot? Written(string slot) => Saves.FirstOrDefault(s => string.Equals(s.Slot, slot, StringComparison.OrdinalIgnoreCase));
+    private SaveSlot? Written(string slot) => Saves
+        .Where(s => string.Equals(s.Name, slot, StringComparison.Ordinal))
+        .OrderBy(s => s.Fault != SaveFault.None)
+        .ThenByDescending(s => s.Written)
+        .FirstOrDefault();
 
     /// <summary>How a slot reads on the page.</summary>
-    private string Described(string slot)
+    private string Described(string slot, SaveSlot? save)
     {
         string name = slot switch
         {
@@ -480,9 +498,14 @@ public sealed class FrontEnd
             _ => slot,
         };
 
-        if (Written(slot) is not { } save)
+        if (save is null)
         {
             return name + Text.Say("save.empty", "  -  empty");
+        }
+
+        if (save.Fault != SaveFault.None)
+        {
+            return name;
         }
 
         string called = save.Title is { Length: > 0 } titled ? titled : save.Summary;
