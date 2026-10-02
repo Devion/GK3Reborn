@@ -53,6 +53,12 @@ public interface ISheepApi
     /// <param name="arguments">What it was called with, since the wait often is one.</param>
     /// <returns>Seconds, or zero when the host has no idea and the call is over at once.</returns>
     double SecondsFor(string name, IReadOnlyList<SheepValue> arguments) => 0;
+
+    /// <summary>Captures the playback just started by a call, when it has its own clock.</summary>
+    SheepWaitWork? CaptureWait(string name) => null;
+
+    /// <summary>Identifies the request whose completion a timed call is waiting for.</summary>
+    object? CaptureWaitOwner(string name) => null;
 }
 
 /// <summary>One running script.</summary>
@@ -100,7 +106,7 @@ public sealed class SheepThread
     public double WaitSeconds { get; internal set; }
 
     /// <summary>Durations of individual calls in the current wait block.</summary>
-    internal List<(string Name, double Seconds)> WaitDurations { get; } = [];
+    internal List<SheepWait> WaitDurations { get; } = [];
 }
 
 /// <summary>
@@ -502,19 +508,26 @@ public sealed class SheepVirtualMachine
         }
 
         bool waited = thread.InWaitBlock && _api.IsWaitable(import.Name);
+        SheepWait? waiting = null;
         if (waited)
         {
             thread.PendingWaits++;
 
             // The longest call in the block decides when the block is over.
             double duration = _api.SecondsFor(import.Name, arguments);
-            thread.WaitDurations.Add((import.Name, duration));
+            waiting = new SheepWait(import.Name, duration);
+            thread.WaitDurations.Add(waiting);
             thread.WaitSeconds = Math.Max(thread.WaitSeconds, duration);
         }
 
         thread.Calls.Add(new SheepCall(import.Name, arguments, waited));
 
         SheepValue result = _api.Invoke(import.Name, arguments);
+        if (waiting is not null)
+        {
+            waiting.Work = _api.CaptureWait(import.Name);
+            waiting.Owner = _api.CaptureWaitOwner(import.Name);
+        }
 
         // Void calls push a result too; the compiler emits a matching Pop.
         thread.Stack.Add(result);

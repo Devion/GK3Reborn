@@ -18,6 +18,55 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SceneMechanismTests
 {
+    [Theory]
+    [InlineData("PHO", false)]
+    [InlineData("PHO", true)]
+    [InlineData("LBY", false)]
+    [InlineData("LBY", true)]
+    public void Completed_recording_recovers_Buchellis_departure_after_reentry(string room, bool firstPerson)
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.Location = room;
+        api.State.FirstPerson = firstPerson;
+        api.State.Timeblock = new Timeblock(2, 2, true);
+        api.State.SetLocationCount("GABRIEL", "PHO", 2);
+        api.State.SetVariable("ValidToTape", 3);
+        api.State.SetActorLocation("BUCHELLI", "PHO");
+        api.State.AwardScore("e_202p_pho_overhear_buchelli", 2);
+        api.State.AwardScore("e_202p_pho_tape_recorder_buchelli", 2);
+        api.State.Restore(api.State.Capture());
+        var calls = new List<string>();
+        api.Register("CallSheep", args =>
+        {
+            calls.Add(args[0].AsString() + ":" + args[1].AsString());
+            return SheepValue.FromInt(0);
+        });
+        var patch = new RoomPatches(room, world, api);
+        patch.AfterOpening();
+        Assert.Equal(4, api.State.GetVariable("ValidToTape"));
+        patch.Advance(0.1);
+        patch.Advance(0.1);
+        Assert.Equal(["glb_all:FiveMinTimer"], calls);
+    }
+
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(3, false)]
+    [InlineData(4, true)]
+    public void Recording_departure_waits_for_the_call_to_finish(int stage, bool expected)
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.Timeblock = new Timeblock(2, 2, true);
+        api.State.SetVariable("ValidToTape", stage);
+        api.State.AwardScore("e_202p_pho_overhear_buchelli", 2);
+        api.State.AwardScore("e_202p_pho_tape_recorder_buchelli", 2);
+        bool called = false;
+        api.Register("CallSheep", _ => { called = true; return SheepValue.FromInt(0); });
+        var patch = new RoomPatches("PHO", world, api);
+        patch.Advance(0.1);
+        Assert.Equal(expected, called);
+    }
+
     [Fact]
     public void Laser_head_positions_survive_save_restore_including_zero()
     {

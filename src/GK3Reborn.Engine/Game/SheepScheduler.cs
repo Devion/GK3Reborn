@@ -59,47 +59,21 @@ public sealed class SheepScheduler
     {
         List<string> resumed = [];
 
-        for (int i = _waiting.Count - 1; i >= 0; i--)
+        foreach (Waiting waiting in _waiting.ToArray().Reverse())
         {
-            Waiting waiting = _waiting[i];
-            waiting.Remaining -= seconds;
-            for (int call = 0; call < waiting.Durations.Count; call++)
-            {
-                var duration = waiting.Durations[call];
-                waiting.Durations[call] = (duration.Name, Math.Max(0, duration.Seconds - seconds));
-            }
-
-            if (waiting.Remaining > 0 || Outstanding(waiting.Until))
+            if (!_waiting.Contains(waiting))
             {
                 continue;
             }
-
-            _waiting.RemoveAt(i);
-
-            SheepThread carried = waiting.Thread;
-
-            void Carry()
+            waiting.Remaining -= seconds;
+            foreach (SheepWait call in waiting.Durations)
             {
-                SheepVirtualMachine.NotifyWaitsCompleted(carried);
-                _vm.Resume(carried);
+                call.Seconds = Math.Max(0, call.Seconds - seconds);
             }
-
-            IReadOnlyList<SheepThread>? called = null;
-
-            if (Calls is { } within)
+            if (waiting.Remaining <= 0 && !Outstanding(waiting.Until))
             {
-                called = within(Carry);
-            }
-            else
-            {
-                Carry();
-            }
-
-            resumed.Add($"{carried.Script.Name}:{carried.FunctionName}");
-
-            if (carried.State is SheepThreadState.Blocked or SheepThreadState.Yielded)
-            {
-                _waiting.Add(new Waiting(carried, carried.WaitSeconds) { Until = called });
+                Resume(waiting);
+                resumed.Add($"{waiting.Thread.Script.Name}:{waiting.Thread.FunctionName}");
             }
         }
 
@@ -141,26 +115,129 @@ public sealed class SheepScheduler
         _waiting.Clear();
     }
 
-    /// <summary>Removes skipped speech time without advancing concurrent animations or timers.</summary>
-    public void SkipDialogue(double seconds)
+    /// <summary>Advances the speaking script's current wait and its awaited animation work.</summary>
+    /// <param name="seconds">Unplayed time in the skipped line.</param>
+    /// <param name="speaker">The script that started the line.</param>
+    /// <param name="lastLine">Whether the current run has no further lines to speak.</param>
+    /// <param name="lines">The individual skipped requests, or null for a clock-only host.</param>
+    public void SkipDialogue(double seconds, SheepThread speaker, bool lastLine = true, IReadOnlyList<DialogueSkip>? lines = null)
     {
-        foreach (Waiting waiting in _waiting)
+        ArgumentNullException.ThrowIfNull(speaker);
+        HashSet<SheepThread> ancestors = [speaker];
+        bool added;
+        do
         {
-            for (int i = 0; i < waiting.Durations.Count; i++)
+            added = false;
+            foreach (Waiting waiting in _waiting)
             {
-                var call = waiting.Durations[i];
-                if (IsDialogue(call.Name))
+                if (waiting.Until?.Any(ancestors.Contains) == true)
                 {
-                    waiting.Durations[i] = (call.Name, Math.Max(0, call.Seconds - seconds));
+                    added |= ancestors.Add(waiting.Thread);
                 }
             }
+        }
+        while (added);
 
-            if (waiting.Durations.Count > 0)
+        foreach (Waiting waiting in _waiting.ToArray())
+        {
+            if (!ancestors.Contains(waiting.Thread))
             {
-                waiting.Remaining = waiting.Durations.Max(call => call.Seconds);
+                continue;
+            }
+
+            bool ownsSpeech = ReferenceEquals(waiting.Thread, speaker);
+            bool hasSpeech = ownsSpeech && waiting.Durations.Any(call => IsDialogue(call.Name));
+            foreach (SheepWait call in waiting.Durations.Where(call => ownsSpeech && IsDialogue(call.Name)))
+            {
+                double removed = lines is null ? seconds : lines
+                    .Where(line => call.Owner is DialogueRun run && run.Includes(line.Run))
+                    .Sum(line => line.Seconds);
+                call.Seconds = Math.Max(0, call.Seconds - removed);
+            }
+            bool finish = hasSpeech && lastLine &&
+                waiting.Durations.Where(call => IsDialogue(call.Name)).All(call => call.Seconds <= 0);
+            AdvanceAnimations(waiting, seconds, finish);
+            int budget = 256;
+            foreach (SheepThread child in waiting.Until ?? [])
+            {
+                if (!ancestors.Contains(child))
+                {
+                    SkipAnimations(child, seconds, finish, ref budget);
+                }
+            }
+            Recount(waiting);
+        }
+    }
+
+    // Advance helpers by executing them normally. Their state changes and completion
+    // code still run. A new dialogue, timer, walk or other non-animation wait is a
+    // boundary, and background calls are absent from the awaited dependency tree.
+    private void SkipAnimations(SheepThread thread, double seconds, bool finish, ref int budget)
+    {
+        while (budget-- > 0 && _waiting.Find(w => ReferenceEquals(w.Thread, thread)) is { } waiting)
+        {
+            if (waiting.Durations.Any(call => IsDialogue(call.Name)))
+            {
+                return;
+            }
+            double spent = waiting.Durations.Where(call => IsAnimation(call.Name))
+                .Select(call => call.Seconds).DefaultIfEmpty(0).Max();
+            AdvanceAnimations(waiting, seconds, finish);
+            foreach (SheepThread child in waiting.Until ?? [])
+            {
+                SkipAnimations(child, seconds, finish, ref budget);
+            }
+            Recount(waiting);
+            if (waiting.Remaining > 0 || Outstanding(waiting.Until) ||
+                waiting.Durations.Any(call => call.Work?.Speaks == true))
+            {
+                return;
+            }
+            Resume(waiting);
+            seconds = Math.Max(0, seconds - spent);
+            if (!finish && seconds <= 0)
+            {
+                return;
             }
         }
     }
+
+    private static void AdvanceAnimations(Waiting waiting, double seconds, bool finish)
+    {
+        foreach (SheepWait call in waiting.Durations.Where(call => IsAnimation(call.Name)))
+        {
+            double advance = finish && call.Work?.Speaks != true ? call.Seconds : Math.Min(seconds, call.Seconds);
+            if (advance > 0) { call.Work?.Advance(advance); }
+            call.Seconds = Math.Max(0, call.Seconds - advance);
+        }
+    }
+
+    private static void Recount(Waiting waiting) =>
+        waiting.Remaining = waiting.Durations.Select(call => call.Seconds).DefaultIfEmpty(0).Max();
+
+    private void Resume(Waiting waiting)
+    {
+        _waiting.Remove(waiting);
+        void Carry()
+        {
+            SheepVirtualMachine.NotifyWaitsCompleted(waiting.Thread);
+            _vm.Resume(waiting.Thread);
+        }
+        IReadOnlyList<SheepThread>? called = null;
+        if (Calls is { } within)
+        {
+            called = within(Carry);
+        }
+        else
+        {
+            Carry();
+        }
+        Park(waiting.Thread, called);
+    }
+
+    /// <summary>Scripted animation clocks that accompany speech.</summary>
+    internal static bool IsAnimation(string name) => name.ToUpperInvariant() is
+        "STARTANIMATION" or "STARTMOVEANIMATION" or "STARTMORPHANIMATION" or "STARTMOM";
 
     /// <summary>Calls whose duration belongs to spoken dialogue.</summary>
     public static bool IsDialogue(string name) => name.ToUpperInvariant() is
@@ -169,7 +246,7 @@ public sealed class SheepScheduler
 
     private sealed class Waiting(SheepThread thread, double remaining)
     {
-        public List<(string Name, double Seconds)> Durations { get; } = [.. thread.WaitDurations];
+        public List<SheepWait> Durations { get; } = [.. thread.WaitDurations];
         public SheepThread Thread { get; } = thread;
 
         public double Remaining { get; set; } = remaining;

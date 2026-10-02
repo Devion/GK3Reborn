@@ -220,6 +220,9 @@ public sealed class SceneUpdate
     /// <summary>How many clips are running.</summary>
     public int Animating => _playing.Count;
 
+    /// <summary>The playback created by the most recent scripted animation call.</summary>
+    public SheepWaitWork? LastAnimationWork { get; private set; }
+
     /// <summary>Starts an animation.</summary>
     /// <returns>How long it will take, or zero when there is nothing to play.</returns>
     /// <param name="name">What the script called it, such as GraCs3WrdbOpen.</param>
@@ -229,6 +232,7 @@ public sealed class SceneUpdate
     public double Play( string name, bool repeat = false, bool moves = false, bool fromBehaviour = false)
     {
         ArgumentNullException.ThrowIfNull(name);
+        LastAnimationWork = null;
 
         if (Clips is null || Animations is null)
         {
@@ -247,22 +251,35 @@ public sealed class SceneUpdate
             return 0;
         }
 
+        HashSet<object> playback = [];
+        T Track<T>(T node) where T : class
+        {
+            playback.Add(node);
+            return node;
+        }
+        Action<double>? advanceFace = null;
+        LastAnimationWork = new SheepWaitWork(elapsed =>
+        {
+            StepAnimations(elapsed, [], playback);
+            advanceFace?.Invoke(elapsed);
+        }, animation.Dialogue.Count > 0);
+
         // The sounds first, before anything that can return.
         foreach (AnimationSound cue in animation.Sounds)
         {
-            _cues.Add(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate, name));
+            _cues.Add(Track(new Cue(cue, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         // And the feet.
         foreach (AnimationStep step in animation.Steps)
         {
-            _steps.Add(new Footfall(step, repeat ? animation.Duration : 0, animation.Rate));
+            _steps.Add(Track(new Footfall(step, repeat ? animation.Duration : 0, animation.Rate)));
         }
 
         // And what it repaints as it runs.
         foreach (AnimationTexture swap in animation.Textures)
         {
-            _swaps.Add(new Swap(swap, repeat ? animation.Duration : 0, animation.Rate));
+            _swaps.Add(Track(new Swap(swap, repeat ? animation.Duration : 0, animation.Rate)));
         }
 
         Repaint(animation.Textures.Where(t => t.Frame <= 0));
@@ -270,14 +287,14 @@ public sealed class SceneUpdate
         // And what it repaints about the room rather than about a model.
         foreach (AnimationSceneTexture swap in animation.SceneTextures)
         {
-            _roomSwaps.Add(new Scheduled<AnimationSceneTexture>( swap, swap.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _roomSwaps.Add(Track(new Scheduled<AnimationSceneTexture>( swap, swap.Frame, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         PaintRoom(animation.SceneTextures.Where(t => t.Frame <= 0));
 
         foreach (AnimationSceneVisibility change in animation.SceneVisibility)
         {
-            _roomShowings.Add(new Scheduled<AnimationSceneVisibility>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _roomShowings.Add(Track(new Scheduled<AnimationSceneVisibility>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         RevealRoom(animation.SceneVisibility.Where(v => v.Frame <= 0));
@@ -285,27 +302,27 @@ public sealed class SceneUpdate
         // And what it says, frames and puts on people's faces.
         foreach (AnimationDialogue spoken in animation.Dialogue)
         {
-            _lines.Add(new Scheduled<AnimationDialogue>( spoken, spoken.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _lines.Add(Track(new Scheduled<AnimationDialogue>( spoken, spoken.Frame, repeat ? animation.Duration : 0, animation.Rate, name) { Thread = _api.CurrentThread?.Invoke(), Animation = LastAnimationWork }));
         }
 
         foreach (AnimationShot shot in animation.Shots)
         {
-            _shots.Add(new Scheduled<AnimationShot>( shot, shot.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _shots.Add(Track(new Scheduled<AnimationShot>( shot, shot.Frame, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         foreach (AnimationMood mood in animation.Moods)
         {
-            _moods.Add(new Scheduled<AnimationMood>( mood, mood.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _moods.Add(Track(new Scheduled<AnimationMood>( mood, mood.Frame, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         // And what it does to the music under it.
         foreach (AnimationMusic change in animation.Music)
         {
-            _music.Add(new Scheduled<AnimationMusic>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name));
+            _music.Add(Track(new Scheduled<AnimationMusic>( change, change.Frame, repeat ? animation.Duration : 0, animation.Rate, name)));
         }
 
         // Frame zero is now, as it is for the repaints and the reveals above.
-        Say(animation.Dialogue.Where(d => d.Frame <= 0));
+        Say(animation.Dialogue.Where(d => d.Frame <= 0), _api.CurrentThread?.Invoke(), LastAnimationWork);
         Film(animation.Shots.Where(s => s.Frame <= 0));
         Wear(animation.Moods.Where(m => m.Frame <= 0));
         Score(animation.Music.Where(m => m.Frame <= 0));
@@ -313,7 +330,7 @@ public sealed class SceneUpdate
         // Then what it shows and hides, for the same reason and one of its own: an animation that brings somebody into the room does it here, and.
         foreach (AnimationVisibility change in animation.Visibility)
         {
-            _showings.Add(new Showing(change, repeat ? animation.Duration : 0, animation.Rate));
+            _showings.Add(Track(new Showing(change, repeat ? animation.Duration : 0, animation.Rate)));
         }
 
         // Frame zero is now rather than in a frame's time.
@@ -321,6 +338,7 @@ public sealed class SceneUpdate
 
         // Faces next, because an animation that only moves a face moves no geometry at all: ABEANGRY is two frames of eyebrow and nothing else.
         bool onAFace = (animation.Faces.Count > 0 || animation.Mouths.Count > 0) && Faces?.Perform(animation) == true;
+        if (onAFace) { advanceFace = Faces?.LastExpressionAdvance; }
 
         if (animation.Actions.Count == 0)
         {
@@ -415,7 +433,7 @@ public sealed class SceneUpdate
             Trace( "plays", clip.Name, target, (started.Absolute ? "absolute" : "relative") + (started.Reverts ? ", reverts" : ", keeps the ground") +
                 (fromBehaviour ? ", from its own script" : string.Empty));
 
-            _playing.Add(started);
+            _playing.Add(Track(started));
             longest = Math.Max( longest, ((double)clip.FrameCount + action.Frame) / Math.Max(1, animation.Rate));
         }
 
@@ -437,8 +455,14 @@ public sealed class SceneUpdate
     /// <summary>What starts and stops the soundtracks an animation names.</summary>
     public Action<AnimationMusic>? Music { get; set; }
 
+    /// <summary>The script owning the animation whose line is being delivered.</summary>
+    public SheepThread? LineThread { get; private set; }
+
+    /// <summary>The animation owning the line currently being delivered.</summary>
+    public SheepWaitWork? LineAnimation { get; private set; }
+
     /// <summary>Speaks the lines that are due.</summary>
-    private void Say(IEnumerable<AnimationDialogue> due)
+    private void Say(IEnumerable<AnimationDialogue> due, SheepThread? thread = null, SheepWaitWork? animation = null)
     {
         if (Line is null)
         {
@@ -447,7 +471,11 @@ public sealed class SceneUpdate
 
         foreach (AnimationDialogue spoken in due)
         {
+            LineThread = thread ?? _api.CurrentThread?.Invoke();
+            LineAnimation = animation;
             Line(spoken);
+            LineThread = null;
+            LineAnimation = null;
         }
     }
 
@@ -498,7 +526,8 @@ public sealed class SceneUpdate
     /// <param name="seconds">How long since the last frame.</param>
     /// <param name="frame">Which frame one of them is authored on.</param>
     /// <typeparam name="T">What is due.</typeparam>
-    private static List<T> Due<T>( List<Scheduled<T>> schedule, double seconds, Func<T, int> frame) where T : struct
+    /// <param name="only">Playback nodes to advance, or null for all animations.</param>
+    private static List<T> Due<T>( List<Scheduled<T>> schedule, double seconds, Func<T, int> frame, HashSet<object>? only = null) where T : struct
     {
         if (schedule.Count == 0)
         {
@@ -509,6 +538,10 @@ public sealed class SceneUpdate
 
         foreach (Scheduled<T> waiting in schedule)
         {
+            if (only is not null && !only.Contains(waiting))
+            {
+                continue;
+            }
             if (waiting.Step(seconds) is { } what)
             {
                 due.Add(what);
@@ -2519,6 +2552,7 @@ public sealed class SceneUpdate
     {
         _later.Clear();
         _awaited.Clear();
+        _skippedDialogue.Clear();
     }
 
     /// <summary>Runs whatever has waited long enough.</summary>
@@ -2664,6 +2698,25 @@ public sealed class SceneUpdate
 
         List<string> happened = [];
 
+        while (_skippedDialogue.TryDequeue(out var skipped))
+        {
+            foreach (var group in skipped.Where(line => line.Run.Thread is not null).GroupBy(line => line.Run.Thread!))
+            {
+                _scripts?.SkipDialogue(group.Max(line => line.Seconds), group.Key,
+                    group.All(line => line.LastLine), group.ToArray());
+            }
+            var direct = skipped.Where(line => line.Run.Thread is null).ToArray();
+            foreach (var group in direct.Where(line => line.Run.Animation is not null).GroupBy(line => line.Run.Animation!))
+            {
+                group.Key.Advance(group.Max(line => line.Seconds));
+            }
+            double removed = direct.Where(line => ReferenceEquals(_api.ActionDialogue, line.Run) ||
+                    (line.Run.Animation is not null && ReferenceEquals(_api.ActionAnimation, line.Run.Animation)))
+                .Select(line => line.Seconds).DefaultIfEmpty().Max();
+            _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - removed);
+        }
+
+
         // What is left of the action that is running.
         _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
 
@@ -2711,138 +2764,7 @@ public sealed class SceneUpdate
             happened.Add(Fire(timer));
         }
 
-        // The noises an animation makes, at the frames it says.
-        for (int i = _cues.Count - 1; i >= 0; i--)
-        {
-            if (_cues[i].Step(seconds) is not { } due)
-            {
-                continue;
-            }
-
-            // Where it comes from: the model the cue names, if the room has it standing somewhere.
-            Vector3? at = due.Model.Length > 0 ? Where(due.Model) : null;
-
-            if (Sound?.Invoke(due, at) == false)
-            {
-                Diagnostics.Add(new Diagnostic( "GK3R3316", DiagnosticSeverity.Info, "An animation asks for a sound the archives do not have.",
-                    _scene.Name, null, "a .WAV of that name", due.Name, "Common in the corpus: some cues name sounds that were cut."));
-            }
-
-            if (_cues[i].Finished)
-            {
-                _cues.RemoveAt(i);
-            }
-        }
-
-        // The feet, which need where the actor is now rather than where the clip was authored: the sound is the floor under them at the moment the.
-        for (int i = _steps.Count - 1; i >= 0; i--)
-        {
-            if (_steps[i].Step(seconds) is { } fell)
-            {
-                Tread(fell);
-            }
-
-            if (_steps[i].Finished)
-            {
-                _steps.RemoveAt(i);
-            }
-        }
-
-        // And what it repaints.
-        for (int i = _swaps.Count - 1; i >= 0; i--)
-        {
-            if (_swaps[i].Step(seconds) is { } swap)
-            {
-                Repaint([swap]);
-            }
-
-            if (_swaps[i].Finished)
-            {
-                _swaps.RemoveAt(i);
-            }
-        }
-
-        // And what it repaints about the room.
-        for (int i = _roomSwaps.Count - 1; i >= 0; i--)
-        {
-            if (_roomSwaps[i].Step(seconds) is { } swap)
-            {
-                PaintRoom([swap]);
-            }
-
-            if (_roomSwaps[i].Finished)
-            {
-                _roomSwaps.RemoveAt(i);
-            }
-        }
-
-        for (int i = _roomShowings.Count - 1; i >= 0; i--)
-        {
-            if (_roomShowings[i].Step(seconds) is { } change)
-            {
-                RevealRoom([change]);
-            }
-
-            if (_roomShowings[i].Finished)
-            {
-                _roomShowings.RemoveAt(i);
-            }
-        }
-
-        // What a moment frames, puts on faces, scores and says — in that order, and each of them in frame order rather than in the order the nodes.
-        Film(Due(_shots, seconds, s => s.Frame));
-        Wear(Due(_moods, seconds, m => m.Frame));
-        Score(Due(_music, seconds, m => m.Frame));
-        Say(Due(_lines, seconds, d => d.Frame));
-
-        // What an animation shows and hides as it runs, on the frames it names.
-        for (int i = _showings.Count - 1; i >= 0; i--)
-        {
-            if (_showings[i].Step(seconds) is { } change)
-            {
-                Reveal([change]);
-            }
-
-            if (_showings[i].Finished)
-            {
-                _showings.RemoveAt(i);
-            }
-        }
-
-        // Animation before walking: a clip poses a model's meshes in the model's own space and walking moves the model, so doing it the other way.
-        for (int i = _playing.Count - 1; i >= 0; i--)
-        {
-            Playing playing = _playing[i];
-            bool running = playing.Step(_geometry, (float)seconds);
-
-            // The actor's position follows the model, every frame, as the original syncs it in LateUpdate.
-            Follow( playing.Target.Name, playing.Target.Kind == PlacedModelKind.Actor ? playing.Now(_geometry.TransformOf(playing.Target.Placement))
-                    : playing.Carried);
-
-            if (!running)
-            {
-                // A non-move animation puts the actor back where it found them: the pose stays, the ground does not count.
-                if (playing.Reverts)
-                {
-                    Follow(playing.Target.Name, playing.Began);
-                    Trace("reverts after", playing.Clip.Name, playing.Target);
-                }
-                else
-                {
-                    // And keeping it means writing it down.
-                    Adopt(playing);
-                }
-
-                happened.Add($"{playing.Clip.Name} finished");
-                _playing.RemoveAt(i);
-
-                // Back to whatever it does when nobody is asking.
-                if (!playing.FromBehaviour)
-                {
-                    Release(playing.Target.Name);
-                }
-            }
-        }
+        StepAnimations(seconds, happened);
 
         // Walking before turning heads: a head that is looking at something has to be aimed from where its owner is now, not from where they were a.
         foreach (string who in _walking.Keys.ToList())
@@ -3045,21 +2967,219 @@ public sealed class SceneUpdate
     /// <summary>Whether this action has already requested an authored shot.</summary>
     public bool CameraRequested => _api.State.CameraRevision != _cameraAtStart;
 
-    /// <summary>Releases only the time belonging to skipped speech.</summary>
-    public void SkipDialogue(double seconds)
+    // Normal frames walk backwards without copying or sorting the list, removing finished
+    // nodes. A skip crosses many frames, so its selected events run in authored order.
+    private static IEnumerable<T> AnimationNodes<T>(List<T> nodes, HashSet<object>? only, Func<T, double> at)
+        where T : class
     {
-        _scripts?.SkipDialogue(seconds);
-        if (_api.ActionWaitsForDialogue)
+        if (only is null)
         {
-            _api.ActionSeconds = Math.Max(0, _api.ActionSeconds - seconds);
+            for (int i = nodes.Count - 1; i >= 0; i--)
+            {
+                yield return nodes[i];
+            }
+        }
+        else
+        {
+            foreach (T node in nodes.Where(node => only.Contains(node)).OrderBy(at).ToArray())
+            {
+                yield return node;
+            }
         }
     }
+
+    /// <summary>Advances animation events and poses, optionally for one playback only.</summary>
+    private void StepAnimations(double seconds, List<string> happened, HashSet<object>? only = null)
+    {
+        // The noises an animation makes, at the frames it says.
+        foreach (Cue node in AnimationNodes(_cues, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is not { } due)
+            {
+                continue;
+            }
+
+            // Where it comes from: the model the cue names, if the room has it standing somewhere.
+            Vector3? at = due.Model.Length > 0 ? Where(due.Model) : null;
+
+            if (Sound?.Invoke(due, at) == false)
+            {
+                Diagnostics.Add(new Diagnostic( "GK3R3316", DiagnosticSeverity.Info, "An animation asks for a sound the archives do not have.",
+                    _scene.Name, null, "a .WAV of that name", due.Name, "Common in the corpus: some cues name sounds that were cut."));
+            }
+
+            if (node.Finished)
+            {
+                _cues.Remove(node);
+            }
+        }
+
+        // The feet, which need where the actor is now rather than where the clip was authored: the sound is the floor under them at the moment the.
+        foreach (Footfall node in AnimationNodes(_steps, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is { } fell)
+            {
+                Tread(fell);
+            }
+
+            if (node.Finished)
+            {
+                _steps.Remove(node);
+            }
+        }
+
+        // And what it repaints.
+        foreach (Swap node in AnimationNodes(_swaps, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is { } swap)
+            {
+                Repaint([swap]);
+            }
+
+            if (node.Finished)
+            {
+                _swaps.Remove(node);
+            }
+        }
+
+        // And what it repaints about the room.
+        foreach (Scheduled<AnimationSceneTexture> node in AnimationNodes(_roomSwaps, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is { } swap)
+            {
+                PaintRoom([swap]);
+            }
+
+            if (node.Finished)
+            {
+                _roomSwaps.Remove(node);
+            }
+        }
+
+        foreach (Scheduled<AnimationSceneVisibility> node in AnimationNodes(_roomShowings, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is { } change)
+            {
+                RevealRoom([change]);
+            }
+
+            if (node.Finished)
+            {
+                _roomShowings.Remove(node);
+            }
+        }
+
+        // What a moment frames, puts on faces, scores and says — in that order, and each of them in frame order rather than in the order the nodes.
+        Film(Due(_shots, seconds, s => s.Frame, only));
+        Wear(Due(_moods, seconds, m => m.Frame, only));
+        Score(Due(_music, seconds, m => m.Frame, only));
+        foreach (Scheduled<AnimationDialogue> line in _lines.OrderBy(line => line.At).ToArray())
+        {
+            if (only is not null && !only.Contains(line))
+            {
+                continue;
+            }
+            if (line.Step(seconds) is { } spoken)
+            {
+                Say([spoken], line.Thread, line.Animation);
+            }
+            if (line.Finished)
+            {
+                _lines.Remove(line);
+            }
+        }
+
+        // What an animation shows and hides as it runs, on the frames it names.
+        foreach (Showing node in AnimationNodes(_showings, only, node => node.At))
+        {
+            if (only is not null && !only.Contains(node))
+            {
+                continue;
+            }
+            if (node.Step(seconds) is { } change)
+            {
+                Reveal([change]);
+            }
+
+            if (node.Finished)
+            {
+                _showings.Remove(node);
+            }
+        }
+
+        // Animation before walking: a clip poses a model's meshes in the model's own space and walking moves the model, so doing it the other way.
+        for (int i = _playing.Count - 1; i >= 0; i--)
+        {
+            if (only is not null && !only.Contains(_playing[i]))
+            {
+                continue;
+            }
+            Playing playing = _playing[i];
+            bool running = playing.Step(_geometry, (float)seconds);
+
+            // The actor's position follows the model, every frame, as the original syncs it in LateUpdate.
+            Follow( playing.Target.Name, playing.Target.Kind == PlacedModelKind.Actor ? playing.Now(_geometry.TransformOf(playing.Target.Placement))
+                    : playing.Carried);
+
+            if (!running)
+            {
+                // A non-move animation puts the actor back where it found them: the pose stays, the ground does not count.
+                if (playing.Reverts)
+                {
+                    Follow(playing.Target.Name, playing.Began);
+                    Trace("reverts after", playing.Clip.Name, playing.Target);
+                }
+                else
+                {
+                    // And keeping it means writing it down.
+                    Adopt(playing);
+                }
+
+                happened.Add($"{playing.Clip.Name} finished");
+                _playing.RemoveAt(i);
+
+                // Back to whatever it does when nobody is asking.
+                if (!playing.FromBehaviour)
+                {
+                    Release(playing.Target.Name);
+                }
+            }
+        }
+
+    }
+
+    private readonly Queue<IReadOnlyList<DialogueSkip>> _skippedDialogue = new();
+
+    /// <summary>Queues a line skip so that audio finishes switching lines before scripts can resume.</summary>
+    public void SkipDialogue(IReadOnlyList<DialogueSkip> lines) =>
+        _skippedDialogue.Enqueue(lines);
 
     /// <summary>Notes what was already running, before an action adds to it.</summary>
     public void Starting()
     {
         _cameraAtStart = _api.State.CameraRevision;
-        _api.ActionWaitsForDialogue = false;
+        _api.ActionDialogue = null;
+        _api.ActionAnimation = null;
         Stage(null);
         // A new thing to do is a new chance for the story to point a camera.
         Framed = false;
@@ -3505,6 +3625,8 @@ public sealed class SceneUpdate
     /// <summary>One clip running on one model.</summary>
     private sealed class Cue
     {
+        public double At => _at;
+
         private readonly AnimationSound _sound;
         private readonly double _at;
         private readonly double _period;
@@ -3563,6 +3685,8 @@ public sealed class SceneUpdate
     /// <summary>A model an animation shows or hides, waiting for its frame.</summary>
     private sealed class Footfall
     {
+        public double At => _at;
+
         private readonly AnimationStep _step;
         private readonly double _at;
         private readonly double _period;
@@ -3611,6 +3735,8 @@ public sealed class SceneUpdate
     /// <summary>A surface an animation is about to repaint.</summary>
     private sealed class Swap
     {
+        public double At => _at;
+
         private readonly AnimationTexture _swap;
         private readonly double _at;
         private readonly double _period;
@@ -3661,6 +3787,10 @@ public sealed class SceneUpdate
     /// <typeparam name="T">What is due.</typeparam>
     private sealed class Scheduled<T> where T : struct
     {
+        public SheepThread? Thread { get; init; }
+        public SheepWaitWork? Animation { get; init; }
+        public double At => _at;
+
         private readonly T _what;
         private readonly double _at;
         private readonly double _period;
@@ -3713,6 +3843,8 @@ public sealed class SceneUpdate
 
     private sealed class Showing
     {
+        public double At => _at;
+
         private readonly AnimationVisibility _change;
         private readonly double _at;
         private readonly double _period;

@@ -1723,6 +1723,10 @@ public static partial class Application
                                 ? $"journal: {asking.Title} — {given}" : $"journal: no more hints for {asking.Title}");
                         }
                     }
+                    else if (chose is "journal:up" or "journal:down")
+                    {
+                        screens.JournalWheel(chose == "journal:up" ? 1 : -1);
+                    }
                     else if (chose.StartsWith("sidney:shape:", StringComparison.Ordinal) && sidney is not null &&
                         Enum.TryParse(chose[13..], ignoreCase: true, out Game.Sidney.MapShape picked))
                     {
@@ -1883,6 +1887,10 @@ public static partial class Application
                 if (panel.Kind == ScreenKind.Sidney && window.ScrollDelta != 0)
                 {
                     screens.SidneyWheel(pointer, window.ScrollDelta);
+                }
+                else if (panel.Kind == ScreenKind.Journal && window.ScrollDelta != 0)
+                {
+                    screens.JournalWheel(window.ScrollDelta);
                 }
 
                 // Sidney's two text boxes are the only places in the game the player types into that are not the console, so the keys go there while.

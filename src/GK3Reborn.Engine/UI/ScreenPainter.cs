@@ -129,6 +129,13 @@ public sealed class ScreenPainter
 
     private readonly List<(string Id, Vector4 Bounds)> _hits = [];
     private readonly Sidney.SidneyView _sidney = new();
+    private float _journalOffset;
+    private float _journalMaximum;
+
+    /// <summary>Scrolls the journal by mouse-wheel steps, keeping its content in range.</summary>
+    /// <param name="steps">Positive to move toward the beginning.</param>
+    public void JournalWheel(int steps) =>
+        _journalOffset = Math.Clamp(_journalOffset - (steps * Overlay.LineHeight * 3), 0, _journalMaximum);
 
     /// <summary>Creates the painter.</summary>
     /// <param name="overlay">Where it draws.</param>
@@ -909,19 +916,36 @@ public sealed class ScreenPainter
         float y = top;
         float line = Overlay.LineHeight;
         float bottom = body.Y + body.W - (16 * unit);
-        float width = body.Z - (40 * unit);
+        float width = body.Z - (64 * unit);
+
+        float contentHeight = 0;
+        foreach (JournalChapter chapter in days.SelectMany(day => day.Chapters))
+        {
+            contentHeight += line + (12 * unit);
+            if (!chapter.Current)
+            {
+                contentHeight += 6 * unit;
+                continue;
+            }
+
+            foreach (JournalEntry entry in chapter.Entries)
+            {
+                contentHeight += line + (4 * unit);
+                contentHeight += entry.Hints.Sum(hint => Wrapped(hint, width - (48 * unit), unit).Count()) * line;
+            }
+
+            contentHeight += 12 * unit;
+        }
+
+        _journalMaximum = Math.Max(0, contentHeight - (bottom - top));
+        _journalOffset = Math.Clamp(_journalOffset, 0, _journalMaximum);
+        y -= _journalOffset;
+        Overlay.PushClip(new Vector4(x, top, width, bottom - top));
 
         foreach (JournalDay day in days)
         {
             foreach (JournalChapter chapter in day.Chapters)
             {
-                if (y + (line * 2) > bottom)
-                {
-                    Overlay.Text("...", x, y, Dim);
-
-                    return;
-                }
-
                 // The heading carries the tally, because "4 of 11" answers "am I nearly
                 // done here" without the player counting ticks.
                 Overlay.Text(
@@ -959,13 +983,6 @@ public sealed class ScreenPainter
 
                 foreach (JournalEntry entry in chapter.Entries)
                 {
-                    if (y + line > bottom)
-                    {
-                        Overlay.Text("...", x, y, Dim);
-
-                        return;
-                    }
-
                     // A box, ticked or not. Drawn from ASCII rather than from a tick and a
                     // bullet: the interface font has an em dash and not those, so both marks
                     // came out as blank columns and the list read as unmarked throughout.
@@ -1008,7 +1025,13 @@ public sealed class ScreenPainter
                         Overlay.Text(
                             Text.Say("journal.hint", "hint"), hint.X + (10 * unit), y, Accent);
 
-                        _hits.Add(("hint:" + Journal.Key(entry.Quest), hint));
+                        float hitTop = Math.Max(top, hint.Y);
+                        float hitBottom = Math.Min(bottom, hint.Y + hint.W);
+                        if (hitBottom > hitTop)
+                        {
+                            _hits.Add(("hint:" + Journal.Key(entry.Quest),
+                                new Vector4(hint.X, hitTop, hint.Z, hitBottom - hitTop)));
+                        }
                     }
 
                     y += line + (4 * unit);
@@ -1017,11 +1040,6 @@ public sealed class ScreenPainter
                     {
                         foreach (string wrapped in Wrapped(revealed, width - (48 * unit), unit))
                         {
-                            if (y + line > bottom)
-                            {
-                                return;
-                            }
-
                             Overlay.Text("      " + wrapped, x, y, Dim);
                             y += line;
                         }
@@ -1030,6 +1048,22 @@ public sealed class ScreenPainter
 
                 y += 12 * unit;
             }
+        }
+
+        Overlay.PopClip();
+        if (_journalMaximum > 0)
+        {
+            float railX = body.X + body.Z - (30 * unit);
+            float railTop = top + line;
+            float railHeight = Math.Max(line, bottom - top - (2 * line));
+            float thumb = Math.Min(railHeight, Math.Max(16 * unit, railHeight * (bottom - top) / contentHeight));
+            Overlay.Rect(railX, railTop, 8 * unit, railHeight, Rule);
+            Overlay.Rect(railX, railTop + ((railHeight - thumb) * _journalOffset / _journalMaximum),
+                8 * unit, thumb, Accent);
+            Overlay.Text("^", railX, top, Accent);
+            Overlay.Text("v", railX, bottom - line, Accent);
+            _hits.Add(("journal:up", new Vector4(railX - (4 * unit), top, 20 * unit, line)));
+            _hits.Add(("journal:down", new Vector4(railX - (4 * unit), bottom - line, 20 * unit, line)));
         }
     }
 

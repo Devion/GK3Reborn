@@ -45,9 +45,9 @@ public sealed class ScenePickerTests
     [InlineData("R21", "r21pshirt", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
     [InlineData("CS3", "robes", "RED_ROBES_IN_WARD", "WARDROBE", "OPEN", 2)]
     [InlineData("CS3", "symbols", "HERM_SYMBOLS_ON_ROBES", "WARDROBE", "OPEN", 2)]
-    [InlineData("CS3", "doll", "BABY_FOOT_IN_TRUNK", "TRUNK", "OPEN", 1)]
-    [InlineData("CS3", "blanket", "BLANKET_IN_TRUNK", "TRUNK", "OPEN", 1)]
-    [InlineData("CS3", "things", "OTHER_IN_TRUNK", "TRUNK", "OPEN", 1)]
+    [InlineData("CS3", "doll", "BABY_FOOT_IN_TRUNK", "TRUNK", "OPEN", 2)]
+    [InlineData("CS3", "blanket", "BLANKET_IN_TRUNK", "TRUNK", "OPEN", 2)]
+    [InlineData("CS3", "things", "OTHER_IN_TRUNK", "TRUNK", "OPEN", 2)]
     [InlineData("CS2", "book", "BOOK_IN_DRAWER", "DESK_DRAWER", "OPEN", 1)]
     public void Covered_items_cannot_be_picked_listed_or_inspected_until_revealed(
         string room, string model, string noun, string covering, string verb, int revealed)
@@ -75,6 +75,16 @@ public sealed class ScenePickerTests
         Assert.Empty(interaction.Nouns());
         Assert.Null(interaction.Do(noun, "INSPECT"));
         Assert.Equal(0, state.Score);
+
+        if (covering == "TRUNK")
+        {
+            state.SetNounVerbCount(covering, verb, 3);
+            Assert.NotEqual(noun, interaction.At(ray).Noun);
+            Assert.Empty(interaction.Nouns());
+            Assert.Null(interaction.Do(noun, "INSPECT"));
+            state.SetNounVerbCount(covering, verb, 2);
+            Assert.Equal(noun, interaction.At(ray).Noun);
+        }
     }
 
     [Theory]

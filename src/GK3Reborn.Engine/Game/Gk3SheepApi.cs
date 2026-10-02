@@ -109,6 +109,8 @@ public sealed class Gk3SheepApi : ISheepApi
         Game.Sidney.SerpentRougeAnalysis.UpdateState(State);
 
         ActionSeconds = 0;
+        ActionDialogue = null;
+        ActionAnimation = null;
         ActingOn = string.Empty;
 
         // A load is a journey, whatever was going on when the player asked for it. Leaving
@@ -182,8 +184,6 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <summary>How much longer the action that is running has to run.</summary>
     public double ActionSeconds { get; set; }
 
-    /// <summary>Whether the current inline action's timed wait is entirely speech.</summary>
-    public bool ActionWaitsForDialogue { get; set; }
 
     /// <summary>Told as an action begins, before anything of it has happened.</summary>
     public Action? Starts { get; set; }
@@ -225,6 +225,27 @@ public sealed class Gk3SheepApi : ISheepApi
     /// What plays an animation, when there is a room to play it in.
     /// </summary>
     public Func<string, bool, double>? Plays { get; set; }
+
+    /// <summary>The script currently making an API call, or null for direct actions.</summary>
+    public Func<SheepThread?>? CurrentThread { get; set; }
+
+    /// <summary>The most recent request for speech, for direct action waits.</summary>
+    public Func<DialogueRun?>? CurrentDialogue { get; set; }
+
+    /// <summary>Speech the current direct action is waiting on.</summary>
+    public DialogueRun? ActionDialogue { get; set; }
+
+    /// <summary>Animation the current direct action is waiting on.</summary>
+    public SheepWaitWork? ActionAnimation { get; set; }
+
+    /// <summary>Captures the playback started by the most recent animation call.</summary>
+    public Func<string, SheepWaitWork?>? WaitWork { get; set; }
+
+    /// <inheritdoc/>
+    public SheepWaitWork? CaptureWait(string name) => WaitWork?.Invoke(name);
+
+    /// <inheritdoc/>
+    public object? CaptureWaitOwner(string name) => SheepScheduler.IsDialogue(name) ? CurrentDialogue?.Invoke() : null;
 
     /// <summary>
     /// The machinery the room the player is in has of its own, when it has any.

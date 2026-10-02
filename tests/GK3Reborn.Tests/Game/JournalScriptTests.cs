@@ -16,6 +16,41 @@ namespace GK3Reborn.Tests.Game;
 public sealed class JournalScriptTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Reentering_the_booth_after_recording_runs_the_original_departure(bool firstPerson)
+    {
+        string? root = FindContent();
+        Assert.SkipUnless(root is not null, "needs ContentWorkspace/normalized or GK3_NORMALIZED_CONTENT");
+        var state = new GameState { Location = "PHO", Timeblock = new Timeblock(2, 2, true), FirstPerson = firstPerson };
+        state.SetLocationCount("GABRIEL", "PHO", 2);
+        state.SetVariable("ValidToTape", 3);
+        state.SetActorLocation("BUCHELLI", "PHO");
+        state.AwardScore("e_202p_pho_overhear_buchelli", 2);
+        state.AwardScore("e_202p_pho_tape_recorder_buchelli", 2);
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+        host.Scheduler = scheduler;
+        host.Add(SheepScriptFile.Parse(File.ReadAllBytes(Path.Combine(root, "scripts", "GLB_ALL.SHP")), "GLB_ALL.SHP"));
+        var scene = new LoadedScene("PHO", new SceneDefinition(SceneInitFile.Parse("[GENERAL]", "PHO.SIF")), null, null, 0);
+        var world = new SceneUpdate(scene, api, new Glances(), new HeadlessSceneSink(), scripts: scheduler);
+        SceneScripting.Attach(api, scene, world: world);
+        var patch = new GK3Reborn.Game.Mechanisms.RoomPatches("PHO", world, api);
+        patch.AfterOpening();
+        patch.Advance(0.1);
+        for (int frame = 0; frame < 600 && scheduler.Count > 0; frame++)
+        {
+            world.Advance(1.0 / 60);
+        }
+        Assert.Equal(0, scheduler.Count);
+        Assert.Equal(5, state.GetVariable("FiveMinTimer202p"));
+        Assert.Equal("LBY", state.GetActorLocation("BUCHELLI"), ignoreCase: true);
+        Assert.False(state.GetFlag("FiveMinTimerPhone"));
+        Assert.False(state.ForcedCameraCuts);
+    }
+
+    [Theory]
     [InlineData("MS3", "GabListenLHE", "e_110a_ms3_hoverhear_howard_estelle")]
     [InlineData("MS3", "GabLHEIntro", "e_110a_ms3_talk_howard_estelle_introduce")]
     [InlineData("MS3", "GabLHETresure", "e_110a_ms3_talk_howard_estelle_treasure")]
@@ -34,6 +69,12 @@ public sealed class JournalScriptTests
     [InlineData("PHO110A", "DoPhoneScene1", "e_110a_pho_phone_prince_james")]
     [InlineData("R25_ALL", "Hanger", "e_110a_r25_hanger")]
     [InlineData("R25_ALL", "TakeTape", "e_110a_r25_tape")]
+    [InlineData("PHO202P", "CallJamesNoFreeA", "e_202p_pho_call_prince_james")]
+    [InlineData("PHO202P", "CallJamesNoFreeB", "e_202p_pho_call_prince_james")]
+    [InlineData("PHO202P", "CallJamesNoFreeC", "e_202p_pho_call_prince_james")]
+    [InlineData("PHO202P", "CallJamesFreeA", "e_202p_pho_call_prince_james")]
+    [InlineData("PHO202P", "CallJamesFreeB", "e_202p_pho_call_prince_james")]
+    [InlineData("PHO202P", "CallJamesFreeC", "e_202p_pho_call_prince_james")]
     public void Original_scripts_reach_their_journal_awards_with_and_without_skipping(string script, string function, string score)
     {
         string? root = FindContent();
@@ -53,7 +94,7 @@ public sealed class JournalScriptTests
                 return null;
             }
 
-            var state = new GameState { Timeblock = new Timeblock(1, 10, false) };
+            var state = new GameState { Timeblock = script == "PHO202P" ? new Timeblock(2, 2, true) : new Timeblock(1, 10, false) };
             var animations = new AnimationLibrary(Read);
             var api = new Gk3SheepApi(state) { Animations = animations };
             var host = new ScriptHost(api);
@@ -70,7 +111,8 @@ public sealed class JournalScriptTests
             api.Register("IsActorNear", _ => SheepValue.FromInt(1));
             SheepThread? thread = host.Run(script, function);
             Assert.NotNull(thread);
-            for (int frame = 0; frame < 36_000 && scheduler.Count > 0; frame++)
+            int frame = 0;
+            for (; frame < 36_000 && scheduler.Count > 0; frame++)
             {
                 world.Advance(1.0 / 60);
                 if (skipping)
@@ -80,6 +122,10 @@ public sealed class JournalScriptTests
                 audio.Update(1.0 / 60);
             }
             Assert.Equal(SheepThreadState.Completed, thread.State);
+            if (script == "PHO202P" && skipping)
+            {
+                Assert.True(frame < 30 * 60, $"Skipped telephone report still took {frame / 60.0:F1}s");
+            }
             Assert.True(state.HasScored(score), $"{script}:{function}, skipping={skipping}, awards: {string.Join(", ", state.Scored)}");
         }
     }

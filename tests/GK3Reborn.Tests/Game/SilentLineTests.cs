@@ -11,6 +11,54 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SilentLineTests
 {
+    [Theory]
+    [InlineData("StartVoiceOver")]
+    [InlineData("StartDialogue")]
+    [InlineData("StartDialogueNoFidgets")]
+    [InlineData("StartYak")]
+    public void Skipping_a_direct_action_releases_its_wait_without_advancing_game_timers(string call)
+    {
+        var state = new GK3Reborn.Game.GameState();
+        var api = new GK3Reborn.Game.Gk3SheepApi(state)
+        {
+            Animations = new AnimationLibrary(_ => "[HEADER]\n45\n"),
+        };
+        var scene = new GK3Reborn.Game.LoadedScene("TEST",
+            new GK3Reborn.Game.SceneDefinition(GK3Reborn.Formats.Scenes.SceneInitFile.Parse("[GENERAL]", "TEST.SIF")), null, null, 0);
+        var world = new GK3Reborn.Game.SceneUpdate(scene, api, new GK3Reborn.Game.Actors.Glances(),
+            new GK3Reborn.Rendering.HeadlessSceneSink());
+        var audio = Audio(new Recorder());
+        GK3Reborn.Game.SceneScripting.Attach(api, scene, world: world, audio: audio);
+        var actions = new GK3Reborn.Game.ActionResolver(api);
+        string args = call == "StartYak" ? "\"YAK1\"" : "\"YAK1\",1";
+        actions.Add(GK3Reborn.Formats.Actions.NvcFile.Parse(
+            $"TEST,LOOK,ALL,script={{wait {call}({args});}}", "TEST.NVC", new GK3Reborn.Foundation.Diagnostics.DiagnosticBag()));
+        new GK3Reborn.Game.ActionRunner(api).Run(actions.Find("TEST", "LOOK")!);
+        state.Timers.Set("SCENE", "LATER", 100);
+        Assert.True(world.Acting);
+        Assert.True(audio.Skip());
+        world.Advance(0.01);
+        Assert.False(world.Acting);
+        Assert.Equal(99.99, Assert.Single(state.Timers.Pending).SecondsRemaining, 5);
+    }
+
+    [Fact]
+    public void Queued_lines_retain_their_run_identity_and_report_the_final_line()
+    {
+        var audio = Audio(new Recorder());
+        var skipped = new List<(GK3Reborn.Game.DialogueRun Run, bool Last)>();
+        audio.DialogueSkipped = lines => skipped.AddRange(lines.Select(line => (line.Run, line.LastLine)));
+        audio.Speak("YAK1", 2);
+        var run = audio.LastRun;
+        audio.Skip();
+        audio.Skip();
+        Assert.Equal(2, skipped.Count);
+        Assert.Same(run, skipped[0].Run);
+        Assert.Same(run, skipped[1].Run);
+        Assert.False(skipped[0].Last);
+        Assert.True(skipped[1].Last);
+    }
+
     [Fact]
     public void Starting_dialogue_does_not_replace_the_scripts_explicit_camera_cut()
     {

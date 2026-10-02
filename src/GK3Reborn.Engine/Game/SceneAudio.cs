@@ -1,4 +1,5 @@
 ﻿using System.Numerics;
+using GK3Reborn.Sheep;
 using GK3Reborn.Audio;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
@@ -14,7 +15,11 @@ public sealed class SceneAudio
     private readonly SoundLibrary _sounds;
     private readonly AnimationLibrary _animations;
     private readonly IAudioBackend _backend;
-    private readonly Queue<string> _speaking = new();
+    private readonly Queue<(string Plate, DialogueRun Run)> _speaking = new();
+    private DialogueRun? _speakingRun;
+
+    /// <summary>The most recently requested run of speech.</summary>
+    public DialogueRun? LastRun { get; private set; }
 
     /// <summary>A soundtrack the room is running, and the sound it has going.</summary>
     /// <param name="program">The list being walked.</param>
@@ -77,6 +82,7 @@ public sealed class SceneAudio
     /// Voices a later line started over, left to finish rather than cut off.
     /// </summary>
     private readonly List<AudioVoice> _chorus = [];
+    private readonly List<(AudioVoice Voice, DialogueRun Run, double Remaining)> _chorusLines = [];
     private readonly List<AudioVoice> _oneShots = [];
 
     /// <summary>
@@ -118,6 +124,9 @@ public sealed class SceneAudio
 
     /// <summary>Notifies the script clock of the unplayed portion of a skipped line.</summary>
     public Action<double>? Skipped { get; set; }
+
+    /// <summary>Notifies the script clock which line was skipped and whether its run is finished.</summary>
+    public Action<IReadOnlyList<DialogueSkip>>? DialogueSkipped { get; set; }
 
     /// <summary>How many earlier lines are still sounding under the one being said.</summary>
     public int Chorus => _chorus.Count;
@@ -393,7 +402,9 @@ public sealed class SceneAudio
     /// <param name="plate">The licence plate the script gave.</param>
     /// <param name="lines">How many lines, itself included.</param>
     /// <returns>How many of them were found.</returns>
-    public int Speak(string plate, int lines)
+    /// <param name="thread">The script starting these lines, when they come from compiled Sheep.</param>
+    /// <param name="animation">The playback whose dialogue node started these words.</param>
+    public int Speak(string plate, int lines, SheepThread? thread = null, SheepWaitWork? animation = null)
     {
         ArgumentNullException.ThrowIfNull(plate);
 
@@ -423,17 +434,18 @@ public sealed class SceneAudio
         _stem = plate[..^1];
         _next = Sequence(plate[^1]);
 
-        return Continue(lines);
+        return Enqueue(lines, start: true, new DialogueRun(thread, animation));
     }
 
     /// <summary>Continue an authored conversation without cutting off its preceding line.</summary>
-    public int Dialogue(string plate, int lines) => FollowsSpeech(plate) ? Enqueue(lines, start: false) : Speak(plate, lines);
+    public int Dialogue(string plate, int lines, SheepThread? thread = null) =>
+        FollowsSpeech(plate) ? Enqueue(lines, start: false, new DialogueRun(thread)) : Speak(plate, lines, thread);
 
     /// <summary>Includes unfinished preceding lines when the script resumes the same conversation.</summary>
     public double SecondsOfDialogue(string plate, int lines) =>
         _animations.SecondsOfVoiceOver(plate, lines) + (FollowsSpeech(plate)
             ? Math.Max(0, (_sounding?.Duration ?? 0) - _spoken) +
-              _speaking.Sum(yak => _animations.SecondsOf(yak))
+              _speaking.Sum(yak => _animations.SecondsOf(yak.Plate))
             : 0);
 
     // ARM202P starts two lines without waiting, then waits on Mosely's gestures.
@@ -446,11 +458,18 @@ public sealed class SceneAudio
     /// <summary>Says the next lines of whatever was last started.</summary>
     /// <param name="lines">How many more to say.</param>
     /// <returns>How many of them were found.</returns>
-    public int Continue(int lines)
-        => Enqueue(lines, start: true);
+    /// <param name="thread">The script starting these lines, when they come from compiled Sheep.</param>
+    public int Continue(int lines, SheepThread? thread = null)
+        => Enqueue(lines, start: true, new DialogueRun(thread));
 
-    private int Enqueue(int lines, bool start)
+    private int Enqueue(int lines, bool start, DialogueRun run)
     {
+        if (!start)
+        {
+            run.Preceding = _speaking.Select(line => line.Run)
+                .Concat(_speakingRun is { } preceding ? [preceding] : []).Distinct().ToArray();
+        }
+        LastRun = run;
         if (_stem is not { Length: > 0 } stem)
         {
             return 0;
@@ -466,7 +485,7 @@ public sealed class SceneAudio
 
             if (_animations.Read(yak) is not null)
             {
-                _speaking.Enqueue(yak);
+                _speaking.Enqueue((yak, run));
                 found++;
             }
         }
@@ -514,7 +533,14 @@ public sealed class SceneAudio
             return false;
         }
 
-        Skipped?.Invoke(Math.Max(0, (_sounding?.Duration ?? 0) - _spoken));
+        double remaining = Math.Max(0, (_sounding?.Duration ?? 0) - _spoken);
+        Skipped?.Invoke(remaining);
+        var skipped = _chorusLines.Select(line => new DialogueSkip(line.Run, line.Remaining, true)).ToList();
+        if (_speakingRun is { } run)
+        {
+            skipped.Add(new DialogueSkip(run, remaining, !_speaking.Any(line => ReferenceEquals(line.Run, run))));
+        }
+        DialogueSkipped?.Invoke(skipped);
 
         if (_line.Exists)
         {
@@ -523,6 +549,7 @@ public sealed class SceneAudio
         }
 
         Quieten(_chorus);
+        _chorusLines.Clear();
 
         _silent = 0;
 
@@ -549,6 +576,10 @@ public sealed class SceneAudio
         if (_line.Exists)
         {
             _chorus.Add(_line);
+            if (_speakingRun is { } run)
+            {
+                _chorusLines.Add((_line, run, Math.Max(0, (_sounding?.Duration ?? 0) - _spoken)));
+            }
             _line = AudioVoice.None;
         }
 
@@ -581,6 +612,7 @@ public sealed class SceneAudio
         }
 
         Quieten(_chorus);
+        _chorusLines.Clear();
 
         _silent = 0;
 
@@ -932,6 +964,12 @@ public sealed class SceneAudio
         Following();
         Rising(seconds);
         Spent();
+        _chorusLines.RemoveAll(line => !_chorus.Contains(line.Voice));
+        for (int i = 0; i < _chorusLines.Count; i++)
+        {
+            var line = _chorusLines[i];
+            _chorusLines[i] = (line.Voice, line.Run, Math.Max(0, line.Remaining - seconds));
+        }
 
         // A soundtrack is a five-minute MP3 and decoding one is a quarter of a second, which
         // used to sit between a room being ready and the player seeing it. It is decoded
@@ -1010,7 +1048,8 @@ public sealed class SceneAudio
 
         while (_speaking.Count > 0)
         {
-            string yak = _speaking.Dequeue();
+            (string yak, DialogueRun run) = _speaking.Dequeue();
+            _speakingRun = run;
             AnimationFile? animation = _animations.Read(yak);
 
             if (animation is null)

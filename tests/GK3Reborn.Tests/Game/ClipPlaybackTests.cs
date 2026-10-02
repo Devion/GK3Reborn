@@ -19,6 +19,58 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ClipPlaybackTests
 {
+    [Fact]
+    public void Advancing_one_playback_reaches_its_final_pose_without_advancing_background_events()
+    {
+        (SceneUpdate skipped, Sink skippedSink) = World("Gesture", "door_Gesture", "door");
+        (SceneUpdate normal, Sink normalSink) = World("Gesture", "door_Gesture", "door");
+        normal.Play("Gesture");
+        normal.Advance(3);
+        skipped.Play("Gesture");
+        var playback = Assert.IsType<GK3Reborn.Sheep.SheepWaitWork>(skipped.LastAnimationWork);
+        skipped.Animations = new AnimationLibrary(_ =>
+            "[HEADER]\n90\n[GK3]\n1\n30,PlaySoundTrack,Background\n");
+        List<string> music = [];
+        skipped.Music = cue => music.Add(cue.Track!);
+        skipped.Play("Background");
+        playback.Advance(3);
+        Assert.Equal(normalSink.Poses[(0, 0)], skippedSink.Poses[(0, 0)]);
+        Assert.Equal(0, skipped.Animating);
+        Assert.Empty(music);
+        skipped.Advance(2.1);
+        Assert.Equal(["Background"], music);
+    }
+
+    [Fact]
+    public void Skipped_playback_applies_authored_events_in_order_once()
+    {
+        SceneUpdate world = Moment("30,PlaySoundTrack,Second\n15,PlaySoundTrack,First\n0,CAMERA,Opening\n");
+        List<string> music = [];
+        world.Music = cue => music.Add(cue.Track!);
+        world.Play("ECOFFEEPOT");
+        world.LastAnimationWork!.Advance(10);
+        Assert.Equal(["First", "Second"], music);
+        Assert.Equal(0, world.Animating);
+        world.Advance(10);
+        Assert.Equal(2, music.Count);
+    }
+
+    [Fact]
+    public void Advancing_an_animation_line_preserves_the_next_authored_line()
+    {
+        SceneUpdate world = Moment("15,DIALOGUE,FIRST1\n60,DIALOGUE,SECOND1\n90,CAMERA,End\n");
+        List<string> spoken = [];
+        world.Line = line => spoken.Add(line.Plate);
+        world.Play("ECOFFEEPOT");
+        world.Advance(1.1);
+        Assert.Equal(["FIRST1"], spoken);
+        Assert.True(world.LastAnimationWork!.Speaks);
+        world.LastAnimationWork.Advance(2);
+        Assert.Equal(["FIRST1"], spoken);
+        world.Advance(1);
+        Assert.Equal(["FIRST1", "SECOND1"], spoken);
+    }
+
     [Theory]
     [InlineData("cs2stropn19")]
     [InlineData("cs2stropn20")]

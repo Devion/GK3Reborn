@@ -8,6 +8,7 @@ public sealed class RoomPatches : SceneMechanism
     private readonly string _room;
     private bool _emilioTimerObserved;
     private bool _emilioDepartureRecovered;
+    private bool _buchelliDepartureStarted;
 
     /// <summary>Creates the patch for one room.</summary>
     /// <param name="room">Which room, as the game names the location.</param>
@@ -35,6 +36,21 @@ public sealed class RoomPatches : SceneMechanism
     /// <inheritdoc/>
     public override void Advance(double seconds)
     {
+        if (_room is "PHO" or "LBY" && RecordedBuchelli() &&
+            Story.GetVariable("ValidToTape") >= 4 && !_buchelliDepartureStarted &&
+            Story.Screens.InTheRoom && !World.Occupied && !World.Performing("Buchelli"))
+        {
+            // The recording is complete. Use the authored departure so that actor
+            // locations, the curtain and the lobby conversation all change together.
+            _buchelliDepartureStarted = true;
+            Api.Perform("CallSheep",
+            [
+                Sheep.SheepValue.FromString("glb_all"),
+                Sheep.SheepValue.FromString("FiveMinTimer"),
+            ]);
+            _did = "started Buchelli's departure after the completed recording";
+        }
+
         if (_room != "HAL" || _emilioDepartureRecovered || !WaitingForEmilio())
         {
             return;
@@ -106,6 +122,14 @@ public sealed class RoomPatches : SceneMechanism
     /// <summary>Reapply visibility after opening animations and the enter action.</summary>
     public void AfterOpening()
     {
+        if (_room is "PHO" or "LBY" && RecordedBuchelli() &&
+            (_room == "LBY" || Story.GetLocationCount(Story.Ego, "PHO") > 1))
+        {
+            // Leaving PHO discards its background thread. Re-entry does not restart
+            // that first-visit-only script, including its final ValidToTape update.
+            Story.SetVariable("ValidToTape", 4);
+        }
+
         if (_room == "DIN" &&
             (Story.Timeblock == new Timeblock(3, 3, true) || Story.Timeblock == new Timeblock(3, 6, true)) &&
             World.ActorNamed("mad") is { } madeline)
@@ -237,6 +261,12 @@ public sealed class RoomPatches : SceneMechanism
         Story.Timeblock == new Timeblock(3, 6, true) &&
         Story.GetVariable("EmilioPath") == 0 &&
         string.Equals(Story.GetActorLocation("EMILIO"), "R27", StringComparison.OrdinalIgnoreCase);
+
+    private bool RecordedBuchelli() =>
+        Story.Timeblock == new Timeblock(2, 2, true) &&
+        Story.GetVariable("FiveMinTimer202p") < 5 &&
+        Story.HasScored("e_202p_pho_overhear_buchelli") &&
+        Story.HasScored("e_202p_pho_tape_recorder_buchelli");
 
     private bool HasEmilioTimer() => Story.Timers.Pending.Any(timer =>
         timer.Noun.Equals("GRACE", StringComparison.OrdinalIgnoreCase) &&

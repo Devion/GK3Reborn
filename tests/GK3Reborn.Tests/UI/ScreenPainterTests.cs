@@ -12,6 +12,39 @@ namespace GK3Reborn.Tests.UI;
 /// </summary>
 public sealed class ScreenPainterTests
 {
+    [Fact]
+    public void Journal_scroll_reaches_hints_below_the_page_and_clips_hidden_buttons()
+    {
+        var painter = Painter();
+        var time = new Timeblock(2, 2, true);
+        GK3Reborn.Game.Story.JournalEntry[] entries = Enumerable.Range(1, 30).Select(i =>
+        {
+            var quest = new GK3Reborn.Game.Story.Quest(time, "Objective " + i,
+                GK3Reborn.Game.Story.QuestTest.Every, [], [], i);
+            return new GK3Reborn.Game.Story.JournalEntry(quest, quest.Title, false, 0,
+                [new string('x', 250)], true);
+        }).ToArray();
+        var view = new ScreenView(new Screen(ScreenKind.Journal), [], null,
+            Journal: [new GK3Reborn.Game.Story.JournalDay(2,
+                [new GK3Reborn.Game.Story.JournalChapter(time, "Afternoon", true, false, entries)])]);
+        string first = "hint:" + GK3Reborn.Game.Story.Journal.Key(entries[0].Quest);
+        string last = "hint:" + GK3Reborn.Game.Story.Journal.Key(entries[^1].Quest);
+        painter.Build(view, Width, Height);
+        Assert.NotNull(Middle(painter, first));
+        Assert.Null(Middle(painter, last));
+        Assert.NotNull(Middle(painter, "journal:down"));
+
+        painter.JournalWheel(-10000);
+        painter.Build(view, Width, Height);
+        Assert.Null(Middle(painter, first));
+        Assert.NotNull(Middle(painter, last));
+
+        painter.JournalWheel(10000);
+        painter.Build(view, Width, Height);
+        Assert.NotNull(Middle(painter, first));
+        Assert.Null(Middle(painter, last));
+    }
+
     private const int Width = 1280;
     private const int Height = 720;
 

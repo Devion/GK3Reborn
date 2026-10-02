@@ -11,6 +11,36 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class JournalTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Guests_fingerprints_accept_Buchellis_existing_suitcase_print_without_extra_points(bool suitcase)
+    {
+        var story = new GameState { Timeblock = new Timeblock(2, 2, true) };
+        var api = new Gk3SheepApi(story);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_202p_r25_fingerprint_kit_soda_bottle")]);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_202p_lby_fingerprint_kit_wilke_glass")]);
+        if (suitcase)
+        {
+            story.SetFlag("GotSuitcaseBuchelliPrint");
+        }
+        int score = story.Score;
+        var restored = new GameState();
+        restored.Restore(story.Capture());
+        JournalEntry entry = new Journal(restored).Read().SelectMany(d => d.Chapters).SelectMany(c => c.Entries)
+            .Single(e => e.Quest.TitleKey == "quest.202P.10");
+        Assert.Equal(suitcase, entry.Done);
+        Assert.Equal(suitcase ? 1f : 2f / 3, entry.Progress);
+        Assert.Equal(score, restored.Score);
+        Assert.False(restored.HasScored("e_202p_lby_fingerprint_kit_buchelli_glass"));
+        if (!suitcase)
+        {
+            new Gk3SheepApi(restored).Invoke("ChangeScore", [SheepValue.FromString("e_202p_lby_fingerprint_kit_buchelli_glass")]);
+            Assert.True(new Journal(restored).Read().SelectMany(d => d.Chapters).SelectMany(c => c.Entries)
+                .Single(e => e.Quest.TitleKey == "quest.202P.10").Done);
+        }
+    }
+
     [Fact]
     public void Library_route_completes_without_opening_the_exterior_cellar_doors()
     {

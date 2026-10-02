@@ -178,6 +178,15 @@ public sealed class ActionRunner
                     _api.Collects is { } collect ? collect(Evaluate) : Empty(Evaluate);
 
                 statements[i] = statements[i] with { Seconds = seconds };
+                if (statements[i].Waited && SheepScheduler.IsDialogue(statements[i].Call))
+                {
+                    _api.ActionDialogue = _api.CurrentDialogue?.Invoke();
+                }
+                else if (statements[i].Waited && SheepScheduler.IsAnimation(statements[i].Call))
+                {
+                    _api.ActionAnimation = _api.CaptureWait(statements[i].Call);
+                }
+
 
                 // Whatever happens to the rest of the action, the action itself is not over
                 // while a script it waited on is still running. Said here as well as through
@@ -259,8 +268,6 @@ public sealed class ActionRunner
         // trigger the player has walked onto, a timer coming due — asks this before it does,
         // the way the original asks its action manager whether an action is playing.
         _api.ActionSeconds = Math.Max(_api.ActionSeconds, outcome.Seconds);
-        _api.ActionWaitsForDialogue = statements.Any(s => s.Seconds > 0) &&
-            statements.Where(s => s.Seconds > 0).All(s => SheepScheduler.IsDialogue(s.Call));
 
         return outcome;
     }

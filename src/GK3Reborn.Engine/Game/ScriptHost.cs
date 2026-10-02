@@ -39,6 +39,7 @@ public sealed class ScriptHost
         // And how anything holding the API can ask whether a call would go anywhere. Set
         // here for the same reason: the scripts live here.
         api.Declares = Declares;
+        api.CurrentThread = () => _vm.Current;
     }
 
     /// <summary>Scripts available to call, by name.</summary>

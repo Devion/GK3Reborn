@@ -45,7 +45,8 @@ public static class SceneScripting
 
         if (audio is not null && world is not null)
         {
-            audio.Skipped = world.SkipDialogue;
+            audio.DialogueSkipped = world.SkipDialogue;
+            api.CurrentDialogue = () => audio.LastRun;
             Speak(api, audio, scene, world);
         }
 
@@ -553,7 +554,7 @@ public static class SceneScripting
                 audio.Hush();
             }
 
-            audio.Speak(plate, lines);
+            audio.Speak(plate, lines, api.CurrentThread?.Invoke());
         }
 
         api.Register("PlaySound", arguments =>
@@ -592,7 +593,7 @@ public static class SceneScripting
                     }
                     else
                     {
-                        audio.Dialogue(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1);
+                        audio.Dialogue(arguments[0].AsString(), arguments.Count > 1 ? arguments[1].AsInt() : 1, api.CurrentThread?.Invoke());
                     }
                 }
 
@@ -607,7 +608,7 @@ public static class SceneScripting
         {
             api.Register(more, arguments =>
             {
-                audio.Continue(arguments.Count > 0 ? arguments[0].AsInt() : 1);
+                audio.Continue(arguments.Count > 0 ? arguments[0].AsInt() : 1, api.CurrentThread?.Invoke());
                 return SheepValue.FromInt(0);
             });
         }
@@ -616,7 +617,7 @@ public static class SceneScripting
         world.Music = change => audio.Cue(change);
 
         // And what an *animation* says.
-        world.Line = spoken => audio.Speak(spoken.Plate, 1);
+        world.Line = spoken => audio.Speak(spoken.Plate, 1, world.LineThread, world.LineAnimation);
 
         // A yak names one line outright where a voice-over names a run of them.
         api.Register("StartYak", arguments =>
@@ -1374,6 +1375,8 @@ public static class SceneScripting
     private static void Animating(Gk3SheepApi api, SceneUpdate world)
     {
         api.Plays = (name, repeat) => world.Play(name, repeat);
+        api.WaitWork = name => name.ToUpperInvariant() is "STARTANIMATION" or "STARTMOVEANIMATION" or "STARTMOM"
+            ? world.LastAnimationWork : null;
 
         // What lets an action's approach finish before its script runs.
         api.Defers = world.After;

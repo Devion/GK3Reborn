@@ -75,7 +75,7 @@ public sealed class SceneInteraction
         "RED_ROBES_IN_WARD" or "HERM_SYMBOLS_ON_ROBES" when _scene.Name == "CS3" =>
             _api.State.GetNounVerbCount("WARDROBE", "OPEN") == 2,
         "BABY_FOOT_IN_TRUNK" or "BLANKET_IN_TRUNK" or "OTHER_IN_TRUNK" when _scene.Name == "CS3" =>
-            _api.State.GetNounVerbCount("TRUNK", "OPEN") > 0,
+            _api.State.GetNounVerbCount("TRUNK", "OPEN") == 2,
         "BOOK_IN_DRAWER" when _scene.Name == "CS2" =>
             _api.State.GetNounVerbCount("DESK_DRAWER", "OPEN") > 0,
         _ => true,

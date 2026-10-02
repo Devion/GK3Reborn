@@ -164,11 +164,18 @@ public sealed class Journal
         IReadOnlyList<string> lines = Said(quest);
         int shown = Math.Min(_story.HintsAsked(Key(quest)), lines.Count);
 
+        // Buchelli's glass gives no new print (or score) when Gabriel already lifted
+        // his suitcase print. Count that evidence without awarding duplicate points.
+        bool Collected(string score) => _story.HasScored(score) ||
+            (quest.TitleKey == "quest.202P.10" &&
+             score == "e_202p_lby_fingerprint_kit_buchelli_glass" &&
+             _story.GetFlag("GotSuitcaseBuchelliPrint"));
+
         return new JournalEntry(
             quest,
             Text.Say(quest.TitleKey, quest.Title),
-            quest.Done(_story.HasScored, past || StoryDone(quest)),
-            quest.Progress(_story.HasScored, past || StoryDone(quest)),
+            quest.Done(Collected, past || StoryDone(quest)),
+            quest.Progress(Collected, past || StoryDone(quest)),
             [.. lines.Take(shown)],
             shown < lines.Count);
     }

@@ -263,6 +263,9 @@ public sealed class Faces
         }
     }
 
+    /// <summary>Advances only the expression most recently started by a script.</summary>
+    public Action<double>? LastExpressionAdvance { get; private set; }
+
     /// <summary>
     /// Starts an expression, if it is one and if its subject is in the room.
     /// </summary>
@@ -273,6 +276,18 @@ public sealed class Faces
         ArgumentNullException.ThrowIfNull(animation);
 
         bool taken = false;
+        object playback = new();
+        List<Face> playing = [];
+        LastExpressionAdvance = seconds =>
+        {
+            foreach (Face face in playing)
+            {
+                if (ReferenceEquals(face.ExpressionPlayback, playback) && face.Playing is not null)
+                {
+                    Blink(face, seconds);
+                }
+            }
+        };
 
         void Start(string actor)
         {
@@ -280,6 +295,8 @@ public sealed class Faces
             {
                 face.Playing = animation;
                 face.Played = 0;
+                face.ExpressionPlayback = playback;
+                if (!playing.Contains(face)) { playing.Add(face); }
                 taken = true;
             }
         }
@@ -372,6 +389,7 @@ public sealed class Faces
             return;
         }
 
+        face.ExpressionPlayback = null;
         face.Playing = _animations.Read(Choose(face.Config.Blinks));
         face.Played = 0;
 
@@ -751,6 +769,7 @@ public sealed class Faces
 
         /// <summary>The expression they are in the middle of — a blink or a brow — if any.</summary>
         public AnimationFile? Playing { get; set; }
+        public object? ExpressionPlayback { get; set; }
 
         /// <summary>How far into it they are, in seconds.</summary>
         public double Played { get; set; }

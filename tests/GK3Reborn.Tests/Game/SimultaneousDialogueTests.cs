@@ -3,6 +3,8 @@ using GK3Reborn.Audio;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Audio;
 using GK3Reborn.Game;
+using GK3Reborn.Sheep;
+using GK3Reborn.Tests.Sheep;
 using Xunit;
 
 namespace GK3Reborn.Tests.Game;
@@ -130,6 +132,49 @@ public sealed class SimultaneousDialogueTests
         });
 
         return new SceneAudio(sounds, animations, device);
+    }
+
+    private sealed class ChorusApi(SceneAudio audio) : ISheepApi
+    {
+        public SheepVirtualMachine Machine { get; set; } = null!;
+        public SheepValue Invoke(string name, IReadOnlyList<SheepValue> arguments)
+        {
+            audio.Speak(name == "StartDialogue" ? "GABE1" : "MOSE1", 1, Machine.Current);
+            return SheepValue.FromInt(0);
+        }
+        public bool IsWaitable(string name) => true;
+        public double SecondsFor(string name, IReadOnlyList<SheepValue> arguments) =>
+            name == "StartDialogue" ? 19 / 15.0 : 16 / 15.0;
+        public object? CaptureWaitOwner(string name) => audio.LastRun;
+    }
+
+    [Fact]
+    public void Skipping_overlapping_speakers_releases_each_owned_wait()
+    {
+        var device = new Recorder();
+        SceneAudio audio = Audio(device);
+        var api = new ChorusApi(audio);
+        var vm = new SheepVirtualMachine(api);
+        api.Machine = vm;
+        var scheduler = new SheepScheduler(vm);
+        var builder = new ScriptBuilder().Import("StartDialogue").Import("StartVoiceOver");
+        builder.Function("Main$").Op(SheepOpcode.BeginWait)
+            .Op(SheepOpcode.PushI, 0).Op(SheepOpcode.CallSysFunctionV, 0).Op(SheepOpcode.Pop)
+            .Op(SheepOpcode.PushI, 0).Op(SheepOpcode.CallSysFunctionV, 1).Op(SheepOpcode.Pop)
+            .Op(SheepOpcode.EndWait).Op(SheepOpcode.ReturnV);
+        SheepThread thread = vm.Execute(builder.Build(), "Main$");
+        scheduler.Park(thread);
+        IReadOnlyList<DialogueSkip> skipped = [];
+        audio.DialogueSkipped = lines => skipped = lines;
+        audio.Update(0.1);
+        scheduler.Advance(0.1);
+        Assert.True(audio.Skip());
+        Assert.Equal(2, skipped.Count);
+        Assert.NotSame(skipped[0].Run, skipped[1].Run);
+        scheduler.SkipDialogue(skipped.Max(line => line.Seconds), thread, true, skipped);
+        scheduler.Advance(0);
+        Assert.Equal(SheepThreadState.Completed, thread.State);
+        Assert.Equal(0, device.Playing);
     }
 
     [Fact]
