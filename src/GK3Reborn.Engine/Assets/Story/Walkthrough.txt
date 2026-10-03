@@ -231,7 +231,7 @@ Chateau de Blanchefort	Folow Estelle when she passes by and you'll arrive in her
 Estelle's spot	Ask her about Lady Howard (2) and the site (2). She'll get annoyed.	4/466
 Room 25	Create a fake ID on S.I.D.N.E.Y. Choose the New York Times Reporter's ID.	2/468
 Chateau de Serres	Show the receptionist your ID.	5/473
-Ask Montreaux about grapes (2), holy grail (2), treasure (2), and freemasons (2).	8/481
+Ask Montreaux about grapes (2), holy grail (2), treasure (2), and murders (2).	8/481
 Room 25	Final scene
 
 Day 2: 5 PM - 10 PM (Grace)

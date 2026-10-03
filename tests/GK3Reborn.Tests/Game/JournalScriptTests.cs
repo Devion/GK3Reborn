@@ -2,6 +2,7 @@ using System.Numerics;
 using GK3Reborn.Audio;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Audio;
+using GK3Reborn.Formats.Actions;
 using GK3Reborn.Formats.Scenes;
 using GK3Reborn.Game;
 using GK3Reborn.Game.Actors;
@@ -15,6 +16,53 @@ namespace GK3Reborn.Tests.Game;
 /// Requires a local extraction; no game assets are included in the test assembly.</summary>
 public sealed class JournalScriptTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Completing_Montreaux_topics_enables_the_original_hotel_finale(bool grapesLast)
+    {
+        string? root = FindContent();
+        Assert.SkipUnless(root is not null, "needs ContentWorkspace/normalized or GK3_NORMALIZED_CONTENT");
+        var state = new GameState { Location = "CS8", Timeblock = new Timeblock(2, 2, true) };
+        state.SetTopicCount("JEAN", "T_WAKEUPCALL", 1);
+        state.SetNounVerbCount("Estelle", "Follow", 1);
+        state.SetVariable("FiveMinTimer202p", 6);
+        state.SetTopicCount("GRACE_N_MOSE", "T_BOOK", 2);
+        var api = new Gk3SheepApi(state);
+        var host = new ScriptHost(api);
+        var scheduler = new SheepScheduler(host.Machine);
+        host.Scheduler = scheduler;
+        host.Add(SheepScriptFile.Parse(File.ReadAllBytes(Path.Combine(root, "scripts", "CS8202P.SHP")), "CS8202P.SHP"));
+        var scene = new LoadedScene("CS8", new SceneDefinition(SceneInitFile.Parse("[GENERAL]", "CS8.SIF")), null, null, 0);
+        var world = new SceneUpdate(scene, api, new Glances(), new HeadlessSceneSink(), scripts: scheduler);
+        SceneScripting.Attach(api, scene, world: world);
+        var topics = NvcFile.Parse(File.ReadAllText(Path.Combine(root, "actions", "CS8202P.NVC")), "CS8202P.NVC", new())
+            .Actions.Where(a => a.Noun == "MONTREAUX" && a.Verb.StartsWith("T_", StringComparison.Ordinal)).ToList();
+        if (!grapesLast)
+        {
+            topics = topics.OrderBy(a => a.Verb == "T_VITICULTURE" ? 0 : 1).ToList();
+        }
+        Assert.Equal(8, topics.Count);
+        foreach (NvcAction action in topics)
+        {
+            int before = state.GetTopicCount(action.Noun, action.Verb);
+            Assert.True(new ActionRunner(api).Run(action).Ran);
+            for (int frame = 0; frame < 36_000 && (scheduler.Count > 0 || state.GetTopicCount(action.Noun, action.Verb) == before); frame++)
+            {
+                world.Advance(1.0 / 60);
+            }
+            world.Advance(1.0 / 60);
+            Assert.Equal(0, scheduler.Count);
+            Assert.Equal(before + 1, state.GetTopicCount(action.Noun, action.Verb));
+        }
+        Assert.Equal(3, state.GetTopicCount("MONTREAUX", "T_VITICULTURE"));
+        Assert.Equal("CSE", state.Location, ignoreCase: true);
+        state.Location = "R25";
+        var resolver = new ActionResolver(api);
+        resolver.Add(NvcFile.Parse(File.ReadAllText(Path.Combine(root, "actions", "R25202P.NVC")), "R25202P.NVC", new()));
+        Assert.Equal("END_TIME_BLOCK", resolver.Find("SCENE", "ENTER", "GABRIEL")?.Case);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

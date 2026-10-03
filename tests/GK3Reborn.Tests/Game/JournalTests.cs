@@ -11,6 +11,37 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class JournalTests
 {
+    [Fact]
+    public void Montreaux_objective_counts_the_printed_identity_and_does_not_require_optional_tire_tracks()
+    {
+        var story = new GameState { Timeblock = new Timeblock(2, 2, true) };
+        var api = new Gk3SheepApi(story);
+        string[] visit =
+        [
+            "e_202p_cse_reporter_montreaux",
+            "e_202p_cse_talk_montreaux_grail",
+            "e_202p_cse_talk_montreaux_murder",
+            "e_202p_cse_talk_montreaux_viticulture_2nd_time",
+            "e_202p_cse_talk_montreaux_viticulture_3rd_time",
+        ];
+        foreach (string score in visit)
+        {
+            api.Invoke("ChangeScore", [SheepValue.FromString(score)]);
+        }
+        JournalEntry Read(GameState state) => new Journal(state).Read()
+            .SelectMany(d => d.Chapters).SelectMany(c => c.Entries)
+            .Single(e => e.Quest.TitleKey == "quest.202P.13");
+        Assert.False(Read(story).Done);
+        Assert.Equal(5f / 6, Read(story).Progress);
+        api.Invoke("ChangeScore", [SheepValue.FromString("e_sidney_makeid_print")]);
+        var restored = new GameState();
+        restored.Restore(story.Capture());
+        Assert.True(Read(restored).Done);
+        Assert.Equal(1f, Read(restored).Progress);
+        Assert.False(restored.HasScored("e_202p_cse_tire_tread_match"));
+        Assert.Equal(story.Score, restored.Score);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

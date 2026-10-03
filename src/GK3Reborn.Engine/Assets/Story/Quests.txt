@@ -129,7 +129,7 @@ Talk it over with Grace | score:e_202p_r25_talk_grace_grail,e_202p_r25_talk_grac
 Collect the guests' fingerprints | score:e_202p_r25_fingerprint_kit_soda_bottle,e_202p_lby_fingerprint_kit_wilke_glass,e_202p_lby_fingerprint_kit_buchelli_glass | 19,20,22
 Arrange to be woken in the night | score:e_202p_lby_jean_wakeup_call | 21
 Follow Estelle | score:e_202p_map_follow_howard,e_202p_wod_talk_estelle_howard,e_202p_wod_talk_estelle_site_2nd_time | 23,24
-Get in to see Montreaux | score:e_202p_cse_reporter_montreaux,e_202p_cse_tire_tread_match,e_202p_cse_talk_montreaux_grail,e_202p_cse_talk_montreaux_murder,e_202p_cse_talk_montreaux_viticulture_2nd_time,e_202p_cse_talk_montreaux_viticulture_3rd_time | 25,26,27,28
+Get in to see Montreaux | score:e_sidney_makeid_print,e_202p_cse_reporter_montreaux,e_202p_cse_talk_montreaux_grail,e_202p_cse_talk_montreaux_murder,e_202p_cse_talk_montreaux_viticulture_2nd_time,e_202p_cse_talk_montreaux_viticulture_3rd_time | 25,26,27,28
 
 [205P]
 Work through what Gabriel brought back | story | 1,2,3,4,5
