@@ -160,6 +160,9 @@ public sealed class Gk3SheepApi : ISheepApi
     /// <inheritdoc/>
     public bool IsWaitable(string name) => _waitable.Contains(name);
 
+    /// <summary>Whether a script call has a registered handler, without executing it.</summary>
+    public bool KnowsFunction(string name) => _functions.ContainsKey(name);
+
     /// <summary>How long the next lines of the conversation in progress take.</summary>
     public Func<int, double>? ContinuedSeconds { get; set; }
 

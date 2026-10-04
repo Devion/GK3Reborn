@@ -25,7 +25,9 @@ public sealed class JournalScriptTests
         Assert.SkipUnless(root is not null, "needs ContentWorkspace/normalized or GK3_NORMALIZED_CONTENT");
         var state = new GameState { Location = "CS8", Timeblock = new Timeblock(2, 2, true) };
         state.SetTopicCount("JEAN", "T_WAKEUPCALL", 1);
-        state.SetNounVerbCount("Estelle", "Follow", 1);
+        DrivingTraffic chase = DrivingTraffic.For(state, DrivingMap.Empty, follow: 6);
+        chase.Skip();
+        chase.Complete(state);
         state.SetVariable("FiveMinTimer202p", 6);
         state.SetTopicCount("GRACE_N_MOSE", "T_BOOK", 2);
         var api = new Gk3SheepApi(state);
@@ -61,6 +63,46 @@ public sealed class JournalScriptTests
         var resolver = new ActionResolver(api);
         resolver.Add(NvcFile.Parse(File.ReadAllText(Path.Combine(root, "actions", "R25202P.NVC")), "R25202P.NVC", new()));
         Assert.Equal("END_TIME_BLOCK", resolver.Find("SCENE", "ENTER", "GABRIEL")?.Case);
+        host.Add(SheepScriptFile.Parse(File.ReadAllBytes(Path.Combine(root, "scripts", "R25_ALL.SHP")), "R25_ALL.SHP"));
+        host.Add(SheepScriptFile.Parse(File.ReadAllBytes(Path.Combine(root, "scripts", "R25202P.SHP")), "R25202P.SHP"));
+        Assert.True(new ActionRunner(api).Run(resolver.Find("SCENE", "ENTER", "GABRIEL")!).Ran);
+        for (int frame = 0; frame < 36_000 && scheduler.Count > 0; frame++)
+        {
+            world.Advance(1.0 / 60);
+        }
+        Assert.Equal(0, scheduler.Count);
+        Assert.Equal(7, state.GetVariable("FiveMinTimer202p"));
+        Assert.Equal(new Timeblock(2, 5, true), GK3Reborn.Game.Story.TimeblockRules.Check(state)?.Next);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_saved_Estelle_chase_enables_the_hotel_finale_only_when_completed(bool completed)
+    {
+        string? root = FindContent();
+        Assert.SkipUnless(root is not null, "needs normalized content");
+        var old = new GameState { Location = "R25", Timeblock = new Timeblock(2, 2, true) };
+        old.SetVariable("FiveMinTimer202p", 6);
+        old.SetTopicCount("GRACE_N_MOSE", "T_BOOK", 2);
+        old.SetTopicCount("MONTREAUX", "T_VITICULTURE", 3);
+        old.SetTopicCount("JEAN", "T_WAKEUPCALL", 1);
+        old.SetNounVerbCount("LADY_HOWARD", "FOLLOW", completed ? 2 : 1);
+        if (completed)
+        {
+            old.AwardScore("e_202p_map_follow_howard", 2);
+        }
+        var restored = new GameState();
+        restored.Restore(old.Capture());
+        restored.Restore(restored.Capture());
+        Assert.Equal(old.Score, restored.Score);
+        Assert.Equal(completed ? 2 : 0, restored.GetNounVerbCount("ESTELLE", "FOLLOW"));
+        Assert.Equal(0, restored.GetNounVerbCount("GRACE", "ESTELLE", "FOLLOW"));
+        var resolver = new ActionResolver(new Gk3SheepApi(restored));
+        resolver.Add(NvcFile.Parse(File.ReadAllText(Path.Combine(root, "actions", "R25202P.NVC")), "R25202P.NVC", new()));
+        Assert.Equal(completed, resolver.Find("SCENE", "ENTER")?.Case == "END_TIME_BLOCK");
+        Assert.Contains(resolver.Resolve("GRACE"), action => action.LocalizedVerb == "Z_CHAT");
+        Assert.Contains("1LK17396R1", resolver.Find("GRACE", "Z_CHAT")!.Script);
     }
 
     [Theory]

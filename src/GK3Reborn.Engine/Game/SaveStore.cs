@@ -371,7 +371,41 @@ public sealed class SaveStore
             }
         }
 
-        return save;
+        // Earlier builds credited Estelle's completed chase to LADY_HOWARD. The
+        // award proves the chase finished, but R25202P's finale requires ESTELLE.
+        // Repair the story fact without awarding points or completing other tasks.
+        if (save.Scored.Contains("e_202p_map_follow_howard", StringComparer.OrdinalIgnoreCase))
+        {
+            var counts = new Dictionary<string, int>(save.NounVerbCounts, StringComparer.OrdinalIgnoreCase);
+            if (counts.GetValueOrDefault("GABRIEL|ESTELLE|FOLLOW") == 0)
+            {
+                counts["GABRIEL|ESTELLE|FOLLOW"] = 2;
+                save = save with { NounVerbCounts = counts };
+            }
+        }
+
+        // Preserve already-performed actions whose shipped scripts wrote the wrong key.
+        var repaired = new Dictionary<string, int>(save.NounVerbCounts, StringComparer.OrdinalIgnoreCase);
+        foreach (string actor in new[] { "GABRIEL", "GRACE" })
+        {
+            foreach ((string oldKey, string newKey) in new[]
+            {
+                ("FOUR_ANGLES_WORDS|LOOK", "FOUR_ANGELS_WORDS|LOOK"),
+                ("BUCHELLIS_DOOR|GLASS", "BUCHELLI_DOOR|GLASS"),
+                ("WB_PULLEY|LOOK", "DW_PULLEY|LOOK"),
+                ("PULLEY_GE|LOOK", "DW_PULLEY|LOOK"),
+                ("PULLEY_WB|LOOK", "DW_PULLEY|LOOK"),
+            })
+            {
+                int count = repaired.GetValueOrDefault(actor + "|" + oldKey);
+                string target = actor + "|" + newKey;
+                if (count > repaired.GetValueOrDefault(target))
+                {
+                    repaired[target] = count;
+                }
+            }
+        }
+        return save with { NounVerbCounts = repaired };
     }
 
     /// <summary>

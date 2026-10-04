@@ -586,10 +586,10 @@ public sealed class DrivingTraffic
         // Day 2, two: Estelle, only once she is out on the moped and until she has been followed to the dig.
         // Out means location MAP (reference DrivingScreen): LBY202P's bump puts her at MOP, RC1202P's enter moves her to MAP.
         // Before that she is in her room waiting for Emilio, and her moped is still in the rental shop.
-        // Followed all the way rather than at all: the count is shared with Day 1's Lady Howard loop, which is worth nothing.
+        // This is Estelle's chase; Lady Howard's day-one loop has its own count.
         if (string.Equals(now, "202P", StringComparison.OrdinalIgnoreCase) &&
             string.Equals(story.GetActorLocation("ESTELLE"), "MAP", StringComparison.OrdinalIgnoreCase) &&
-            story.GetNounVerbCount("LADY_HOWARD", DrivingMap.Follow) < 2)
+            story.GetNounVerbCount("ESTELLE", DrivingMap.Follow) == 0)
         {
             travelling.Add(new Traveller(
                 "ESTELLE",
@@ -598,10 +598,7 @@ public sealed class DrivingTraffic
                 Begun(Clockwise, "mop"),
                 Loops: true,
                 Follow: 6,
-                ["PL5"])
-            {
-                Counted = "LADY_HOWARD",
-            });
+                ["PL5"]));
         }
 
         return travelling;
@@ -716,7 +713,6 @@ public sealed class DrivingTraffic
                 Follow: 6,
                 ["PL5"])
             {
-                Counted = "LADY_HOWARD",
                 LeavesThemAt = "WOD",
                 Says = "21K6L3WJI1",
                 LeavesMapOpen = true,

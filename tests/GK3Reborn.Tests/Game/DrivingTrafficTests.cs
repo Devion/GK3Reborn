@@ -9,6 +9,23 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class DrivingTrafficTests
 {
+    [Fact]
+    public void Following_Estelle_credits_her_without_overwriting_the_day_one_chase()
+    {
+        var state = new GameState { Timeblock = Block("202P"), Location = "PLO" };
+        state.SetNounVerbCount("LADY_HOWARD", DrivingMap.Follow, 1);
+        state.SetActorLocation("ESTELLE", "MAP");
+        Assert.Equal("ESTELLE", Assert.Single(DrivingTraffic.Circling(state)).Counted);
+        DrivingTraffic chase = DrivingTraffic.For(state, Valley, follow: 6);
+        chase.Skip();
+        chase.Complete(state);
+        Assert.Equal(2, state.GetNounVerbCount("ESTELLE", DrivingMap.Follow));
+        Assert.Equal(1, state.GetNounVerbCount("LADY_HOWARD", DrivingMap.Follow));
+        Assert.True(state.HasScored("e_202p_map_follow_howard"));
+        state.SetActorLocation("ESTELLE", "MAP");
+        Assert.Empty(DrivingTraffic.Circling(state));
+    }
+
     /// <summary>Eight junctions of a valley that is not the game's.</summary>
     private const string Roads =
         """

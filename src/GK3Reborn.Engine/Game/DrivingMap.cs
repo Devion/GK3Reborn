@@ -212,7 +212,7 @@ public sealed class DrivingMap
 
             // Where Lady Howard and Estelle dig, at the end of theirs.
             "dm_wod" => now >= Index("307A") ||
-                        story.GetNounVerbCount("LADY_HOWARD", Follow) > 1,
+                        story.GetNounVerbCount("ESTELLE", Follow) > 0,
 
             "dm_arm" or "dm_pou" or "dm_cse" => now >= Index("202P"),
 

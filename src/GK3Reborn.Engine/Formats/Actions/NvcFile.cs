@@ -75,6 +75,8 @@ public sealed partial class NvcFile
         ArgumentNullException.ThrowIfNull(text);
         ArgumentNullException.ThrowIfNull(diagnostics);
 
+        text = StoryStateCorrections.Apply(text, name);
+
         List<NvcAction> actions = [];
         Dictionary<string, string> cases = new(StringComparer.OrdinalIgnoreCase);
         bool inLogic = false;
@@ -158,6 +160,7 @@ public sealed partial class NvcFile
             }
         }
 
+        StoryStateCorrections.CompleteCases(name, actions, cases);
         return new NvcFile(name, actions, cases);
     }
 
@@ -166,6 +169,10 @@ public sealed partial class NvcFile
     [
         ("INV_ALL.NVC", "LSR, THINK, SERPENT_ROUGE_THOUGHT, script={ThinkAboutSerpentRouge();}",
             "SERPENT_ROUGE_THOUGHT", "IsTopLayerInventory() && CanThinkAboutSerpentRouge()"),
+        // After the book discussion, OTR_TIME offers Gabe's reminder only if he
+        // chatted earlier. Keep that same line available when those chats were skipped.
+        ("R25202P.NVC", "GRACE, Z_CHAT, POST_BOOK_REMINDER, approach=TurnToModel, target=gra, script={wait StartVoiceOver(\"1LK17396R1\",1);}",
+            "POST_BOOK_REMINDER", "GetTopicCount(\"GRACE_N_MOSE\",\"T_BOOK\") > 1 && GetChatCount(\"GRACE\") == 0"),
     ];
 
     // Shipped case expressions that are plainly wrong, replaced only while they still read as shipped.
