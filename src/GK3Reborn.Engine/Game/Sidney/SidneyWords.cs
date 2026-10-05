@@ -169,18 +169,12 @@ public sealed class SidneyWords
         ],
         ["AssistSays"] =
         [
-            "SCHATGPT will finish the map: the sunrise line, the circle, the square around "
-                + "it and the chessboard over that.",
-            "SCHATGPT vervollständigt die Karte: die Sonnenaufgangslinie, den Kreis, das "
-                + "Quadrat darum herum und das Schachbrett darüber.",
-            "SCHATGPT completará el mapa: la línea del amanecer, el círculo, el cuadrado a "
-                + "su alrededor y el tablero de ajedrez encima.",
-            "SCHATGPT terminera la carte : la ligne du lever du soleil, le cercle, le carré "
-                + "autour et l'échiquier par-dessus.",
-            "SCHATGPT completerà la mappa: la linea dell'alba, il cerchio, il quadrato "
-                + "attorno e la scacchiera sopra.",
-            "O SCHATGPT vai terminar o mapa: a linha do nascer do sol, o círculo, o quadrado "
-                + "à volta e o tabuleiro de xadrez por cima.",
+            "SCHATGPT is a quality-of-life cheat. It solves one map puzzle for you, skipping its normal solution. Completing the final puzzle can end this chapter. Continue?",
+            "SCHATGPT ist ein Komfort-Cheat. Es löst ein Kartenrätsel für dich und überspringt dessen normalen Lösungsweg. Das letzte Rätsel kann dieses Kapitel beenden. Fortfahren?",
+            "SCHATGPT es un truco de ayuda. Resuelve un puzle del mapa y omite su solución normal. Resolver el último puzle puede terminar este capítulo. ¿Continuar?",
+            "SCHATGPT est une aide de triche. Il résout une énigme de la carte en sautant sa résolution normale. La dernière énigme peut terminer ce chapitre. Continuer ?",
+            "SCHATGPT è un trucco di comodità. Risolve un enigma della mappa saltando la soluzione normale. L'ultimo enigma può concludere questo capitolo. Continuare?",
+            "SCHATGPT é uma ajuda de batota. Resolve um enigma do mapa, saltando a solução normal. O último enigma pode terminar este capítulo. Continuar?",
         ],
         ["Pockets"] =
         [

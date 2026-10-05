@@ -1,4 +1,5 @@
 {
+  "journal.day": "Dia {0}",
   "action.Back": "Câmara para trás",
   "action.CycleRayTracing": "Alternar a qualidade da iluminação",
   "action.Down": "Câmara para baixo",

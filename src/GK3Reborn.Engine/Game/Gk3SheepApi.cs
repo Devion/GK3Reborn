@@ -99,6 +99,7 @@ public sealed class Gk3SheepApi : ISheepApi
         ArgumentNullException.ThrowIfNull(save);
 
         State.Restore(save);
+        Sidney?.Restored();
         FinishedRequested = false;
 
         // A save from before a chase recorded where it left its quarry has Day 1 stuck at

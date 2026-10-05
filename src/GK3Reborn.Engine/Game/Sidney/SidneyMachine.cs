@@ -62,7 +62,7 @@ public sealed class SidneyMachine
 {
     private SidneyLibrary _library;
     private readonly GameState _state;
-    private readonly HashSet<string> _done = new(StringComparer.OrdinalIgnoreCase);
+    private SidneyResult? _assistPrompt;
 
     private SidneyTranslator? _translator;
     private SidneyWords? _words;
@@ -1028,7 +1028,6 @@ public sealed class SidneyMachine
             // way it reads everything else, and paid for here rather than on the button
             // that asked: the question is the operation, and the other two answers are wrong.
             _state.SetFlag(Flag(file, SidneyAction.Translate));
-            _done.Add(Flag(file, SidneyAction.Translate));
             Award(SidneyScores.Extracted(file.Kind));
 
             // Grace remarks on the hidden message once; from the second parchment she keeps a copy of the riddle.
@@ -1056,12 +1055,13 @@ public sealed class SidneyMachine
     {
         ArgumentNullException.ThrowIfNull(file);
 
-        return _done.Contains(Flag(file, action)) || _state.GetFlag(Flag(file, action));
+        return _state.GetFlag(Flag(file, action));
     }
 
     /// <summary>Puts the machine back to its front screen.</summary>
     public void Home()
     {
+        _assistPrompt = null;
         Anagram = null;
         Menu = 0;
         Marking = false;
@@ -1071,6 +1071,17 @@ public sealed class SidneyMachine
         Page = null;
         Suspect = null;
         Appending = false;
+    }
+
+    /// <summary>Drops transient screens and queued dialogue after loading a saved game.</summary>
+    public void Restored()
+    {
+        Home();
+        _cues.Clear();
+        Open = null;
+        Translating = null;
+        Identity = null;
+        _mapWas = null;
     }
 
     /// <summary>The translate screen's own reading of the game's text.</summary>
@@ -1228,7 +1239,6 @@ public sealed class SidneyMachine
         if (Showing.Choices is { Count: > 0 } && Translating is { } file)
         {
             _state.SetFlag(Flag(file, SidneyAction.Translate));
-            _done.Add(Flag(file, SidneyAction.Translate));
         }
 
         // Paid on a translation that actually happened, which is one the player named the
@@ -2119,14 +2129,14 @@ public sealed class SidneyMachine
             Math.Clamp(Focus.Y, edge, SidneyMap.Extent - edge));
     }
 
-    /// <summary>
-    /// Marks the next place the survey itself has a cross on.
-    /// </summary>
+    /// <summary>Whether the cheat confirmation is waiting for an answer.</summary>
+    public bool AssistPending => _assistPrompt is not null && ReferenceEquals(_assistPrompt, Showing);
+
+    /// <summary>Asks before solving one map puzzle for the player.</summary>
     /// <returns>What the machine says.</returns>
     public SidneyResult Assist()
     {
-        // Asked before anything is drawn, because it draws a great deal. The answer comes
-        // back through Finish.
+        // Each confirmation authorizes one map puzzle. Never reuse it for a second step.
         Showing = new SidneyResult(
             Words.Own("AssistSays"),
             Words.Own("AssistAsks"),
@@ -2135,6 +2145,7 @@ public sealed class SidneyMachine
                 new SidneyChoice("No", Say("NoButton") is { Length: > 0 } no ? no : "NO"),
             ]);
 
+        _assistPrompt = Showing;
         return Showing;
     }
 
@@ -2146,7 +2157,9 @@ public sealed class SidneyMachine
     /// <returns>What the machine says.</returns>
     public SidneyResult Finish(bool yes)
     {
-        if (!yes)
+        bool pending = AssistPending;
+        _assistPrompt = null;
+        if (!yes || !pending)
         {
             Showing = new SidneyResult(Say("EnterPointsNote"));
 
@@ -2701,7 +2714,6 @@ public sealed class SidneyMachine
     {
         string flag = Flag(file, action);
 
-        _done.Add(flag);
         _state.SetFlag(flag);
 
         // And under the name the game itself asks about, where it asks about one at all.

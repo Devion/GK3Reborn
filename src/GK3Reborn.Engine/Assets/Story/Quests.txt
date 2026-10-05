@@ -132,7 +132,7 @@ Follow Estelle | score:e_202p_map_follow_howard,e_202p_wod_talk_estelle_howard,e
 Get in to see Montreaux | score:e_sidney_makeid_print,e_202p_cse_reporter_montreaux,e_202p_cse_talk_montreaux_grail,e_202p_cse_talk_montreaux_murder,e_202p_cse_talk_montreaux_viticulture_2nd_time,e_202p_cse_talk_montreaux_viticulture_3rd_time | 25,26,27,28
 
 [205P]
-Work through what Gabriel brought back | story | 1,2,3,4,5
+Work through what Gabriel brought back | score:e_sidney_add_sum_note,e_sidney_add_fingerprint_montreaux,e_sidney_add_hermetical_symbols_from_serres,e_sidney_suspect_link_fingerprint_montreaux,e_sidney_suspect_link_license_mosely,e_sidney_analysis_symbols_from_serres,e_sidney_translate_sum,e_sidney_analysis_anomalies_parch1,e_sidney_analysis_gemoetry_parch1,e_sidney_analysis_anomalies_parch2,e_sidney_analysis_gemoetry_parch2,e_sidney_analysis_view_rotation_parch2 | 1,2,3,4,5
 Pick up what was left in the hallway | score:e_205p_hal_pickup_howard_glass | 6
 Listen in downstairs | score:e_205p_din_overhear_gabe_mosely,e_205p_lby_enter_gabe_moseley_leave,e_205p_lby_enter_bridge_start_scene | 7,8,9,19,24
 Collect what was left at the museum | score:e_205p_rc2_pickup_envelope,e_205p_inventory_fingerprint_kit_envelope | 10,11

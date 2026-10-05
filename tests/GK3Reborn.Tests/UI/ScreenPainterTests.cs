@@ -12,6 +12,52 @@ namespace GK3Reborn.Tests.UI;
 /// </summary>
 public sealed class ScreenPainterTests
 {
+    [Theory]
+    [InlineData(640, 480)]
+    [InlineData(1280, 720)]
+    public void Schatgpt_confirmation_blocks_the_map_and_other_apps(int width, int height)
+    {
+        var painter = Painter();
+        SidneyMachine sidney = Sidney(out GameState state);
+        state.Inventory.Add("GRACE", "MAP");
+        sidney.Scan("MAP");
+        sidney.OpenFile(sidney.Files.Single(file => file.Kind == SidneyKind.Map));
+        sidney.Screen = SidneyScreen.Analyze;
+        var view = new ScreenView(new Screen(ScreenKind.Sidney), [], null, Sidney: sidney);
+        sidney.Assist();
+        painter.Build(view, width, height);
+        Assert.NotNull(Middle(painter, "sidney:solve:Yes"));
+        Assert.NotNull(Middle(painter, "sidney:solve:No"));
+        Assert.Null(Middle(painter, "sidney:assist"));
+        Assert.Null(Middle(painter, "sidney:home"));
+    }
+
+    [Fact]
+    public void Journal_opens_on_the_current_day_and_can_expand_a_past_chapter()
+    {
+        var painter = Painter();
+        var story = new GameState { Timeblock = new Timeblock(3, 2, false) };
+        var journal = new GK3Reborn.Game.Story.Journal(story);
+        var view = new ScreenView(new Screen(ScreenKind.Journal), [], null, Journal: journal.Read());
+        painter.Build(view, Width, Height);
+        string currentHint = "hint:" + GK3Reborn.Game.Story.Journal.Key(journal.Now()[0].Quest);
+        Assert.NotNull(Middle(painter, currentHint));
+        Assert.NotNull(Middle(painter, "journal:day:1"));
+        Assert.NotNull(Middle(painter, "journal:day:2"));
+        Assert.NotNull(Middle(painter, "journal:day:3"));
+        painter.JournalChoose("journal:day:1");
+        painter.Build(view, Width, Height);
+        Assert.Null(Middle(painter, currentHint));
+        Assert.NotNull(Middle(painter, "journal:chapter:110A"));
+        float collapsed = Middle(painter, "journal:chapter:112P")!.Value.Y;
+        painter.JournalChoose("journal:chapter:110A");
+        painter.Build(view, Width, Height);
+        Assert.True(Middle(painter, "journal:chapter:112P") is not { } next || next.Y > collapsed);
+        painter.JournalChoose("journal:day:3");
+        painter.Build(view, Width, Height);
+        Assert.NotNull(Middle(painter, currentHint));
+    }
+
     [Fact]
     public void Journal_scroll_reaches_hints_below_the_page_and_clips_hidden_buttons()
     {

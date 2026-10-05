@@ -1,4 +1,5 @@
 {
+  "journal.day": "Giorno {0}",
   "action.Back": "Telecamera indietro",
   "action.CycleRayTracing": "Cambia la qualità dell'illuminazione",
   "action.Down": "Telecamera in basso",

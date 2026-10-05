@@ -12,6 +12,39 @@ namespace GK3Reborn.Tests.Game;
 public sealed class JournalTests
 {
     [Fact]
+    public void Gabriels_evidence_completes_during_the_evening_and_restores_its_progress()
+    {
+        var state = new GameState { Timeblock = new Timeblock(2, 5, true) };
+        var api = new Gk3SheepApi(state);
+        JournalEntry Read() => new Journal(state).Read().SelectMany(d => d.Chapters)
+            .SelectMany(c => c.Entries).Single(e => e.Quest.TitleKey == "quest.205P.1");
+        string[] scores =
+        [
+            "e_sidney_add_sum_note", "e_sidney_add_fingerprint_montreaux",
+            "e_sidney_add_hermetical_symbols_from_serres", "e_sidney_suspect_link_fingerprint_montreaux",
+            "e_sidney_suspect_link_license_mosely", "e_sidney_analysis_symbols_from_serres",
+            "e_sidney_translate_sum", "e_sidney_analysis_anomalies_parch1",
+            "e_sidney_analysis_gemoetry_parch1", "e_sidney_analysis_anomalies_parch2",
+            "e_sidney_analysis_gemoetry_parch2", "e_sidney_analysis_view_rotation_parch2",
+        ];
+        SaveGame before = state.Capture();
+        foreach (string score in scores[..^1])
+        {
+            api.Invoke("ChangeScore", [SheepValue.FromString(score)]);
+        }
+        Assert.False(Read().Done);
+        Assert.Equal(11f / 12, Read().Progress);
+        api.Invoke("ChangeScore", [SheepValue.FromString(scores[^1])]);
+        Assert.True(Read().Done);
+        SaveGame after = state.Capture();
+        state.Restore(before);
+        Assert.False(Read().Done);
+        Assert.Equal(0f, Read().Progress);
+        state.Restore(after);
+        Assert.True(Read().Done);
+    }
+
+    [Fact]
     public void Montreaux_objective_counts_the_printed_identity_and_does_not_require_optional_tire_tracks()
     {
         var story = new GameState { Timeblock = new Timeblock(2, 2, true) };

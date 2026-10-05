@@ -56,6 +56,62 @@ public sealed class SidneyMachineTests
     }
 
     [Fact]
+    public void Restoring_an_earlier_save_clears_analysis_and_pending_assistance()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        var api = new Gk3SheepApi(state) { Sidney = sidney };
+        Opened(sidney, "PARCHMENT_1");
+        Opened(sidney, "PARCHMENT_2");
+        SaveGame before = state.Capture();
+        foreach (string item in new[] { "PARCHMENT_1", "PARCHMENT_2" })
+        {
+            Opened(sidney, item);
+            sidney.Perform(SidneyAction.Analyse);
+            sidney.Perform(SidneyAction.ViewGeometry);
+            Assert.True(sidney.HasDone(sidney.Open!, SidneyAction.ViewGeometry));
+        }
+        SaveGame after = state.Capture();
+        sidney.Assist();
+        api.RestoreGame(before);
+        Assert.Null(sidney.Showing);
+        Assert.Null(sidney.TakeCue());
+        sidney.Finish(true);
+        Assert.False(state.GetFlag("Aquarius"));
+        foreach (string item in new[] { "PARCHMENT_1", "PARCHMENT_2" })
+        {
+            Opened(sidney, item);
+            Assert.False(sidney.HasDone(sidney.Open!, SidneyAction.Analyse));
+            Assert.False(sidney.HasDone(sidney.Open!, SidneyAction.ViewGeometry));
+            Assert.Equal(SidneyPictures.Of(sidney.Open),
+                SidneyPictures.Showing(sidney.Open, action => sidney.HasDone(sidney.Open!, action)));
+        }
+        api.RestoreGame(after);
+        Opened(sidney, "PARCHMENT_2");
+        Assert.True(sidney.HasDone(sidney.Open!, SidneyAction.ViewGeometry));
+    }
+
+    [Fact]
+    public void An_assist_confirmation_cannot_be_reused_for_another_puzzle()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        Opened(sidney, "PARCHMENT_2");
+        sidney.Perform(SidneyAction.ViewGeometry);
+        Opened(sidney, "MAP");
+        Assert.Contains("cheat", sidney.Assist().Text, StringComparison.OrdinalIgnoreCase);
+        sidney.Finish(true);
+        sidney.Finish(true);
+        Assert.True(state.GetFlag("Aquarius"));
+        Assert.False(state.GetFlag("Pisces"));
+        sidney.Assist();
+        sidney.Finish(false);
+        sidney.Finish(true);
+        Assert.False(state.GetFlag("Pisces"));
+        sidney.Assist();
+        sidney.Finish(true);
+        Assert.True(state.GetFlag("Pisces"));
+    }
+
+    [Fact]
     public void The_second_parchment_in_french_gives_grace_the_blue_apples_riddle_once()
     {
         SidneyMachine sidney = Machine(out GameState state);
@@ -497,6 +553,7 @@ public sealed class SidneyMachineTests
         Assert.False(state.GetFlag("Pisces"));
 
         // Then the circle through the three villages.
+        sidney.Assist();
         sidney.Finish(yes: true);
 
         Assert.Equal([MapShape.Line, MapShape.Circle], sidney.Map.Laid.Select(laid => laid.Shape));

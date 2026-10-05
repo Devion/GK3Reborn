@@ -1727,6 +1727,10 @@ public static partial class Application
                     {
                         screens.JournalWheel(chose == "journal:up" ? 1 : -1);
                     }
+                    else if (chose.StartsWith("journal:", StringComparison.Ordinal))
+                    {
+                        screens.JournalChoose(chose);
+                    }
                     else if (chose.StartsWith("sidney:shape:", StringComparison.Ordinal) && sidney is not null &&
                         Enum.TryParse(chose[13..], ignoreCase: true, out Game.Sidney.MapShape picked))
                     {

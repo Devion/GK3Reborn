@@ -710,43 +710,55 @@ public sealed class SerpentRougeAnalysisTests
         Assert.True(state.GetFlag("Aquarius"));
         Assert.False(state.GetFlag("Pisces"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Pisces"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Aries"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Taurus"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Gemini"));
         Assert.True(state.GetFlag("Cancer"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Leo"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Virgo"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Libra"));
 
         // Scorpio waits on the mail, and says so.
+        sidney.Assist();
         Assert.Equal("Nothing more can be done on the map just now.", sidney.Finish(yes: true).Text);
         Assert.False(state.GetFlag("PlacedTempleDivisions"));
 
         state.SetFlag("OpenedTempleDiagram");
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("PlacedTempleDivisions"));
 
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Scorpio"));
 
         // Ophiuchus is the anagram, not the map.
+        sidney.Assist();
         Assert.Equal("Nothing more can be done on the map just now.", sidney.Finish(yes: true).Text);
 
         state.SetFlag("Ophiuchus");
+        sidney.Assist();
         sidney.Finish(yes: true);
         Assert.True(state.GetFlag("Sagittarius"));
 

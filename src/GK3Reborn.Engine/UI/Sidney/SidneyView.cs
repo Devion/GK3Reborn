@@ -32,6 +32,11 @@ public sealed class SidneyView
     /// <returns>True when something scrolled.</returns>
     public bool Wheel(Vector2 at, float notches, float step)
     {
+        if (_machine?.AssistPending == true)
+        {
+            return true;
+        }
+
         // Over the map the wheel means "look closer", which is the one place in Sidney
         // where a list is not what is under the pointer.
         if (_machine is { Screen: SidneyScreen.Analyze } machine &&
@@ -148,9 +153,37 @@ public sealed class SidneyView
 
         Notification(surface, machine, desk);
 
+        if (machine.AssistPending && machine.Showing is { } prompt)
+        {
+            // The warning is modal: neither the map nor another app can be operated
+            // until the player explicitly accepts or declines this one puzzle.
+            hits.Clear();
+            MapBounds = default;
+            surface.Fill(screen, new Vector4(0, 0, 0, 0.8f));
+            float padding = surface.Em(20);
+            float wide = screen.Z * 0.85f;
+            float wrap = wide - (2 * padding);
+            float row = surface.Line + surface.Em(12);
+            float tall = (surface.Lines(prompt.Text, wrap) * surface.Line) + row + (3 * padding);
+            var dialog = new Vector4(screen.X + ((screen.Z - wide) / 2),
+                screen.Y + ((screen.W - tall) / 2), wide, tall);
+            surface.Fill(dialog, SidneyPalette.Panel);
+            surface.Frame(dialog, SidneyPalette.Amber);
+            surface.Paragraph(prompt.Text, dialog.X + padding, dialog.Y + padding,
+                wrap, dialog.Y + tall, SidneyPalette.Ink);
+            float x = dialog.X + padding;
+            foreach (SidneyChoice choice in prompt.Choices ?? [])
+            {
+                float across = surface.Measure(choice.Text) + (2 * padding);
+                surface.Button("sidney:solve:" + choice.Key,
+                    new Vector4(x, dialog.Y + tall - padding - row, across, row), choice.Text);
+                x += across + padding;
+            }
+        }
+
         overlay.PopClip();
 
-        _regions = [.. surface.Scrollables];
+        _regions = machine.AssistPending ? [] : [.. surface.Scrollables];
     }
 
     /// <summary>

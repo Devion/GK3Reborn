@@ -130,6 +130,30 @@ public sealed class ScreenPainter
     private readonly List<(string Id, Vector4 Bounds)> _hits = [];
     private readonly Sidney.SidneyView _sidney = new();
     private float _journalOffset;
+    private int _journalDay;
+    private Timeblock? _journalCurrent;
+    private readonly HashSet<string> _journalExpanded = [];
+
+    /// <summary>Selects a journal day or expands a past chapter.</summary>
+    /// <param name="choice">The journal button's identifier.</param>
+    public void JournalChoose(string choice)
+    {
+        if (choice.StartsWith("journal:day:", StringComparison.Ordinal) &&
+            int.TryParse(choice[12..], out int day))
+        {
+            _journalDay = day;
+            _journalOffset = 0;
+        }
+        else if (choice.StartsWith("journal:chapter:", StringComparison.Ordinal))
+        {
+            string chapter = choice[16..];
+            if (!_journalExpanded.Add(chapter))
+            {
+                _journalExpanded.Remove(chapter);
+            }
+        }
+    }
+
     private float _journalMaximum;
 
     /// <summary>Scrolls the journal by mouse-wheel steps, keeping its content in range.</summary>
@@ -912,6 +936,31 @@ public sealed class ScreenPainter
             return;
         }
 
+        Timeblock? current = days.SelectMany(day => day.Chapters)
+            .FirstOrDefault(chapter => chapter.Current)?.Timeblock;
+        if (_journalCurrent != current || !days.Any(day => day.Day == _journalDay))
+        {
+            _journalCurrent = current;
+            _journalDay = current?.Day ?? days[^1].Day;
+            _journalOffset = 0;
+            _journalExpanded.Clear();
+        }
+
+        float tabX = body.X + (20 * unit);
+        foreach (JournalDay day in days)
+        {
+            var tab = new Vector4(tabX, top, 100 * unit, Overlay.LineHeight + (8 * unit));
+            Overlay.Rect(tab.X, tab.Y, tab.Z, tab.W, PanelLit);
+            Overlay.Text(Text.Say("journal.day", "Day {0}", day.Day.ToString(CultureInfo.InvariantCulture)),
+                tab.X + (8 * unit), tab.Y + (4 * unit), day.Day == _journalDay ? Accent : Dim);
+            _hits.Add(($"journal:day:{day.Day}", tab));
+            tabX += 108 * unit;
+        }
+        top += Overlay.LineHeight + (20 * unit);
+        days = [.. days.Where(day => day.Day == _journalDay)];
+        bool Expanded(JournalChapter chapter) => chapter.Current ||
+            _journalExpanded.Contains(chapter.Timeblock.ToString());
+
         float x = body.X + (20 * unit);
         float y = top;
         float line = Overlay.LineHeight;
@@ -922,7 +971,7 @@ public sealed class ScreenPainter
         foreach (JournalChapter chapter in days.SelectMany(day => day.Chapters))
         {
             contentHeight += line + (12 * unit);
-            if (!chapter.Current)
+            if (!Expanded(chapter))
             {
                 contentHeight += 6 * unit;
                 continue;
@@ -951,7 +1000,7 @@ public sealed class ScreenPainter
                 Overlay.Text(
                     chapter.Current
                         ? chapter.Title + Text.Say("journal.now", "  (now)")
-                        : chapter.Title,
+                        : (Expanded(chapter) ? "[-] " : "[+] ") + chapter.Title,
                     x,
                     y,
                     chapter.Current ? Accent : Dim);
@@ -966,16 +1015,23 @@ public sealed class ScreenPainter
                     y,
                     Dim);
 
+                if (!chapter.Current)
+                {
+                    float hitTop = Math.Max(top, y);
+                    float hitBottom = Math.Min(bottom, y + line);
+                    if (hitBottom > hitTop)
+                    {
+                        _hits.Add(("journal:chapter:" + chapter.Timeblock,
+                            new Vector4(x, hitTop, width, hitBottom - hitTop)));
+                    }
+                }
+
                 y += line + (4 * unit);
                 Overlay.Rect(x, y, width, 1, Rule);
                 y += 8 * unit;
 
-                // Only what the player is in the middle of. A point in the story they have
-                // finished with keeps its heading and its tally and gives up its list: the
-                // question the journal answers is "what now", and eleven ticked lines from
-                // this morning bury it. Asked for, having watched the list grow into
-                // something nobody could read at a glance.
-                if (!chapter.Current)
+                // Past chapters stay compact until the player expands one.
+                if (!Expanded(chapter))
                 {
                     y += 6 * unit;
                     continue;
