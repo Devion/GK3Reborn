@@ -17,6 +17,39 @@ public sealed class FirstPersonTests
     private static FirstPerson Standing() => new();
 
     [Fact]
+    public void Stairs_outside_the_actor_boundary_bridge_a_small_seam_in_both_directions()
+    {
+        var player = new FirstPerson
+        {
+            CanStand = at => at.Z <= 10,
+            Ground = _ => 0,
+            Stairs = at => at.Z >= 15 && at.Z <= 100 ? 8 + (MathF.Floor((at.Z - 15) / 10) * 8) : null,
+        };
+        player.Advance(Walk(0, 1), 0.5f);
+        Assert.InRange(player.Position.Z, 79, 81);
+        Assert.InRange(player.Position.Y, 55, 57);
+        player.Advance(Walk(0, -1), 0.5f);
+        Assert.InRange(player.Position.Z, -1, 1);
+        Assert.Equal(0, player.Position.Y);
+    }
+
+    [Fact]
+    public void Supplemental_stairs_do_not_allow_climbing_a_high_ledge_or_crossing_an_unrelated_wall()
+    {
+        var player = new FirstPerson
+        {
+            CanStand = at => at.Z <= 10,
+            Ground = _ => 0,
+            Stairs = at => at.Z >= 15 && at.Z <= 100 ? 100 : null,
+        };
+        player.Advance(Walk(0, 1), 1);
+        Assert.InRange(player.Position.Z, 0, 10);
+        player.Position = new Vector3(0, 0, 200);
+        player.Advance(Walk(0, 1), 1);
+        Assert.Equal(200, player.Position.Z);
+    }
+
+    [Fact]
     public void Walking_forward_goes_where_the_player_is_looking()
     {
         FirstPerson player = Standing();

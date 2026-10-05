@@ -87,6 +87,9 @@ public sealed class FirstPerson
     /// <summary>How high the ground is under a point, or null when the room cannot say.</summary>
     public Func<Vector3, float?>? Ground { get; set; }
 
+    /// <summary>Authored stairs outside the actor walk boundary that the player can climb.</summary>
+    public Func<Vector3, float?>? Stairs { get; set; }
+
     /// <summary>Which way the player is looking, as a unit vector.</summary>
     public Vector3 Forward => new( MathF.Cos(Pitch) * MathF.Sin(Yaw), MathF.Sin(Pitch), MathF.Cos(Pitch) * MathF.Cos(Yaw));
 
@@ -277,13 +280,26 @@ public sealed class FirstPerson
         }
 
         Vector3 to = Position + by;
+        float? stair = Stairs?.Invoke(to);
 
-        if (CanStand?.Invoke(to) == false)
+        if (stair is null && CanStand?.Invoke(to) == false)
         {
-            return null;
+            // The bitmap edge and the first tread need not meet exactly. Bridge only
+            // a narrow seam beside a real stair, still subject to the climb limit.
+            Vector3 seam = Vector3.Normalize(by) * 8f;
+            stair = Stairs?.Invoke(to + seam) ?? Stairs?.Invoke(to - seam);
+            if (stair is null)
+            {
+                return null;
+            }
         }
 
         // A room that names no floor cannot say, so anywhere the boundary allows will do.
+        if (stair is { } tread)
+        {
+            return tread > to.Y + Climb ? null : new Vector3(to.X, tread, to.Z);
+        }
+
         if (Ground is not { } under)
         {
             return to;

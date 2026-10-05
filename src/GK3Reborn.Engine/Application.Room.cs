@@ -313,12 +313,16 @@ public static partial class Application
         bool Flying() => onTheCommandLine || front.Settings.FreeCamera;
 
         // The player as a body in the room rather than a camera over it.
+        // Retail animates actors up these stairs from the street. Their walk boundary
+        // excludes the entire staircase, and the named floor runs underneath it.
+        var museumStairs = Game.Navigation.WalkFloor.From(scene.Geometry, "rc2_museumsteps");
         var walker = new Game.Navigation.FirstPerson
         {
             CanStand = scene.Walkable is { } floor ? floor.IsWalkable : scene.CameraShell is { IsEmpty: false } fence
                     ? at => fence.Contains(at + (Vector3.UnitY * Game.Navigation.Walker.StandOff)) : null,
 
             Ground = scene.Ground is { } underfoot ? underfoot.Height : null,
+            Stairs = museumStairs is { } stairs ? stairs.Height : null,
         };
 
         bool onFootFromTheCommandLine = options.Contains("--first-person", StringComparer.OrdinalIgnoreCase);
@@ -473,14 +477,6 @@ public static partial class Application
         // facing what the player was already looking at, and every corner of the walk before that is the body repositioning: reported as the camera
         // shaking off to one side and back for an interaction the player never asked to be turned for.
         const float LookingAway = 0.7f;
-
-        // The last way out walked into, and when, so that one which answers with a line rather than a door is not run again on every frame the.
-        string? tried = null;
-        double triedAt = double.NegativeInfinity;
-        const double ExitAgainAfter = 3.0;
-
-        // How long a room is safe to arrive in before a way out will take.
-        const double ExitNotAtOnce = 1.0;
 
         // The lobby's glass whose print is waiting on an answer; see Game.DirtyGlasses.
         GlassQuestion? glassAsked = null;
@@ -974,11 +970,6 @@ public static partial class Application
             window.PointerLocked = onFoot && menu is null && !movies.Playing &&
                 !window.IsHeld(Platform.CameraAction.FreeCursor);
 
-            bool walking = false;
-            bool shouldered = false;
-
-            Vector3 travelling = walker.Ahead;
-
             // Coming back from a shot the story was holding, the view travels back into the player's own eyes instead of arriving in them.
             if (onFoot && !afoot && everAfoot)
             {
@@ -1050,17 +1041,6 @@ public static partial class Application
                 if (driving)
                 {
                     Game.Navigation.FirstPersonStep went = walker.Advance(asked, delta);
-
-                    walking = went.Travelled > 0f || went.Blocked;
-                    shouldered = went.Blocked;
-
-                    // What they were asking for, not what they got: pressed into the edge of the ground, the step slides along it and the way out is.
-                    Vector3 meant = walker.Direction(asked.Move);
-
-                    if (meant.LengthSquared() > 1e-6f)
-                    {
-                        travelling = Vector3.Normalize(meant);
-                    }
 
                     // Only once they have actually moved or turned.
                     if (went.Travelled > 0f || asked.Look != Vector2.Zero)
@@ -1160,23 +1140,8 @@ public static partial class Application
             // Where the player's ears are.
             room?.Listen( view.Position, Vector3.Normalize(view.Target - view.Position), view.Up);
 
-            // Walking into the way out takes it, which is what a way out means to somebody who is walking rather than clicking.
-            if (onFoot && walking && !update.Busy(story.Ego) && stopwatch.Elapsed.TotalSeconds > ExitNotAtOnce &&
-                string.Equals(story.Location, here, StringComparison.OrdinalIgnoreCase) && interaction.WayOut(
-                    new Rendering.Ray(view.Position, travelling), shouldered) is { } leaving && leaving.Noun is { Length: > 0 } way &&
-                (!string.Equals(way, tried, StringComparison.OrdinalIgnoreCase) || stopwatch.Elapsed.TotalSeconds - triedAt > ExitAgainAfter))
-            {
-                tried = way;
-                triedAt = stopwatch.Elapsed.TotalSeconds;
-
-                // Walked into rather than clicked from across the room, so the approach walk in front of it is skipped: the player is standing in
-                // the doorway already, and the few units it had left to cover were covered at the actors' pace after they crossed the room at.
-                if (interaction.Do(leaving, approach: false) is { } took)
-                {
-                    Log.Info($"{story.Ego}: walked into {took.Noun}:{took.Verb}");
-                }
-            }
-
+            // First-person exits require an explicit interaction, just like other objects.
+            // Walking near a doorway must not interrupt exploration or picking up an item.
             // What the pointer is over.
             bool crosshair = onFoot && window.PointerLocked;
 
