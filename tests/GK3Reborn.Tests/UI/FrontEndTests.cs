@@ -279,9 +279,9 @@ public sealed class FrontEndTests
     }
 
     [Fact]
-    public void The_free_camera_is_the_third_perspective_and_the_room_begins_on_the_original()
+    public void The_four_perspectives_cycle_and_the_room_begins_on_the_original()
     {
-        // Who is holding the camera is one question with three answers rather than a choice
+        // Who is holding the camera is one question with four answers rather than a choice
         // with a toggle beside it: the story's own angles, the player's own eyes, or nobody.
         // It is a preference and not an assist — it changes nothing the story asks of the
         // player — so it belongs on Playing rather than on Made Easier.
@@ -300,6 +300,11 @@ public sealed class FrontEndTests
         Assert.True(front.Settings.FirstPerson);
         Assert.Equal("First person", Row(front, "perspective").Value);
 
+        front.Choose(new MenuAction("perspective", Step: 1));
+
+        Assert.Equal(Perspective.Hybrid, front.Settings.Perspective);
+        Assert.True(front.Settings.FirstPerson);
+        Assert.Equal("Hybrid", Row(front, "perspective").Value);
         front.Choose(new MenuAction("perspective", Step: 1));
 
         // The two are exclusive now, which is what the row says and what the room does: a
@@ -619,7 +624,8 @@ public sealed class FrontEndTests
         }.ApplyTo(device);
 
         Assert.Equal(0.5f, device.Gains[AudioBus.Master], 3);
-        Assert.Equal(0.25f, device.Gains[AudioBus.Music], 3);
+        Assert.Equal(0.0625f, device.Gains[AudioBus.Music], 4);
+        Assert.Equal(0.0625f, device.Gains[AudioBus.Cinematics], 4);
         Assert.Equal(0.75f, device.Gains[AudioBus.Ambience], 3);
 
         // Speech is played on the centred bus, so a dialogue slider that only set the
@@ -640,6 +646,35 @@ public sealed class FrontEndTests
 
         // And no device at all is not an error: the game runs silent.
         new Settings().ApplyTo(null);
+    }
+
+    [Theory]
+    [InlineData(0f, 0f)]
+    [InlineData(0.05f, 0.0025f)]
+    [InlineData(0.1f, 0.01f)]
+    [InlineData(0.5f, 0.25f)]
+    [InlineData(1f, 1f)]
+    public void Music_slider_has_fine_control_at_low_levels(float setting, float gain)
+    {
+        var device = new Levels();
+        new Settings { MusicVolume = setting }.ApplyTo(device);
+        Assert.Equal(gain, device.Gains[AudioBus.Music], 4);
+        Assert.Equal(gain, device.Gains[AudioBus.Cinematics], 4);
+    }
+
+    [Fact]
+    public void Hybrid_perspective_survives_saving_settings()
+    {
+        string file = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".json");
+        try
+        {
+            new Settings { Perspective = Perspective.Hybrid }.Save(file);
+            Assert.Equal(Perspective.Hybrid, Settings.Load(file).Perspective);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
     }
 
     /// <summary>An audio device that only remembers what it was told.</summary>

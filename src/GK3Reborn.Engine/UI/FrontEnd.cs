@@ -103,7 +103,7 @@ public sealed class FrontEnd
         [HdrTransfer.Automatic, HdrTransfer.PerceptualQuantiser, HdrTransfer.ExtendedLinear];
 
     private static readonly Perspective[] Perspectives =
-        [Perspective.Original, Perspective.FirstPerson, Perspective.FreeCamera];
+        [Perspective.Original, Perspective.FirstPerson, Perspective.Hybrid, Perspective.FreeCamera];
 
     private static readonly ToneMapping[] Curves =
         [ToneMapping.Clip, ToneMapping.Reinhard, ToneMapping.Filmic];
@@ -1486,6 +1486,7 @@ public sealed class FrontEnd
     /// <summary>What each perspective is called in the menu.</summary>
     private string Describe(Perspective perspective) => perspective switch
     {
+        Perspective.Hybrid => Text.Say("general.perspective.hybrid", "Hybrid"),
         Perspective.FirstPerson => Text.Say("general.perspective.first", "First person"),
         Perspective.FreeCamera => Text.Say("general.perspective.free", "Free camera"), _ => Text.Say("general.perspective.original", "Original"),
     };

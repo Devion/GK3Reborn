@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Formats.Actions;
 using GK3Reborn.Content;
 using GK3Reborn.Formats.Animation;
@@ -948,6 +948,106 @@ public sealed class SceneUpdateTests
             "nothing here to run it",
             Assert.Single(update.Advance(2)),
             StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Hybrid_accepts_action_cameras_while_first_person_keeps_its_eyes(bool hybrid)
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+        state.FirstPerson = true;
+        state.HybridCamera = hybrid;
+        state.ViewIsTheirs = true;
+        state.CameraGliding = false;
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        state.CameraAngle = "FAR";
+        update.Advance(1.0 / 60);
+        Assert.Equal(hybrid, update.Framed);
+        Assert.Equal(hybrid, update.Gliding);
+        if (hybrid)
+        {
+            Assert.InRange(update.View!.Position.Z, 0.001f, 199f);
+        }
+        else
+        {
+            Assert.Equal(Vector3.Zero, update.View!.Position);
+        }
+    }
+
+    [Fact]
+    public void Hybrid_frames_an_action_without_a_camera_and_releases_it_when_finished()
+    {
+        var state = new GameState { FirstPerson = true, HybridCamera = true, ViewIsTheirs = true };
+        var api = new Gk3SheepApi(state);
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+        update.Place("GABRIEL", Vector3.Zero, 0f);
+        update.StartAt(new Camera { Position = new Vector3(0, 60, 0), Target = new Vector3(0, 60, 1) });
+        api.ActionSeconds = 3;
+        update.Advance(0.1);
+        Assert.True(update.Framed);
+        Assert.True(update.Gliding);
+        update.Advance(1.5);
+        Assert.True(update.Framed);
+        Assert.True(Vector3.Distance(update.View!.Position, new Vector3(0, 60, 0)) > 50);
+        update.Advance(2);
+        Assert.False(update.Framed);
+        Assert.False(update.Directing);
+        // Repeating an action must get another shot, even without a new camera name.
+        api.ActionSeconds = 3;
+        update.Advance(0.1);
+        Assert.True(update.Framed);
+    }
+
+    [Fact]
+    public void Hybrid_keeps_the_conversation_shot_between_topics()
+    {
+        (SceneUpdate update, _, _, GameState state) = World();
+        state.FirstPerson = true;
+        state.HybridCamera = true;
+        state.Conversation = "GabeLHE";
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        state.CameraAngle = "FAR";
+        update.Advance(0.1);
+        update.Advance(2);
+        Assert.True(update.Framed);
+        Assert.True(update.Directing);
+        state.Conversation = null;
+        update.Advance(0.1);
+        Assert.False(update.Framed);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void Automatic_action_framing_requires_hybrid_and_cinematics(bool hybrid, bool cinematics)
+    {
+        var state = new GameState { FirstPerson = true, HybridCamera = hybrid, CinematicsEnabled = cinematics };
+        var api = new Gk3SheepApi(state);
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+        update.Place("GABRIEL", Vector3.Zero, 0f);
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        api.ActionSeconds = 3;
+        update.Advance(0.1);
+        update.Advance(0.1);
+        Assert.False(update.Framed);
+    }
+
+    [Fact]
+    public void A_scripted_shot_replaces_the_hybrid_fallback()
+    {
+        var state = new GameState { FirstPerson = true, HybridCamera = true };
+        var api = new Gk3SheepApi(state);
+        var update = new SceneUpdate(Scene(), api, new Glances(), new Watcher());
+        update.Place("GABRIEL", Vector3.Zero, 0f);
+        update.StartAt(new Camera { Position = Vector3.Zero, Target = Vector3.UnitZ });
+        api.ActionSeconds = 10;
+        update.Advance(0.1);
+        Assert.True(update.Framed);
+        state.CameraAngle = "FAR";
+        update.Advance(2);
+        Assert.Equal(200f, update.View!.Position.Z);
+        Assert.True(update.Framed);
     }
 
     [Fact]

@@ -3232,7 +3232,7 @@ public sealed class SceneUpdate
     }
 
     /// <summary>Whether the story is holding the camera rather than the player.</summary>
-    public bool Directing => _api.State.ForcedCameraCuts || (Occupied && _api.State.CinematicsEnabled);
+    public bool Directing => _api.State.ForcedCameraCuts || ((Occupied || HybridWatching) && _api.State.CinematicsEnabled);
 
     /// <summary>Gives the room back to the player when something has wedged it.</summary>
     /// <returns>What was let go of, one line each, or empty when nothing was holding it.</returns>
@@ -3342,7 +3342,7 @@ public sealed class SceneUpdate
     private bool Theirs(string wanted)
     {
         // Nothing named is nothing to refuse, the view is only theirs on foot, and a close-up is the player's own doing.
-        if (wanted.Length == 0 || wanted[0] == ' ' || !_api.State.FirstPerson)
+        if (wanted.Length == 0 || wanted[0] == ' ' || !_api.State.FirstPerson || _api.State.HybridCamera)
         {
             return false;
         }
@@ -3360,12 +3360,45 @@ public sealed class SceneUpdate
         return !_api.State.ForcedCameraCuts && !_api.State.CameraForced;
     }
 
+    /// <summary>An external action shot used until the script supplies one or the action ends.</summary>
+    private Camera? _hybridFallback;
+
+    private bool HybridWatching => _api.State.FirstPerson && _api.State.HybridCamera &&
+        _api.State.CinematicsEnabled && (Occupied || Busy(_api.State.Ego) ||
+        _api.State.Conversation is { Length: > 0 });
+
     /// <summary>Takes the view wherever the story has put it.</summary>
     private void MoveView(double seconds)
     {
+        bool newlyDirected = _cameraRevision != _api.State.CameraRevision && _api.State.CameraAngle.Length > 0;
+        if (_hybridFallback is not null && (!HybridWatching || newlyDirected || _staged is not null))
+        {
+            _hybridFallback = null;
+            _from = null;
+            _to = null;
+            Framed = false;
+            if (!newlyDirected)
+            {
+                _angle = _api.State.CameraAngle;
+            }
+        }
+
+        // Some actions never request a camera. Give them a view of the actor too,
+        // without replacing a shot supplied by the script or an inspect close-up.
+        if (HybridWatching && !_api.State.ForcedCameraCuts && !Framed && !newlyDirected && _staged is null &&
+            _api.State.Inspecting.Length == 0 && _hybridFallback is null &&
+            Where(_api.State.Ego) is { } actor && (Elsewhere ?? View) is { } lens)
+        {
+            string? named = ConversationCamera.Framing(_scene.Definition.Cameras(), [actor]);
+            _hybridFallback = named is not null ? Pointing(named) :
+                ConversationCamera.Action(actor, Looking(_api.State.Ego) ?? Vector3.UnitZ, lens,
+                    _scene.CameraShell is { IsEmpty: false } shell ? shell.Contains : null);
+        }
+
         // What is being looked at closely outranks where the story left the view, and the two are kept apart so that letting go of the first returns.
         string wanted = _api.State.Inspecting is { Length: > 0 } close ? "\u0000" + close : _staged is not null
-                ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture) : _api.State.CameraAngle;
+                ? "\u0001" + _stagings.ToString(CultureInfo.InvariantCulture) : _hybridFallback is not null
+                ? "\u0002hybrid" : _api.State.CameraAngle;
 
         bool inspecting = wanted.Length > 0 && wanted[0] == '\u0000';
         if (inspecting && _beforeInspect is null)
@@ -3404,7 +3437,9 @@ public sealed class SceneUpdate
             _angle = wanted;
             _from = Elsewhere ?? View;
             _to = Pointing(wanted);
-            _glided = _api.State.CameraGliding && _from is not null ? 0 : GlideSeconds;
+            _glided = (_api.State.CameraGliding || (_api.State.HybridCamera && _api.State.ViewIsTheirs &&
+                !_api.State.ForcedCameraCuts && !_api.State.CameraForced)) &&
+                _from is not null ? 0 : GlideSeconds;
 
             Framed = _to is not null;
         }
@@ -3414,7 +3449,7 @@ public sealed class SceneUpdate
             return;
         }
 
-        Framed |= inspecting;
+        Framed |= inspecting || HybridWatching;
 
         _glided += seconds;
 
@@ -3437,6 +3472,11 @@ public sealed class SceneUpdate
     /// <summary>Works out the view a camera key describes.</summary>
     private Camera? Pointing(string wanted)
     {
+        if (wanted == "\u0002hybrid")
+        {
+            return _hybridFallback;
+        }
+
         if (wanted.Length == 0)
         {
             return null;

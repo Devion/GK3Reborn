@@ -252,6 +252,9 @@ public sealed class GameState
     /// <summary>Whether the player is standing in the room rather than floating over it.</summary>
     public bool FirstPerson { get; set; }
 
+    /// <summary>Whether first-person exploration yields to action and conversation cameras.</summary>
+    public bool HybridCamera { get; set; }
+
     /// <summary>Whether the view is in the player's own eyes at this moment, which is a different question from whether they are on.</summary>
     public bool ViewIsTheirs { get; set; }
 

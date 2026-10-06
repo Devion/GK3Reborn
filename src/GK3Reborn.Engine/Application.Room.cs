@@ -614,6 +614,7 @@ public static partial class Application
 
             // Told before anything the story does this frame, because which camera a conversation picks and whether it is moved to both depend on.
             story.FirstPerson = OnFoot();
+            story.HybridCamera = story.FirstPerson && front.Settings.Perspective == Game.Perspective.Hybrid;
             story.ViewIsTheirs = story.FirstPerson && afoot;
 
             // On foot the player is the ego, whoever has the camera, and where they stand is their answer rather than their pose's.
@@ -1113,7 +1114,7 @@ public static partial class Application
             recording?.Move(presented, update, geometry);
 
             // Nobody sees the inside of their own head.
-            bool behindTheEyes = OnFoot() && (onFoot || walker.Returning || (update.Gliding && update.EyesOf(story.Ego) is { } head &&
+            bool behindTheEyes = OnFoot() && (onFoot || (update.Gliding && update.EyesOf(story.Ego) is { } head &&
                   Vector3.DistanceSquared(view.Position, head) < InsideTheHead * InsideTheHead));
 
             bool ownArms = behindTheEyes && front.Settings.FirstPersonArms;

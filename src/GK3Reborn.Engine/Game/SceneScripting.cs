@@ -689,7 +689,7 @@ public static class SceneScripting
 
         // On foot the pair are watched from the player's own head, which is where the conversation is happening: the room's own two-shot and the
         // composed fallback are both refused, so nobody is taken out of their body to be shown a conversation they are standing in.
-        if (api.State.FirstPerson && !api.State.ForcedCameraCuts)
+        if (api.State.FirstPerson && !api.State.HybridCamera && !api.State.ForcedCameraCuts)
         {
             world.Stage(null);
 

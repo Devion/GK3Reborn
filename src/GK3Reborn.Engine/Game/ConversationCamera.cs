@@ -150,6 +150,36 @@ public static class ConversationCamera
         return null;
     }
 
+    /// <summary>Frames a lone actor performing an action when no authored camera fits.</summary>
+    public static Camera? Action(Vector3 actor, Vector3 forward, Camera template, Func<Vector3, bool>? clear = null)
+    {
+        ArgumentNullException.ThrowIfNull(template);
+        forward.Y = 0;
+        forward = forward.LengthSquared() > 0.001f ? Vector3.Normalize(forward) : Vector3.UnitZ;
+        Vector3 side = Vector3.Cross(Vector3.UnitY, forward);
+        Vector3 target = actor + Vector3.UnitY * 45f;
+        foreach (float sign in (float[])[1f, -1f])
+        {
+            foreach (float distance in (float[])[180f, 120f, 80f])
+            {
+                Vector3 eye = target + (forward + side * sign) * distance + Vector3.UnitY * 35f;
+                if (clear?.Invoke(eye) == false)
+                {
+                    continue;
+                }
+
+                return new Camera
+                {
+                    Position = eye, Target = target, Up = Vector3.UnitY,
+                    FieldOfView = template.FieldOfView, NearPlane = template.NearPlane,
+                    FarPlane = template.FarPlane, LightDirection = template.LightDirection, Background = template.Background,
+                };
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>How well one camera holds a conversation, or null when it does not.</summary>
     private static float? Scores( SceneCamera camera, IReadOnlyList<Vector3> speakers, IReadOnlyList<Vector3>? looking, float within = Within,
         float ahead = Ahead)

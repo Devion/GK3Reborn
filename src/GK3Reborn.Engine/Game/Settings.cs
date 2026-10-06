@@ -37,6 +37,9 @@ public enum Perspective
 
     /// <summary>Off the leash: the camera flies, through the walls and through whatever the story was going to show.</summary>
     FreeCamera,
+
+    /// <summary>First-person exploration with external views for actions and conversations.</summary>
+    Hybrid,
 }
 
 /// <summary>Reads a perspective by name, and takes anything it does not know for the original — which is what "FreeCam" meant before the flying
@@ -236,7 +239,7 @@ public sealed record Settings
 
     /// <summary>Whether the player is behind their own eyes.</summary>
     [JsonIgnore]
-    public bool FirstPerson => Perspective == Perspective.FirstPerson;
+    public bool FirstPerson => Perspective is Perspective.FirstPerson or Perspective.Hybrid;
 
     /// <summary>Whether the camera may fly out of the room and keep flying through a cutscene.</summary>
     [JsonIgnore]
@@ -456,8 +459,10 @@ public sealed record Settings
 
         audio.SetBusGain(AudioBus.Master, MasterVolume);
 
-        audio.SetBusGain(AudioBus.Music, MusicVolume);
-        audio.SetBusGain(AudioBus.Cinematics, MusicVolume);
+        // Slider positions describe perceived level; the mixer expects amplitude.
+        float musicGain = Level(MusicVolume) * Level(MusicVolume);
+        audio.SetBusGain(AudioBus.Music, musicGain);
+        audio.SetBusGain(AudioBus.Cinematics, musicGain);
 
         audio.SetBusGain(AudioBus.Ambience, AmbienceVolume);
 
