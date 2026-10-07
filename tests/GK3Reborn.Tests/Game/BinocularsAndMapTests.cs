@@ -30,7 +30,7 @@ public sealed class BinocularsTests
         CAMPOS=562.72,61,86.287
         FLOOR=lhm_floor
         VORECT=75,-1,80,6
-        LIC#=1ELVW446R1
+        LIC#=LANDSCAPE1
 
         [CD1102pPL3]
         ZOOMRECT=69,1,81,7
@@ -92,7 +92,7 @@ public sealed class BinocularsTests
         Panorama view = Binoculars.From(Data).For("CD1", "102P");
 
         Assert.Single(view.Remarks);
-        Assert.Equal("1ELVW446R1", view.Heard(77f, 2f)?.Licence);
+        Assert.Equal("LANDSCAPE1", view.Heard(77f, 2f)?.Licence);
         Assert.Null(view.Heard(180f, 5f));
     }
 
@@ -104,6 +104,25 @@ public sealed class BinocularsTests
         Assert.False(binoculars.Usable("LBY", "110A"));
         Assert.False(binoculars.For("LBY", "110A").Any);
         Assert.False(binoculars.Usable(null, null));
+    }
+
+    [Theory]
+    [InlineData("1ELVW446R1")]
+    [InlineData("1elvw446r1")]
+    [InlineData("")]
+    public void Stray_candy_and_empty_voice_spots_do_not_mask_landscape_remarks(string licence)
+    {
+        string data = Data.Replace("LIC#=LANDSCAPE1", "LIC#=" + licence, StringComparison.Ordinal) + """
+
+            [CD1102Plandscape]
+            VORECT=75,-1,80,6
+            LIC#=LANDSCAPE2
+            """;
+        Panorama view = Binoculars.From(data).For("CD1", "102P");
+
+        Assert.Equal(3, view.Sights.Count);
+        Assert.Single(view.Remarks);
+        Assert.Equal("LANDSCAPE2", view.Heard(77f, 2f)?.Licence);
     }
 
     [Fact]

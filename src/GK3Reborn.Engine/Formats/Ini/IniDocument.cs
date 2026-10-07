@@ -42,8 +42,16 @@ public readonly record struct IniEntry(string Key, string Value)
         float[] values = new float[components];
         for (int i = 0; i < components; i++)
         {
+            string part = parts[i].Trim();
+            // RC1106P.SIF gives MacDougall a height of "3.0.". Accept the
+            // extra trailing point without accepting arbitrary malformed numbers.
+            if (part.EndsWith('.') && part.AsSpan(0, part.Length - 1).Contains('.'))
+            {
+                part = part[..^1];
+            }
+
             if (!float.TryParse(
-                    parts[i].Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+                    part, NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
             {
                 return null;
             }

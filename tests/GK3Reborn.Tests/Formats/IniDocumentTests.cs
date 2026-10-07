@@ -10,6 +10,29 @@ namespace GK3Reborn.Tests.Formats;
 public sealed class IniDocumentTests
 {
     [Fact]
+    public void MacDougalls_parking_position_survives_the_shipped_extra_decimal_point()
+    {
+        var scene = GK3Reborn.Formats.Scenes.SceneInitFile.Parse("""
+            [POSITIONS]
+            MACDOUGALL_CAR_INIT, pos={2503.91,3.0.,-1602.145}, heading=202.4
+            """, "RC1106P.SIF");
+
+        var position = Assert.Single(scene.Positions());
+        Assert.Equal("MACDOUGALL_CAR_INIT", position.Name);
+        Assert.Equal(new Vector3(2503.91f, 3f, -1602.145f), position.Position);
+        Assert.Equal(float.DegreesToRadians(202.4f), position.Heading);
+    }
+
+    [Theory]
+    [InlineData("{1,3.0.5,2}")]
+    [InlineData("{1,3.0..,2}")]
+    [InlineData("{1,garbage,2}")]
+    public void Malformed_vector_components_are_still_rejected(string value)
+    {
+        Assert.Null(new IniEntry("pos", value).AsNumbers(3));
+    }
+
+    [Fact]
     public void A_comma_somebody_left_out_still_separates_two_keys()
     {
         // HAL.SIF line 204, verbatim. The spot Gabriel stands on to put a glass to

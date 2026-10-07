@@ -246,12 +246,21 @@ public sealed class Binoculars
                     continue;
                 }
 
+                string licence = file.Value(body, "LIC#") ?? string.Empty;
+                // BINOCS.TXT ships three spots pointing at the lobby's "Cheap candy"
+                // line. These are stray authoring references, not landscape remarks.
+                // Keep the exclusion here so the actual candy action still plays it.
+                if (licence.Length == 0 || licence.Equals("1ELVW446R1", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 float[] corners = Numbers(spot, 4);
 
                 remarks.Add(new Remark(
                     new Vector2(corners[0], corners[1]),
                     new Vector2(corners[2], corners[3]),
-                    file.Value(body, "LIC#") ?? string.Empty));
+                    licence));
             }
 
             views[section] = new Panorama(sights, remarks, file.Value(section, "ANIM") ?? string.Empty);

@@ -474,7 +474,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
 
         Fence fence = _inFlight[_frame];
-        _vk.WaitForFences(_device, 1, in fence, true, ulong.MaxValue);
+        Result waited = _vk.WaitForFences(_device, 1, in fence, true, ulong.MaxValue);
+        if (waited != Result.Success)
+        {
+            throw new VulkanException($"Could not wait for the frame: {waited}.");
+        }
 
         // Whatever moved since the last frame moves in the traced world too. After the
         // fence, because rebuilding a structure the device is still tracing against is the
@@ -498,7 +502,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
         // The fence is only reset once the frame is certain to be submitted; resetting it
         // before a possible early return would deadlock the next wait on it.
-        _vk.ResetFences(_device, 1, in fence);
+        Result reset = _vk.ResetFences(_device, 1, in fence);
+        if (reset != Result.Success)
+        {
+            throw new VulkanException($"Could not reset the frame fence: {reset}.");
+        }
 
         // Anything that changed shape goes into this frame's own vertex buffers, now that
         // the fence says the device has finished with them. Doing it earlier would write
@@ -511,7 +519,9 @@ public sealed unsafe class VulkanRenderer : IRenderer
         _lastImageIndex = imageIndex;
 
         Semaphore waitSemaphore = _imageAvailable[_frame];
-        Semaphore signalSemaphore = _renderFinished[_frame];
+        // A frame fence covers rendering, not the presentation engine's semaphore wait.
+        // Reacquiring this image is what makes its presentation semaphore safe to reuse.
+        Semaphore signalSemaphore = _renderFinished[imageIndex];
         PipelineStageFlags waitStage = PipelineStageFlags.ColorAttachmentOutputBit;
         CommandBuffer commandBuffer = _commandBuffers[_frame];
 
@@ -527,9 +537,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
             PSignalSemaphores = &signalSemaphore,
         };
 
-        if (_vk.QueueSubmit(_graphicsQueue, 1, in submit, fence) != Result.Success)
+        Result submitted = _vk.QueueSubmit(_graphicsQueue, 1, in submit, fence);
+        if (submitted != Result.Success)
         {
-            throw new VulkanException("Could not submit the frame.");
+            throw new VulkanException($"Could not submit the frame: {submitted} " +
+                $"(device {DeviceName}, frame {_frameIndex}, image {imageIndex}).");
         }
 
         SwapchainKHR swapchain = _swapchain;
@@ -1495,8 +1507,16 @@ public sealed unsafe class VulkanRenderer : IRenderer
         }
 
         _imageViews = new ImageView[count];
+        _renderFinished = new Semaphore[count];
+        var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
         for (int i = 0; i < count; i++)
         {
+            Result created = _vk.CreateSemaphore(_device, in semaphoreInfo, null, out _renderFinished[i]);
+            if (created != Result.Success)
+            {
+                throw new VulkanException($"Could not create a presentation semaphore: {created}.");
+            }
+
             var viewInfo = new ImageViewCreateInfo
             {
                 SType = StructureType.ImageViewCreateInfo,
@@ -1699,7 +1719,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
     private void CreateSynchronization()
     {
         _imageAvailable = new Semaphore[FramesInFlight];
-        _renderFinished = new Semaphore[FramesInFlight];
         _inFlight = new Fence[FramesInFlight];
 
         var semaphoreInfo = new SemaphoreCreateInfo { SType = StructureType.SemaphoreCreateInfo };
@@ -1715,7 +1734,6 @@ public sealed unsafe class VulkanRenderer : IRenderer
         for (int i = 0; i < FramesInFlight; i++)
         {
             if (_vk.CreateSemaphore(_device, in semaphoreInfo, null, out _imageAvailable[i]) != Result.Success ||
-                _vk.CreateSemaphore(_device, in semaphoreInfo, null, out _renderFinished[i]) != Result.Success ||
                 _vk.CreateFence(_device, in fenceInfo, null, out _inFlight[i]) != Result.Success)
             {
                 throw new VulkanException("Could not create frame synchronisation objects.");
@@ -1734,7 +1752,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
     /// <param name="b">Clear blue.</param>
     private void RecordClear(CommandBuffer buffer, Image image, ImageView view, float r, float g, float b)
     {
-        _vk.ResetCommandBuffer(buffer, 0);
+        Result reset = _vk.ResetCommandBuffer(buffer, 0);
+        if (reset != Result.Success)
+        {
+            throw new VulkanException($"Could not reset the frame commands: {reset}.");
+        }
 
         var begin = new CommandBufferBeginInfo
         {
@@ -1742,7 +1764,11 @@ public sealed unsafe class VulkanRenderer : IRenderer
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
 
-        _vk.BeginCommandBuffer(buffer, in begin);
+        Result started = _vk.BeginCommandBuffer(buffer, in begin);
+        if (started != Result.Success)
+        {
+            throw new VulkanException($"Could not begin the frame commands: {started}.");
+        }
 
         PrepareDeferred(buffer);
 
@@ -1975,9 +2001,10 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
         Transition(buffer, image, ImageLayout.ColorAttachmentOptimal, ImageLayout.PresentSrcKhr);
 
-        if (_vk.EndCommandBuffer(buffer) != Result.Success)
+        Result recorded = _vk.EndCommandBuffer(buffer);
+        if (recorded != Result.Success)
         {
-            throw new VulkanException("Could not record the frame.");
+            throw new VulkanException($"Could not record the frame: {recorded}.");
         }
     }
 
@@ -3712,6 +3739,13 @@ public sealed unsafe class VulkanRenderer : IRenderer
 
     private void DestroySwapchain()
     {
+        foreach (Semaphore semaphore in _renderFinished)
+        {
+            _vk.DestroySemaphore(_device, semaphore, null);
+        }
+
+        _renderFinished = [];
+
         foreach (ImageView view in _imageViews)
         {
             _vk.DestroyImageView(_device, view, null);
@@ -3742,18 +3776,12 @@ public sealed unsafe class VulkanRenderer : IRenderer
             _vk.DestroySemaphore(_device, semaphore, null);
         }
 
-        foreach (Semaphore semaphore in _renderFinished)
-        {
-            _vk.DestroySemaphore(_device, semaphore, null);
-        }
-
         foreach (Fence fence in _inFlight)
         {
             _vk.DestroyFence(_device, fence, null);
         }
 
         _imageAvailable = [];
-        _renderFinished = [];
         _inFlight = [];
     }
 

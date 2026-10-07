@@ -257,7 +257,11 @@ public sealed unsafe class VulkanContext : IDisposable
             CommandBufferCount = 1,
         };
 
-        Api.AllocateCommandBuffers(Device, in allocateInfo, out CommandBuffer command);
+        Result allocated = Api.AllocateCommandBuffers(Device, in allocateInfo, out CommandBuffer command);
+        if (allocated != Result.Success)
+        {
+            throw new VulkanException($"Could not allocate one-shot commands: {allocated}.");
+        }
 
         var begin = new CommandBufferBeginInfo
         {
@@ -265,7 +269,12 @@ public sealed unsafe class VulkanContext : IDisposable
             Flags = CommandBufferUsageFlags.OneTimeSubmitBit,
         };
 
-        Api.BeginCommandBuffer(command, in begin);
+        Result started = Api.BeginCommandBuffer(command, in begin);
+        if (started != Result.Success)
+        {
+            Api.FreeCommandBuffers(Device, CommandPool, 1, in command);
+            throw new VulkanException($"Could not begin one-shot commands: {started}.");
+        }
         return command;
     }
 
@@ -273,7 +282,12 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <param name="command">The command buffer from <see cref="BeginOneShot"/>.</param>
     public void EndOneShot(CommandBuffer command)
     {
-        Api.EndCommandBuffer(command);
+        Result recorded = Api.EndCommandBuffer(command);
+        if (recorded != Result.Success)
+        {
+            Api.FreeCommandBuffers(Device, CommandPool, 1, in command);
+            throw new VulkanException($"Could not record one-shot commands: {recorded}.");
+        }
 
         var submit = new SubmitInfo
         {
@@ -282,8 +296,20 @@ public sealed unsafe class VulkanContext : IDisposable
             PCommandBuffers = &command,
         };
 
-        Api.QueueSubmit(Queue, 1, in submit, default);
-        Api.QueueWaitIdle(Queue);
+        Result submitted = Api.QueueSubmit(Queue, 1, in submit, default);
+        if (submitted != Result.Success)
+        {
+            Api.FreeCommandBuffers(Device, CommandPool, 1, in command);
+            throw new VulkanException($"Could not submit one-shot commands: {submitted}.");
+        }
+
+        Result waited = Api.QueueWaitIdle(Queue);
+        if (waited != Result.Success)
+        {
+            // Completion is unknown; leave the command buffer owned by its pool.
+            throw new VulkanException($"Could not wait for one-shot commands: {waited}.");
+        }
+
         Api.FreeCommandBuffers(Device, CommandPool, 1, in command);
     }
 
