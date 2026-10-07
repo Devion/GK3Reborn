@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using GK3Reborn.Rendering.Geometry;
 using System.Globalization;
 using System.Numerics;
@@ -291,6 +291,38 @@ public static partial class Application
         // Which graphics API to draw through.
         string? backendAsked = CommandLine.BackendAsked(args);
         Rendering.RenderBackend backend = ChooseBackend(backendAsked, settings);
+        bool wantsVr = args.Contains("--vr", StringComparer.OrdinalIgnoreCase);
+        string? vrMode = Option(args, "--vr-camera");
+        if (wantsVr && vrMode is not null && vrMode is not ("first-person" or "original"))
+        {
+            throw new ArgumentException("--vr-camera must be first-person or original.");
+        }
+        float vrScale = Rendering.VR.VrRig.DefaultUnitsPerMetre;
+        if (wantsVr && Option(args, "--vr-scale") is { } scaleText &&
+            !float.TryParse(scaleText, NumberStyles.Float, CultureInfo.InvariantCulture, out vrScale))
+        {
+            throw new ArgumentException("--vr-scale must be a number of scene units per metre.");
+        }
+        Rendering.OpenXR.OpenXrSession? headset = null;
+        if (wantsVr)
+        {
+            try
+            {
+                headset = Rendering.OpenXR.OpenXrSession.Create(vrScale, vrMode == "original"
+                    ? Rendering.VR.VrCameraMode.Original : Rendering.VR.VrCameraMode.FirstPerson);
+            }
+            catch (Exception error) when (error is InvalidOperationException or PlatformNotSupportedException or ArgumentOutOfRangeException)
+            {
+                Log.Error(error.Message);
+                return 2;
+            }
+        }
+        using Rendering.OpenXR.OpenXrSession? vr = headset;
+        if (vr is not null)
+        {
+            backend = Rendering.RenderBackend.Direct3D12;
+        }
+
 
         // What the player has dropped into libs/, and NVIDIA's loader started against it.
         var runtimes = Rendering.Upscaling.UpscalerRuntimes.Find(Option(args, "--libs-dir"));
@@ -303,18 +335,30 @@ public static partial class Application
         }
 
         // --width and --height, for photographing the interface at a display size this machine has not got.
-        OpenedRenderer drawing = OpenRenderer( backend, insisted: backendAsked is not null, $"GK3Reborn - {sceneName}",
+        OpenedRenderer drawing = OpenRenderer( backend, insisted: backendAsked is not null || wantsVr, $"GK3Reborn - {sceneName}",
             int.TryParse(Option(args, "--width"), out int windowWidth) && windowWidth > 0 ? windowWidth : 1280,
             int.TryParse(Option(args, "--height"), out int windowHeight) && windowHeight > 0 ? windowHeight : 720, runtimes,
-            Option(args, "--libs-dir"));
+            Option(args, "--libs-dir"), vr);
 
         using Platform.SilkGameWindow window = drawing.Window;
         using Rendering.Upscaling.Streamline? streamline = drawing.Streamline;
         using Rendering.IRenderer renderer = drawing.Renderer;
 
         renderer.Runtimes = runtimes;
+        if (vr is not null)
+        {
+            var vrControls = new Rendering.VR.VrWindowControls(vr, window);
+            window.AfterInput = vrControls.Poll;
+        }
 
-        ReportGraphics(renderer.Survey());
+        DeviceReport graphics = renderer.Survey();
+        ReportGraphics(graphics);
+        ulong deviceMemory = graphics.Selected?.DeviceLocalMemory ?? 0;
+        if (TextureResolution.ForMemory(deviceMemory) != int.MaxValue)
+        {
+            Log.Info($"GPU memory limits: textures up to {TextureResolution.ForMemory(deviceMemory)} pixels, " +
+                "250,000 relief triangles, 256 MiB retained texture cache.");
+        }
         Log.Info($"Renderer: {renderer}");
 
         window.Resized += (_, _) => renderer.Invalidate();
@@ -769,6 +813,7 @@ public static partial class Application
         var front = new FrontEnd(settings)
         {
             Offered = renderer.OfferedUpscalers, StoredAt = settingsPath,
+            VrEnabled = renderer.VirtualReality is not null,
 
             // What the Language row may step through: the packs that are actually beside the game, plus English, which every installation can read.
             Languages = languages,
@@ -872,6 +917,11 @@ public static partial class Application
 
         void Apply(Settings chosen)
         {
+            if (renderer.VirtualReality is { } headset)
+            {
+                headset.Preferences = chosen.Vr.Clamped();
+                headset.Rig.HeightOffsetMetres = headset.Preferences.HeightOffsetMetres;
+            }
             // Before the assignment, because `settings` is still the old answer here and this is the only place the two can be compared.
             if (chosen.FreeCamera != settings.FreeCamera)
             {
@@ -1190,6 +1240,7 @@ public static partial class Application
             }
 
             using SceneGeometry geometry = renderer.CreateGeometry();
+            geometry.ConfigureMemory(deviceMemory);
 
             // What each texture's surface is like.
             if (first)

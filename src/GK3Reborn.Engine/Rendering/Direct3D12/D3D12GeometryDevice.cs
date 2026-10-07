@@ -326,7 +326,8 @@ public sealed unsafe class D3D12GeometryDevice : IGeometryDevice
             linear: kind == GeometryTextureKind.Data,
             into: (into as D3D12GeometryUploads)?.Uploads);
 
-        return new D3D12GeometryTexture(_context, texture, (long)image.Width * image.Height * 4);
+        return new D3D12GeometryTexture(_context, texture,
+            TextureResolution.RgbaBytes(image.Width, image.Height, mipmaps && kind != GeometryTextureKind.Atlas));
     }
 
     /// <inheritdoc/>

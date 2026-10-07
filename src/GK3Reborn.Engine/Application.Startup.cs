@@ -496,8 +496,9 @@ public static partial class Application
     /// <param name="height">The window height.</param>
     /// <param name="runtimes">The upscaler runtimes that were found.</param>
     /// <param name="libsDirectory">Where --libs-dir pointed, for Direct3D's own Streamline.</param>
+    /// <param name="vr">The optional headset session.</param>
     private static OpenedRenderer OpenRenderer( Rendering.RenderBackend backend, bool insisted, string title, int width, int height,
-        Rendering.Upscaling.UpscalerRuntimes runtimes, string? libsDirectory)
+        Rendering.Upscaling.UpscalerRuntimes runtimes, string? libsDirectory, Rendering.OpenXR.OpenXrSession? vr = null)
     {
         if (backend == Rendering.RenderBackend.Direct3D12)
         {
@@ -505,7 +506,7 @@ public static partial class Application
 
             try
             {
-                Rendering.IRenderer renderer = Rendering.Direct3D12.D3D12Renderer.Create( window, window, rayTracing: true, runtimes: libsDirectory);
+                Rendering.IRenderer renderer = Rendering.Direct3D12.D3D12Renderer.Create( window, window, rayTracing: true, runtimes: libsDirectory, vr: vr);
 
                 return new OpenedRenderer(window, null, renderer, backend);
             }

@@ -212,6 +212,8 @@ public sealed unsafe class VulkanTexture : IDisposable
     {
         ulong size = (ulong)source.Blocks.Length;
 
+        into?.Prepare(size);
+
         var bufferInfo = new BufferCreateInfo
         {
             SType = StructureType.BufferCreateInfo,
@@ -276,7 +278,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             {
                 // Handed over rather than freed here: nothing has run yet, and the copy
                 // recorded above reads this buffer when the batch is submitted.
-                batch.Keep(staging, stagingMemory);
+                batch.Keep(staging, stagingMemory, size);
                 kept = true;
             }
             else
@@ -312,6 +314,8 @@ public sealed unsafe class VulkanTexture : IDisposable
             offsets[level] = total;
             total += BlockDecoder.DecodedLength(width, height);
         }
+
+        into?.Prepare((ulong)total);
 
         var bufferInfo = new BufferCreateInfo
         {
@@ -386,7 +390,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             {
                 // Handed over rather than freed here: nothing has run yet, and the copy
                 // recorded above reads this buffer when the batch is submitted.
-                batch.Keep(staging, stagingMemory);
+                batch.Keep(staging, stagingMemory, (ulong)total);
                 kept = true;
             }
             else
@@ -681,6 +685,8 @@ public sealed unsafe class VulkanTexture : IDisposable
     {
         ulong size = (ulong)source.Pixels.Length;
 
+        into?.Prepare(size);
+
         var bufferInfo = new BufferCreateInfo
         {
             SType = StructureType.BufferCreateInfo,
@@ -731,7 +737,7 @@ public sealed unsafe class VulkanTexture : IDisposable
             {
                 // Handed over rather than freed here: nothing has run yet, and the copy
                 // recorded above reads this buffer when the batch is submitted.
-                batch.Keep(staging, stagingMemory);
+                batch.Keep(staging, stagingMemory, size);
                 kept = true;
             }
             else

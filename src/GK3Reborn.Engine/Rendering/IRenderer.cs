@@ -11,6 +11,8 @@ namespace GK3Reborn.Rendering;
 /// </summary>
 public interface IRenderer : IDisposable
 {
+    /// <summary>Headset tracking, when this renderer presents immersive stereo.</summary>
+    VR.IVrSession? VirtualReality => null;
     // --- what the device is -------------------------------------------------------------
 
     /// <summary>Which API is behind this renderer.</summary>

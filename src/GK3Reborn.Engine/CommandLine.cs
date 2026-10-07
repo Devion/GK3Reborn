@@ -75,6 +75,14 @@ public static class CommandLine
         help:
           --help, -h, -?        Print this and exit.
 
+        virtual reality (Windows PC, OpenXR):
+          --vr                 Immersive stereo; Quest Link/Air Link or SteamVR runtime.
+          --vr-camera <mode>   first-person (default) or original camera position.
+          --vr-scale <units>   Scene units per metre (default 36.36).
+                              Left trigger: hold to aim teleport, release to travel.
+                              Right stick: turn. Right trigger: open actions / select.
+                              Settings > VR: turning, locomotion, seated height and hands.
+
         where to start:
           --data DIR            The game's Data directory.
           --start SCENE         Room the story starts in. Default R25.

@@ -42,6 +42,9 @@ public sealed class Camera
     /// <summary>A view matrix given outright, rather than derived from the three points.</summary>
     public Matrix4x4? ViewOverride { get; init; }
 
+    /// <summary>An asymmetric headset projection, in the engine's Y-down clip convention.</summary>
+    public Matrix4x4? ProjectionOverride { get; init; }
+
     /// <summary>This camera seen from the other side of a mirror.</summary>
     /// <param name="plane">
     /// The mirror's plane: <c>xyz</c> a unit normal out of the glass, <c>w</c> the offset.
@@ -65,6 +68,7 @@ public sealed class Camera
             Target = MirrorSurfaces.Reflect(plane, Target),
             Up = MirrorSurfaces.ReflectDirection(plane, Up),
             ViewOverride = reflection * View,
+            ProjectionOverride = ProjectionOverride,
             FieldOfView = FieldOfView,
             NearPlane = NearPlane,
             FarPlane = FarPlane,
@@ -100,6 +104,10 @@ public sealed class Camera
     /// <returns>The projection.</returns>
     public Matrix4x4 ProjectionWithoutJitter(float aspect)
     {
+        if (ProjectionOverride is { } supplied)
+        {
+            return supplied;
+        }
         Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfViewLeftHanded(
             FieldOfView, aspect, NearPlane, FarPlane);
 

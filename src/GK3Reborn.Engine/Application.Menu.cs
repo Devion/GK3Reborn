@@ -273,6 +273,12 @@ public static partial class Application
     private static FrontEndOutcome ShowMenu( Platform.SilkGameWindow window, Rendering.IRenderer renderer, MenuPage pages, FrontEnd front,
         Action<Settings> apply, MenuBehind behind, Func<OverlayAtlas?> cut, int frames = 0, string? photograph = null, UI.TitleScene? scene = null)
     {
+        if (renderer.VirtualReality is { } vrMenu)
+        {
+            vrMenu.Panel.Interactive = true;
+            vrMenu.Panel.WorldMenu = false;
+            if (vrMenu.Input.HeadTracked) { vrMenu.Panel.Place(vrMenu.Input.Head); }
+        }
         FrontEndPage showing = front.Page;
         int laidOutFor = window.FramebufferHeight;
         float laidOutAt = front.Settings.TextScale;

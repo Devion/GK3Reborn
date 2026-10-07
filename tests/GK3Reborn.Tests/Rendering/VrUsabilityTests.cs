@@ -1,0 +1,178 @@
+using System.Numerics;
+using GK3Reborn.Game;
+using GK3Reborn.Platform;
+using GK3Reborn.Rendering.VR;
+using GK3Reborn.UI;
+using Xunit;
+
+namespace GK3Reborn.Tests.Rendering;
+
+public sealed class VrUsabilityTests
+{
+    private static VrPose Head => new(new Vector3(0, 1.2f, 0), Quaternion.Identity);
+
+    [Fact]
+    public void Panel_stays_in_place_when_head_turns_and_only_reanchors_on_request()
+    {
+        var panel = new VrPanel();
+        panel.Place(Head);
+        VrPose before = panel.Pose;
+        Assert.Equal(new Vector2(0.5f), panel.Hit(Head));
+        VrPose turned = Head with { Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 1) };
+        Assert.Null(panel.Hit(turned));
+        Assert.Equal(before, panel.Pose);
+        panel.Place(turned);
+        Assert.NotEqual(before, panel.Pose);
+        Assert.True(Vector2.Distance(new Vector2(0.5f), panel.Hit(turned)!.Value) < 0.0001f);
+    }
+
+    [Fact]
+    public void Seated_offset_moves_head_and_hands_together_without_moving_floor()
+    {
+        var rig = new VrRig(40);
+        rig.Place(Vector3.Zero, 0, Head, VrCameraMode.FirstPerson);
+        Vector3 hand = rig.Point(new Vector3(0.2f, 0.8f, 0));
+        rig.HeightOffsetMetres = 0.5f;
+        Assert.Equal(68, rig.Point(Head.Position).Y);
+        Assert.Equal(hand + Vector3.UnitY * 20, rig.Point(new Vector3(0.2f, 0.8f, 0)));
+        Assert.Equal(0, rig.Origin.Y);
+    }
+
+    [Fact]
+    public void Smooth_turn_is_frame_rate_independent_and_pivots_around_head()
+    {
+        var a = new VrRig(); var b = new VrRig();
+        a.Place(Vector3.Zero, 0, Head, VrCameraMode.FirstPerson);
+        b.Place(Vector3.Zero, 0, Head, VrCameraMode.FirstPerson);
+        Vector3 before = a.Point(Head.Position);
+        for (int i = 0; i < 90; i++) { a.SmoothTurn(1, Head, 75, 1f / 90); }
+        for (int i = 0; i < 72; i++) { b.SmoothTurn(1, Head, 75, 1f / 72); }
+        Assert.Equal(a.Yaw, b.Yaw, 4);
+        Assert.True(Vector3.Distance(before, a.Point(Head.Position)) < 0.001f);
+        Assert.Equal(75 * MathF.PI / 180, a.Yaw, 4);
+    }
+
+    [Fact]
+    public void Vr_tab_is_present_only_in_a_headset_session_and_edits_persistent_preferences()
+    {
+        var front = new FrontEnd(new Settings());
+        Assert.DoesNotContain(front.Tabs, t => t.Id == "vr");
+        front.Choose(new MenuAction("tab:vr"));
+        Assert.Equal(FrontEndPage.Main, front.Page);
+        front.VrEnabled = true;
+        front.Choose(new MenuAction("tab:vr"));
+        Assert.Equal(FrontEndPage.VR, front.Page);
+        Assert.True(front.OnSettings);
+        front.Choose(new MenuAction("vr-height", Fraction: 0.5f));
+        Assert.Equal(0.5f, front.Settings.Vr.HeightOffsetMetres);
+        front.Choose(new MenuAction("vr-move", Step: 1));
+        Assert.Equal(VrLocomotionMode.Smooth, front.Settings.Vr.Locomotion);
+        Assert.True(front.Dirty);
+        Assert.True(front.StepSection(1));
+        Assert.Equal(FrontEndPage.Gameplay, front.Page);
+    }
+
+    [Fact]
+    public void Left_menu_works_without_a_right_controller_and_inventory_journal_have_buttons()
+    {
+        var session = new Session(); var sink = new Sink();
+        var controls = new VrWindowControls(session, sink);
+        controls.Poll();
+        session.Input = session.Input with { Menu = true, RightTracked = false };
+        controls.Poll();
+        Assert.Contains(CameraAction.Quit, sink.Actions);
+        Assert.Contains(EditKey.Escape, sink.Keys);
+        sink.Actions.Clear(); controls.Poll();
+        Assert.Empty(sink.Actions);
+        session.Input = session.Input with { Menu = false, Inventory = true, Journal = true };
+        controls.Poll();
+        Assert.Contains(CameraAction.Inventory, sink.Actions);
+        Assert.Contains(CameraAction.Journal, sink.Actions);
+    }
+
+    [Fact]
+    public void Trigger_opens_actions_in_world_but_selects_and_drags_only_on_a_panel()
+    {
+        var session = new Session(); var sink = new Sink();
+        session.Panel.Interactive = false;
+        var controls = new VrWindowControls(session, sink);
+        controls.Poll();
+        session.Input = session.Input with { Select = 1 };
+        controls.Poll(); Assert.Contains(PointerButton.Secondary, sink.Clicks);
+        sink.Clicks.Clear(); session.Input = session.Input with { Select = 0 }; controls.Poll();
+        session.Panel.Interactive = true;
+        session.Input = session.Input with { Select = 1 }; controls.Poll();
+        Assert.Contains(PointerButton.Primary, sink.Clicks); Assert.True(sink.ExternalPrimaryHeld);
+        sink.Clicks.Clear();
+        session.Input = session.Input with { Select = 0, RightAim = Head with { Orientation = Quaternion.CreateFromAxisAngle(Vector3.UnitY, 2) } }; controls.Poll();
+        session.Input = session.Input with { Select = 1 }; controls.Poll();
+        Assert.Empty(sink.Clicks); Assert.False(sink.ExternalPrimaryHeld);
+    }
+
+    [Fact]
+    public void Focus_loss_disarms_buttons_until_released()
+    {
+        var session = new Session(); var sink = new Sink(); var controls = new VrWindowControls(session, sink);
+        controls.Poll(); session.Focused = false; session.Input = session.Input with { Select = 1 }; controls.Poll();
+        session.Focused = true; controls.Poll(); Assert.Empty(sink.Clicks);
+        session.Input = session.Input with { Select = 0 }; controls.Poll();
+        session.Input = session.Input with { Select = 1 }; controls.Poll(); Assert.Single(sink.Clicks);
+    }
+
+    [Fact]
+    public void Keyboard_covers_letters_numbers_and_editing_without_clicking_through()
+    {
+        var panel = new VrPanel { Keyboard = true };
+        Assert.Equal("1", panel.KeyAt(new Vector2(0.08f, 0.53f)));
+        Assert.Equal("Q", panel.KeyAt(new Vector2(0.08f, 0.6f)));
+        Assert.Equal("space", panel.KeyAt(new Vector2(0.2f, 0.89f)));
+        Assert.Equal("backspace", panel.KeyAt(new Vector2(0.6f, 0.89f)));
+        Assert.Equal("enter", panel.KeyAt(new Vector2(0.9f, 0.89f)));
+    }
+
+    [Fact]
+    public void Grip_and_touch_curl_distal_vertices_but_keep_the_wrist_fixed()
+    {
+        Vector3 wrist = new(0, 0, -2);
+        Assert.Equal(wrist, VrHands.Curl(wrist, 1, 1, 1));
+        Vector3 finger = new(0, 0, 3);
+        Assert.Equal(finger, VrHands.Curl(finger, 0, 0, 0));
+        Assert.True(VrHands.Curl(finger, 1, 0, 0).Y < -1);
+        Vector3 index = new(1, 0, 3);
+        Assert.Equal(index, VrHands.Curl(index, 1, 0, 0));
+        Assert.True(VrHands.Curl(index, 0, 0.25f, 0).Y < 0);
+    }
+
+    private sealed class Session : IVrSession
+    {
+        public VrRig Rig { get; } = new();
+        public VrInput Input { get; set; } = new(Head, Head, Head, true, true, true, 0, 0, default, default, false, false);
+        public TeleportArc Teleport { get; } = new();
+        public VrPreferences Preferences { get; set; } = new();
+        public VrPanel Panel { get; } = new();
+        public bool Focused { get; set; } = true;
+        public bool RoomPending => false;
+        public bool Transitioning { get; set; }
+        public bool ComfortBlocked { get; set; }
+        public void PlacedRoom() { }
+        public bool BeginFrame() => true;
+        public void EnterRoom() { }
+    }
+    private sealed class Sink : ISyntheticInput
+    {
+        public int FramebufferWidth => 1280;
+        public int FramebufferHeight => 720;
+        public float DpiScale => 1;
+        public bool ExternalPrimaryHeld { get; set; }
+        public List<CameraAction> Actions { get; } = [];
+        public List<EditKey> Keys { get; } = [];
+        public List<PointerButton> Clicks { get; } = [];
+        public void RequestClose() { }
+        public void MovePointer(Vector2 position) { }
+        public void Press(PointerButton button) => Clicks.Add(button);
+        public void Press(EditKey key) => Keys.Add(key);
+        public void Press(CameraAction action) => Actions.Add(action);
+        public void Scroll(int amount) { }
+        public void Type(string text) { }
+    }
+}

@@ -68,6 +68,25 @@ public sealed class ScreenFade
     /// </summary>
     public void Begin()
     {
+        if (_renderer.VirtualReality is { } vr)
+        {
+            // Fade the live stereo room before its resources are released. A desktop
+            // screenshot would flatten the room and move with the player's eyes.
+            vr.Transitioning = true;
+            vr.Teleport.Cancel();
+            _renderer.FadeColour = default;
+            _in = null;
+            _out = Stopwatch.StartNew();
+            while (!_window.IsClosing && _out.Elapsed.TotalSeconds < OutSeconds)
+            {
+                _renderer.Fade = Curve(_out.Elapsed.TotalSeconds / OutSeconds);
+                Present();
+            }
+            _renderer.Fade = 1;
+            Present();
+            _presented = _out.Elapsed.TotalSeconds;
+            return;
+        }
         if (_renderer.Capture() is { } held)
         {
             _renderer.SetBackdrop(held);
@@ -168,7 +187,7 @@ public sealed class ScreenFade
     /// <param name="seconds">How long it should take, from <see cref="Black"/>.</param>
     public void ArriveOver(double seconds)
     {
-        _length = Math.Max(LeastInSeconds, seconds);
+        _length = Math.Max(_renderer.VirtualReality is null ? LeastInSeconds : 0.45, seconds);
         _first = true;
         _in = new Stopwatch();
     }
@@ -204,6 +223,7 @@ public sealed class ScreenFade
 
         if (through >= 1)
         {
+            if (_renderer.VirtualReality is { } vr) { vr.Transitioning = false; }
             _renderer.Fade = 0f;
             _in = null;
             return;
@@ -215,6 +235,7 @@ public sealed class ScreenFade
     /// <summary>Abandons the fade and puts the picture back the way it was.</summary>
     public void Cancel()
     {
+        if (_renderer.VirtualReality is { } vr) { vr.Transitioning = false; }
         _out = null;
         _in = null;
         _renderer.Fade = 0f;

@@ -7,6 +7,19 @@ namespace GK3Reborn.Rendering.Geometry;
 /// </summary>
 public sealed class TextureCache : IDisposable
 {
+    private int _rooms;
+    public int MaximumTextureDimension { get; set; } = int.MaxValue;
+    public long MaximumRetainedBytes { get; set; } = 1024L * 1024 * 1024;
+
+    internal void AcquireRoom() => _rooms++;
+
+    internal void ReleaseRoom()
+    {
+        if (--_rooms == 0 && DeviceBytes > MaximumRetainedBytes)
+        {
+            ClearImages();
+        }
+    }
     private readonly IGeometryDevice _device;
     private readonly Dictionary<string, IGeometryTexture> _textures =
         new(StringComparer.OrdinalIgnoreCase);
@@ -172,8 +185,9 @@ public sealed class TextureCache : IDisposable
             }
         }
 
+        keyed = TextureResolution.Limit(keyed, MaximumTextureDimension);
         _textures[name] = _device.CreateTexture(keyed, into: into);
-        DeviceBytes += WithMips(keyed.Width, keyed.Height);
+        DeviceBytes += _textures[name].Bytes;
     }
 
     /// <summary>Uploads a block-compressed texture, or keeps the one already here.</summary>
@@ -215,8 +229,9 @@ public sealed class TextureCache : IDisposable
             }
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _textures[name] = _device.CreateTexture(image, into);
-        DeviceBytes += image.Blocks.Length;
+        DeviceBytes += _textures[name].Bytes;
     }
 
     /// <summary>Whether a block format has an alpha channel a cutout could live in.</summary>
@@ -282,8 +297,9 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _normals[name] = _device.CreateTexture(image, into);
-        DeviceBytes += image.Blocks.Length;
+        DeviceBytes += _normals[name].Bytes;
     }
 
     /// <summary>Roughly how many bytes of video memory the textures here occupy.</summary>
@@ -312,14 +328,12 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _normals[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
-        DeviceBytes += WithMips(image.Width, image.Height);
+        DeviceBytes += _normals[name].Bytes;
     }
 
-    /// <summary>How much video memory an uncompressed texture and its chain take.</summary>
-    private static long WithMips(int width, int height) =>
-        (long)width * height * 4 * 4 / 3;
 
     /// <summary>Finds a surface's normal map, or a flat one.</summary>
     /// <param name="name">The colour texture's name.</param>
@@ -352,8 +366,9 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _orms[name] = _device.CreateTexture(image, into);
-        DeviceBytes += image.Blocks.Length;
+        DeviceBytes += _orms[name].Bytes;
     }
 
     /// <summary>Uploads an ORM map, or keeps the one already here.</summary>
@@ -370,9 +385,10 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _orms[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
-        DeviceBytes += WithMips(image.Width, image.Height);
+        DeviceBytes += _orms[name].Bytes;
     }
 
     /// <summary>Finds a surface's ORM map, or a neutral one.</summary>
@@ -431,8 +447,9 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _heights[name] = _device.CreateTexture(image, into);
-        DeviceBytes += image.Blocks.Length;
+        DeviceBytes += _heights[name].Bytes;
     }
 
     /// <summary>Uploads a height map, or keeps the one already here.</summary>
@@ -455,9 +472,10 @@ public sealed class TextureCache : IDisposable
             return;
         }
 
+        image = TextureResolution.Limit(image, MaximumTextureDimension);
         _heights[name] = _device.CreateTexture(image, GeometryTextureKind.Data, into: into);
 
-        DeviceBytes += WithMips(image.Width, image.Height);
+        DeviceBytes += _heights[name].Bytes;
     }
 
     /// <summary>Finds a surface's height map, or a level one.</summary>
@@ -478,6 +496,16 @@ public sealed class TextureCache : IDisposable
 
     /// <inheritdoc/>
     public void Dispose()
+    {
+        ClearImages();
+        Fallback.Dispose();
+        White.Dispose();
+        Flat.Dispose();
+        Neutral.Dispose();
+        Level.Dispose();
+    }
+
+    private void ClearImages()
     {
         _device.Wait();
 
@@ -506,11 +534,8 @@ public sealed class TextureCache : IDisposable
         _orms.Clear();
         _heights.Clear();
         _keyed.Clear();
-
-        Fallback.Dispose();
-        White.Dispose();
-        Flat.Dispose();
-        Neutral.Dispose();
-        Level.Dispose();
+        _cutouts.Clear();
+        _fields.Clear();
+        DeviceBytes = 0;
     }
 }

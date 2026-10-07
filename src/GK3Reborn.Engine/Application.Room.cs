@@ -326,12 +326,17 @@ public static partial class Application
         };
 
         bool onFootFromTheCommandLine = options.Contains("--first-person", StringComparer.OrdinalIgnoreCase);
+        Rendering.VR.IVrSession? vr = renderer.VirtualReality;
+        var vrLocomotion = new Rendering.VR.VrLocomotion();
+        vr?.EnterRoom();
+
 
         // --push X,Y holds the movement controls for the whole run, which is the only way a run with no keyboard can walk anywhere: the way out of a.
         Vector2 pushed = Pushed(options);
 
         // Asked every frame for the reason the free camera is: it is a row on the Playing page, and a setting a player can only see work by leaving.
-        bool OnFoot() => (onFootFromTheCommandLine || front.Settings.FirstPerson) && !Flying();
+        bool OnFoot() => vr is not null ? vr.Rig.Mode == Rendering.VR.VrCameraMode.FirstPerson
+            : (onFootFromTheCommandLine || front.Settings.FirstPerson) && !Flying();
 
         // The shell the scene's artists drew around the space the camera may occupy.
         if (scene.CameraShell is not { IsEmpty: false } shell)
@@ -956,6 +961,10 @@ public static partial class Application
                 directing = update.View;
                 template = directed;
                 camera.CopyFrom(directed);
+                if (vr?.Rig.Mode == Rendering.VR.VrCameraMode.Original)
+                {
+                    vr.EnterRoom();
+                }
 
                 Place();
             }
@@ -968,11 +977,11 @@ public static partial class Application
 
             // A forced view can wait for input (the handshake and dumbwaiter shafts).
             // Capture the mouse only when it steers the view; otherwise it must be a cursor.
-            window.PointerLocked = onFoot && menu is null && !movies.Playing &&
+            window.PointerLocked = vr is null && onFoot && menu is null && !movies.Playing &&
                 !window.IsHeld(Platform.CameraAction.FreeCursor);
 
             // Coming back from a shot the story was holding, the view travels back into the player's own eyes instead of arriving in them.
-            if (onFoot && !afoot && everAfoot)
+            if (vr is null && onFoot && !afoot && everAfoot)
             {
                 Vector2 was = camera.Aim;
 
@@ -982,7 +991,7 @@ public static partial class Application
             afoot = onFoot;
             everAfoot |= onFoot;
 
-            if (onFoot)
+            if (onFoot && vr is null)
             {
                 // Whatever shot was built for a conversation is the story's, and the story has let go of the camera.
                 update.Stage(null);
@@ -1099,12 +1108,18 @@ public static partial class Application
                 camera.Position = eye;
                 camera.Aim = new Vector2(yaw * 180f / MathF.PI, pitch * 180f / MathF.PI);
             }
-            else if (theirs && !OnFoot() && !leavingInspect)
+            else if (vr is null && theirs && !OnFoot() && !leavingInspect)
             {
                 camera.Update(window, delta);
             }
 
             Camera view = camera.ToCamera(template, api.Leaning is null ? null : MathF.PI / 6f);
+            if (vr is not null)
+            {
+                view = vrLocomotion.Update(vr, view, walker, update, story.Ego, interaction,
+                    !typing && story.Screens.InTheRoom && menu is null && !movies.Playing && !update.Busy(story.Ego), delta);
+            }
+
 
             if (recording?.View(presented, view) is { } railed)
             {
@@ -1117,7 +1132,7 @@ public static partial class Application
             bool behindTheEyes = OnFoot() && (onFoot || (update.Gliding && update.EyesOf(story.Ego) is { } head &&
                   Vector3.DistanceSquared(view.Position, head) < InsideTheHead * InsideTheHead));
 
-            bool ownArms = behindTheEyes && front.Settings.FirstPersonArms;
+            bool ownArms = vr is null && behindTheEyes && front.Settings.FirstPersonArms;
 
             if (behindTheEyes != embodied || ownArms != armsShown)
             {
@@ -1130,6 +1145,11 @@ public static partial class Application
                     // the body is only taken out of their own view: it still casts their shadow across the floor and still stands in the mirror.
                     update.Embody(body, behindTheEyes, ownArms);
                 }
+            }
+
+            if (vr is not null && update.ModelNamed(story.Ego) is { } handActor)
+            {
+                geometry.TrackedHands ??= new Rendering.VR.VrHands(geometry, handActor);
             }
 
             // Where the view actually is, while the player is the one holding it.
@@ -1149,7 +1169,9 @@ public static partial class Application
             Vector2 aimed = pinned ?? (crosshair ? new Vector2(window.FramebufferWidth / 2f, window.FramebufferHeight / 2f) : new Vector2(
                     window.PointerPosition.X * window.DpiScale, window.PointerPosition.Y * window.DpiScale));
 
-            Hover hover = interaction.At( view, (int)aimed.X, (int)aimed.Y, window.FramebufferWidth, window.FramebufferHeight);
+            Hover hover = vr is { Focused: true, Input.RightTracked: true }
+                ? interaction.At(vr.Rig.Aim(vr.Input.RightAim))
+                : interaction.At( view, (int)aimed.X, (int)aimed.Y, window.FramebufferWidth, window.FramebufferHeight);
 
             // And the room's own machinery is told, where the room has any.
             api.Mechanism?.Pointing(hover.Pick, update.Occupied || menu is not null);
@@ -1169,6 +1191,12 @@ public static partial class Application
             }
 
             // --pointer puts it somewhere fixed, which is the only way to photograph the interface: the label follows the mouse, and a headless run.
+            if (vr is not null)
+            {
+                vr.Panel.Interactive = menu is not null || !story.Screens.InTheRoom || movies.Playing;
+                vr.Panel.WorldMenu = menu is not null;
+                vr.Panel.WorldTarget = hover.Pick?.Point;
+            }
             Vector2 pointer = aimed;
 
             // Whether the verb bar was up when this frame began, and whether anything was taken off it.
@@ -1179,8 +1207,13 @@ public static partial class Application
             if (forceMenu && menu is null && hover.Actionable)
             {
                 menu = hover;
-                menuAt = pointer;
+                menuAt = vr is not null ? new Vector2(window.FramebufferWidth * 0.4f, window.FramebufferHeight * 0.3f) : pointer;
                 menuIndex = 0;
+                if (vr is not null)
+                {
+                    vr.Panel.Interactive = menu is not null; vr.Panel.WorldMenu = menu is not null;
+                    if (menu is not null) { vr.Panel.Place(vr.Input.Head); }
+                }
             }
 
             // The poem keeps its page only while it is open; closed, it opens next time at the verse in hand, as the retail engine has it.
@@ -1295,15 +1328,23 @@ public static partial class Application
                 }
             }
 
-            if (!console.Open && window.WasClicked(Platform.PointerButton.Secondary))
+            bool vrDirect = vr is not null && menu is null && window.WasClicked(Platform.PointerButton.Secondary) &&
+                (claimed is not null || (vr.Panel.PointerOnPanel && hud?.OverInterface(pointer) == true));
+            if (vrDirect) { window.Press(Platform.PointerButton.Primary); }
+            if (!console.Open && !vrDirect && window.WasClicked(Platform.PointerButton.Secondary))
             {
                 // Not while something is already happening.
                 bool busy = update.Acting || room?.Talking == true;
 
                 // The menu belongs to the thing it was opened over, not to wherever the pointer wanders next, so what was under it is kept — and so.
                 menu = menu is null && hover.Actionable && !busy ? hover : null;
-                menuAt = pointer;
+                menuAt = vr is not null ? new Vector2(window.FramebufferWidth * 0.4f, window.FramebufferHeight * 0.3f) : pointer;
                 menuIndex = 0;
+                if (vr is not null)
+                {
+                    vr.Panel.Interactive = menu is not null; vr.Panel.WorldMenu = menu is not null;
+                    if (menu is not null) { vr.Panel.Place(vr.Input.Head); }
+                }
 
                 // One list at a time.
                 radioOpen = false;

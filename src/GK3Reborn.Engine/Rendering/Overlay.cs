@@ -458,6 +458,20 @@ public sealed class Overlay
     /// <summary>The rectangles, in the order they were added.</summary>
     public IReadOnlyList<OverlayQuad> Quads => _quads;
 
+    /// <summary>A frame-local copy with a visible pointer for compositor panels.</summary>
+    internal Overlay WithPointer(Vector2 position, VR.VrPanel? panel = null)
+    {
+        var copy = new Overlay(Atlas);
+        copy.Begin(Width, Height);
+        copy._quads.AddRange(_quads);
+        copy.Magnify = Magnify;
+        panel?.DrawControls(copy);
+        copy.Rect(position.X - 5, position.Y - 5, 10, 10, new Vector4(0, 0, 0, 1));
+        copy.Rect(position.X - 3, position.Y - 3, 6, 6, Vector4.One);
+        return copy;
+    }
+
+
     /// <summary>
     /// How many screen pixels one pixel of the font's sheet covers.
     /// </summary>

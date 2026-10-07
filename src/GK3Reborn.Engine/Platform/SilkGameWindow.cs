@@ -1,4 +1,4 @@
-﻿using System.Numerics;
+using System.Numerics;
 using GK3Reborn.Foundation.Diagnostics;
 using Silk.NET.Core;
 using Silk.NET.Input;
@@ -37,8 +37,11 @@ public enum WindowGraphics
 }
 
 /// <summary>A game window backed by Silk.NET.</summary>
-public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput
+public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32WindowSource, IGameInput, ISyntheticInput
 {
+    /// <summary>Ends the desktop loop when the headset runtime requests exit.</summary>
+    public void RequestClose() => _window.Close();
+
     /// <summary>This game's key names, resolved to Silk.NET's own.</summary>
     private static readonly Key[] SilkKeys = BuildKeyMap();
 
@@ -378,12 +381,15 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     /// <summary>Presses a pointer button for the frame that has just begun, as if a mouse had.</summary>
     /// <param name="button">Which button.</param>
     public void Press(PointerButton button) => _clicked.Add(button);
+    public void Press(CameraAction action) => _pressed.Add(action);
+    public void Scroll(int amount) => _scroll += amount;
 
     /// <inheritdoc />
     public bool WasDoubleClicked(PointerButton button) => _doubleClicked.Contains(button);
 
     /// <inheritdoc />
     public string Typed => _typed.ToString();
+    public void Type(string text) => _typed.Append(text);
 
     /// <inheritdoc />
     public bool WasPressed(EditKey key) => _edits.Contains(key);
@@ -395,7 +401,9 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     public bool IsDragging => IsHeld(PointerButton.Primary) || IsHeld(PointerButton.Secondary);
 
     /// <inheritdoc/>
-    public bool IsHeld(PointerButton button) => _padHeld.Contains(Bindings.Button(button)) || _clicked.Contains(button) || (_mouse is not null && _mouse.IsButtonPressed(button switch
+    public bool ExternalPrimaryHeld { get; set; }
+
+    public bool IsHeld(PointerButton button) => (button == PointerButton.Primary && ExternalPrimaryHeld) || _padHeld.Contains(Bindings.Button(button)) || _clicked.Contains(button) || (_mouse is not null && _mouse.IsButtonPressed(button switch
          {
              PointerButton.Secondary => MouseButton.Right, PointerButton.Middle => MouseButton.Middle, _ => MouseButton.Left,
          }));
@@ -615,7 +623,17 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     }
 
     /// <inheritdoc/>
+    public System.Action? AfterInput { get; set; }
+
+    public void Press(EditKey key) => _edits.Add(key);
+
     public void PumpEvents()
+    {
+        try { PumpDesktopEvents(); }
+        finally { AfterInput?.Invoke(); }
+    }
+
+    private void PumpDesktopEvents()
     {
         _window.DoEvents();
 
@@ -685,6 +703,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         // Put the real cursor where the stick has driven it, so that the arrow the operating system draws is the one the game is acting on, and.
         _mouse.Position = _lastPointer;
         _mouseAt = _lastPointer;
+
     }
 
     /// <summary>Reads the pad, once a frame.</summary>

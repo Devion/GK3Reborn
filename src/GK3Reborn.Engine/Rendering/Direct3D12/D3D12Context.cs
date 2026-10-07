@@ -83,9 +83,11 @@ public sealed unsafe class D3D12Context : IDisposable
 
     /// <summary>Creates a device on the adapter the selector would choose.</summary>
     /// <param name="enableValidation">Whether to turn the debug layer on when it is installed.</param>
+    /// <param name="requiredLuid">The headset runtime's required GPU, when using OpenXR.</param>
+    /// <param name="minimumFeatureLevel">The minimum required graphics feature level.</param>
     /// <returns>The context.</returns>
     /// <exception cref="D3D12Exception">No usable adapter, or the device would not start.</exception>
-    public static D3D12Context Create(bool enableValidation = true)
+    public static D3D12Context Create(bool enableValidation = true, ulong? requiredLuid = null, uint minimumFeatureLevel = 0xb000)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -109,7 +111,7 @@ public sealed unsafe class D3D12Context : IDisposable
 
         try
         {
-            context.Start(enableValidation);
+            context.Start(enableValidation, requiredLuid, minimumFeatureLevel);
             return context;
         }
         catch
@@ -470,7 +472,7 @@ public sealed unsafe class D3D12Context : IDisposable
         // note there. Everything above is this context's own and is released.
     }
 
-    private void Start(bool enableValidation)
+    private void Start(bool enableValidation, ulong? requiredLuid, uint minimumFeatureLevel)
     {
         uint factoryFlags = 0;
 
@@ -501,7 +503,14 @@ public sealed unsafe class D3D12Context : IDisposable
             ?? throw new D3D12Exception(
                 report.Unavailable ?? "no adapter on this machine supports Direct3D 12.");
 
-        SelectAdapter(chosen);
+        SelectAdapter(chosen, requiredLuid);
+        if (requiredLuid is not null)
+        {
+            AdapterDesc1 actual = default;
+            _adapter.GetDesc1(&actual);
+            string actualName = Marshal.PtrToStringUni((nint)actual.Description) ?? string.Empty;
+            chosen = report.Adapters.First(a => a.Name == actualName);
+        }
 
         // 11_0 is a floor, not a request: the device that comes back has every capability
         // the hardware has, whatever minimum was named. It used to say 12_0 here, and that
@@ -513,7 +522,7 @@ public sealed unsafe class D3D12Context : IDisposable
         D3D12Exception.ThrowIfFailed(
             _d3d12.CreateDevice(
                 (IUnknown*)_adapter.Handle,
-                D3DFeatureLevel.Level110,
+                (D3DFeatureLevel)Math.Max(0xb000u, minimumFeatureLevel),
                 &deviceId,
                 (void**)_device.GetAddressOf()),
             $"create a device on {chosen.Name}");
@@ -600,7 +609,7 @@ public sealed unsafe class D3D12Context : IDisposable
         _oneShotEvent = new AutoResetEvent(false);
     }
 
-    private void SelectAdapter(AdapterInfo chosen)
+    private void SelectAdapter(AdapterInfo chosen, ulong? requiredLuid)
     {
         for (uint index = 0; ; index++)
         {
@@ -621,7 +630,9 @@ public sealed unsafe class D3D12Context : IDisposable
                 string name = Marshal.PtrToStringUni((nint)description.Description) ?? string.Empty;
                 bool software = (description.Flags & (uint)AdapterFlag.Software) != 0;
 
-                if (string.Equals(name, chosen.Name, StringComparison.Ordinal)
+                ulong luid = ((ulong)(uint)description.AdapterLuid.High << 32) | (uint)description.AdapterLuid.Low;
+                if (requiredLuid is { } required ? luid == required :
+                    string.Equals(name, chosen.Name, StringComparison.Ordinal)
                     && software == chosen.Kind.Equals("software", StringComparison.Ordinal))
                 {
                     _adapter = candidate;

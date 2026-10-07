@@ -257,7 +257,7 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
                     : SamplerAddressMode.Repeat,
                 linear: kind == GeometryTextureKind.Data,
                 into: (into as VulkanGeometryUploads)?.Uploads),
-            0,
+            TextureResolution.RgbaBytes(image.Width, image.Height, mipmaps && kind != GeometryTextureKind.Atlas),
             owned: true);
 
     /// <inheritdoc/>
@@ -265,7 +265,8 @@ public sealed unsafe class VulkanGeometryDevice : IGeometryDevice
         new VulkanGeometryTexture(
             VulkanTexture.Create(
                 _context, image, into: (into as VulkanGeometryUploads)?.Uploads),
-            0,
+            BlockCompression ? image.Blocks.Length : Enumerable.Range(0, image.Mips).Sum(level =>
+                (long)Math.Max(1, image.Width >> level) * Math.Max(1, image.Height >> level) * 4),
             owned: true);
 
     /// <inheritdoc/>

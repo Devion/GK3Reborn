@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using GK3Reborn.Rendering.Geometry;
 using GK3Reborn.Audio;
 using GK3Reborn.Game;
@@ -29,6 +29,8 @@ public enum FrontEndPage
 
     /// <summary>Which key and which pad button do which job.</summary>
     Controls,
+
+    VR,
 
     /// <summary>The slots a game can be written to.</summary>
     Save,
@@ -139,6 +141,8 @@ public sealed class FrontEnd
     /// <summary>Whether a room is already loaded behind the menu.</summary>
     public bool InGame { get; set; }
 
+    public bool VrEnabled { get; set; }
+
     /// <summary>Which page is showing.</summary>
     public FrontEndPage Page { get; private set; } = FrontEndPage.Main;
 
@@ -169,12 +173,12 @@ public sealed class FrontEnd
         .. Sections.Select(section => section with
         {
             Text = Text.Say("settings.section." + section.Id, section.Text),
-        }), ];
+        }), .. (VrEnabled ? new[] { new MenuSection("vr", "VR") } : []), ];
 
     /// <summary>Which page each of those sections is.</summary>
-    private static readonly FrontEndPage[] SectionPages =
+    private FrontEndPage[] SectionPages =>
     [
-        FrontEndPage.Gameplay, FrontEndPage.Video, FrontEndPage.Display, FrontEndPage.Audio, FrontEndPage.Controls, ];
+        FrontEndPage.Gameplay, FrontEndPage.Video, FrontEndPage.Display, FrontEndPage.Audio, FrontEndPage.Controls, .. (VrEnabled ? new[] { FrontEndPage.VR } : []), ];
 
     /// <summary>Whether what is showing is one of the settings sections.</summary>
     public bool OnSettings => Array.IndexOf(SectionPages, Page) >= 0;
@@ -219,6 +223,7 @@ public sealed class FrontEnd
     public IReadOnlyList<MenuItem> Items => Page switch
     {
         FrontEndPage.Main => Main(), FrontEndPage.Video => Video(), FrontEndPage.Display => Display(), FrontEndPage.Audio => Audio(),
+        FrontEndPage.VR when VrEnabled => VrOptions(),
         FrontEndPage.Controls => Controls(), FrontEndPage.Save => Slots(writing: true), FrontEndPage.Load => Slots(writing: false), _ => Gameplay(),
     };
 
@@ -345,11 +350,11 @@ public sealed class FrontEnd
     private FrontEndPage _lastSection = FrontEndPage.Gameplay;
 
     /// <summary>Which section has a given name, or -1.</summary>
-    private static int IndexOfSection(string id)
+    private int IndexOfSection(string id)
     {
-        for (int i = 0; i < Sections.Count; i++)
+        for (int i = 0; i < Tabs.Count; i++)
         {
-            if (string.Equals(Sections[i].Id, id, StringComparison.Ordinal))
+            if (string.Equals(Tabs[i].Id, id, StringComparison.Ordinal))
             {
                 return i;
             }
@@ -1100,12 +1105,30 @@ public sealed class FrontEnd
         }
     }
 
+    private IReadOnlyList<MenuItem> VrOptions() =>
+    [
+        MenuItem.Choice("vr-turn", "Turning", Settings.Vr.SmoothTurning ? "Smooth" : "Snap (30 degrees)"),
+        MenuItem.Slider("vr-turn-speed", "Turn speed", (Settings.Vr.TurnDegreesPerSecond - 30) / 150, $"{Settings.Vr.TurnDegreesPerSecond:F0} degrees/s"),
+        MenuItem.Choice("vr-move", "Locomotion", Settings.Vr.Locomotion.ToString()),
+        MenuItem.Slider("vr-move-speed", "Walking speed", (Settings.Vr.MoveMetresPerSecond - 0.5f) / 2, $"{Settings.Vr.MoveMetresPerSecond:F1} m/s"),
+        MenuItem.Slider("vr-height", "Seated height offset", (Settings.Vr.HeightOffsetMetres + 0.5f) / 2, $"{Settings.Vr.HeightOffsetMetres:+0.00;-0.00;0.00} m"),
+        Toggle("vr-hands", "Show character hands", Settings.Vr.ShowHands),
+        MenuItem.Label("Left Menu: pause. A: inventory. X: journal. Y: bring panel here."),
+        MenuItem.Label("Point and press trigger to choose. B: back. Right stick scrolls panels."),
+    ];
+
     private void Change(MenuAction action)
     {
         Settings before = Settings;
 
         Settings = action.Id switch
         {
+            "vr-turn" => Settings with { Vr = Settings.Vr with { SmoothTurning = !Settings.Vr.SmoothTurning } },
+            "vr-turn-speed" => Settings with { Vr = Settings.Vr with { TurnDegreesPerSecond = 30 + 150 * Level((Settings.Vr.TurnDegreesPerSecond - 30) / 150, action) } },
+            "vr-move" => Settings with { Vr = Settings.Vr with { Locomotion = Step(Enum.GetValues<Rendering.VR.VrLocomotionMode>(), Settings.Vr.Locomotion, action.Step) } },
+            "vr-move-speed" => Settings with { Vr = Settings.Vr with { MoveMetresPerSecond = 0.5f + 2 * Level((Settings.Vr.MoveMetresPerSecond - 0.5f) / 2, action) } },
+            "vr-height" => Settings with { Vr = Settings.Vr with { HeightOffsetMetres = -0.5f + 2 * Level((Settings.Vr.HeightOffsetMetres + 0.5f) / 2, action) } },
+            "vr-hands" => Settings with { Vr = Settings.Vr with { ShowHands = !Settings.Vr.ShowHands } },
             "master" => Settings with { MasterVolume = Level(Settings.MasterVolume, action) },
             "music" => Settings with { MusicVolume = Level(Settings.MusicVolume, action) },
             "ambience" => Settings with { AmbienceVolume = Level(Settings.AmbienceVolume, action) },

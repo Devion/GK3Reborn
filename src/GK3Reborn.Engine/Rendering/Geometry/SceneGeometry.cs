@@ -74,6 +74,21 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         // The renderer's, not this room's. A room that threw its textures away on the way
         // out spent most of the next room's load getting them back.
         _textures = textures;
+        _textures.AcquireRoom();
+    }
+
+    private bool _disposed;
+    internal VR.VrHands? TrackedHands { get; set; }
+
+    /// <summary>Applies conservative resident-resource limits on small GPUs.</summary>
+    public void ConfigureMemory(ulong bytes)
+    {
+        _textures.MaximumTextureDimension = TextureResolution.ForMemory(bytes);
+        if (bytes is > 0 and <= 4UL * 1024 * 1024 * 1024)
+        {
+            _textures.MaximumRetainedBytes = 256L * 1024 * 1024;
+            Relief = Relief with { TriangleBudget = 250_000 };
+        }
     }
 
     /// <summary>Total triangles loaded.</summary>
@@ -3233,6 +3248,11 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
     /// <inheritdoc/>
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+        _disposed = true;
         // A run abandoned part-way — a load that threw — still holds the device's one-shot
         // list, and the next thing to ask for one would fail a long way from the cause.
         EndTextures();
@@ -3264,6 +3284,7 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
         _rayTracing?.Dispose();
         _rayTracing = null;
         _traceable.Clear();
+        _textures.ReleaseRoom();
     }
 
     /// <summary>Maps a surface's diffuse UV into the lightmap atlas.</summary>

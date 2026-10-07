@@ -18,7 +18,7 @@ namespace GK3Reborn.Rendering.Direct3D12;
 /// <summary>
 /// Draws and presents frames to a window, on Direct3D.
 /// </summary>
-public sealed unsafe class D3D12Renderer : IRenderer
+public sealed unsafe partial class D3D12Renderer : IRenderer
 {
     private readonly D3D12Context _context;
     private readonly D3D12FramePipeline _pipeline;
@@ -220,27 +220,30 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <param name="windowSource">Where that window's handle comes from.</param>
     /// <param name="rayTracing">Whether to build the ray-traced variant of the room's pass.</param>
     /// <param name="runtimes">Where the upscaler runtimes are, or null to look beside the executable.</param>
+    /// <param name="vr">An OpenXR instance whose graphics requirements were queried before device creation.</param>
     /// <returns>The renderer.</returns>
     /// <exception cref="D3D12Exception">There is no usable device, or no window to present to.</exception>
     public static D3D12Renderer Create(
         IGameWindow window,
         IWin32WindowSource windowSource,
         bool rayTracing = false,
-        string? runtimes = null)
+        string? runtimes = null,
+        OpenXR.OpenXrSession? vr = null)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(windowSource);
 
-        D3D12Context context = D3D12Context.Create(enableValidation: true);
+        D3D12Context context = D3D12Context.Create(enableValidation: true, vr?.Requirements.AdapterLuid, vr?.Requirements.MinFeatureLevel ?? 0xb000);
 
         D3D12FramePipeline? pipeline = null;
         D3D12FrameRing? ring = null;
         D3D12Swapchain? swapchain = null;
         D3D12OverlayPass? overlay = null;
+        D3D12Renderer? renderer = null;
 
         try
         {
-            pipeline = D3D12FramePipeline.Create(context, rayTracing, runtimes);
+            pipeline = D3D12FramePipeline.Create(context, vr is null && rayTracing, runtimes, enableStreamline: vr is null);
             ring = D3D12FrameRing.Create(context);
 
             int width = window.FramebufferWidth;
@@ -268,13 +271,22 @@ public sealed unsafe class D3D12Renderer : IRenderer
 
             Foundation.Diagnostics.Log.Info(pipeline.LatencyReport());
 
-            var renderer = new D3D12Renderer(
+            renderer = new D3D12Renderer(
                 context, pipeline, ring, swapchain, overlay, window);
             renderer.Retarget();
+            if (vr is not null)
+            {
+                renderer.OpenVr(vr);
+            }
             return renderer;
         }
         catch
         {
+            if (renderer is not null)
+            {
+                renderer.Dispose();
+                throw;
+            }
             overlay?.Dispose();
             swapchain?.Dispose();
             ring?.Dispose();
@@ -320,8 +332,11 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _pipeline.Frames.SetLights(lights, scene);
 
     /// <inheritdoc/>
-    public void SetParticles(IReadOnlyList<Particle> particles) =>
+    public void SetParticles(IReadOnlyList<Particle> particles)
+    {
+        _roomParticles = particles;
         _pipeline.SetParticles(particles);
+    }
 
     /// <inheritdoc/>
     public void SetFog(FogVolume fog) => _pipeline.SetFog(fog);
@@ -480,6 +495,10 @@ public sealed unsafe class D3D12Renderer : IRenderer
     /// <exception cref="D3D12Exception">Something on the device refused.</exception>
     public bool DrawFrame(float red, float green, float blue)
     {
+        if (_vr is not null)
+        {
+            return DrawVr(red, green, blue);
+        }
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         if (_needsRecreate)
@@ -696,6 +715,7 @@ public sealed unsafe class D3D12Renderer : IRenderer
         _ring.Wait();
         _context.Wait();
 
+        CloseVr();
         _film?.Dispose();
         _fade?.Dispose();
         _movie?.Dispose();

@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using GK3Reborn.Rendering.Geometry;
 using System.Text.Json.Serialization;
 using GK3Reborn.Audio;
@@ -257,6 +257,9 @@ public sealed record Settings
     /// <summary>Whether the player's own arms are drawn in first person, and the eye follows a clip played on them.</summary>
     public bool FirstPersonArms { get; init; } = true;
 
+    /// <summary>VR preferences, only exposed while a headset session is active.</summary>
+    public Rendering.VR.VrPreferences Vr { get; init; } = new();
+
     /// <summary>Which language the game is read, spoken and written in.</summary>
     public string Language { get; init; } = Content.GameLanguage.Default.Code;
 
@@ -380,6 +383,7 @@ public sealed record Settings
     /// <summary>The same settings with every value inside its range.</summary>
     public Settings Sane() => this with
     {
+        Vr = (Vr ?? new Rendering.VR.VrPreferences()).Clamped(),
         MasterVolume = Level(MasterVolume), MusicVolume = Level(MusicVolume), AmbienceVolume = Level(AmbienceVolume),
         EffectsVolume = Level(EffectsVolume), DialogueVolume = Level(DialogueVolume),
         Speakers = Enum.IsDefined(Speakers) ? Speakers : SpeakerLayout.Stereo,

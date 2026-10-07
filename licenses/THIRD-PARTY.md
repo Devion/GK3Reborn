@@ -15,9 +15,13 @@ game reads those from a legally obtained installation. See NOTICE, "Asset rights
 | Component | Version | Licence | Source |
 |---|---|---|---|
 | MoltenVK — macOS only | 1.4.2 | Apache-2.0 | https://github.com/KhronosGroup/MoltenVK |
+| OpenXR loader — Windows VR only | 1.1.63 | Apache-2.0 OR MIT | https://github.com/KhronosGroup/OpenXR-SDK-Source/tree/release-1.1.63 |
 | OpenAL Soft (`soft_oal`) | 1.23.1 | LGPL-2.0-or-later | https://github.com/kcat/openal-soft |
 | GLFW (`glfw3`) | via Silk.NET 2.23.0 | Zlib | https://github.com/glfw/glfw |
 | shaderc (`shaderc_shared`) | via Silk.NET 2.23.0 | Apache-2.0 | https://github.com/google/shaderc |
+
+The OpenXR loader is fetched by `build/fetch-openxr.ps1` from the official Khronos release,
+with a pinned SHA-256. Its Apache licence is included as `OpenXR-LICENSE.txt`.
 
 MoltenVK is fetched by `build/fetch-native.sh`, which pins the exact upstream release and
 verifies the SHA-256 of the archive it downloads. The rest arrive as NuGet native packages
@@ -44,7 +48,7 @@ location as the binary itself.
 | Component | Version | Licence |
 |---|---|---|
 | NLayer | 2.0.1 | MIT |
-| Silk.NET (Core, Input, Maths, OpenAL, Shaderc, Vulkan, Windowing, extensions) | 2.23.0 | MIT |
+| Silk.NET (Core, Input, Maths, OpenAL, OpenXR, Shaderc, Vulkan, Windowing, extensions) | 2.23.0 | MIT |
 | Microsoft.Extensions.Logging and abstractions | 10.0.11 | MIT |
 
 The .NET runtime itself is a prerequisite rather than a payload: these builds are

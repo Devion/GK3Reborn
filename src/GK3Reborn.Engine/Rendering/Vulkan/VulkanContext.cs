@@ -211,38 +211,43 @@ public sealed unsafe class VulkanContext : IDisposable
     {
         Api.GetPhysicalDeviceMemoryProperties(PhysicalDevice, out PhysicalDeviceMemoryProperties properties);
 
-        for (uint i = 0; i < properties.MemoryTypeCount; i++)
+        Result lastFailure = Result.Success;
+        bool hostOnly = (flags & MemoryPropertyFlags.HostVisibleBit) != 0 && (flags & MemoryPropertyFlags.DeviceLocalBit) == 0;
+        // Prefer system RAM for uploads on discrete cards. Resizable BAR exposes VRAM
+        // as host-visible too; selecting the first compatible type can consume it twice.
+        for (int pass = 0; pass < (hostOnly ? 2 : 1); pass++)
         {
-            bool allowed = (requirements.MemoryTypeBits & (1u << (int)i)) != 0;
-            if (allowed && properties.MemoryTypes[(int)i].PropertyFlags.HasFlag(flags))
+            for (uint i = 0; i < properties.MemoryTypeCount; i++)
             {
+                MemoryPropertyFlags available = properties.MemoryTypes[(int)i].PropertyFlags;
+                if ((requirements.MemoryTypeBits & (1u << (int)i)) == 0 || (available & flags) != flags)
+                {
+                    continue;
+                }
+                bool local = (available & MemoryPropertyFlags.DeviceLocalBit) != 0;
+                if (hostOnly && local != (pass == 1)) { continue; }
                 var flagsInfo = new MemoryAllocateFlagsInfo
                 {
                     SType = StructureType.MemoryAllocateFlagsInfo,
                     Flags = MemoryAllocateFlags.DeviceAddressBit,
                 };
-
                 var allocateInfo = new MemoryAllocateInfo
                 {
                     SType = StructureType.MemoryAllocateInfo,
                     AllocationSize = requirements.Size,
                     MemoryTypeIndex = i,
-
-                    // Memory backing a buffer whose address is taken has to say so when it
-                    // is allocated; asking afterwards is too late.
                     PNext = deviceAddress ? &flagsInfo : null,
                 };
-
-                if (Api.AllocateMemory(Device, in allocateInfo, null, out DeviceMemory memory) != Result.Success)
+                lastFailure = Api.AllocateMemory(Device, in allocateInfo, null, out DeviceMemory memory);
+                if (lastFailure == Result.Success) { return memory; }
+                if (lastFailure is not (Result.ErrorOutOfDeviceMemory or Result.ErrorOutOfHostMemory))
                 {
-                    throw new VulkanException("Could not allocate device memory.");
+                    break;
                 }
-
-                return memory;
             }
         }
-
-        throw new VulkanException($"No memory type satisfies {flags}.");
+        throw new VulkanException($"Could not allocate {requirements.Size / (1024.0 * 1024):F1} MiB of {flags} memory: {lastFailure}. " +
+            "Close other GPU applications or reduce enhanced texture/geometry settings.");
     }
 
     /// <summary>Begins a command buffer for one-shot work.</summary>
@@ -281,7 +286,11 @@ public sealed unsafe class VulkanContext : IDisposable
     /// <summary>Submits one-shot work and waits for it.</summary>
     /// <param name="command">The command buffer from <see cref="BeginOneShot"/>.</param>
     public void EndOneShot(CommandBuffer command)
+        => EndOneShot(command, out _);
+
+    internal void EndOneShot(CommandBuffer command, out bool mayRelease)
     {
+        mayRelease = true;
         Result recorded = Api.EndCommandBuffer(command);
         if (recorded != Result.Success)
         {
@@ -303,6 +312,7 @@ public sealed unsafe class VulkanContext : IDisposable
             throw new VulkanException($"Could not submit one-shot commands: {submitted}.");
         }
 
+        mayRelease = false;
         Result waited = Api.QueueWaitIdle(Queue);
         if (waited != Result.Success)
         {
@@ -310,6 +320,7 @@ public sealed unsafe class VulkanContext : IDisposable
             throw new VulkanException($"Could not wait for one-shot commands: {waited}.");
         }
 
+        mayRelease = true;
         Api.FreeCommandBuffers(Device, CommandPool, 1, in command);
     }
 

@@ -77,12 +77,13 @@ public sealed unsafe class VulkanBuffer : IDisposable
             usage |= BufferUsageFlags.ShaderDeviceAddressBit;
         }
 
-        ulong size = (ulong)(data.Length * Marshal.SizeOf<T>());
+        ulong size = (ulong)data.Length * (ulong)Marshal.SizeOf<T>();
         if (size == 0)
         {
             throw new VulkanException("Cannot create an empty buffer.");
         }
 
+        into?.Prepare(size);
         (Buffer staging, DeviceMemory stagingMemory) = Create(
             context, size,
             BufferUsageFlags.TransferSrcBit,
@@ -111,7 +112,7 @@ public sealed unsafe class VulkanBuffer : IDisposable
 
                 // The batch owns the staging buffer now: it may not be freed until the
                 // copy has actually run, which is when the batch is submitted.
-                into.Keep(staging, stagingMemory);
+                into.Keep(staging, stagingMemory, size);
                 staged = true;
 
                 return new VulkanBuffer(context, device, deviceMemory, size);

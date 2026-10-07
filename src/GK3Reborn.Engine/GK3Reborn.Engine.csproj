@@ -90,6 +90,7 @@
     <PackageReference Include="Silk.NET.OpenAL.Extensions.Soft" />
     <PackageReference Include="Silk.NET.OpenAL.Extensions.Creative" />
     <PackageReference Include="Silk.NET.OpenAL.Soft.Native" />
+    <PackageReference Include="Silk.NET.OpenXR" />
     <PackageReference Include="Silk.NET.Shaderc" />
     <PackageReference Include="Silk.NET.SPIRV.Cross" />
     <PackageReference Include="Silk.NET.Vulkan" />
@@ -145,4 +146,7 @@
     <Content Include="$(PkgMicrosoft_Direct3D_DXC)\build\native\bin\$(_RebornDxcArchitecture)\dxil.dll" Link="dxil.dll" CopyToOutputDirectory="PreserveNewest" AssetType="native" Visible="false" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('$(RebornRoot)libs/win-x64/openxr_loader.dll') and ('$(RuntimeIdentifier)' == '' or '$(RuntimeIdentifier)' == 'win-x64')">
+    <Content Include="$(RebornRoot)libs/win-x64/openxr_loader.dll" Link="libs/win-x64/openxr_loader.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+  </ItemGroup>
 </Project>

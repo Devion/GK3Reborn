@@ -194,10 +194,11 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
     /// <param name="context">The device.</param>
     /// <param name="rayTracing">Whether to build the ray-traced variant of the room's pass.</param>
     /// <param name="runtimes">Where the upscaler runtimes are, or null to look beside the executable.</param>
+    /// <param name="enableStreamline">Whether desktop vendor frame pacing may be started.</param>
     /// <returns>The pipeline.</returns>
     /// <exception cref="D3D12Exception">Something could not be built.</exception>
     public static D3D12FramePipeline Create(
-        D3D12Context context, bool rayTracing, string? runtimes = null)
+        D3D12Context context, bool rayTracing, string? runtimes = null, bool enableStreamline = true)
     {
         ArgumentNullException.ThrowIfNull(context);
 
@@ -216,8 +217,8 @@ public sealed unsafe class D3D12FramePipeline : IDisposable
         // that already exists.
         UpscalerRuntimes found = UpscalerRuntimes.Find(runtimes);
 
-        Streamline? streamline = Streamline.TryStart(
-            found, Streamline.RenderApiDirect3D12);
+        Streamline? streamline = enableStreamline ? Streamline.TryStart(
+            found, Streamline.RenderApiDirect3D12) : null;
 
         if (streamline is not null &&
             !streamline.AttachDirect3D((nint)context.Device, context.AdapterLuid))
