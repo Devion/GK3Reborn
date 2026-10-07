@@ -36,7 +36,7 @@ public sealed class ScreenPainterTests
     public void Journal_opens_on_the_current_day_and_can_expand_a_past_chapter()
     {
         var painter = Painter();
-        var story = new GameState { Timeblock = new Timeblock(3, 2, false) };
+        var story = new GameState { Timeblock = new Timeblock(2, 2, false) };
         var journal = new GK3Reborn.Game.Story.Journal(story);
         var view = new ScreenView(new Screen(ScreenKind.Journal), [], null, Journal: journal.Read());
         painter.Build(view, Width, Height);

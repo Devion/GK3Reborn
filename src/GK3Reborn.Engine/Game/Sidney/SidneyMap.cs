@@ -161,6 +161,17 @@ public sealed class SidneyMap
     /// </summary>
     public static readonly Vector2 Blanchefort = new(652f, 307f);
 
+    /// <summary>Printed landmarks highlighted for manual point placement, without puzzle constructions.</summary>
+    public static IReadOnlyList<(string Name, Vector2 At)> Landmarks { get; } =
+    [
+        .. Sites,
+        ("Château de Blanchefort", Blanchefort),
+        ("Serres", SerpentRougeAnalysis.Serres),
+        ("L'Ermitage", SerpentRougeAnalysis.Ermitage),
+        ("Poussin", SerpentRougeAnalysis.Tomb),
+        ("Arques", Arques),
+    ];
+
     /// <summary>
     /// How near a line has to pass to a named place to be said to go through it.
     /// </summary>
@@ -269,7 +280,7 @@ public sealed class SidneyMap
         // A figure placed by construction rather than fitted to marks — the square round
         // the circle, the hexagram inside it — takes no marks of its own: a place marked
         // while it is in hand is a place on the map, as the meridian line's two are.
-        bool constructed = Working is { Points.Count: 0, Locked: true };
+        bool constructed = Working is { Points.Count: 0, Locked: true } working && working.Shape == Selected;
 
         if (Selected != MapShape.None && !constructed)
         {
@@ -310,6 +321,17 @@ public sealed class SidneyMap
         }
 
         _points.RemoveAt(_points.Count - 1);
+        if (Selected != MapShape.None && Working is { Points.Count: > 0 } working && working.Shape == Selected)
+        {
+            if (_points.Count == 0)
+            {
+                Remove(Selected);
+            }
+            else
+            {
+                UseShape(Selected);
+            }
+        }
         Found = null;
 
         return true;
@@ -351,6 +373,11 @@ public sealed class SidneyMap
 
         own[which] = at;
         _laid[figure] = Place(_laid[figure].Shape, own);
+        if (_laid[figure].Shape == Selected)
+        {
+            _points.Clear();
+            _points.AddRange(own);
+        }
 
         return true;
     }
@@ -358,6 +385,10 @@ public sealed class SidneyMap
     /// <summary>Takes every point off the map.</summary>
     public void ClearPoints()
     {
+        if (_laid.Any(laid => !laid.Fixed && laid.Shape == Selected && laid.Points.Count > 0))
+        {
+            Remove(Selected);
+        }
         _points.Clear();
         Found = null;
     }
@@ -449,6 +480,10 @@ public sealed class SidneyMap
                 }
 
                 Found = null;
+
+                // Rotation, erasing and construction all operate on the last loose figure.
+                _laid.Remove(laid);
+                _laid.Add(laid);
 
                 return;
             }
@@ -614,7 +649,7 @@ public sealed class SidneyMap
             // player turns it. Failing either, the middle of the map, big enough to see.
             foreach (LaidShape already in _laid)
             {
-                if (shape == MapShape.Square && already.Shape == MapShape.Circle)
+                if (shape == MapShape.Square && already.Shape == MapShape.Circle && already.Fixed)
                 {
                     return new LaidShape(
                         shape,
@@ -727,7 +762,13 @@ public sealed class SidneyMap
 
         if (at >= 0)
         {
+            if (_laid[at].Shape == Selected)
+            {
+                _points.Clear();
+                Selected = MapShape.None;
+            }
             _laid.RemoveAt(at);
+            Found = null;
         }
     }
 
@@ -745,6 +786,7 @@ public sealed class SidneyMap
 
         _points.Clear();
         _laid.Clear();
+        Selected = MapShape.None;
         Found = null;
         Grid = Math.Clamp(Math.Abs(grid), 0, 64);
         GridInShape = grid < 0;
@@ -806,7 +848,9 @@ public sealed class SidneyMap
         // is confirmed by what it was laid over.
         IReadOnlyList<Vector2> against = laid.Points.Count > 0 ? laid.Points : _points;
 
-        if (against.Count == 0)
+        // Three places determine a circle; the fourth optional mark can verify it.
+        int minimum = laid.Shape == MapShape.Circle ? 3 : Needs(laid.Shape);
+        if (against.Count < minimum)
         {
             return false;
         }

@@ -13,6 +13,33 @@ namespace GK3Reborn.Tests.UI;
 /// </summary>
 public sealed class SidneyDesktopTests
 {
+    [Theory]
+    [InlineData(640, 480, 0)]
+    [InlineData(1600, 900, 0)]
+    [InlineData(1600, 900, 10)]
+    public void Map_landmarks_remain_clickable_at_different_sizes_and_zoom(int width, int height, int zoom)
+    {
+        SidneyMachine sidney = Machine(out _);
+        sidney.Screen = SidneyScreen.Analyze;
+        sidney.Scan("MAP");
+        sidney.OpenFile(sidney.Files.Single(f => f.Kind == SidneyKind.Map));
+        int landmark = SidneyMap.Landmarks.ToList().FindIndex(p => p.At == SidneyMap.Blanchefort);
+        Vector2 place = SidneyMap.Landmarks[landmark].At;
+        sidney.ZoomOn(place, zoom);
+        ScreenPainter painter = Painter();
+        painter.Build(View(sidney), width, height);
+        Vector4 bounds = painter.MapBounds;
+        Vector2 screen = new Vector2(bounds.X, bounds.Y) +
+            ((place - SidneyMapView.Origin) * bounds.Z / SidneyMapView.Shown);
+        Assert.NotEqual($"sidney:landmark:{landmark}", painter.HitAt(screen));
+        sidney.Perform(SidneyAction.EnterPoints);
+        painter.Build(View(sidney), width, height, screen);
+        Assert.Equal($"sidney:landmark:{landmark}", painter.HitAt(screen));
+        sidney.Mark(place);
+        painter.Build(View(sidney), width, height);
+        Assert.Equal("sidney:point:-1:0", painter.HitAt(screen));
+    }
+
     private const string Text = """
         [Main Screen]
         MenuItem1 = SEARCH
@@ -329,7 +356,7 @@ public sealed class SidneyDesktopTests
         painter.Build(View(sidney), 1600, 900);
 
         Vector4 map = painter.MapBounds;
-        var middle = new Vector2(map.X + (map.Z / 2), map.Y + (map.W / 2));
+        var middle = new Vector2(map.X + (map.Z / 3), map.Y + (map.W / 2));
 
         Assert.False(sidney.Marking);
         Assert.NotEqual("sidney:mark", painter.HitAt(middle));

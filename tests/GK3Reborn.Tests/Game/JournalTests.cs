@@ -12,6 +12,41 @@ namespace GK3Reborn.Tests.Game;
 public sealed class JournalTests
 {
     [Fact]
+    public void Overnight_script_time_shows_day_three_objectives_and_hints_after_reload()
+    {
+        var story = new GameState { Timeblock = new Timeblock(2, 5, true), Location = "HAL" };
+        var journal = new Journal(story);
+        story.SetFlag("Gemini");
+        story.SetFlag("Cancer");
+        TimeblockCompletion next = TimeblockRules.Check(story)!.Value;
+        story.ChangeTimeblock(next.Next);
+        story.StartedTimeblock();
+        Assert.Equal("202A", story.Timeblock.ToString());
+
+        void Check()
+        {
+            Assert.Equal([1, 2, 3], journal.Read().Select(day => day.Day));
+            JournalChapter current = Assert.Single(journal.Read().SelectMany(day => day.Chapters), c => c.Current);
+            Assert.Equal("302A", current.Timeblock.ToString());
+            Assert.Equal(5, journal.Read()[1].Chapters.Count);
+            Assert.All(journal.Read()[1].Chapters, chapter => Assert.True(chapter.Past));
+            Assert.NotEmpty(journal.Now());
+            Assert.All(journal.Now(), entry => Assert.Equal("302A", entry.Quest.Timeblock.ToString()));
+            Assert.False(journal.Adrift);
+        }
+
+        Check();
+        Quest quest = journal.Now()[0].Quest;
+        Assert.False(string.IsNullOrWhiteSpace(journal.Reveal(quest)));
+        SaveGame save = story.Capture();
+        story.Timeblock = new Timeblock(1, 10, false);
+        Assert.Single(journal.Read());
+        story.Restore(save);
+        Check();
+        Assert.Single(journal.Now()[0].Hints);
+    }
+
+    [Fact]
     public void Gabriels_evidence_completes_during_the_evening_and_restores_its_progress()
     {
         var state = new GameState { Timeblock = new Timeblock(2, 5, true) };

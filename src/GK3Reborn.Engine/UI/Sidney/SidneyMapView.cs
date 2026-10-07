@@ -214,6 +214,40 @@ public static class SidneyMapView
         // size as the contour shading it was sitting on.
         float dot = MathF.Max(3, surface.Em(4.5f));
 
+        // Map symbols remain legible at every zoom. These identify printed places,
+        // not the points or intersections that the player must deduce from the poem.
+        for (int i = 0; i < SidneyMap.Landmarks.Count; i++)
+        {
+            (string name, Vector2 point) = SidneyMap.Landmarks[i];
+            float x = left + ((point.X - origin.X) * scale);
+            float y = top + ((point.Y - origin.Y) * scale);
+            if (x < left || x > left + side || y < top || y > top + side)
+            {
+                continue;
+            }
+
+            float targetX = MathF.Max(left, x - dot * 2);
+            float targetY = MathF.Max(top, y - dot * 2);
+            var target = new Vector4(targetX, targetY,
+                MathF.Min(left + side, x + dot * 2) - targetX,
+                MathF.Min(top + side, y + dot * 2) - targetY);
+            surface.Disc(x, y, dot + 1, SidneyPalette.Halo);
+            surface.Ring(x, y, dot, SidneyPalette.Panel, 2);
+            if (machine.Marking)
+            {
+                surface.Hit($"sidney:landmark:{i}", target);
+            }
+
+            if (surface.Over(target))
+            {
+                float wide = surface.Measure(name) + surface.Em(8);
+                float labelX = Math.Clamp(x + dot * 2, left, MathF.Max(left, left + side - wide));
+                float labelY = Math.Clamp(y - surface.Line - dot * 2, top, top + side - surface.Line);
+                surface.Fill(new Vector4(labelX, labelY, wide, surface.Line), SidneyPalette.Panel);
+                surface.Write(name, labelX + surface.Em(4), labelY, SidneyPalette.Ink);
+            }
+        }
+
         // Every figure's own places, and then the ones not yet given to a figure. A
         // figure's are drawn a little smaller, because they are settled: what the player is
         // working on is the set that has not been laid over anything yet.
@@ -474,8 +508,10 @@ public static class SidneyMapView
             // original never says. A figure that is confirmed wants none, and says so.
             int has = already?.Points.Count ?? (chosen ? machine.Map.Points.Count : 0);
 
-            string tally = already is { Locked: true }
+            string tally = already is { Fixed: true }
                 ? machine.Words.Ok
+                : already is { Points.Count: 0 } && shape is MapShape.Square or MapShape.Hexagram
+                ? "—"
                 : string.Create(
                     System.Globalization.CultureInfo.InvariantCulture,
                     $"{has}/{SidneyMap.Needs(shape)}");
@@ -484,7 +520,7 @@ public static class SidneyMapView
                 tally,
                 box.X + box.Z + surface.Em(5),
                 box.Y + ((box.W - surface.Line) / 2),
-                already is { Locked: true } ? SidneyPalette.Confirmed
+                already is { Fixed: true } ? SidneyPalette.Confirmed
                     : chosen ? SidneyPalette.Amber
                     : SidneyPalette.Dim);
 

@@ -189,6 +189,61 @@ public sealed class BinocularsTests
 /// </summary>
 public sealed class SidneyMapTests
 {
+    [Fact]
+    public void Selecting_an_existing_figure_makes_it_the_rotation_and_erase_target()
+    {
+        var map = new SidneyMap();
+        map.Select(MapShape.Line);
+        map.Enter(new Vector2(100, 100));
+        map.Enter(new Vector2(200, 200));
+        map.Select(MapShape.None);
+        map.ClearPoints();
+        map.UseShape(MapShape.Square);
+        map.Select(MapShape.Line);
+        Assert.Equal(MapShape.Line, map.Working!.Shape);
+        map.Rotate(15);
+        Assert.Equal(60f, map.Working.Turn, 3);
+        Assert.Equal(0f, map.Laid.Single(s => s.Shape == MapShape.Square).Turn);
+        map.EraseShape();
+        Assert.Equal(MapShape.Square, Assert.Single(map.Laid).Shape);
+    }
+
+    [Fact]
+    public void Incomplete_line_and_circle_are_not_confirmed_and_undo_updates_the_figure()
+    {
+        var map = new SidneyMap();
+        map.Select(MapShape.Line);
+        map.Enter(new Vector2(100, 100));
+        Assert.False(map.Locked);
+        map.Enter(new Vector2(200, 100));
+        Assert.True(map.Locked);
+        Assert.True(map.Undo());
+        Assert.Single(map.Working!.Points);
+        Assert.False(map.Locked);
+        Assert.True(map.Undo());
+        Assert.Empty(map.Laid);
+        map.Select(MapShape.Circle);
+        map.Enter(new Vector2(100, 100));
+        map.Enter(new Vector2(200, 100));
+        Assert.False(map.Locked);
+        map.ClearPoints();
+        Assert.Empty(map.Laid);
+        Assert.Empty(map.Points);
+        map.Enter(new Vector2(300, 300));
+        Assert.Single(map.Working!.Points);
+    }
+
+    [Fact]
+    public void Restoring_a_map_drops_the_previous_shape_selection()
+    {
+        var map = new SidneyMap();
+        map.Select(MapShape.Square);
+        map.Restore([], [], 0);
+        Assert.Equal(MapShape.None, map.Selected);
+        map.Enter(new Vector2(100, 100));
+        Assert.Empty(map.Laid);
+    }
+
     /// <summary>Four points exactly on a circle, at the given angles.</summary>
     private static Vector2[] OnACircle(Vector2 centre, float radius, params float[] degrees) =>
         [.. degrees.Select(d => centre + new Vector2(

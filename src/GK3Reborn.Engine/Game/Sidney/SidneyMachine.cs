@@ -1926,7 +1926,8 @@ public sealed class SidneyMachine
         // A square asked for with nothing marked goes round the circle already laid, which
         // is what the Aries passage asks of it; a hexagram with nothing marked goes inside
         // it, which is what the Libra passage asks.
-        if (Map.Points.Count == 0 && shape is MapShape.Square or MapShape.Hexagram)
+        if (Map.Points.Count == 0 && shape is MapShape.Square or MapShape.Hexagram &&
+            !Map.Laid.Any(laid => laid.Shape == shape && !laid.Fixed))
         {
             Map.UseShape(shape);
         }

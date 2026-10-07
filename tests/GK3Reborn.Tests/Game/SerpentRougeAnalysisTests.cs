@@ -11,6 +11,54 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SerpentRougeAnalysisTests
 {
+    [Fact]
+    public void Day_two_map_can_be_solved_manually_after_experimenting_and_reloading()
+    {
+        SidneyMachine sidney = Machine(out GameState state, "205P");
+        Assert.Empty(sidney.Map.Laid);
+        Assert.Equal(0, SerpentRougeAnalysis.Solved(state));
+
+        sidney.LayShape(MapShape.Square);
+        Assert.False(sidney.Map.Working!.Fixed);
+        sidney.Perform(SidneyAction.EraseShape);
+        Assert.Empty(sidney.Map.Laid);
+        sidney.LayShape(MapShape.Line);
+        sidney.Mark(SerpentRougeAnalysis.Church);
+        sidney.Mark(SerpentRougeAnalysis.Ruin);
+        Analyse(sidney);
+        Assert.True(state.GetFlag("Aquarius"));
+        SaveGame save = state.Capture();
+        sidney.LayShape(MapShape.Square);
+        state.Restore(save);
+        Assert.Equal(MapShape.None, sidney.Map.Selected);
+        Assert.Single(sidney.Map.Laid);
+
+        sidney.LayShape(MapShape.Circle);
+        sidney.Mark(SerpentRougeAnalysis.Coustaussa);
+        sidney.Mark(SerpentRougeAnalysis.Bezu);
+        sidney.Mark(SerpentRougeAnalysis.Bugarach);
+        Assert.True(state.GetFlag("Pisces"));
+        sidney.LayShape(MapShape.Square);
+        Assert.True(state.GetFlag("Aries"));
+        sidney.Perform(SidneyAction.RotateShape);
+        float turn = sidney.Map.ShapeTurn;
+        sidney.LayShape(MapShape.Square);
+        Assert.Equal(turn, sidney.Map.ShapeTurn);
+        sidney.Mark(SerpentRougeAnalysis.Serres);
+        sidney.Mark(SerpentRougeAnalysis.Meridian);
+        Analyse(sidney);
+        sidney.LayShape(MapShape.Square);
+        for (int i = 0; i < 24 && !state.GetFlag("Taurus"); i++)
+        {
+            sidney.Perform(SidneyAction.RotateShape);
+        }
+        Assert.True(state.GetFlag("Taurus"));
+        sidney.RuleInShape = true;
+        sidney.Rule(8);
+        Assert.True(state.GetFlag("Gemini"));
+        Assert.True(state.GetFlag("Cancer"));
+    }
+
     private const string Text = """
         [Analyze Screen]
         MapNoPrimitiveNote = Image is recognized as a MAP.

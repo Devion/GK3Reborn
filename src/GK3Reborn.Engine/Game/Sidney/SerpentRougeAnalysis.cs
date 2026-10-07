@@ -563,6 +563,7 @@ public static class SerpentRougeAnalysis
         }
 
         // The right size in the right place. Not settled yet: it still has to be turned.
+        map.Select(MapShape.Square);
         map.Rework(square with { At = Centre, Size = SquareSide / MathF.Sqrt(2f), Locked = true, Points = [] });
 
         Done(story, scores, "Aries", "e_sidney_map_aries", "SizedSquare");

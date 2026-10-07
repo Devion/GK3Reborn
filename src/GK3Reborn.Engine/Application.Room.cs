@@ -1708,6 +1708,12 @@ public static partial class Application
                         traffic.HintSeconds = DrivingHints.Seconds;
                         Log.Info($"Driving hint: {string.Join(", ", traffic.Hinted)}");
                     }
+                    else if (chose.StartsWith("sidney:landmark:", StringComparison.Ordinal) &&
+                        sidney is { Marking: true } && int.TryParse(chose[16..], out int landmark) &&
+                        landmark >= 0 && landmark < Game.Sidney.SidneyMap.Landmarks.Count)
+                    {
+                        console.Print(sidney.Mark(Game.Sidney.SidneyMap.Landmarks[landmark].At).Text);
+                    }
                     else if (chose == "sidney:mark" && sidney is not null && screens.MapBounds is { Z: > 0 } drawn)
                     {
                         // Back into the map's own 1,368 pixels, so a mark means the same place whatever size the window is and however far it is.

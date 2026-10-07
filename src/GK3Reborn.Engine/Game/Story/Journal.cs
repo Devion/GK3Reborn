@@ -63,6 +63,11 @@ public sealed class Journal
     private readonly Walkthrough _walkthrough;
     private readonly GameState _story;
 
+    // The scripts call the night after 205P "202A". The walkthrough and journal
+    // use its calendar date, Day 3 at 2 AM. Keep script numbering out of the UI.
+    private Timeblock Current => _story.Timeblock == new Timeblock(2, 2, false)
+        ? new Timeblock(3, 2, false) : _story.Timeblock;
+
     /// <summary>
     /// The port's own words, in the language being played.
     /// </summary>
@@ -99,8 +104,8 @@ public sealed class Journal
 
         foreach (Timeblock timeblock in _quests.Timeblocks)
         {
-            bool past = timeblock < _story.Timeblock;
-            bool current = timeblock == _story.Timeblock;
+            bool past = timeblock < Current;
+            bool current = timeblock == Current;
 
             if (!past && !current && !includeFuture)
             {
@@ -128,13 +133,13 @@ public sealed class Journal
     /// <returns>The unfinished objectives of the current point in the story.</returns>
     public IReadOnlyList<JournalEntry> Now() =>
     [
-        .. _quests.Of(_story.Timeblock)
+        .. _quests.Of(Current)
             .Select(q => Entry(q, past: false))
             .Where(e => !e.Done),
     ];
 
     /// <summary>Whether the player has anything left to do at this point in the story.</summary>
-    public bool Adrift => Now().Count == 0 && _quests.Of(_story.Timeblock).Count > 0;
+    public bool Adrift => Now().Count == 0 && _quests.Of(Current).Count > 0;
 
     /// <summary>
     /// Asks for one more hint about an objective.
