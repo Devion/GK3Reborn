@@ -8,7 +8,7 @@ Writes, into the workspace's ``enhanced`` tree:
     rooms/SGBWLKBNDS.BMP    where Gabriel may walk in it
     models/sgbcambnds.glb   the shell that fences the camera in
     rooms/SGB.SIF, SGB.SCN, SGB.STK, SGB_ALL.NVC, RC1_ALL_SGB.NVC
-                            copied from tools/rooms/sgb, which is their source
+                            exported from tools/rooms/sgb, with spatial fields scaled
     audio/music/SGBTHEME.WAV.wav
                             the shop's music, from --music (an MP3), wrapped the way the
                             game's own sounds are: an MP3 stream inside a RIFF header with
@@ -36,7 +36,9 @@ tall. Object names are what SGB.SIF binds nouns to, so they are the contract wit
 """
 
 import argparse
+import math
 import os
+import re
 import shutil
 import struct
 import sys
@@ -59,6 +61,58 @@ GALLERY_DEPTH = 100.0    # how far the mezzanine reaches in from the walls
 GALLERY_THICK = 12.0
 CEILING = 340.0
 RAIL = 40.0              # the gallery railing's height
+
+# The original layout was oversized beside the roughly 72-unit Gabriel. Keep its
+# authoring coordinates (also used by sgb/SGB.SIF and SGB.SCN), and convert every
+# spatial asset together on export. Doors become 90/84 units tall; the gallery
+# underside is 91.8. Desks already have a sensible 32-unit working height.
+ROOM_SCALE = 0.6
+DESKS = {"sgb_desk", "sgb_gracedesk"}
+CHAIRS = {"sgb_chair", "sgb_gracechair"}
+DESKTOP_PROPS = {"sgb_novels", "sgb_cup", "sgb_papers", "sgb_openbook",
+                 "sgb_ledger", "sgb_grailbook", "sgb_lamp"}
+
+
+def fit_to_actor(g):
+    """Bake the room conversion into vertices, including inverse-scale normals."""
+    for name, primitives in g.objects.items():
+        sy = 1.0 if name in DESKS else 0.75 if name in CHAIRS else ROOM_SCALE
+        lift = 32.0 * (1.0 - ROOM_SCALE) if name in DESKTOP_PROPS else 0.0
+        for primitive in primitives.values():
+            primitive["positions"] = [(x * ROOM_SCALE, y * sy + lift, z * ROOM_SCALE)
+                                      for x, y, z in primitive["positions"]]
+            normals = []
+            for x, y, z in primitive["normals"]:
+                n = (x / ROOM_SCALE, y / sy, z / ROOM_SCALE)
+                length = math.sqrt(sum(v * v for v in n))
+                normals.append(tuple(v / length for v in n) if length else n)
+            primitive["normals"] = normals
+    return g
+
+
+def scene_at_actor_scale(text, extension):
+    """Convert spatial fields only; angles, directions and script values stay literal."""
+    def vector(match):
+        values = [float(v) * ROOM_SCALE for v in match[2].split(",")]
+        return match[1] + ", ".join(f"{v:g}" for v in values) + "}"
+
+    if extension == ".SIF":
+        return re.sub(r"(\b(?:pos|size|offset)=\{)([^}]+)\}", vector, text)
+    if extension == ".SCN":
+        section = ""
+        lines = []
+        for line in text.splitlines(keepends=True):
+            if line.startswith("["):
+                section = line.strip()
+            match = re.match(r"(Position|AttenStart|AttenEnd|Radius)=(.*)", line)
+            if match:
+                values = [float(v) * ROOM_SCALE for v in match[2].split(",")]
+                if match[1] == "Position" and section == "[Light_lamp]":
+                    values[1] += 32.0 * (1.0 - ROOM_SCALE)
+                line = match[1] + "=" + ",".join(f"{v:.6f}" for v in values) + "\n"
+            lines.append(line)
+        return "".join(lines)
+    return text
 
 # Textures. Each is one of the game's, named as the archives spell it.
 FLOOR_TEX = "LHIFLOOR_WOOD"
@@ -431,7 +485,7 @@ def build_room():
         g.box("sgb_chandelier", SHADE_LIT, (bx - 2.5, cy + 14, bz - 2.5), (bx + 2.5, cy + 22, bz + 2.5),
               tile="stretch", unlit=True)
 
-    return g
+    return fit_to_actor(g)
 
 
 def chair(name, texture, cx, cz, back):
@@ -480,7 +534,7 @@ def build_camera_shell():
     g = Glb()
     g.box("sgbcambnds", FLOOR_TEX, (-HALF_X + 30, FLOOR + 20, -HALF_Z + 30), (HALF_X - 30, CEILING - 30, HALF_Z - 30),
           tile=64, inward=True)
-    return g
+    return fit_to_actor(g)
 
 
 # ---------------------------------------------------------------------- walk boundary ---
@@ -539,6 +593,8 @@ def region(wx, wz):
 
 
 def write_boundary(path):
+    # Pixel regions use authoring coordinates. The exported SIF scales their world
+    # size and offset, so obstacles stay aligned without resampling this bitmap.
     indices = bytes(region(*world(x, y)) for y in range(H) for x in range(W))
     palette = b"".join(struct.pack("<BBBB", i, i, i, 0) for i in range(256))
     rows = b"".join(indices[(y * W):(y * W) + W] for y in range(H - 1, -1, -1))
@@ -644,8 +700,15 @@ def main():
 
     source = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sgb")
     for name in sorted(os.listdir(source)):
-        shutil.copyfile(os.path.join(source, name), os.path.join(rooms, name))
-        print(f"{os.path.join(rooms, name)}: copied")
+        extension = os.path.splitext(name)[1].upper()
+        if extension in (".SIF", ".SCN"):
+            with open(os.path.join(source, name), encoding="utf-8") as handle:
+                text = scene_at_actor_scale(handle.read(), extension)
+            with open(os.path.join(rooms, name), "w", encoding="utf-8") as handle:
+                handle.write(text)
+        else:
+            shutil.copyfile(os.path.join(source, name), os.path.join(rooms, name))
+        print(f"{os.path.join(rooms, name)}: exported")
 
     if args.music:
         music = os.path.join(args.workspace, "enhanced", "audio", "music")
