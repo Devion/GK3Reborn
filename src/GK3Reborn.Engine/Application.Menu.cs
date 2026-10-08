@@ -277,6 +277,7 @@ public static partial class Application
         {
             vrMenu.Panel.Interactive = true;
             vrMenu.Panel.WorldMenu = false;
+            vrMenu.Panel.Wrist.Enabled = false;
             if (vrMenu.Input.HeadTracked) { vrMenu.Panel.Place(vrMenu.Input.Head); }
         }
         FrontEndPage showing = front.Page;

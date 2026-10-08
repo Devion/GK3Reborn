@@ -3406,6 +3406,8 @@ public sealed unsafe class SceneGeometry : ISceneSink, IDisposable
             // here reports the whole screen as having moved half its width.
             Previous = transform,
             TextureName = texture,
+            // Tracked hands and other runtime geometry can arrive after Finish.
+            Material = _finished ? MaterialFor(texture, texture, useLightmap && !selfLit) : null,
             UseLightmap = useLightmap,
             SelfLit = selfLit,
             IsModel = isModel,

@@ -151,6 +151,30 @@ public sealed class D3D12GeometryDeviceTests
     }
 
     [Fact]
+    public void Models_added_after_scene_finalization_are_drawable_and_can_be_hidden()
+    {
+        Assert.SkipUnless(HasDevice(), "no Direct3D device");
+        using D3D12Context context = D3D12Context.Create(enableValidation: true);
+        using D3D12GeometryDevice device = D3D12GeometryDevice.Create(context);
+        using var cache = new TextureCache(device, Flat(255));
+        using SceneGeometry geometry = SceneGeometry.Create(device, cache);
+        geometry.AddTexture("skin", Flat(200));
+        geometry.Add(Quad("skin"));
+        geometry.Finish();
+        Assert.Single(geometry.Draws());
+        ModelPlacement hand = geometry.Add(Quad("skin"));
+        geometry.MoveModel(hand, Matrix4x4.CreateTranslation(10, 20, 30));
+        geometry.Flush(0);
+        Assert.Equal(2, geometry.Draws().Count());
+        geometry.SetVisible(hand, false);
+        Assert.Single(geometry.Draws());
+        geometry.SetVisible(hand, true);
+        Assert.Equal(2, geometry.Draws().Count());
+        device.Wait();
+        Assert.DoesNotContain(context.DrainMessages(), m => !m.Contains("MessageSeverityInfo", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Releasing_a_rooms_materials_hands_its_slots_back()
     {
         Assert.SkipUnless(HasDevice(), "no Direct3D device");

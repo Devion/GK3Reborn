@@ -26,27 +26,32 @@ public sealed class VrHands
             if (candidates.Length == 0) { continue; }
             ModMesh hand = actor.Model.Meshes[candidates.MinBy(i => actor.Model.Meshes[i].MeshToLocal.Translation.Y)];
             Vector3 pivot = hand.MeshToLocal.Translation;
-            Vector3 Canonical(Vector3 p)
+            Vector3 Canonical(Vector3 p, Matrix4x4 meshToLocal)
             {
-                Vector3 rest = Vector3.Transform(p, hand.MeshToLocal) - pivot;
+                Vector3 rest = Vector3.Transform(p, meshToLocal) - pivot;
                 return new Vector3(rest.Z, side == 0 ? -rest.X : rest.X, -rest.Y);
             }
             var parts = new List<ModSubmesh>();
-            foreach (ModSubmesh source in hand.Submeshes)
+            // Include the forearm behind the wrist, but not the shoulder at the head.
+            foreach (ModMesh limb in candidates.OrderBy(i => actor.Model.Meshes[i].MeshToLocal.Translation.Y)
+                .Take(2).Select(i => actor.Model.Meshes[i]))
             {
-                // MOD files carry unused marker vertices far beyond the actual hand.
-                ushort[] used = [.. source.Indices.Distinct().Order()];
-                var remap = used.Select((old, index) => (old, index)).ToDictionary(p => p.old, p => (ushort)p.index);
-                Vector3[] positions = [.. used.Select(i => Canonical(source.Positions[i]))];
-                Vector3[] normals = new Vector3[positions.Length];
-                ushort[] indices = [.. source.Indices.Select(i => remap[i])];
-                if (side == 1)
+                foreach (ModSubmesh source in limb.Submeshes)
                 {
-                    for (int i = 0; i + 2 < indices.Length; i += 3) { (indices[i + 1], indices[i + 2]) = (indices[i + 2], indices[i + 1]); }
+                    // MOD files carry unused marker vertices far beyond the actual hand.
+                    ushort[] used = [.. source.Indices.Distinct().Order()];
+                    var remap = used.Select((old, index) => (old, index)).ToDictionary(p => p.old, p => (ushort)p.index);
+                    Vector3[] positions = [.. used.Select(i => Canonical(source.Positions[i], limb.MeshToLocal))];
+                    Vector3[] normals = new Vector3[positions.Length];
+                    ushort[] indices = [.. source.Indices.Select(i => remap[i])];
+                    if (side == 1)
+                    {
+                        for (int i = 0; i + 2 < indices.Length; i += 3) { (indices[i + 1], indices[i + 2]) = (indices[i + 2], indices[i + 1]); }
+                    }
+                    RecalculateNormals(positions, indices, normals);
+                    parts.Add(source with { Positions = positions, Normals = normals,
+                        TexCoords = [.. used.Select(i => source.TexCoords[i])], Indices = indices });
                 }
-                RecalculateNormals(positions, indices, normals);
-                parts.Add(source with { Positions = positions, Normals = normals,
-                    TexCoords = [.. used.Select(i => source.TexCoords[i])], Indices = indices });
             }
             Vector3[] all = [.. parts.SelectMany(p => p.Positions)];
             if (all.Length == 0) { continue; }

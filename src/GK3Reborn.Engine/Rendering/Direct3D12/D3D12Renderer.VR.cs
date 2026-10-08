@@ -14,6 +14,7 @@ public sealed unsafe partial class D3D12Renderer
     private OpenXrSession? _vr;
     private readonly D3D12VrSwapchain?[] _eyes = new D3D12VrSwapchain?[2];
     private D3D12VrSwapchain? _vrPanel;
+    private D3D12VrSwapchain? _vrWrist;
     private D3D12ScreenPass? _vrOutput, _vrMovie, _vrFade;
     private Format _vrFormat;
     private IReadOnlyList<Particle> _roomParticles = [];
@@ -46,6 +47,7 @@ public sealed unsafe partial class D3D12Renderer
                     (int)views[eye].RecommendedImageRectWidth, (int)views[eye].RecommendedImageRectHeight, _vrFormat);
             }
             _vrPanel = new D3D12VrSwapchain(session, _context, 1280, 720, _vrFormat);
+            _vrWrist = new D3D12VrSwapchain(session, _context, 640, 360, _vrFormat);
             _vrOutput = D3D12ScreenPass.Create(_context, _pipeline.Compiler, OutputShaders.Vertex, OutputShaders.Fragment,
                 "vr-output", 2, 48, [_vrFormat]);
             _vrMovie = D3D12ScreenPass.Create(_context, _pipeline.Compiler, MovieShaders.Vertex, MovieShaders.Fragment,
@@ -80,6 +82,7 @@ public sealed unsafe partial class D3D12Renderer
                 vr.Rig.Place(template.Position, 0, vr.Input.Head, vr.Rig.Mode);
             }
             if (!vr.Panel.Placed && vr.Input.HeadTracked) { vr.Panel.Place(vr.Input.Head); }
+            vr.Panel.Wrist.Track(vr.Input, vr.Focused, vr.Transitioning);
             SetVrParticles(vr);
             CompositionLayerProjectionView* projectionViews = stackalloc CompositionLayerProjectionView[2];
             for (int eye = 0; eye < 2; eye++)
@@ -98,7 +101,7 @@ public sealed unsafe partial class D3D12Renderer
                 if (Fade > 0 || vr.ComfortBlocked)
                 {
                     _vrFade!.Draw(list, [target.Target], [],
-                        new FadeConstants(new Vector4(FadeColour, vr.ComfortBlocked ? 1f : Fade), DisplayEncode.Standard), target.Width, target.Height);
+                        new FadeConstants(new Vector4(FadeColour, MathF.Max(Fade, vr.ComfortBlocked ? 0.65f : 0)), DisplayEncode.Standard), target.Width, target.Height);
                 }
                 // A spectator sees the left-eye image without a third scene render.
                 bool mirror = eye == 0 && !_needsRecreate && _window.FramebufferWidth > 0 && _window.FramebufferHeight > 0;
@@ -131,7 +134,7 @@ public sealed unsafe partial class D3D12Renderer
                 ViewCount = 2,
                 Views = projectionViews
             };
-            CompositionLayerBaseHeader** layers = stackalloc CompositionLayerBaseHeader*[2];
+            CompositionLayerBaseHeader** layers = stackalloc CompositionLayerBaseHeader*[3];
             layers[0] = (CompositionLayerBaseHeader*)&projection;
             uint layerCount = 1;
             var panel = new CompositionLayerQuad();
@@ -156,6 +159,27 @@ public sealed unsafe partial class D3D12Renderer
 
                 layers[1] = (CompositionLayerBaseHeader*)&panel; layerCount++;
             }
+            var wrist = new CompositionLayerQuad();
+            if (vr.Panel.Wrist is { Visible: true, Overlay: { } wristOverlay } device)
+            {
+                DrawVrWrist(wristOverlay);
+                wrist = new CompositionLayerQuad
+                {
+                    Type = StructureType.CompositionLayerQuad,
+                    Space = vr.WorldSpace,
+                    EyeVisibility = EyeVisibility.Both,
+                    LayerFlags = CompositionLayerFlags.BlendTextureSourceAlphaBit,
+                    SubImage = _vrWrist!.SubImage,
+                    Pose = new Posef
+                    {
+                        Position = new Vector3f(device.Pose.Position.X, device.Pose.Position.Y, device.Pose.Position.Z),
+                        Orientation = new Quaternionf(device.Pose.Orientation.X, device.Pose.Orientation.Y,
+                            device.Pose.Orientation.Z, device.Pose.Orientation.W),
+                    },
+                    Size = new Extent2Df(VrWristPanel.Width, VrWristPanel.Height)
+                };
+                layers[layerCount++] = (CompositionLayerBaseHeader*)&wrist;
+            }
             vr.EndFrame(layers, layerCount);
             submitted = true;
             return true;
@@ -167,6 +191,7 @@ public sealed unsafe partial class D3D12Renderer
                 _ring.Wait();
                 foreach (D3D12VrSwapchain? eye in _eyes) { eye?.Release(); }
                 _vrPanel?.Release();
+                _vrWrist?.Release();
                 vr.EndFrame(null, 0);
             }
         }
@@ -195,6 +220,21 @@ public sealed unsafe partial class D3D12Renderer
             _overlay.Prepare(panelList, _ring.Index);
             _overlay.Record(list, target.Target, target.Width, target.Height);
         }
+        _ring.Submit(); _ring.Wait(); target.Release();
+    }
+
+    private void DrawVrWrist(Overlay overlay)
+    {
+        D3D12VrSwapchain target = _vrWrist!;
+        target.Acquire();
+        _overlay.Retarget(_vrFormat);
+        _overlay.Display = DisplayEncode.Standard;
+        _overlay.Prepare(overlay, _ring.Index);
+        ID3D12GraphicsCommandList4* list = _ring.Begin();
+        float* clear = stackalloc float[4];
+        clear[0] = clear[1] = clear[2] = clear[3] = 0;
+        list->ClearRenderTargetView(target.Target, clear, 0, null);
+        _overlay.Record(list, target.Target, target.Width, target.Height);
         _ring.Submit(); _ring.Wait(); target.Release();
     }
 
@@ -229,6 +269,11 @@ public sealed unsafe partial class D3D12Renderer
                 Vector3 local = new((hit.X - 0.5f) * VrPanel.Width, (0.5f - hit.Y) * VrPanel.Height, 0);
                 end = vr.Rig.Point(vr.Panel.Pose.Position + Vector3.Transform(local, vr.Panel.Pose.Orientation));
             }
+            if (vr.Panel.Wrist.Hit(vr.Input.RightAim) is { } wristHit)
+            {
+                Vector3 local = new((wristHit.X - 0.5f) * VrWristPanel.Width, (0.5f - wristHit.Y) * VrWristPanel.Height, 0);
+                end = vr.Rig.Point(vr.Panel.Wrist.Pose.Position + Vector3.Transform(local, vr.Panel.Wrist.Pose.Orientation));
+            }
             for (int i = 0; i <= 100; i++)
             {
                 particles.Add(new Particle(Vector3.Lerp(ray.Origin, end, i / 100f), vr.Rig.UnitsPerMetre * 0.003f,
@@ -246,6 +291,7 @@ public sealed unsafe partial class D3D12Renderer
         _vrFade?.Dispose(); _vrFade = null;
         foreach (D3D12VrSwapchain? eye in _eyes) { eye?.Dispose(); }
         _vrPanel?.Dispose(); _vrPanel = null;
+        _vrWrist?.Dispose(); _vrWrist = null;
         // The runtime's graphics binding must outlive its session.
         _vr?.Dispose();
         _vr = null;

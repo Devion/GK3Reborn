@@ -18,6 +18,7 @@ public sealed class VrWindowControls(IVrSession session, ISyntheticInput window)
         if (session.ExitRequested) { window.RequestClose(); return; }
         VrInput input = session.Input;
         VrPanel panel = session.Panel;
+        panel.Wrist.Track(input, session.Focused, session.Transitioning);
         if (!session.Focused || !input.HeadTracked || session.Transitioning)
         {
             window.ExternalPrimaryHeld = false;
@@ -44,6 +45,9 @@ public sealed class VrWindowControls(IVrSession session, ISyntheticInput window)
         if (input.Journal && !_previous.Journal) { panel.Place(input.Head); window.Press(CameraAction.Journal); }
         if (input.Recenter && !_previous.Recenter) { panel.Place(input.Head); }
         Vector2? hit = input.RightTracked ? panel.Hit(input.RightAim) : null;
+        Vector2? wristHit = input.RightTracked ? panel.Wrist.Hit(input.RightAim) : null;
+        panel.Wrist.HoverPoint = wristHit;
+        if (wristHit is not null) { hit = null; }
         panel.PointerOnPanel = hit is not null;
         if (hit is { } point)
         {
@@ -57,7 +61,12 @@ public sealed class VrWindowControls(IVrSession session, ISyntheticInput window)
         bool selected = input.RightTracked && (input.Select > 0.65f || (_selected && input.Select > 0.35f));
         if (selected && !_selected)
         {
-            if (!panel.Interactive)
+            if (wristHit is { } wristPoint)
+            {
+                if (VrWristPanel.ActionAt(wristPoint) is { } action)
+                { panel.Place(input.Head); window.Press(action); }
+            }
+            else if (!panel.Interactive)
             {
                 window.Press(PointerButton.Secondary);
             }

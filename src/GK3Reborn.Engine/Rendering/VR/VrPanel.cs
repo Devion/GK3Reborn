@@ -5,6 +5,7 @@ namespace GK3Reborn.Rendering.VR;
 /// <summary>A panel anchored in tracking space; rendering and picking share this pose.</summary>
 public sealed class VrPanel
 {
+    public VrWristPanel Wrist { get; } = new();
     public VrPose Pose { get; private set; }
     public bool Placed { get; private set; }
     public bool Interactive { get; set; } = true;

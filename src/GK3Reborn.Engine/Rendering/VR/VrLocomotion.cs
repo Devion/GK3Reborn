@@ -7,7 +7,6 @@ namespace GK3Reborn.Rendering.VR;
 /// <summary>Places tracking in a live room and commits movement through its navigation rules.</summary>
 public sealed class VrLocomotion
 {
-    private Vector3? _lastActor;
     private Vector3? _lastEye;
 
     public Camera Update(IVrSession session, Camera authored, FirstPerson walker,
@@ -28,19 +27,17 @@ public sealed class VrLocomotion
             return authored;
         }
         bool firstPerson = rig.Mode == VrCameraMode.FirstPerson;
+        var ignored = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ego, update.ModelNamed(ego)?.Name ?? ego };
         Vector3 actor = update.Where(ego) ?? update.ModelNamed(ego)?.Standing.Translation ?? walker.Position;
         if (session.RoomPending || !rig.Placed)
         {
             float heading = firstPerson ? update.Turned(ego) ?? walker.Yaw
                 : MathF.Atan2(authored.Target.X - authored.Position.X, authored.Target.Z - authored.Position.Z);
             rig.Place(firstPerson ? actor : authored.Position, heading, input.Head, rig.Mode);
-            session.PlacedRoom(); _lastActor = actor; _lastEye = null;
+            session.PlacedRoom(); _lastEye = null;
         }
-        else if (firstPerson && _lastActor is { } previous && Vector3.DistanceSquared(previous, actor) > 1f)
-        {
-            // Scripted actor movement translates the playspace, but never rotates the headset.
-            rig.Move(actor - previous); _lastEye = null;
-        }
+        // Scripts animate actors and authored cameras, never the physical playspace.
+        // A scene change places it once; only explicit player locomotion moves it thereafter.
         bool controls = allowed && session.Focused;
         if (controls)
         {
@@ -59,7 +56,7 @@ public sealed class VrLocomotion
                 if (firstPerson)
                 {
                     Vector3 currentEye = rig.Point(input.Head.Position);
-                    Vector3 start = new(currentEye.X, actor.Y, currentEye.Z);
+                    Vector3 start = new(currentEye.X, rig.Origin.Y, currentEye.Z);
                     walker.Stand(start, MathF.Atan2(forward.X, forward.Z));
                     walker.Speed = rig.UnitsPerMetre * preferences.MoveMetresPerSecond;
                     FirstPersonStep step = walker.Advance(new FirstPersonInput(stick, Vector2.Zero, false), Math.Clamp(seconds, 0, 0.1f));
@@ -70,7 +67,7 @@ public sealed class VrLocomotion
             }
         }
         Vector3 eye = rig.Point(input.Head.Position);
-        Vector3 feet = new(eye.X, actor.Y, eye.Z);
+        Vector3 feet = new(eye.X, rig.Origin.Y, eye.Z);
         float? height = walker.Stairs?.Invoke(feet) ?? walker.Ground?.Invoke(feet);
         bool ValidDestination(Vector3 point)
         {
@@ -94,7 +91,7 @@ public sealed class VrLocomotion
             Vector3 segment = to - from;
             float length = segment.Length();
             if (length < 0.001f) { return null; }
-            if (interaction.Cast(new Ray(from, segment / length)) is { } hit && hit.Distance <= length)
+            if (interaction.Cast(new Ray(from, segment / length), ignored) is { } hit && hit.Distance <= length)
             {
                 return new TeleportHit(hit.Point, ValidDestination(hit.Point));
             }
@@ -107,21 +104,22 @@ public sealed class VrLocomotion
             rig.Teleport(target, input.Head); eye = rig.Point(input.Head.Position);
             feet = target; height = target.Y; _lastEye = null;
         }
-        bool blocked = firstPerson && (walker.CanStand?.Invoke(feet) == false || height is null);
-        if (firstPerson && _lastEye is { } oldEye && Collide(oldEye, eye) is not null) { blocked = true; }
+        // Walk boundaries constrain locomotion, not leaning over tables or looking
+        // around an authored cinematic placement. Missing navigation is not a blackout.
+        bool blocked = firstPerson && _lastEye is { } oldEye && Collide(oldEye, eye) is not null;
         session.ComfortBlocked = blocked;
-        if (firstPerson && !blocked && controls)
+        if (firstPerson && !blocked && controls && height is not null && walker.CanStand?.Invoke(feet) != false)
         {
             feet.Y = height!.Value;
             // Keep the stage floor aligned with a sloping authored floor.
-            rig.Move(Vector3.UnitY * (feet.Y - rig.Origin.Y));
+            if (input.Move.LengthSquared() > 0.04f && preferences.Locomotion is VrLocomotionMode.Smooth or VrLocomotionMode.Both)
+            { rig.Move(Vector3.UnitY * (feet.Y - rig.Origin.Y)); }
             Vector3 look = rig.Direction(input.Head, -Vector3.UnitZ);
             walker.Stand(feet, MathF.Atan2(look.X, look.Z));
             update.Step(ego, feet, walker.Yaw);
-            actor = feet;
         }
-        _lastActor = actor;
-        if (!blocked) { _lastEye = rig.Point(input.Head.Position); }
+        // Advance even after an intersection, so a stale segment cannot latch black.
+        _lastEye = rig.Point(input.Head.Position);
         return rig.Eye(input.Head, new Vector4(-1, 1, -1, 1), authored);
     }
 }

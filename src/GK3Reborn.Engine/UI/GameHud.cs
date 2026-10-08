@@ -43,6 +43,7 @@ public readonly record struct HudState( string? Noun, IReadOnlyList<string> Verb
 /// <summary>The game's interface, laid out fresh every frame.</summary>
 public sealed class GameHud
 {
+    public bool WristStatus { get; set; }
     private static readonly Vector4 Panel = new(0.06f, 0.07f, 0.09f, 0.82f);
     private static readonly Vector4 PanelLit = new(0.16f, 0.18f, 0.22f, 0.92f);
     private static readonly Vector4 Ink = new(0.88f, 0.87f, 0.83f, 1f);
@@ -107,7 +108,7 @@ public sealed class GameHud
         _buttons.Clear();
         _topics.Clear();
 
-        Where(state, width);
+        if (!WristStatus) { Where(state, width); }
         Headset(state);
         Gps(state, height);
         Hotspots(state, width, height);

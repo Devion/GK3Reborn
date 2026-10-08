@@ -3,6 +3,12 @@ using GK3Reborn.Game;
 using GK3Reborn.Platform;
 using GK3Reborn.Rendering.VR;
 using GK3Reborn.UI;
+using GK3Reborn.Rendering;
+using GK3Reborn.Formats.Models;
+using GK3Reborn.Formats.Scenes;
+using GK3Reborn.Game.Actors;
+using GK3Reborn.Game.Navigation;
+using GK3Reborn.Sheep;
 using Xunit;
 
 namespace GK3Reborn.Tests.Rendering;
@@ -141,6 +147,126 @@ public sealed class VrUsabilityTests
         Vector3 index = new(1, 0, 3);
         Assert.Equal(index, VrHands.Curl(index, 1, 0, 0));
         Assert.True(VrHands.Curl(index, 0, 0.25f, 0).Y < 0);
+    }
+
+    [Fact]
+    public void Wrist_moves_with_left_grip_and_hides_on_tracking_loss()
+    {
+        var wrist = new VrWristPanel { Enabled = true };
+        VrInput input = new Session().Input with { LeftGrip = Head, LeftGripTracked = true };
+        wrist.Track(input, true, false);
+        Assert.True(wrist.Visible);
+        VrPose before = wrist.Pose;
+        wrist.Track(input with { LeftGrip = Head with { Position = Head.Position + Vector3.UnitX } }, true, false);
+        Assert.Equal(before.Position + Vector3.UnitX, wrist.Pose.Position);
+        wrist.Track(input with { LeftGripTracked = false }, true, false);
+        Assert.False(wrist.Visible);
+        Assert.Null(wrist.Hit(Head));
+    }
+
+    [Theory]
+    [InlineData(0.25f, CameraAction.Journal)]
+    [InlineData(0.75f, CameraAction.Inventory)]
+    public void Right_trigger_selects_wrist_shortcut_without_clicking_the_room(float x, CameraAction action)
+    {
+        var session = new Session(); var sink = new Sink();
+        session.Panel.Interactive = false;
+        session.Panel.Wrist.Enabled = true;
+        session.Input = session.Input with { LeftGrip = Head, LeftGripTracked = true };
+        session.Panel.Wrist.Track(session.Input, true, false);
+        VrPose pose = session.Panel.Wrist.Pose;
+        Vector3 local = new((x - 0.5f) * VrWristPanel.Width, -0.2f * VrWristPanel.Height, 0.3f);
+        session.Input = session.Input with { RightAim = new VrPose(pose.Position + Vector3.Transform(local, pose.Orientation), pose.Orientation) };
+        var controls = new VrWindowControls(session, sink);
+        controls.Poll();
+        session.Input = session.Input with { Select = 1 };
+        controls.Poll();
+        Assert.Equal([action], sink.Actions);
+        Assert.Empty(sink.Clicks);
+        Assert.False(sink.ExternalPrimaryHeld);
+        controls.Poll();
+        Assert.Single(sink.Actions);
+    }
+
+    [Theory]
+    [InlineData(VrCameraMode.FirstPerson)]
+    [InlineData(VrCameraMode.Original)]
+    public void Scripted_actor_and_camera_motion_never_translate_or_rotate_the_rig(VrCameraMode mode)
+    {
+        var (update, interaction) = Room();
+        var session = new Session(); session.Rig.Mode = mode;
+        var locomotion = new VrLocomotion();
+        var walker = new FirstPerson { Ground = _ => 0 };
+        var camera = new Camera();
+        locomotion.Update(session, camera, walker, update, "gab", interaction, false, 1f / 90);
+        Vector3 origin = session.Rig.Origin; float yaw = session.Rig.Yaw;
+        for (int frame = 1; frame <= 90; frame++)
+        {
+            update.Step("gab", new Vector3(frame, frame / 2f, frame * 2), frame / 30f);
+            camera = new Camera { Position = new Vector3(-frame, frame, frame) };
+            locomotion.Update(session, camera, walker, update, "gab", interaction, false, 1f / 90);
+            Assert.Equal(origin, session.Rig.Origin);
+            Assert.Equal(yaw, session.Rig.Yaw);
+        }
+    }
+
+    [Fact]
+    public void Missing_floor_or_leaning_outside_walk_boundaries_does_not_black_out_the_view()
+    {
+        var (update, interaction) = Room();
+        var session = new Session();
+        var locomotion = new VrLocomotion();
+        var walker = new FirstPerson { CanStand = _ => false };
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, true, 1f / 90);
+        Assert.False(session.ComfortBlocked);
+        session.Input = session.Input with { HeadTracked = false };
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, true, 1f / 90);
+        Assert.True(session.ComfortBlocked);
+        session.Input = session.Input with { HeadTracked = true };
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, true, 1f / 90);
+        Assert.False(session.ComfortBlocked);
+    }
+
+    [Fact]
+    public void Crossing_geometry_does_not_keep_retesting_a_stale_segment()
+    {
+        var (update, interaction) = Room(wall: true);
+        var session = new Session(); var locomotion = new VrLocomotion();
+        session.Rig.Place(Vector3.Zero, 0, Head, VrCameraMode.FirstPerson);
+        var walker = new FirstPerson { Ground = _ => 0 };
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, false, 1f / 90);
+        session.Input = session.Input with { Head = Head with { Position = Head.Position - Vector3.UnitZ } };
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, false, 1f / 90);
+        Assert.True(session.ComfortBlocked);
+        locomotion.Update(session, new Camera(), walker, update, "gab", interaction, false, 1f / 90);
+        Assert.False(session.ComfortBlocked);
+    }
+
+    private static (SceneUpdate Update, SceneInteraction Interaction) Room(bool wall = false)
+    {
+        var sink = new HeadlessSceneSink();
+        ModFile model = ModFile.FromMeshes("gab", []);
+        var actor = new PlacedModel("gab", "GABRIEL", null, model, Matrix4x4.Identity, PlacedModelKind.Actor, sink.Add(model));
+        var placed = new List<PlacedModel> { actor };
+        if (wall)
+        {
+            ModFile barrier = ModFile.FromMeshes("wall", [new ModMesh
+            {
+                MeshToLocal = Matrix4x4.Identity, BoundsMin = new(-100, 0, 20), BoundsMax = new(100, 100, 20),
+                Submeshes = [new ModSubmesh
+                {
+                    TextureName = "wall", Color = (255, 255, 255),
+                    Positions = [new(-100, 0, 20), new(100, 0, 20), new(100, 100, 20), new(-100, 100, 20)],
+                    Normals = [Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ, Vector3.UnitZ],
+                    TexCoords = [Vector2.Zero, Vector2.Zero, Vector2.Zero, Vector2.Zero], Indices = [0, 1, 2, 0, 2, 3]
+                }]
+            }]);
+            placed.Add(new PlacedModel("wall", null, null, barrier, Matrix4x4.Identity, PlacedModelKind.Prop, sink.Add(barrier)));
+        }
+        var scene = new LoadedScene("TEST", new SceneDefinition(SceneInitFile.Parse(
+            "[ROOM_CAMERAS]\nA, angle={0,0}, pos={0,60,0}, Default", "T.SIF")), null, null, placed.Count, Placed: placed);
+        var api = new Gk3SheepApi(new GameState());
+        return (new SceneUpdate(scene, api, new Glances(), sink), new SceneInteraction(scene, api));
     }
 
     private sealed class Session : IVrSession

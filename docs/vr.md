@@ -17,8 +17,10 @@ GK3Reborn.exe --vr --vr-camera original --skip-intro
 ```
 
 First-person is the default. `--vr-camera original` anchors the playspace at the
-authored camera position while retaining head tracking and stereo depth. Authored
-camera changes reposition that anchor. `--vr-scale` sets scene units per metre;
+authored camera position while retaining head tracking and stereo depth. Both modes
+keep the playspace stationary during scripted walks, pans, glides and forced camera
+overrides, including conversations. Room changes place it once in the new room;
+scripts never continuously translate or rotate the headset. `--vr-scale` sets scene units per metre;
 the default is approximately 36.36, based on a 60-unit eye height at 1.65 metres.
 
 The runtime must expose the OpenXR D3D12 graphics binding. The renderer selects
@@ -36,6 +38,7 @@ establish compatibility with every headset or controller.
 | Right stick left/right | Smooth turning; optional 30-degree snap turn in VR settings |
 | Left stick | Walk when Smooth or Both locomotion is enabled |
 | Right controller aim and trigger | Open an object's/person's actions, then point and select; hold to drag UI controls |
+| Look at left wrist; right controller aim and trigger | Read location/timeblock; select the notebook or inventory shortcut |
 | Left Menu button | Pause/resume; back out of screens |
 | Right B | Close the action popup or go back |
 | Right A | Open/close inventory |
@@ -55,6 +58,13 @@ must be released after focus loss or a transition before UI input is rearmed.
 Teleportation separately requires releasing the left trigger. B hides an open
 keyboard before backing out of the screen.
 
+The location/timeblock and journal/inventory shortcuts live above the left wrist
+instead of in the floating HUD's top bar. Raise the left controller and look down
+at it, then point and click with the right trigger. The shortcuts use the original
+notebook and inventory sprites. Journal and inventory open on the larger floating
+panel. The wrist display hides when left-grip tracking is lost or a full screen is
+open; the controller button shortcuts remain available.
+
 ## VR settings and comfort
 
 **Settings > VR** appears only while VR is enabled. Settings persist with the
@@ -67,7 +77,7 @@ and ground collision. Both camera modes use these locomotion settings.
 without moving the floor or changing scale. Raise it when playing seated; use
 zero when standing at the expected eye height.
 
-**Show character hands** displays the current protagonist's original hand meshes
+**Show character hands** displays the current protagonist's original hand and forearm meshes
 at the grip poses. Grip pressure curls the fingers; trigger pressure and trigger
 touch affect the index region; thumb contact affects the thumb region on Touch.
 The original meshes have no finger skeleton: this is procedural deformation of
@@ -80,8 +90,11 @@ keep the loading period black, then fade the new placement in over at least
 0.45 seconds. They do not show a flattened desktop screenshot in the headset.
 
 A cyan arc/ring marks a valid landing; red means obstructed or invalid. Landings
-check the walkable floor and the player's footprint. First-person movement fades
-the room when the tracked head crosses scene geometry or leaves walkable space.
+check the walkable floor and the player's footprint. Crossing scene geometry briefly
+dims the room without making it completely black. The collision segment advances
+every frame, so an earlier intersection cannot latch the dimming. The player's own
+body is excluded from this check. Leaning outside the walking boundary or a missing
+floor sample does not black out the view; walking and teleportation still validate landings.
 Tracking/focus loss cancels teleportation and requires a fresh trigger press.
 Use the runtime's recenter control to recalibrate the tracking origin.
 
@@ -112,10 +125,12 @@ performance needs profiling on actual headsets. The desktop mirrors the left eye
 The solution builds; automated tests cover eye separation, asymmetric frusta,
 world scale, seated offset, camera anchoring, smooth/snap turning, teleport arcs,
 release/cancel rules, panel picking, menu visibility, controller input routing and
-procedural hand curl. The focused menu/VR/first-person suite passes (115 tests).
-The original Gabriel hand meshes also completed 120 simulated pose/curl updates
-through the Vulkan GPU upload path. The full suite has one previously observed
-movie-timing failure; it is unrelated to VR.
+procedural hand curl. The focused VR, Direct3D geometry, first-person, scene camera
+and HUD suite passes (112 tests), including stationary scripted viewpoints, wrist
+picking and blackout recovery. A Direct3D regression verifies that models added
+after scene finalization receive drawable materials. The original Gabriel hands
+and forearms also completed 120 simulated pose/curl updates through Vulkan, with
+all six added batches present in the drawable scene.
 This development machine has no active OpenXR runtime (`XR_ERROR_RUNTIME_UNAVAILABLE`),
 so no headset presentation, comfort, refresh-rate or controller usability claim is
 made yet. Test Quest Link and SteamVR separately, including runtime recentering,

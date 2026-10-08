@@ -961,10 +961,8 @@ public static partial class Application
                 directing = update.View;
                 template = directed;
                 camera.CopyFrom(directed);
-                if (vr?.Rig.Mode == Rendering.VR.VrCameraMode.Original)
-                {
-                    vr.EnterRoom();
-                }
+                // A scripted pan produces a new view every frame. VR keeps its
+                // room anchor; re-entering here would carry the headset along the pan.
 
                 Place();
             }
@@ -1195,6 +1193,7 @@ public static partial class Application
             {
                 vr.Panel.Interactive = menu is not null || !story.Screens.InTheRoom || movies.Playing;
                 vr.Panel.WorldMenu = menu is not null;
+                vr.Panel.Wrist.Enabled = story.Screens.InTheRoom && !movies.Playing;
                 vr.Panel.WorldTarget = hover.Pick?.Point;
             }
             Vector2 pointer = aimed;
@@ -2262,6 +2261,11 @@ public static partial class Application
 
                 // And the words the topics read as, for the one moment whose topics are answers rather than questions.
                 hud.Wording = Game.TopicWording.For(story, here);
+                hud.WristStatus = vr is not null;
+                if (vr is not null)
+                {
+                    vr.Panel.Wrist.Build(hud.Overlay.Atlas, strings.Where(scene.Name, story.Timeblock.ToString()), artwork, hud.Text);
+                }
 
                 hud.Build( new HudState( showing.Label, advertised ? [claimed!] : [.. showing.Actions
                                 .Where(a => !IsAnItem(a.LocalizedVerb, scene.Actions?.Verbs)) .Select(a => a.LocalizedVerb)],
