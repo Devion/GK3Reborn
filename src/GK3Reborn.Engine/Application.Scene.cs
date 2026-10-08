@@ -742,7 +742,7 @@ public static partial class Application
             {
                 // The game's own, with its transparency put back where it keeps it apart.
                 Formats.Bitmaps.DecodedImage? original = archives.Read(file) is { } bytes
-                    ? Masked(archives, file, Formats.Bitmaps.BitmapDecoder.Decode(bytes, file)) : null;
+                    ? KeyFingerprintArtwork(file, Masked(archives, file, Formats.Bitmaps.BitmapDecoder.Decode(bytes, file))) : null;
 
                 // A replacement out of enhanced/ or overrides/ is drawn instead, and carries its own transparency — laying the 1999 mask over it.
                 if ((loose?.Read(file) ?? original) is { } picture)

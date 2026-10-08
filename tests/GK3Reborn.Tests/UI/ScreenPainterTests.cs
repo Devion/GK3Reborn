@@ -15,6 +15,69 @@ public sealed class ScreenPainterTests
     [Theory]
     [InlineData(640, 480)]
     [InlineData(1280, 720)]
+    public void Fingerprint_dialogue_is_drawn_above_the_kit(int width, int height)
+    {
+        var painter = Painter();
+        var view = new ScreenView(new Screen(ScreenKind.Fingerprint), [], null);
+        painter.Build(view, width, height);
+        OverlayQuad[] kit = painter.Overlay.Quads.ToArray();
+
+        painter.Build(view with { Caption = "A fingerprint.", Speaker = "GABRIEL" }, width, height);
+        Assert.True(painter.Overlay.Quads.Count > kit.Length);
+        Assert.Equal(kit, painter.Overlay.Quads.Take(kit.Length));
+        Assert.All(painter.Overlay.Quads.Skip(kit.Length), quad =>
+        {
+            Assert.InRange(quad.Destination.X, 0, width);
+            Assert.InRange(quad.Destination.Y, 0, height);
+        });
+
+        painter.Build(view, width, height);
+        Assert.Equal(kit, painter.Overlay.Quads);
+    }
+
+    [Theory]
+    [InlineData(0f)]
+    [InlineData(0.5f)]
+    [InlineData(1f)]
+    public void Fingerprints_preserve_their_colour_as_dusting_reveals_them(float shown)
+    {
+        var painter = Painter();
+        var kit = new FingerprintDusting("GUN_IN_CASE", new GameState());
+        kit.Prints[0].Shown = shown;
+        painter.Build(new ScreenView(new Screen(ScreenKind.Fingerprint), [], null,
+            Dusting: kit, Artwork: file => new ItemIcon(file == kit.Prints[0].Print.Picture ? 2 : 1, 32, 32)),
+            Width, Height);
+        OverlayQuad[] prints = painter.Overlay.Quads.Where(quad => quad.Picture == 2).ToArray();
+        if (shown == 0f)
+        {
+            Assert.Empty(prints);
+        }
+        else
+        {
+            OverlayQuad print = Assert.Single(prints);
+            Assert.Equal(OverlayBlend.Alpha, print.Blend);
+            Assert.Equal(new Vector4(1, 1, 1, shown), print.Color);
+        }
+    }
+
+    [Theory]
+    [InlineData("FP_COLT45_P1.BMP", true)]
+    [InlineData("fp_bloman_p6.bmp", true)]
+    [InlineData("FP_COLT45.BMP", false)]
+    [InlineData("FP_BASE.BMP", false)]
+    public void Only_fingerprint_sprites_have_their_black_background_removed(string file, bool keyed)
+    {
+        byte[] pixels = [0, 0, 0, 255, 32, 40, 48, 255, 1, 1, 1, 128];
+        var original = new GK3Reborn.Formats.Bitmaps.DecodedImage(3, 1, pixels, true, "test");
+        var result = Application.KeyFingerprintArtwork(file, original);
+        Assert.Equal(keyed ? 0 : 255, result.Pixels[3]);
+        Assert.Equal(pixels[4..], result.Pixels[4..]);
+        Assert.Equal(255, original.Pixels[3]);
+    }
+
+    [Theory]
+    [InlineData(640, 480)]
+    [InlineData(1280, 720)]
     public void Schatgpt_confirmation_blocks_the_map_and_other_apps(int width, int height)
     {
         var painter = Painter();

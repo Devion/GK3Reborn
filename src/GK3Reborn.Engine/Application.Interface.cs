@@ -585,6 +585,30 @@ public static partial class Application
         return picture with { Pixels = pixels, HasAlpha = true };
     }
 
+    /// <summary>Removes the original fingerprint sprites' black colour key.</summary>
+    internal static Formats.Bitmaps.DecodedImage KeyFingerprintArtwork(string file, Formats.Bitmaps.DecodedImage picture)
+    {
+        string name = Path.GetFileNameWithoutExtension(file);
+        if (!name.StartsWith("FP_", StringComparison.OrdinalIgnoreCase) ||
+            name.Length < 3 || !name.AsSpan(name.Length - 3, 2).Equals("_P", StringComparison.OrdinalIgnoreCase) ||
+            !char.IsAsciiDigit(name[^1]))
+        {
+            return picture;
+        }
+
+        byte[] pixels = (byte[])picture.Pixels.Clone();
+        for (int i = 0; i < pixels.Length; i += 4)
+        {
+            if (pixels[i] == 0 && pixels[i + 1] == 0 && pixels[i + 2] == 0)
+            {
+                pixels[i + 3] = 0;
+            }
+        }
+
+        Bleed(pixels, picture.Width, picture.Height);
+        return picture with { Pixels = pixels, HasAlpha = true };
+    }
+
     /// <summary>Gives every transparent pixel the colour of its nearest visible neighbour.</summary>
     /// <param name="pixels">The picture, RGBA, changed in place.</param>
     /// <param name="width">Its width in pixels.</param>

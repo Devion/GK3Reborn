@@ -244,6 +244,7 @@ public sealed class ScreenPainter
         if (view.Screen.Kind == ScreenKind.Fingerprint)
         {
             Kit(view, width, height, unit);
+            Subtitle(view, width, height, unit);
 
             return;
         }
@@ -765,9 +766,9 @@ public sealed class ScreenPainter
 
         Overlay.Picture(picture.Picture, left, top, wide, tall, White);
 
-        // The prints, which are white powder on black: drawn lightening what is under them,
-        // so the black around each one contributes nothing and no mask is needed. How far
-        // out a print is is its opacity, which is what the brush is moving.
+        // The artwork loader keys out the black background. Preserve the ridge colours
+        // with normal alpha blending: lightening them loses the print on bright objects.
+        // How far out a print is controls its opacity.
         for (int i = 0; i < kit.Prints.Count; i++)
         {
             Game.RevealedPrint print = kit.Prints[i];
@@ -803,8 +804,7 @@ public sealed class ScreenPainter
                 box.Y,
                 box.Z,
                 box.W,
-                new Vector4(1f, 1f, 1f, print.Shown),
-                blend: OverlayBlend.Screen);
+                new Vector4(1f, 1f, 1f, print.Shown));
 
             // Once it is fully out it can be taken, and a print already on the cloth is
             // marked so rather than offered again.
@@ -1976,10 +1976,8 @@ public sealed class ScreenPainter
     }
 
     /// <summary>
-    /// What is being said while the player looks through the eyepieces. The room's own
-    /// caption bar is not drawn under a screen, and the looks that speak — Mosely and
-    /// Buthane at L'Homme Mort, Buchelli's plate at the orange rock — are said while the
-    /// binoculars are up.
+    /// What is being said over the binoculars or fingerprint kit. These screens replace
+    /// the room's HUD, so they draw the current dialogue caption themselves.
     /// </summary>
     private void Subtitle(ScreenView view, int width, int height, float unit)
     {
