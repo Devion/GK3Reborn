@@ -855,7 +855,8 @@ public sealed class FrontEnd
     [
         MenuItem.Slider( "master", Text.Say("sound.master", "Overall"), Settings.MasterVolume, MenuPage.Percent(Settings.MasterVolume)),
 
-        MenuItem.Slider( "music", Text.Say("sound.music", "Music and cutscenes"), Settings.MusicVolume, MenuPage.Percent(Settings.MusicVolume)),
+        MenuItem.Slider( "music", Text.Say("sound.music", "Music"), Settings.MusicVolume, MenuPage.Percent(Settings.MusicVolume)),
+        MenuItem.Slider("cutscenes", Text.Say("sound.cutscenes", "Cutscenes"), Settings.CutsceneVolume, MenuPage.Percent(Settings.CutsceneVolume)),
 
         MenuItem.Slider( "ambience", Text.Say("sound.ambience", "Room tone"), Settings.AmbienceVolume, MenuPage.Percent(Settings.AmbienceVolume)),
 
@@ -1131,6 +1132,7 @@ public sealed class FrontEnd
             "vr-hands" => Settings with { Vr = Settings.Vr with { ShowHands = !Settings.Vr.ShowHands } },
             "master" => Settings with { MasterVolume = Level(Settings.MasterVolume, action) },
             "music" => Settings with { MusicVolume = Level(Settings.MusicVolume, action) },
+            "cutscenes" => Settings with { CutsceneVolume = Level(Settings.CutsceneVolume, action) },
             "ambience" => Settings with { AmbienceVolume = Level(Settings.AmbienceVolume, action) },
             "effects" => Settings with { EffectsVolume = Level(Settings.EffectsVolume, action) },
             "dialogue" => Settings with { DialogueVolume = Level(Settings.DialogueVolume, action) },

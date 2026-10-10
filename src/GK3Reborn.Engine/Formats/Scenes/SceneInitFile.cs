@@ -212,7 +212,7 @@ public sealed class SceneInitFile
     /// <param name="name">Name used in diagnostics.</param>
     /// <returns>The parsed file, holding every state the scene can be in.</returns>
     public static SceneInitFile Parse(string text, string name = "<memory>") =>
-        new(IniDocument.Parse(text, name), null);
+        new(IniDocument.Parse(Correct(text, name), name), null);
 
     /// <summary>Parses a scene initialisation file for one state of the story.</summary>
     /// <param name="text">The file's text.</param>
@@ -222,8 +222,14 @@ public sealed class SceneInitFile
     public static SceneInitFile Parse(string text, string name, SectionFilter applies)
     {
         ArgumentNullException.ThrowIfNull(applies);
-        return new SceneInitFile(IniDocument.Parse(text, name), applies);
+        return new SceneInitFile(IniDocument.Parse(Correct(text, name), name), applies);
     }
+
+    // The shipped shovel accidentally inherits the moped license hotspot.
+    private static string Correct(string text, string name) =>
+        Path.GetFileName(name).Equals("LHM202A.SIF", StringComparison.OrdinalIgnoreCase)
+            ? text.Replace("model=mosshov,noun=MOSELYS_LICENSE,type=prop", "model=mosshov,type=prop", StringComparison.OrdinalIgnoreCase)
+            : text;
 
     /// <summary>The sections to read, for a caller that asked for the conditional ones.</summary>
     private SectionFilter Applies(bool includeConditional) =>

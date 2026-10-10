@@ -10,6 +10,16 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SidneyMachineTests
 {
+    [Fact]
+    public void Restoring_discards_search_text_from_the_abandoned_timeline()
+    {
+        SidneyMachine sidney = Machine(out _);
+        sidney.Typed = "serpent rouge";
+        sidney.Restored();
+        Assert.Empty(sidney.Typed);
+        Assert.Null(sidney.Page);
+    }
+
     private const string Text = """
         [Main Screen]
         MenuItem1   = ANALYZE

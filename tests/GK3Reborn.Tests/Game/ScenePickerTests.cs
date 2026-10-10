@@ -14,6 +14,25 @@ namespace GK3Reborn.Tests.Game;
 public sealed class ScenePickerTests
 {
     [Theory]
+    [InlineData(true, "EXIT", 0)]
+    [InlineData(true, "EXIT_LEFT", 0)]
+    [InlineData(false, "EXIT", 4)]
+    [InlineData(true, "LOOK", 4)]
+    public void First_person_exit_clicks_skip_the_approach_but_other_actions_keep_it(bool firstPerson, string verb, double seconds)
+    {
+        var state = new GameState { FirstPerson = firstPerson };
+        var api = new Gk3SheepApi(state) { Walks = (_, _, _, _, _) => 4 };
+        var actions = new ActionResolver(api);
+        actions.Add(GK3Reborn.Formats.Actions.NvcFile.Parse(
+            $"EXIT, {verb}, ALL, approach=walkto,target=TO_NEXT,script={{SetLocation(\"LHE\");}}", "TEST.NVC", new()));
+        var scene = Scene(Room(), "") with { Actions = actions };
+        var interaction = new SceneInteraction(scene, api);
+        var result = Assert.IsType<ActionOutcome>(interaction.Do("EXIT", verb));
+        Assert.True(result.Ran);
+        Assert.Equal(seconds, result.Approaching);
+    }
+
+    [Theory]
     [InlineData("DU1", "drr25", "NORTH_EXIT_DOOR", "25")]
     [InlineData("DU1", "drr27", "SOUTH_EXIT_DOOR", "27")]
     [InlineData("du2", "drr27", "north_exit_door", "21")]
@@ -40,6 +59,7 @@ public sealed class ScenePickerTests
     }
 
     [Theory]
+    [InlineData("LMB", "manubag", "PLASTIC_BAG_IN_HOLE", "FRESH_DIRT", "SHOVEL", 1)]
     [InlineData("R27", "r27_emlclth", "LINEN_CLOTH", "BED2", "SEARCH", 1)]
     [InlineData("R21", "r21_collar", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
     [InlineData("R21", "r21pshirt", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]

@@ -60,8 +60,11 @@ public sealed record Settings
     /// <summary>How loud everything is, over the top of the rest.</summary>
     public float MasterVolume { get; init; } = 1f;
 
-    /// <summary>Music and the cutscenes' own soundtrack.</summary>
+    /// <summary>Background music.</summary>
     public float MusicVolume { get; init; } = 1f;
+
+    /// <summary>The cutscenes' own soundtrack.</summary>
+    public float CutsceneVolume { get; init; } = 1f;
 
     /// <summary>What a room sounds like when nothing is happening in it.</summary>
     public float AmbienceVolume { get; init; } = 1f;
@@ -384,7 +387,7 @@ public sealed record Settings
     public Settings Sane() => this with
     {
         Vr = (Vr ?? new Rendering.VR.VrPreferences()).Clamped(),
-        MasterVolume = Level(MasterVolume), MusicVolume = Level(MusicVolume), AmbienceVolume = Level(AmbienceVolume),
+        MasterVolume = Level(MasterVolume), MusicVolume = Level(MusicVolume), CutsceneVolume = Level(CutsceneVolume), AmbienceVolume = Level(AmbienceVolume),
         EffectsVolume = Level(EffectsVolume), DialogueVolume = Level(DialogueVolume),
         Speakers = Enum.IsDefined(Speakers) ? Speakers : SpeakerLayout.Stereo,
 
@@ -466,7 +469,7 @@ public sealed record Settings
         // Slider positions describe perceived level; the mixer expects amplitude.
         float musicGain = Level(MusicVolume) * Level(MusicVolume);
         audio.SetBusGain(AudioBus.Music, musicGain);
-        audio.SetBusGain(AudioBus.Cinematics, musicGain);
+        audio.SetBusGain(AudioBus.Cinematics, Level(CutsceneVolume) * Level(CutsceneVolume));
 
         audio.SetBusGain(AudioBus.Ambience, AmbienceVolume);
 

@@ -1821,6 +1821,12 @@ public static partial class Application
                     {
                         story.Screens.Show(new Screen(ScreenKind.InventoryInspect, looked));
                     }
+                    else if (panel.Kind == ScreenKind.InventoryInspect && Game.SerpentRouge.IsReader(panel.Subject) &&
+                             chose is "verb:TURN_LEFT" or "verb:TURN_RIGHT")
+                    {
+                        Game.SerpentRouge.Turn(story, chose == "verb:TURN_LEFT" ? -1 : 1);
+                        story.Screens.Replace(new Screen(ScreenKind.InventoryInspect, Game.SerpentRouge.Item));
+                    }
                     else if (chose.StartsWith("verb:", StringComparison.Ordinal) && panel.Subject is { Length: > 0 } about &&
                              scene.Actions?.Find(about, chose[5..], story.Ego) is { } onItem)
                     {

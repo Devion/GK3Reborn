@@ -1077,6 +1077,7 @@ public sealed class SidneyMachine
     public void Restored()
     {
         Home();
+        Typed = string.Empty;
         _cues.Clear();
         Open = null;
         Translating = null;

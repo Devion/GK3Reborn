@@ -68,6 +68,8 @@ public sealed class SceneInteraction
     // can expose them through the pillow or drawer, and Alt lists them without a ray.
     private bool Revealed(string noun) => noun.ToUpperInvariant() switch
     {
+        "PLASTIC_BAG_IN_HOLE" when _scene.Name.Equals("LMB", StringComparison.OrdinalIgnoreCase) =>
+            _api.State.GetNounVerbCount("FRESH_DIRT", "SHOVEL") > 0,
         "LINEN_CLOTH" => _scene.Name.Equals("R27", StringComparison.OrdinalIgnoreCase) &&
             _api.State.GetNounVerbCount("BED2", "SEARCH") > 0,
         "PRIEST_COLLAR_IN_SUITCASE" => _scene.Name.Equals("R21", StringComparison.OrdinalIgnoreCase) &&
@@ -496,7 +498,9 @@ public sealed class SceneInteraction
             _talkedTo = noun;
         }
 
-        Last = _runner.Run(rule, hurry, approach);
+        bool firstPersonExit = _api.State.FirstPerson &&
+            (chosen.Equals("EXIT", StringComparison.OrdinalIgnoreCase) || chosen.StartsWith("EXIT_", StringComparison.OrdinalIgnoreCase));
+        Last = _runner.Run(rule, hurry, approach && !firstPersonExit);
         return Last;
     }
 

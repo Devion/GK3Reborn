@@ -10,6 +10,15 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class SceneConditionTests
 {
+    [Fact]
+    public void Moselys_shovel_does_not_advertise_his_license_plate()
+    {
+        string root = ScriptCorpusTests.ContentRoot();
+        string text = File.ReadAllText(Path.Combine(root, "scenes", "LHM", "LHM202A.SIF"));
+        var scene = SceneInitFile.Parse(text, "LHM202A.SIF");
+        Assert.Null(Assert.Single(scene.Models(true), model => model.Name == "mosshov").Noun);
+    }
+
     private const string Fixture =
         """
         [GENERAL]

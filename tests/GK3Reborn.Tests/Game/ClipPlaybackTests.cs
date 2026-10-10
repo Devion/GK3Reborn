@@ -19,6 +19,32 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class ClipPlaybackTests
 {
+    [Theory]
+    [InlineData("bglass")]
+    [InlineData("bourbon")]
+    public void Lobby_glass_initial_pose_uses_the_end_of_the_put_down_animation(string model)
+    {
+        var sink = new Sink();
+        sink.Add(Model(), Matrix4x4.Identity);
+        var scene = new LoadedScene("LBY", new SceneDefinition(SceneInitFile.Parse("")),
+            Asset: null, Lightmaps: null, ModelsPlaced: 1,
+            Placed: [new PlacedModel(model, null, null, Model(), Matrix4x4.Identity,
+                PlacedModelKind.Prop, new ModelPlacement(0)) { InitialAnimation = "vitlbystandwobrb" }]);
+        var update = new SceneUpdate(scene, new Gk3SheepApi(new GameState()), new Glances(), sink)
+        {
+            Animations = new AnimationLibrary(n => n.ToUpperInvariant() switch
+            {
+                "VITLBYSTANDWOBRB.ANM" => "[HEADER]\n12\n[ACTIONS]\n1\n0,vit_stand",
+                "VITLBYSTANDWBRB.ANM" => "[HEADER]\n24\n[ACTIONS]\n1\n0,glass_putdown,0,0,0,0,0,0,0,0",
+                _ => null,
+            }),
+            Clips = new ClipLibrary(n => n.Equals("GLASS_PUTDOWN.ACT", StringComparison.OrdinalIgnoreCase) ? Clip(model, 24) : null),
+        };
+        Assert.Equal(1, update.Open());
+        Assert.Equal(Away + 23, Drawn(sink), 2);
+        Assert.Equal(0, update.Animating);
+    }
+
     [Fact]
     public void Advancing_one_playback_reaches_its_final_pose_without_advancing_background_events()
     {

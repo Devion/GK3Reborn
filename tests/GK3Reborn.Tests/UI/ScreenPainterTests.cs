@@ -439,6 +439,19 @@ public sealed class ScreenPainterTests
         Assert.Equal(["CANDY"], lists);
     }
 
+    [Theory]
+    [InlineData(1, false, true)]
+    [InlineData(3, true, true)]
+    [InlineData(6, true, false)]
+    public void Poem_navigation_does_not_depend_on_the_selected_verse_rules(int page, bool back, bool forward)
+    {
+        ScreenPainter painter = Painter();
+        painter.Build(new ScreenView(new Screen(ScreenKind.InventoryInspect, "LSR_AQUARIUS"), [], null,
+            Verbs: ["READ"], Poem: SerpentRouge.Show(new GameState(), page)), Width, Height);
+        Assert.Equal(back, Middle(painter, "verb:TURN_LEFT") is not null);
+        Assert.Equal(forward, Middle(painter, "verb:TURN_RIGHT") is not null);
+    }
+
     [Fact]
     public void Turning_a_page_is_an_arrow_beside_the_page_and_not_a_verb_under_it()
     {

@@ -618,6 +618,7 @@ public sealed class FrontEndTests
         {
             MasterVolume = 0.5f,
             MusicVolume = 0.25f,
+            CutsceneVolume = 0.8f,
             AmbienceVolume = 0.75f,
             EffectsVolume = 0.1f,
             DialogueVolume = 0.9f,
@@ -625,7 +626,7 @@ public sealed class FrontEndTests
 
         Assert.Equal(0.5f, device.Gains[AudioBus.Master], 3);
         Assert.Equal(0.0625f, device.Gains[AudioBus.Music], 4);
-        Assert.Equal(0.0625f, device.Gains[AudioBus.Cinematics], 4);
+        Assert.Equal(0.64f, device.Gains[AudioBus.Cinematics], 4);
         Assert.Equal(0.75f, device.Gains[AudioBus.Ambience], 3);
 
         // Speech is played on the centred bus, so a dialogue slider that only set the
@@ -659,7 +660,7 @@ public sealed class FrontEndTests
         var device = new Levels();
         new Settings { MusicVolume = setting }.ApplyTo(device);
         Assert.Equal(gain, device.Gains[AudioBus.Music], 4);
-        Assert.Equal(gain, device.Gains[AudioBus.Cinematics], 4);
+        Assert.Equal(1f, device.Gains[AudioBus.Cinematics], 4);
     }
 
     [Fact]

@@ -129,6 +129,7 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
     private readonly HashSet<PointerButton> _clicked = [];
     private readonly HashSet<PointerButton> _doubleClicked = [];
     private readonly HashSet<EditKey> _edits = [];
+    private double _backspaceRepeatAt;
     private readonly System.Text.StringBuilder _typed = new();
     private readonly Dictionary<PointerButton, (double At, Vector2 Where)> _lastClick = [];
     private readonly HashSet<GamepadButton> _padPressed = [];
@@ -640,6 +641,23 @@ public sealed class SilkGameWindow : IGameWindow, IVulkanSurfaceSource, IWin32Wi
         double now = _window.Time;
         float seconds = _lastFrame > 0 ? (float)Math.Clamp(now - _lastFrame, 0, 0.1) : 0f;
         _lastFrame = now;
+
+        if (_keyboard?.IsKeyPressed(Key.Backspace) == true)
+        {
+            if (_backspaceRepeatAt == 0)
+            {
+                _backspaceRepeatAt = now + 0.4;
+            }
+            else if (now >= _backspaceRepeatAt)
+            {
+                _edits.Add(EditKey.Backspace);
+                _backspaceRepeatAt = now + 0.05;
+            }
+        }
+        else
+        {
+            _backspaceRepeatAt = 0;
+        }
 
         Poll();
 

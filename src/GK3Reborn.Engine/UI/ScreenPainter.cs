@@ -1188,8 +1188,10 @@ public sealed class ScreenPainter
         // What can be done to it, minus the two kinds of verb this screen draws itself.
         List<string> verbs = [.. offered.Where(v => !IsPaging(v) && !IsTheWayOut(v))];
 
-        bool back = offered.Any(v => v.Equals(TurnLeft, StringComparison.OrdinalIgnoreCase));
-        bool forward = offered.Any(v => v.Equals(TurnRight, StringComparison.OrdinalIgnoreCase));
+        bool back = view.Poem is { } bookBack ? bookBack.Number > 1
+            : offered.Any(v => v.Equals(TurnLeft, StringComparison.OrdinalIgnoreCase));
+        bool forward = view.Poem is { } bookForward ? bookForward.Number < SerpentRouge.Pages
+            : offered.Any(v => v.Equals(TurnRight, StringComparison.OrdinalIgnoreCase));
 
         float top = margin + row + (10 * unit);
         float bottom = height - margin - (verbs.Count > 0 ? row + (12 * unit) : 0);

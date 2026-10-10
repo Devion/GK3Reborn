@@ -597,6 +597,18 @@ public sealed class SceneUpdate
                 continue;
             }
 
+            // LBY205P names the stand-without-bourbon animation for the glass and
+            // its contents, but that animation only contains Buchelli. Their resting
+            // pose is the last frame of the preceding put-down animation.
+            bool glassOnTable = _scene.Name.Equals("LBY", StringComparison.OrdinalIgnoreCase) &&
+                name.Equals("vitlbystandwobrb", StringComparison.OrdinalIgnoreCase) &&
+                (model.Name.Equals("bglass", StringComparison.OrdinalIgnoreCase) ||
+                 model.Name.Equals("bourbon", StringComparison.OrdinalIgnoreCase));
+            if (glassOnTable && Animations.Read("VitLbyStandWBrb") is { } putDown)
+            {
+                animation = putDown;
+            }
+
             // A performance is not a pose, and an actor the scene has already stood somewhere does not need one.
             if (model.Kind == PlacedModelKind.Actor && model.Spotted && animation.IsPerformance)
             {
@@ -632,7 +644,14 @@ public sealed class SceneUpdate
                 var pose = new Playing( clip, target, initial, repeat: false, moves: true, Where(target.Name),
                     _geometry.TransformOf(target.Placement), character: Characters?.Of(target.Name));
 
-                pose.Open(_geometry);
+                if (glassOnTable)
+                {
+                    pose.Last(_geometry);
+                }
+                else
+                {
+                    pose.Open(_geometry);
+                }
 
                 // Where the pose leaves them is where they now are.
                 if (target.Kind == PlacedModelKind.Actor)
