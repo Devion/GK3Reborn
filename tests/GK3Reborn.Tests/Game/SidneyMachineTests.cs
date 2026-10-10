@@ -447,11 +447,9 @@ public sealed class SidneyMachineTests
     }
 
     [Fact]
-    public void A_circle_is_fitted_to_every_marked_place_not_the_first_three()
+    public void Circle_position_and_size_are_independent_of_marked_places()
     {
-        // Reported: five places marked, and the circle sailed off the top of the map
-        // through three of them ignoring the two at the bottom. The three it took were
-        // whichever had been clicked first.
+        // Even marks that determine a circle must not supply its position or radius.
         SidneyMachine sidney = Machine(out _);
 
         Opened(sidney, "PARCHMENT_2");
@@ -470,10 +468,21 @@ public sealed class SidneyMachineTests
 
         sidney.LayShape(MapShape.Circle);
 
-        Assert.Equal(700f, sidney.Map.ShapeAt.X, 1f);
-        Assert.Equal(700f, sidney.Map.ShapeAt.Y, 1f);
-        Assert.Equal(300f, sidney.Map.ShapeSize, 1f);
-        Assert.True(sidney.Map.Locked);
+        Assert.NotEqual(new Vector2(700, 700), sidney.Map.ShapeAt);
+        Assert.NotEqual(300f, sidney.Map.ShapeSize);
+        Assert.False(sidney.Map.Locked);
+        Assert.Equal(8, sidney.Map.Points.Count);
+        sidney.StartDrag(SidneyMachine.CircleHandles, 0);
+        sidney.DragTo(new Vector2(700, 700));
+        sidney.EndDrag();
+        sidney.StartDrag(SidneyMachine.CircleHandles, 1);
+        sidney.DragTo(new Vector2(1000, 700));
+        sidney.EndDrag();
+        Assert.Equal(new Vector2(700, 700), sidney.Map.ShapeAt);
+        Assert.Equal(300f, sidney.Map.ShapeSize);
+        sidney.LayShape(MapShape.Circle);
+        Assert.Equal(new Vector2(700, 700), sidney.Map.ShapeAt);
+        Assert.Equal(300f, sidney.Map.ShapeSize);
     }
 
     [Fact]
@@ -621,28 +630,18 @@ public sealed class SidneyMachineTests
         // Marked first and named after, which is one of the two ways round that work.
         sidney.LayShape(MapShape.Circle);
 
-        Assert.True(sidney.Map.Locked);
-
-        // The four places became the circle's when it was named, so it is the circle's
-        // second place that is picked up — and moving it re-fits that circle and nothing
-        // else.
-        sidney.StartDrag(0, 2);
+        LaidShape circle = sidney.Map.Working!;
+        Vector2[] marks = [.. sidney.Map.Points];
+        sidney.StartDrag(-1, 2);
         sidney.DragTo(new Vector2(120, 120));
-
-        Assert.Equal(new Vector2(120, 120), sidney.Map.Laid[0].Points[2]);
-
-        // Dragged off the circle, so the confirmation it had cannot survive being put down.
         sidney.EndDrag();
-
-        Assert.Equal(-1, sidney.Dragging);
-        Assert.False(sidney.Map.Locked);
-
-        // And back again, which re-earns it.
-        sidney.StartDrag(0, 2);
-        sidney.DragTo(new Vector2(400, 700));
+        Assert.Equal(new Vector2(120, 120), sidney.Map.Points[2]);
+        Assert.Equal(circle, sidney.Map.Working);
+        sidney.StartDrag(-1, 2);
+        sidney.DragTo(marks[2]);
         sidney.EndDrag();
-
-        Assert.True(sidney.Map.Locked);
+        Assert.Equal(marks, sidney.Map.Points);
+        Assert.Equal(circle, sidney.Map.Working);
     }
 
     [Fact]

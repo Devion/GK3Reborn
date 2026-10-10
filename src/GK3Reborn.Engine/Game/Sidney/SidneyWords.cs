@@ -167,6 +167,15 @@ public sealed class SidneyWords
             "Linea",
             "Linha",
         ],
+        ["CircleHandles"] =
+        [
+            "Drag the centre handle to move the circle. Drag an edge handle to resize it.",
+            "Ziehe den Griff in der Mitte, um den Kreis zu verschieben. Ziehe einen Griff am Rand, um seine Größe zu ändern.",
+            "Arrastra el control central para mover el círculo. Arrastra un control del borde para cambiar su tamaño.",
+            "Faites glisser la poignée centrale pour déplacer le cercle. Faites glisser une poignée du bord pour le redimensionner.",
+            "Trascina il punto centrale per spostare il cerchio. Trascina un punto sul bordo per ridimensionarlo.",
+            "Arrasta o ponto central para mover o círculo. Arrasta um ponto na borda para alterar o tamanho.",
+        ],
         ["AssistSays"] =
         [
             "SCHATGPT is a quality-of-life cheat. It solves one map puzzle for you, skipping its normal solution. Completing the final puzzle can end this chapter. Continue?",

@@ -277,10 +277,11 @@ public sealed class SidneyMap
     /// <returns>True when it was taken.</returns>
     public bool Enter(Vector2 at)
     {
-        // A figure placed by construction rather than fitted to marks — the square round
-        // the circle, the hexagram inside it — takes no marks of its own: a place marked
+        // Manually placed circles and constructed figures take no marks of their own:
+        // the villages stay independent while the player adjusts the geometry. A place marked
         // while it is in hand is a place on the map, as the meridian line's two are.
-        bool constructed = Working is { Points.Count: 0, Locked: true } working && working.Shape == Selected;
+        bool constructed = Working is { Points.Count: 0 } working && working.Shape == Selected &&
+            (working.Locked || working.Shape == MapShape.Circle);
 
         if (Selected != MapShape.None && !constructed)
         {
@@ -298,7 +299,7 @@ public sealed class SidneyMap
             return true;
         }
 
-        if (_points.Count >= 12)
+        if ((constructed && Selected == MapShape.Circle && Complete) || _points.Count >= 12)
         {
             return false;
         }
@@ -508,6 +509,31 @@ public sealed class SidneyMap
             UseShape(shape);
         }
 
+        Found = null;
+    }
+
+    /// <summary>Selects a circle whose position and radius the player controls independently of map marks.</summary>
+    public void SelectManualCircle()
+    {
+        Selected = MapShape.Circle;
+        LaidShape? circle = _laid.FirstOrDefault(l => l.Shape == MapShape.Circle && !l.Fixed);
+        if (circle is not null)
+        {
+            _laid.Remove(circle);
+            // Older saves may still give the circle ownership of the marked villages.
+            foreach (Vector2 point in circle.Points)
+            {
+                if (!_points.Contains(point))
+                {
+                    _points.Add(point);
+                }
+            }
+            _laid.Add(circle with { Points = [], Locked = false });
+        }
+        else
+        {
+            _laid.Add(new LaidShape(MapShape.Circle, new Vector2(Extent * 0.35f), Extent * 0.2f, 0f, false, []));
+        }
         Found = null;
     }
 

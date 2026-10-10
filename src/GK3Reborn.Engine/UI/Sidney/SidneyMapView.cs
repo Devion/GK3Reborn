@@ -309,6 +309,33 @@ public static class SidneyMapView
                 new Vector4(x - (dot * 2), y - (dot * 2), dot * 4, dot * 4));
         }
 
+        if (machine.Map.Working is { Shape: MapShape.Circle, Fixed: false } circle)
+        {
+            Handle(circle.At, 0);
+            Handle(circle.At + new Vector2(circle.Size, 0), 1);
+            Handle(circle.At - new Vector2(circle.Size, 0), 1);
+            Handle(circle.At + new Vector2(0, circle.Size), 1);
+            Handle(circle.At - new Vector2(0, circle.Size), 1);
+        }
+
+        void Handle(Vector2 at, int index)
+        {
+            float x = left + ((at.X - origin.X) * scale);
+            float y = top + ((at.Y - origin.Y) * scale);
+            float radius = MathF.Max(5, surface.Em(5));
+            if (x < left || x > left + side || y < top || y > top + side)
+            {
+                return;
+            }
+            float x0 = MathF.Max(left, x - radius);
+            float y0 = MathF.Max(top, y - radius);
+            var target = new Vector4(x0, y0,
+                MathF.Min(left + side, x + radius) - x0, MathF.Min(top + side, y + radius) - y0);
+            surface.Fill(target, SidneyPalette.Panel);
+            surface.Ring(x, y, radius, SidneyPalette.Amber, 2);
+            surface.Hit($"sidney:point:{SidneyMachine.CircleHandles}:{index}", target);
+        }
+
         // The Site's label and the red serpent: the two pictures the original lays over
         // the map once Scorpio and Sagittarius are done, anchored from the foot of the map
         // the way it places them, the label at half strength as it draws it.

@@ -1061,6 +1061,8 @@ public sealed class SidneyMachine
     /// <summary>Puts the machine back to its front screen.</summary>
     public void Home()
     {
+        Dragging = -1;
+        DraggingFigure = -1;
         _assistPrompt = null;
         Anagram = null;
         Menu = 0;
@@ -1921,7 +1923,14 @@ public sealed class SidneyMachine
         // used to take the figure off and its places with it, which is a lot to lose to a
         // stray click on the step that took longest. It picks the figure up to be edited
         // instead, and the map is armed for its places; ERASE SHAPE is how one goes.
-        Map.Select(shape);
+        if (shape == MapShape.Circle)
+        {
+            Map.SelectManualCircle();
+        }
+        else
+        {
+            Map.Select(shape);
+        }
         Marking = true;
 
         // A square asked for with nothing marked goes round the circle already laid, which
@@ -2025,15 +2034,27 @@ public sealed class SidneyMachine
     public int Dragging { get; private set; } = -1;
 
     /// <summary>
-    /// Which figure the dragged place belongs to, or minus one for the working set.
+    /// Which figure the dragged place belongs to, minus one for the working set, or <see cref="CircleHandles"/>.
     /// </summary>
     public int DraggingFigure { get; private set; } = -1;
+
+    /// <summary>Drag owner for the circle's centre (0) and radius (1) handles.</summary>
+    public const int CircleHandles = -2;
 
     /// <summary>Picks up a marked place.</summary>
     /// <param name="figure">Which figure it belongs to, or minus one for the working set.</param>
     /// <param name="which">Which of that figure's places.</param>
     public void StartDrag(int figure, int which)
     {
+        if (figure == CircleHandles &&
+            (which is < 0 or > 1 || Map.Working is not { Shape: MapShape.Circle, Fixed: false }))
+        {
+            return;
+        }
+        if (figure == CircleHandles)
+        {
+            Map.SelectManualCircle();
+        }
         DraggingFigure = figure;
         Dragging = which;
     }
@@ -2042,7 +2063,20 @@ public sealed class SidneyMachine
     /// <param name="to">Where the pointer is, in map pixels.</param>
     public void DragTo(System.Numerics.Vector2 to)
     {
-        if (Dragging >= 0)
+        if (DraggingFigure == CircleHandles && Dragging >= 0 &&
+            Map.Working is { Shape: MapShape.Circle, Fixed: false } circle)
+        {
+            if (!float.IsFinite(to.X) || !float.IsFinite(to.Y))
+            {
+                return;
+            }
+            Map.Rework(Dragging == 0
+                ? circle with { At = System.Numerics.Vector2.Clamp(to, System.Numerics.Vector2.Zero,
+                    new System.Numerics.Vector2(SidneyMap.Extent)), Locked = false }
+                : circle with { Size = Math.Clamp(System.Numerics.Vector2.Distance(circle.At, to), 10f,
+                    SidneyMap.Extent * 0.45f), Locked = false });
+        }
+        else if (Dragging >= 0)
         {
             Map.MovePoint(DraggingFigure, Dragging, to);
         }
@@ -2224,6 +2258,14 @@ public sealed class SidneyMachine
 
         SidneyResult laid = LayShape(shape);
 
+        // Only the explicitly confirmed assist supplies the circle's solution.
+        if (shape == MapShape.Circle && Map.Working is { Shape: MapShape.Circle } circle)
+        {
+            Map.Rework(circle with { At = SerpentRougeAnalysis.Centre, Size = SerpentRougeAnalysis.Radius });
+            RememberMap();
+            return new SidneyResult(Progress() ?? laid.Text);
+        }
+
         if (turn is { } to && Map.Working is { } working)
         {
             Map.Rework(working with { Turn = to });
@@ -2365,6 +2407,11 @@ public sealed class SidneyMachine
     /// <returns>The line to show.</returns>
     private string Note(MapShape shape)
     {
+        if (shape == MapShape.Circle && Map.Working is { Fixed: false })
+        {
+            return Words.Own("CircleHandles");
+        }
+
         foreach (LaidShape laid in Map.Laid)
         {
             if (laid.Shape == shape && laid.Locked)

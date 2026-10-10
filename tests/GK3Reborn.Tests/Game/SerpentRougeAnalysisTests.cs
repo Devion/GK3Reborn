@@ -37,6 +37,8 @@ public sealed class SerpentRougeAnalysisTests
         sidney.Mark(SerpentRougeAnalysis.Coustaussa);
         sidney.Mark(SerpentRougeAnalysis.Bezu);
         sidney.Mark(SerpentRougeAnalysis.Bugarach);
+        Assert.False(state.GetFlag("Pisces"));
+        FitCircleByHand(sidney);
         Assert.True(state.GetFlag("Pisces"));
         sidney.LayShape(MapShape.Square);
         Assert.True(state.GetFlag("Aries"));
@@ -162,6 +164,54 @@ public sealed class SerpentRougeAnalysisTests
     }
 
     /// <summary>Everything up to and including one verse, by the same road the player takes.</summary>
+    [Fact]
+    public void An_unfinished_circle_keeps_its_manual_placement_across_save_and_restore()
+    {
+        SidneyMachine sidney = Machine(out GameState state);
+        SolveThrough(sidney, state, "Aquarius");
+        sidney.LayShape(MapShape.Circle);
+        sidney.Mark(SerpentRougeAnalysis.Coustaussa);
+        sidney.Mark(SerpentRougeAnalysis.Bezu);
+        sidney.Mark(SerpentRougeAnalysis.Bugarach);
+        Vector2 start = sidney.Map.ShapeAt;
+        sidney.StartDrag(SidneyMachine.CircleHandles, 1);
+        sidney.DragTo(start + new Vector2(SerpentRougeAnalysis.Radius, 0));
+        sidney.EndDrag();
+        // The correct radius at the wrong position must not complete Pisces.
+        Assert.False(state.GetFlag("Pisces"));
+        SaveGame save = state.Capture();
+        sidney.StartDrag(SidneyMachine.CircleHandles, 0);
+        sidney.DragTo(new Vector2(250, 250));
+        sidney.EndDrag();
+        state.Restore(save);
+        sidney.Restored();
+        Assert.Equal(start, sidney.Map.ShapeAt);
+        Assert.Equal(SerpentRougeAnalysis.Radius, sidney.Map.ShapeSize);
+        Assert.Equal(3, sidney.Map.Points.Count);
+        sidney.LayShape(MapShape.Circle);
+        Assert.Equal(start, sidney.Map.ShapeAt);
+        Assert.Equal(SerpentRougeAnalysis.Radius, sidney.Map.ShapeSize);
+        sidney.StartDrag(SidneyMachine.CircleHandles, 0);
+        sidney.DragTo(SerpentRougeAnalysis.Centre);
+        sidney.EndDrag();
+        Assert.True(state.GetFlag("Pisces"));
+        LaidShape settled = sidney.Map.Laid.Single(l => l.Shape == MapShape.Circle);
+        sidney.StartDrag(SidneyMachine.CircleHandles, 1);
+        sidney.DragTo(Vector2.Zero);
+        Assert.Null(sidney.EndDrag());
+        Assert.Equal(settled, sidney.Map.Laid.Single(l => l.Shape == MapShape.Circle));
+    }
+
+    private static SidneyResult FitCircleByHand(SidneyMachine sidney)
+    {
+        sidney.StartDrag(SidneyMachine.CircleHandles, 0);
+        sidney.DragTo(SerpentRougeAnalysis.Centre);
+        sidney.EndDrag();
+        sidney.StartDrag(SidneyMachine.CircleHandles, 1);
+        sidney.DragTo(SerpentRougeAnalysis.Centre + new Vector2(SerpentRougeAnalysis.Radius, 0));
+        return sidney.EndDrag()!;
+    }
+
     private static void SolveThrough(SidneyMachine sidney, GameState state, string sign)
     {
         int upTo = Array.IndexOf(SerpentRougeAnalysis.Signs, sign);
@@ -180,6 +230,7 @@ public sealed class SerpentRougeAnalysisTests
                     sidney.Mark(SerpentRougeAnalysis.Bezu);
                     sidney.Mark(SerpentRougeAnalysis.Bugarach);
                     sidney.LayShape(MapShape.Circle);
+                    FitCircleByHand(sidney);
                     break;
                 case 2:
                     sidney.LayShape(MapShape.Square);
@@ -305,7 +356,7 @@ public sealed class SerpentRougeAnalysisTests
 
     /// <summary>
     /// Pisces: the three villages and a circle through them, which the machine sees the
-    /// moment the circle is laid. All three marked with no circle is "several linkages".
+    /// moment its position and radius are adjusted. Marks alone are "several linkages".
     /// </summary>
     [Fact]
     public void Pisces_is_a_circle_through_three_villages()
@@ -320,8 +371,12 @@ public sealed class SerpentRougeAnalysisTests
         Assert.Equal("Several linkage patterns available.", Analyse(sidney));
         Assert.False(state.GetFlag("Pisces"));
 
-        // The circle fitted through the three is the circle the answer wants.
-        string note = sidney.LayShape(MapShape.Circle).Text;
+        sidney.LayShape(MapShape.Circle);
+        Assert.False(state.GetFlag("Pisces"));
+        Assert.False(sidney.Map.Working!.Fixed);
+        Assert.NotEqual(SerpentRougeAnalysis.Centre, sidney.Map.ShapeAt);
+        Assert.NotEqual(SerpentRougeAnalysis.Radius, sidney.Map.ShapeSize);
+        string note = FitCircleByHand(sidney).Text;
 
         Assert.StartsWith("Image confirmed.", note, StringComparison.Ordinal);
         Assert.True(state.GetFlag("Pisces"));

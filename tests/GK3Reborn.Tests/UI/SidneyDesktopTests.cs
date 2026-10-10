@@ -40,6 +40,33 @@ public sealed class SidneyDesktopTests
         Assert.Equal("sidney:point:-1:0", painter.HitAt(screen));
     }
 
+    [Theory]
+    [InlineData(640, 480, 0)]
+    [InlineData(1600, 900, 0)]
+    [InlineData(1600, 900, 3)]
+    public void Circle_handles_are_hit_tested_in_map_coordinates(int width, int height, int zoom)
+    {
+        SidneyMachine sidney = Machine(out _);
+        sidney.Screen = SidneyScreen.Analyze;
+        sidney.Scan("MAP");
+        sidney.OpenFile(sidney.Files.Single(f => f.Kind == SidneyKind.Map));
+        sidney.Map.SelectManualCircle();
+        LaidShape circle = sidney.Map.Working!;
+        sidney.ZoomOn(circle.At, zoom);
+        ScreenPainter painter = Painter();
+        painter.Build(View(sidney), width, height);
+        Vector4 bounds = painter.MapBounds;
+        Vector2 ScreenAt(Vector2 at) => new Vector2(bounds.X, bounds.Y) +
+            ((at - SidneyMapView.Origin) * bounds.Z / SidneyMapView.Shown);
+        Assert.Equal("sidney:point:-2:0", painter.HitAt(ScreenAt(circle.At)));
+        Assert.Equal("sidney:point:-2:1", painter.HitAt(ScreenAt(circle.At + new Vector2(circle.Size, 0))));
+        Assert.InRange(Vector2.Distance(circle.At, painter.MapAt(ScreenAt(circle.At))), 0, 0.001f);
+        sidney.Map.Remove(MapShape.Circle);
+        sidney.Map.Fix(circle);
+        painter.Build(View(sidney), width, height);
+        Assert.NotEqual("sidney:point:-2:0", painter.HitAt(ScreenAt(circle.At)));
+    }
+
     private const string Text = """
         [Main Screen]
         MenuItem1 = SEARCH
