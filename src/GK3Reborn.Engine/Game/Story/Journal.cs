@@ -174,7 +174,11 @@ public sealed class Journal
         bool Collected(string score) => _story.HasScored(score) ||
             (quest.TitleKey == "quest.202P.10" &&
              score == "e_202p_lby_fingerprint_kit_buchelli_glass" &&
-             _story.GetFlag("GotSuitcaseBuchelliPrint"));
+             _story.GetFlag("GotSuitcaseBuchelliPrint")) ||
+            // Visiting R23 first replaces Jean's scored lobby chat with an unscored topic.
+            (quest.TitleKey == "quest.310A.1" &&
+             score == "e_310a_lby_talk_jean_wilkes" &&
+             _story.GetTopicCount("GABRIEL", "JEAN", "T_WILKES") > 0);
 
         return new JournalEntry(
             quest,

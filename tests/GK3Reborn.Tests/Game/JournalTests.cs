@@ -11,6 +11,66 @@ namespace GK3Reborn.Tests.Game;
 /// </summary>
 public sealed class JournalTests
 {
+    [Theory]
+    [InlineData("205P", "quest.205P.6", "e_sidney_map_circle,e_sidney_map_aries")]
+    [InlineData("307A", "quest.307A.3", "e_sidney_analysis_gemoetry_poussin,e_sidney_analysis_view_words_poussin,e_sidney_analysis_view_words_tenier,e_sidney_map_poussin,e_sidney_analysis_send_email_for_floor_plan")]
+    public void Puzzle_objectives_complete_before_the_chapter_ends_and_survive_loading(string timeblock, string key, string events)
+    {
+        Assert.True(Timeblock.TryParse(timeblock, out Timeblock when));
+        var state = new GameState { Timeblock = when };
+        JournalEntry Read(GameState s) => new Journal(s).Read().SelectMany(d => d.Chapters)
+            .SelectMany(c => c.Entries).Single(e => e.Quest.TitleKey == key);
+        string[] scores = events.Split(',');
+        SaveGame before = state.Capture();
+        foreach (string score in scores[..^1])
+        {
+            state.AwardScore(score, 1);
+        }
+        Assert.False(Read(state).Done);
+        Assert.Equal((float)(scores.Length - 1) / scores.Length, Read(state).Progress);
+        state.AwardScore(scores[^1], 1);
+        Assert.True(Read(state).Done);
+        Assert.Equal(1f, Read(state).Progress);
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        Assert.Equal(state.Timeblock, restored.Timeblock);
+        Assert.True(Read(restored).Done);
+        restored.Restore(before);
+        Assert.False(Read(restored).Done);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Wilkes_hotel_inquiry_accepts_Jeans_topic_or_scored_chat_without_finding_his_body(bool scoredChat)
+    {
+        var state = new GameState { Timeblock = new Timeblock(3, 10, false) };
+        JournalEntry Read(GameState s, string key = "quest.310A.1") => new Journal(s).Read()
+            .SelectMany(d => d.Chapters).SelectMany(c => c.Entries).Single(e => e.Quest.TitleKey == key);
+        foreach (string score in new[] { "e_310a_hal_overhear_jean_roxanne", "e_310a_hal_enter_r23_see_jean_roxanne", "e_310a_clo_roxanne_open_r23" })
+        {
+            state.AwardScore(score, 2);
+        }
+        Assert.False(Read(state).Done);
+        Assert.Equal(0.75f, Read(state).Progress);
+        if (scoredChat)
+        {
+            state.AwardScore("e_310a_lby_talk_jean_wilkes", 2);
+        }
+        else
+        {
+            state.SetTopicCount("JEAN", "T_WILKES", 1);
+        }
+        int points = state.Score;
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        Assert.True(Read(restored).Done);
+        Assert.Equal(1f, Read(restored).Progress);
+        Assert.False(Read(restored, "quest.310A.5").Done);
+        Assert.Equal(points, restored.Score);
+        Assert.Equal(scoredChat, restored.HasScored("e_310a_lby_talk_jean_wilkes"));
+    }
+
     [Fact]
     public void Overnight_script_time_shows_day_three_objectives_and_hints_after_reload()
     {

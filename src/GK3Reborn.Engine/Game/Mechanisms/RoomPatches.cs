@@ -122,6 +122,18 @@ public sealed class RoomPatches : SceneMechanism
     /// <summary>Reapply visibility after opening animations and the enter action.</summary>
     public void AfterOpening()
     {
+        if (_room == "HAL" && Story.Timeblock == new Timeblock(3, 10, false) &&
+            !Story.GetFlag("MaidJeanLeavingR23") &&
+            string.Equals(Story.GetActorLocation("MAID"), "R23", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(Story.GetActorLocation("JEAN"), "R23", StringComparison.OrdinalIgnoreCase))
+        {
+            // HAL310A initializes the door closed. The first-entry sequence leaves it
+            // ajar, but that sequence is not replayed when loading or returning here.
+            World.Pose("roxhalr23c", ["rox_23_door"]);
+            World.Geometry.SetSceneObjectVisible("hal_r23_gbkg", true);
+            _did = "restored Wilkes's ajar door while Jean and Roxanne are inside";
+        }
+
         if (_room is "PHO" or "LBY" && RecordedBuchelli() &&
             (_room == "LBY" || Story.GetLocationCount(Story.Ego, "PHO") > 1))
         {

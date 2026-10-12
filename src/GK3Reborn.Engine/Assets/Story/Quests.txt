@@ -137,7 +137,7 @@ Pick up what was left in the hallway | score:e_205p_hal_pickup_howard_glass | 6
 Listen in downstairs | score:e_205p_din_overhear_gabe_mosely,e_205p_lby_enter_gabe_moseley_leave,e_205p_lby_enter_bridge_start_scene | 7,8,9,19,24
 Collect what was left at the museum | score:e_205p_rc2_pickup_envelope,e_205p_inventory_fingerprint_kit_envelope | 10,11
 Follow the first verse | score:e_205p_chu_pickup_pamphlet,e_205p_off_talk_abbe_sunrise_line,e_205p_off_talk_abbe_magdalen | 12,13,14,15,16
-Follow the verses that come after | story | 17,18,20,21,22,23
+Follow the verses that come after | score:e_sidney_map_circle,e_sidney_map_aries | 17,18,20,21,22,23
 Trace what is above the church door | score:e_205p_chu_trace_statue | 25,26,27
 Work out the last of the verses | story | 28,29,30
 
@@ -150,7 +150,7 @@ Find Mosely | score:e_302a_lhm_talk_mosely | 8,9
 [307A]
 Read what Gabriel left you | score:e_307a_read_manuscript,e_307a_pickup_keys | 1,2,3
 Get the paintings into Sidney | score:e_307a_ms2_wallet_postcard1,e_307a_ms2_wallet_postcard2,e_307a_ms2_wallet_postcard3 | 4,5,6
-Find what is hidden in the paintings | story | 7,8,9,10,11,12,13,14
+Find what is hidden in the paintings | score:e_sidney_analysis_gemoetry_poussin,e_sidney_analysis_view_words_poussin,e_sidney_analysis_view_words_tenier,e_sidney_map_poussin,e_sidney_analysis_send_email_for_floor_plan | 7,8,9,10,11,12,13,14
 Search Mosely's room | score:e_307a_rmosely_room_key_r33,e_307a_r33_move_clothes | 15,16
 Borrow a pair of binoculars | score:e_307a_mop_pickup_binocs | 17,18,19,20
 Find the first of the marked places | score:e_307a_ler_pickup_note_in_cave,e_307a_ler_coordinate_device_mark_x,e_307a_ler_shovel_dig_x | 21,22,23

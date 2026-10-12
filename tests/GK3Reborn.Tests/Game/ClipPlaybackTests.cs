@@ -20,6 +20,36 @@ namespace GK3Reborn.Tests.Game;
 public sealed class ClipPlaybackTests
 {
     [Theory]
+    [InlineData("310A", "R23", "R23", false, true)]
+    [InlineData("310A", "R23", "R23", true, false)]
+    [InlineData("310A", "CLO", "LBY", false, false)]
+    [InlineData("310A", "R23", "LBY", false, false)]
+    [InlineData("310A", "CLO", "R23", false, false)]
+    [InlineData("307A", "R23", "R23", false, false)]
+    public void Wilkes_door_restores_its_ajar_pose_only_while_Jean_and_Roxanne_are_inside(
+        string timeblock, string maid, string jean, bool leaving, bool ajar)
+    {
+        (SceneUpdate world, Sink sink) = World("roxhalr23c", "door_ajar", "rox_23_door", kind: PlacedModelKind.Prop);
+        Assert.True(Timeblock.TryParse(timeblock, out Timeblock when));
+        var state = new GameState { Location = "HAL", Timeblock = when };
+        state.SetActorLocation("MAID", maid);
+        state.SetActorLocation("JEAN", jean);
+        if (leaving)
+        {
+            state.SetFlag("MaidJeanLeavingR23");
+        }
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        world.Pose("roxhalr23c", ["rox_23_door"], atEnd: false);
+        var patch = new GK3Reborn.Game.Mechanisms.RoomPatches("HAL", world, new Gk3SheepApi(restored));
+        patch.AfterOpening();
+        Assert.Equal(ajar ? 530f : 500f, sink.Poses[(0, 0)].Translation.X, 3);
+        Assert.Equal(0, world.Animating);
+        patch.AfterOpening();
+        Assert.Equal(ajar ? 530f : 500f, sink.Poses[(0, 0)].Translation.X, 3);
+    }
+
+    [Theory]
     [InlineData("bglass")]
     [InlineData("bourbon")]
     public void Lobby_glass_initial_pose_uses_the_end_of_the_put_down_animation(string model)
