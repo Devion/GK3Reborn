@@ -71,9 +71,9 @@ public static class SceneScripting
         });
 
         // Two indices, because a scriptable region on these bitmaps is painted as an area and the border around it, and opening one without the.
-        api.Register("WalkerBoundaryBlockRegion", arguments => SetRegions(scene.Walkable, arguments, open: false));
+        api.Register("WalkerBoundaryBlockRegion", arguments => SetRegions(scene, api.State, arguments, open: false));
 
-        api.Register("WalkerBoundaryUnblockRegion", arguments => SetRegions(scene.Walkable, arguments, open: true));
+        api.Register("WalkerBoundaryUnblockRegion", arguments => SetRegions(scene, api.State, arguments, open: true));
 
         AttachCameras(api, scene);
         AttachGlances(api, scene, glances);
@@ -451,11 +451,18 @@ public static class SceneScripting
         return 0f;
     }
 
-    private static SheepValue SetRegions( WalkBoundary? boundary, IReadOnlyList<SheepValue> arguments, bool open)
+    private static SheepValue SetRegions(LoadedScene scene, GameState story, IReadOnlyList<SheepValue> arguments, bool open)
     {
+        // HAL's entry script closes room 33 as (241, 225). Both 310A encounters
+        // mistakenly use (241, 226), leaving the doorway shut and trapping Madeleine
+        // inside. Correct that pair for opening and closing; 226 belongs to another door.
+        bool room33 = scene.Name.Equals("HAL", StringComparison.OrdinalIgnoreCase) &&
+            story.Timeblock == new Timeblock(3, 10, false) && arguments.Count == 2 &&
+            arguments[0].AsInt() == 241 && arguments[1].AsInt() == 226;
         foreach (SheepValue argument in arguments)
         {
-            boundary?.SetRegionOpen(argument.AsInt(), open);
+            int region = argument.AsInt();
+            scene.Walkable?.SetRegionOpen(room33 && region == 226 ? 225 : region, open);
         }
 
         return SheepValue.FromInt(0);
