@@ -168,7 +168,7 @@ Find out who has been in the rooms | score:e_310a_hal_see_mosely_sneak_from_r25,
 Tell Grace what you have found | score:e_310a_r25_talk_grace_grail,e_310a_r25_talk_grace_prince_james,e_310a_r25_talk_grace_throne,e_310a_r25_talk_grace_bloodline | 16,17
 
 [312P]
-Work through the last of the verses | story | 1,2,3,4,5,6
+Work through the last of the verses | score:e_sidney_email_open_temple_diagram,e_sidney_map_temple,e_sidney_map_scorpio,e_sidney_analysis_complete_anagram,e_sidney_map_saggittarius | 1,2,3,4,5,6
 See who has been in Madeleine's room | score:e_312p_hal_see_buchelli_sneak | 7
 Overhear the Englishwomen | score:e_312p_din_overhear_howard_estelle | 8
 Find the south-west point | score:e_312p_bec_pickup_handkerchief,e_312p_bec_coordinate_device_find_cave,e_312p_bec_shovel_cave,e_312p_bec_pickup_note_from_cave | 9,10,11

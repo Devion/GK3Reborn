@@ -36,6 +36,7 @@ public sealed class JournalTests
 
     [Theory]
     [InlineData("205P", "quest.205P.6", "e_sidney_map_circle,e_sidney_map_aries")]
+    [InlineData("312P", "quest.312P.1", "e_sidney_email_open_temple_diagram,e_sidney_map_temple,e_sidney_map_scorpio,e_sidney_analysis_complete_anagram,e_sidney_map_saggittarius")]
     [InlineData("307A", "quest.307A.3", "e_sidney_analysis_gemoetry_poussin,e_sidney_analysis_view_words_poussin,e_sidney_analysis_view_words_tenier,e_sidney_map_poussin,e_sidney_analysis_send_email_for_floor_plan")]
     public void Puzzle_objectives_complete_before_the_chapter_ends_and_survive_loading(string timeblock, string key, string events)
     {
