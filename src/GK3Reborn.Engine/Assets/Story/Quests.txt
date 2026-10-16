@@ -180,7 +180,7 @@ Ask the others about the treasure | score:e_312p_wod_talk_howard_treasure | 20,2
 Find out who took it | score:e_312p_lby_overhear_prince_james_jean | 22,23,24
 
 [303P]
-Say who took the manuscript | score:e_303p_din_answer_1st_theif_mosely,e_303p_din_answer_1st_theif_buthane,e_303p_din_answer_1st_theif_buchelli,e_303p_din_answer_buried,e_303p_din_manuscript_prints,e_303p_din_manuscript_no_prints,e_303p_din_seen_buchellis_collar_and_stub | 1
+Say who took the manuscript | score:e_303p_din_answer_1st_theif_mosely,e_303p_din_answer_1st_theif_buthane,e_303p_din_answer_1st_theif_buchelli,e_303p_din_answer_buried,e_303p_din_manuscript_prints,e_303p_din_seen_buchellis_collar_and_stub | 1
 Return the manuscript to Prince James | score:e_303p_bet_enter,e_303p_bet_talk_prince_james_bloodline,e_303p_bet_talk_prince_james_negociations,e_303p_bet_talk_prince_james_viticulture | 2,3
 Press the abbe on what he knows | score:e_303p_ma3_talk_abbe_treasure,e_303p_ma3_talk_abbe_montreaux,e_303p_ma3_talk_abbe_excavations,e_303p_ma3_talk_abbe_throne | 4
 Get Estelle's fingerprints | score:e_303p_wod_fingerprint_kit_water_bottle | 5,6

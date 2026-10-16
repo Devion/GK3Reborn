@@ -68,6 +68,8 @@ public sealed class SceneInteraction
     // can expose them through the pillow or drawer, and Alt lists them without a ray.
     private bool Revealed(string noun) => noun.ToUpperInvariant() switch
     {
+        "MANUSCRIPT_IN_HOLE" when _scene.Name.Equals("BMB", StringComparison.OrdinalIgnoreCase) =>
+            _api.State.GetNounVerbCount("MOUND_OF_DIRT", "SHOVEL") > 0,
         "PLASTIC_BAG_IN_HOLE" when _scene.Name.Equals("LMB", StringComparison.OrdinalIgnoreCase) =>
             _api.State.GetNounVerbCount("FRESH_DIRT", "SHOVEL") > 0,
         "LINEN_CLOTH" => _scene.Name.Equals("R27", StringComparison.OrdinalIgnoreCase) &&

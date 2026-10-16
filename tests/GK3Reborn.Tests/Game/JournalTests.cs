@@ -12,6 +12,29 @@ namespace GK3Reborn.Tests.Game;
 public sealed class JournalTests
 {
     [Theory]
+    [InlineData("e_303p_din_manuscript_prints")]
+    [InlineData("e_303p_din_manuscript_no_prints")]
+    public void Manuscript_interview_accepts_either_evidence_branch(string evidence)
+    {
+        var state = new GameState { Timeblock = new Timeblock(3, 3, true) };
+        JournalEntry Read(GameState s) => new Journal(s).Read().SelectMany(d => d.Chapters)
+            .SelectMany(c => c.Entries).Single(e => e.Quest.TitleKey == "quest.303P.1");
+        foreach (string score in Read(state).Quest.Scores.Where(s => s != "e_303p_din_manuscript_prints"))
+        {
+            state.AwardScore(score, 1);
+        }
+        Assert.False(Read(state).Done);
+        Assert.Equal(5f / 6, Read(state).Progress);
+        state.AwardScore(evidence, 1);
+        Assert.True(Read(state).Done);
+        Assert.Equal(1f, Read(state).Progress);
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        Assert.True(Read(restored).Done);
+        Assert.Equal(state.Score, restored.Score);
+    }
+
+    [Theory]
     [InlineData("205P", "quest.205P.6", "e_sidney_map_circle,e_sidney_map_aries")]
     [InlineData("307A", "quest.307A.3", "e_sidney_analysis_gemoetry_poussin,e_sidney_analysis_view_words_poussin,e_sidney_analysis_view_words_tenier,e_sidney_map_poussin,e_sidney_analysis_send_email_for_floor_plan")]
     public void Puzzle_objectives_complete_before_the_chapter_ends_and_survive_loading(string timeblock, string key, string events)

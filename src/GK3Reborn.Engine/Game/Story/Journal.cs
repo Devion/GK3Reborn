@@ -172,6 +172,10 @@ public sealed class Journal
         // Buchelli's glass gives no new print (or score) when Gabriel already lifted
         // his suitcase print. Count that evidence without awarding duplicate points.
         bool Collected(string score) => _story.HasScored(score) ||
+            // The interview takes exactly one of these evidence branches.
+            (quest.TitleKey == "quest.303P.1" &&
+             score == "e_303p_din_manuscript_prints" &&
+             _story.HasScored("e_303p_din_manuscript_no_prints")) ||
             (quest.TitleKey == "quest.202P.10" &&
              score == "e_202p_lby_fingerprint_kit_buchelli_glass" &&
              _story.GetFlag("GotSuitcaseBuchelliPrint")) ||

@@ -60,6 +60,7 @@ public sealed class ScenePickerTests
 
     [Theory]
     [InlineData("LMB", "manubag", "PLASTIC_BAG_IN_HOLE", "FRESH_DIRT", "SHOVEL", 1)]
+    [InlineData("BMB", "grabmbscript", "MANUSCRIPT_IN_HOLE", "MOUND_OF_DIRT", "SHOVEL", 1)]
     [InlineData("R27", "r27_emlclth", "LINEN_CLOTH", "BED2", "SEARCH", 1)]
     [InlineData("R21", "r21_collar", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
     [InlineData("R21", "r21pshirt", "PRIEST_COLLAR_IN_SUITCASE", "WARDROBE", "OPEN", 2)]
