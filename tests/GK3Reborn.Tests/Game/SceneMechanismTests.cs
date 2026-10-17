@@ -622,6 +622,7 @@ public sealed class SceneMechanismTests
 
         Assert.False(bridge.TakesFloorClick());
 
+        LightBridgeTile(bridge, 0);
         bridge.TakesClick(Tile("te5sq01"));
 
         // The landing is scheduled behind the jump rather than happening on the click, so
@@ -629,6 +630,94 @@ public sealed class SceneMechanismTests
         world.Advance(0.1);
 
         Assert.True(bridge.TakesFloorClick());
+    }
+
+    [Fact]
+    public void Bridge_claims_jumps_before_scripts_and_blocks_clicks_during_the_first_flight()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var bridge = new Bridge(world, api);
+        bridge.Begin();
+        LightBridgeTile(bridge, 0);
+        Assert.Equal("JUMP", bridge.ClaimsClick(Tile("te5sq01")));
+        bridge.TakesClick(Tile("te5sq01"));
+        Assert.Equal(string.Empty, bridge.ClaimsClick(Tile("te5_floor")));
+        Assert.True(bridge.TakesClick(Tile("te5_floor")));
+        Assert.True(bridge.TakesFloorClick());
+        world.Advance(0.1);
+        world.Advance(0.1);
+        Assert.True(bridge.TakesFloorClick());
+    }
+
+    [Fact]
+    public void Bridge_rejects_inactive_tiles_and_restarts_after_a_fall()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        api.State.PlotArmour = true;
+        var bridge = new Bridge(world, api);
+        bridge.Begin();
+        bridge.TakesClick(Tile("te5sq01"));
+        world.Advance(0.1);
+        Assert.False(bridge.TakesFloorClick());
+        LightBridgeTile(bridge, 0);
+        bridge.TakesClick(Tile("te5sq01"));
+        world.Advance(0.1);
+        world.Advance(0.1);
+        bridge.TakesClick(Tile("te5_hittest_floor"));
+        world.Advance(0.1);
+        Assert.False(bridge.TakesFloorClick());
+        Assert.Equal("JUMP", bridge.ClaimsClick(Tile("te5sq01")));
+        bridge.TakesClick(Tile("te5sq01"));
+        world.Advance(0.1);
+        Assert.True(bridge.TakesFloorClick());
+    }
+
+    private static void LightBridgeTile(Bridge bridge, int index) =>
+        typeof(Bridge).GetMethod("Glint", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(bridge, [index]);
+
+    [Fact]
+    public void Bridge_crossing_releases_room_controls_on_the_far_side()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var bridge = new Bridge(world, api);
+        bridge.Begin();
+        for (int index = 0; index < 9; index++)
+        {
+            LightBridgeTile(bridge, index);
+            Assert.True(bridge.TakesClick(Tile($"te5sq0{index + 1}")));
+            world.Advance(0.1);
+            world.Advance(0.1);
+        }
+        Assert.False(api.State.GetFlag("CrossedBridge"));
+        bridge.TakesClick(Tile("te5hittestend"));
+        world.Advance(0.1);
+        world.Advance(0.1);
+        Assert.True(api.State.GetFlag("CrossedBridge"));
+        Assert.False(bridge.TakesFloorClick());
+        Assert.Null(bridge.ClaimsClick(Tile("te5hittestend")));
+        Assert.False(bridge.TakesClick(Tile("te5hittestend")));
+    }
+
+    [Fact]
+    public void Bridge_reset_waits_for_the_fall_script()
+    {
+        (SceneUpdate world, Gk3SheepApi api) = World();
+        var bridge = new Bridge(world, api);
+        Action? reset = null;
+        api.DefersUntil = (_, work) => { reset = work; return true; };
+        bridge.Begin();
+        LightBridgeTile(bridge, 0);
+        bridge.TakesClick(Tile("te5sq01"));
+        world.Advance(0.1);
+        world.Advance(0.1);
+        bridge.TakesClick(Tile("te5_hittest_floor"));
+        world.Advance(0.1);
+        Assert.True(bridge.TakesFloorClick());
+        Assert.NotNull(reset);
+        reset();
+        Assert.False(bridge.TakesFloorClick());
+        Assert.Equal("JUMP", bridge.ClaimsClick(Tile("te5sq01")));
     }
 
     [Fact]

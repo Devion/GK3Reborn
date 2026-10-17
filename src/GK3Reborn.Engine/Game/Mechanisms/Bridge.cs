@@ -95,6 +95,8 @@ public sealed class Bridge : SceneMechanism
     /// <summary>What the pointer is over.</summary>
     private string _under = string.Empty;
 
+    private bool _busy;
+
     /// <summary>Creates the mechanism.</summary>
     /// <param name="world">The room.</param>
     /// <param name="api">The script host.</param>
@@ -510,15 +512,34 @@ public sealed class Bridge : SceneMechanism
         string.Create(CultureInfo.InvariantCulture, $"{stem}0{index + 1}");
 
     /// <inheritdoc/>
-    public override void Pointing(ScenePick? under, bool busy) =>
+    public override void Pointing(ScenePick? under, bool busy)
+    {
         _under = under?.Name ?? string.Empty;
+        _busy = busy;
+    }
+
+    /// <inheritdoc/>
+    public override string? ClaimsClick(ScenePick? under)
+    {
+        int tile = Hovered(under?.Name ?? _under);
+        if (!_jumping && _standing < 0 && tile != 0)
+        {
+            return null;
+        }
+
+        return !_jumping && !_busy && tile >= 0 && tile != _standing &&
+            (tile == Count || Solid(tile)) ? "JUMP" : string.Empty;
+    }
+
+    private bool Solid(int index) =>
+        _tiles[index].Doing is Phase.Glinting or Phase.Glowing or Phase.Held;
 
     /// <inheritdoc/>
     public override bool TakesClick(ScenePick? under)
     {
-        if (_jumping)
+        if (_jumping || _busy)
         {
-            return _standing >= 0;
+            return ClaimsClick(under) is not null;
         }
 
         int tile = Hovered(under?.Name ?? _under);
@@ -569,7 +590,7 @@ public sealed class Bridge : SceneMechanism
     }
 
     /// <inheritdoc/>
-    public override bool TakesFloorClick() => _standing >= 0;
+    public override bool TakesFloorClick() => _jumping || _standing >= 0;
 
     /// <summary>The ground at the near end.</summary>
     private const string NearFloor = "te5_floor";
@@ -603,6 +624,11 @@ public sealed class Bridge : SceneMechanism
     /// </param>
     private void Jump(int index)
     {
+        if (index >= 0 && index < Count && !Solid(index))
+        {
+            return;
+        }
+
         (int Across, int Along) to = index switch
         {
             >= 0 and < Count => Grid[index],
@@ -665,7 +691,7 @@ public sealed class Bridge : SceneMechanism
         // Snapped rather than turned. Turn is an animated pivot that takes about a second,
         // and the jump has already started: he would take off facing the old way and swing
         // round in mid-air.
-        World.Place(Story.Ego, standing, heading);
+        World.Place(Story.Ego, standing, heading, snapToGround: false);
 
         _facing = heading;
         _towards = index;
@@ -685,7 +711,7 @@ public sealed class Bridge : SceneMechanism
             _standing = index;
             _towards = -1;
 
-            World.Place(Story.Ego, landing, heading);
+            World.Place(Story.Ego, landing, heading, snapToGround: false);
 
             if (index >= 0 && index < Count)
             {
@@ -700,10 +726,11 @@ public sealed class Bridge : SceneMechanism
             Then(settling, () =>
             {
                 _jumping = false;
-                World.Place(Story.Ego, landing, heading);
+                World.Place(Story.Ego, landing, heading, snapToGround: false);
 
                 if (index == Count)
                 {
+                    _standing = -1;
                     Story.SetFlag("CrossedBridge");
                     Call("GabeCrossedBridge$");
                 }
@@ -752,17 +779,28 @@ public sealed class Bridge : SceneMechanism
 
         // Unless the player has asked not to be. The two falls are decided here rather than
         // by a script, so the armour that catches a script's Die$ never sees them.
+        void Die() => Call(inTheAir ? "BishopFallDie$" : "FallDie$");
+        IReadOnlyList<SheepThread> scripts = [];
         if (!Deathless)
         {
-            Call(inTheAir ? "BishopFallDie$" : "FallDie$");
+            if (Api.Collects is { } collect)
+            {
+                scripts = collect(Die);
+            }
+            else
+            {
+                Die();
+            }
         }
 
-        World.Next(() =>
+        void Reset()
         {
             _standing = -1;
             _towards = -1;
             _jumping = false;
             _greeted = false;
+
+            World.Place(Story.Ego, new Vector3(Start.X, 0f, Start.Y), _facing);
 
             // What he has already found, he keeps. The plates he has stood on are knowledge
             // the player has earned, and making them walk the known half of the bridge again
@@ -776,7 +814,15 @@ public sealed class Bridge : SceneMechanism
                     _tiles[i].Doing = Phase.Out;
                 }
             }
-        });
+
+            Glint(0);
+        }
+
+        // A reset must follow the fall script, not race its animation and actor placement.
+        if (Api.DefersUntil?.Invoke(scripts, Reset) != true)
+        {
+            World.Next(Reset);
+        }
     }
 
     /// <summary>Runs one of the room's own scripts.</summary>

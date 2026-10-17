@@ -12,6 +12,32 @@ namespace GK3Reborn.Tests.Game;
 public sealed class JournalTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Matching_Estelles_print_completes_the_current_evening_objective(bool scoreOnly)
+    {
+        var state = new GameState { Timeblock = new Timeblock(3, 6, true) };
+        JournalEntry Read(GameState s) => new Journal(s).Read().SelectMany(d => d.Chapters)
+            .SelectMany(c => c.Entries).Single(e => e.Quest.TitleKey == "quest.306P.2");
+        Assert.False(Read(state).Done);
+        state.SetFlag("MatchedBuchelli");
+        Assert.False(Read(state).Done);
+        if (scoreOnly)
+        {
+            state.AwardScore("e_sidney_suspect_link_fingerprint_lsr_unknown", 4);
+        }
+        else
+        {
+            state.SetFlag("MatchedEstelle");
+        }
+        Assert.True(Read(state).Done);
+        Assert.Equal(1f, Read(state).Progress);
+        var restored = new GameState();
+        restored.Restore(state.Capture());
+        Assert.True(Read(restored).Done);
+    }
+
+    [Theory]
     [InlineData("e_303p_din_manuscript_prints")]
     [InlineData("e_303p_din_manuscript_no_prints")]
     public void Manuscript_interview_accepts_either_evidence_branch(string evidence)

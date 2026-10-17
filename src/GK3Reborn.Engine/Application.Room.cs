@@ -335,8 +335,11 @@ public static partial class Application
         Vector2 pushed = Pushed(options);
 
         // Asked every frame for the reason the free camera is: it is a row on the Playing page, and a setting a player can only see work by leaving.
-        bool OnFoot() => vr is not null ? vr.Rig.Mode == Rendering.VR.VrCameraMode.FirstPerson
-            : (onFootFromTheCommandLine || front.Settings.FirstPerson) && !Flying();
+        // These puzzles move the actor through scripted jumps and authored viewpoints.
+        // Keep the preference intact so leaving the room restores the chosen perspective.
+        bool scriptedTempleRoom = scene.Name.ToUpperInvariant() is "TE1" or "TE3" or "TE4" or "TE5";
+        bool OnFoot() => !scriptedTempleRoom && (vr is not null ? vr.Rig.Mode == Rendering.VR.VrCameraMode.FirstPerson
+            : (onFootFromTheCommandLine || front.Settings.FirstPerson) && !Flying());
 
         // The shell the scene's artists drew around the space the camera may occupy.
         if (scene.CameraShell is not { IsEmpty: false } shell)

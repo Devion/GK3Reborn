@@ -193,8 +193,13 @@ public sealed class Journal
             shown < lines.Count);
     }
 
-    private bool StoryDone(Quest quest) => quest.TitleKey == "quest.104P.3" &&
-        _story.GetTopicCount("GABRIEL", "WILKES", "T_ROQUE_NEGRE") > 0;
+    private bool StoryDone(Quest quest) => quest.TitleKey switch
+    {
+        "quest.104P.3" => _story.GetTopicCount("GABRIEL", "WILKES", "T_ROQUE_NEGRE") > 0,
+        "quest.306P.2" => _story.GetFlag("MatchedEstelle") ||
+            _story.HasScored("e_sidney_suspect_link_fingerprint_lsr_unknown"),
+        _ => false,
+    };
 
     /// <summary>The lines an objective points at, in the language being played.</summary>
     private IReadOnlyList<string> Said(Quest quest) =>

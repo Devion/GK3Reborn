@@ -17,6 +17,23 @@ namespace GK3Reborn.Tests.Game;
 public sealed class IntroductionTests
 {
     [Theory]
+    [InlineData("GABRIEL", 2)]
+    [InlineData("GRACE", 2)]
+    [InlineData("GABRIEL", 3)]
+    [InlineData("GRACE", 3)]
+    public void Everyone_is_known_after_day_one_without_loading_a_save(string ego, int day)
+    {
+        var state = new GameState { Ego = ego, Timeblock = new Timeblock(day, 6, true) };
+        var table = Introductions.Open();
+        var api = new Gk3SheepApi(state);
+        foreach (string noun in table.MetBy(state.Timeblock))
+        {
+            Assert.True(table.Knows(noun, api), noun);
+        }
+        Assert.True(table.Knows("EMILIO", api));
+    }
+
+    [Theory]
     [InlineData("BUCHELLI")]
     [InlineData("WILKES")]
     [InlineData("LADY_HOWARD")]

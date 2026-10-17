@@ -151,12 +151,9 @@ public sealed class Introductions
             return true;
         }
 
-        // Grace joins the tour on day two. Gabriel's introduction topic counts
-        // belong to his ego, so they cannot identify her fellow guests for her.
-        if (api.State.Ego.Equals("GRACE", StringComparison.OrdinalIgnoreCase) &&
-            api.State.Timeblock.Day >= 2 && noun.ToUpperInvariant() is
-                "BUTHANE" or "ABBE" or "BUCHELLI" or "WILKES" or
-                "LADY_H_ESTELLE" or "LADY_HOWARD" or "ESTELLE")
+        // Apply the post-day-one rule during normal play as well as save restoration.
+        // Introduction topic counts belong to an ego and need not exist for both leads.
+        if (api.State.Timeblock.Day > 1)
         {
             return true;
         }

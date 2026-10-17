@@ -2309,7 +2309,8 @@ public sealed class SceneUpdate
     /// <param name="actor">Their model name or noun.</param>
     /// <param name="position">Where to stand them, in world space.</param>
     /// <param name="heading">Which way to face, as the game's data measures a heading.</param>
-    public bool Place(string actor, Vector3 position, float heading)
+    /// <param name="snapToGround">Whether to project onto the walk floor; false for elevated puzzle platforms.</param>
+    public bool Place(string actor, Vector3 position, float heading, bool snapToGround = true)
     {
         ArgumentNullException.ThrowIfNull(actor);
 
@@ -2319,7 +2320,7 @@ public sealed class SceneUpdate
         }
 
         // A scene's spots carry a height, but not always the floor's: several are authored at zero and rely on the room being flat there.
-        position = Standing(position);
+        position = snapToGround ? Standing(position) : position;
 
         // Whatever they were doing, they are standing here now.
         _walking.Remove(actor);
