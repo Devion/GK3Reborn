@@ -16,6 +16,7 @@ namespace GK3Reborn.Game;
 public sealed class ScoreEvents
 {
     private readonly Dictionary<string, int> _worth = new(StringComparer.OrdinalIgnoreCase);
+    private int? _maximum;
 
     private ScoreEvents()
     {
@@ -25,7 +26,7 @@ public sealed class ScoreEvents
     public int Count => _worth.Count;
 
     /// <summary>The highest score the game can reach.</summary>
-    public int Maximum => _worth.Values.Sum();
+    public int Maximum => _maximum ?? _worth.Values.Sum();
 
     /// <summary>Every event's name, in a stable order.</summary>
     public IReadOnlyList<string> Names =>
@@ -44,7 +45,11 @@ public sealed class ScoreEvents
 
         using var reader = new StreamReader(stream);
 
-        return Parse(reader.ReadToEnd());
+        ScoreEvents events = Parse(reader.ReadToEnd());
+        // The original game's maximum is 965. Summing its entire event catalogue
+        // gives 978, including alternative outcomes that cannot all be earned.
+        events._maximum = 965;
+        return events;
     }
 
     /// <summary>Reads a table.</summary>

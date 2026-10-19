@@ -403,4 +403,4 @@ Step on both mirror pedestals and see the result in the mirror. Choose the ugly 
 Place the lump of gold in the hand of the demon statue.	5/910
 On the other side of Solomon's Hall, operate the yin-yang button (5). This will open a hidden door and Gabriel will automatically enter the next hall (5)	10/920
 The Chasm	SAVE the game and choose the invisible bridge between the two pillars. Jump from one platform to another until you reach the end. SAVE before making the final jump to the other side as this is the last place where you can save your game before the final.	10/930
-Asmodeus	Be very quick here: use the talisman on Asmodeus. Jump on the sarcophagus at the far left of the room (5), use the talisman again, contact Grace for info on demons (5), use the talisman again, and then the dagger to cut Asmodeus throat (25).
+Asmodeus	You need to be quick here. Use the talisman on Asmodeus to repel him whenever needed. While he is subdued, contact Grace for info on demons (5). Climb the sarcophagus at the far left of the room (5), use the talisman again, and then use the dagger to cut Asmodeus' throat (25).

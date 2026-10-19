@@ -532,6 +532,44 @@ public sealed class JournalTests
     /// <summary>What an objective is filed under, mirroring the journal's own key.</summary>
     private static string JournalKey(Quest quest) => $"{quest.Timeblock}|{quest.Title}";
 
+    [Fact]
+    public void Final_chapter_objectives_complete_during_play_and_survive_loading()
+    {
+        var story = new GameState { Timeblock = new Timeblock(3, 9, true) };
+        string[][] awards =
+        [
+            ["e_temple_chessboard"],
+            ["e_temple_drop_platform"],
+            ["e_temple_correct_symbols_scale"],
+            ["e_temple_radio_grace_about_solomon"],
+            ["e_temple_glove_fire_bowl"],
+            ["e_temple_select_mirror", "e_temple_place_stone_on_demon"],
+            ["e_temple_veil_chamber_door_opens"],
+            ["e_temple_solve_bridge"],
+            ["e_temple_kill_demon"],
+        ];
+        Assert.Equal(9, new Journal(story).Now().Count);
+        // Catching the pendulum is not yet reaching its far side.
+        story.AwardScore("e_temple_grab_pendulum", 5);
+        Assert.Equal(9, new Journal(story).Now().Count);
+        for (int i = 0; i < awards.Length; i++)
+        {
+            foreach (string score in awards[i])
+            {
+                story.AwardScore(score, Points.Worth(score));
+            }
+            var loaded = new GameState();
+            loaded.Restore(story.Capture());
+            JournalChapter chapter = new Journal(loaded).Read().SelectMany(d => d.Chapters).Single(c => c.Current);
+            Assert.Equal(i + 1, chapter.Achieved);
+            Assert.All(chapter.Entries.Take(i + 1), e => Assert.Equal(1f, e.Progress));
+            Assert.Equal(8 - i, new Journal(loaded).Now().Count);
+        }
+        // Grace's optional demon advice must not gate defeating the demon.
+        Assert.False(story.HasScored("e_temple_radio_grace_about_demon"));
+        Assert.True(new Journal(story).Adrift);
+    }
+
     /// <summary>Every line of both tables has a key, and it is the line's own position.</summary>
     [Fact]
     public void Every_objective_and_every_line_is_numbered_by_where_it_comes()

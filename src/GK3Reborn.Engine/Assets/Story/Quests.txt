@@ -194,12 +194,12 @@ Ask Estelle about the folder | score:e_303p_lby_talk_estelle_serpent_rouge,e_303
 Get Emilio to talk | score:e_303p_hal_knock_r27 | 5
 
 [309P]
-Cross the chessboard | story | 1
-Reach the far side of the pendulum | story | 2
-Weigh the three virtues | story | 3
-Ask Grace to read the writings | story | 4
-Get the gold out of the bowl | story | 5
-Choose in front of the mirrors | story | 6,7
-Open the way onward | story | 8
-Cross the chasm | story | 9
-Deal with what is waiting | story | 10
+Cross the chessboard | score:e_temple_chessboard | 1
+Reach the far side of the pendulum | score:e_temple_drop_platform | 2
+Weigh the three virtues | score:e_temple_correct_symbols_scale | 3
+Ask Grace to read the writings | score:e_temple_radio_grace_about_solomon | 4
+Get the gold out of the bowl | score:e_temple_glove_fire_bowl | 5
+Choose in front of the mirrors | score:e_temple_select_mirror,e_temple_place_stone_on_demon | 6,7
+Open the way onward | score:e_temple_veil_chamber_door_opens | 8
+Cross the chasm | score:e_temple_solve_bridge | 9
+Deal with what is waiting | score:e_temple_kill_demon | 10

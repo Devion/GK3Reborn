@@ -432,6 +432,24 @@ public sealed class AnimationFile
                 "Anything waiting on it will not wait."));
         }
 
+        // The crucifixion film reuses the present-day actors' nouns for its roles.
+        // Correct only this film, keeping localized dialogue and timing intact.
+        if (Path.GetFileNameWithoutExtension(name).Equals("DAY3-6", StringComparison.OrdinalIgnoreCase))
+        {
+            for (int i = 0; i < captions.Count; i++)
+            {
+                captions[i] = captions[i] with
+                {
+                    Speaker = captions[i].Speaker.ToUpperInvariant() switch
+                    {
+                        "GABRIEL" => "ROMAN_SOLDIER",
+                        "ABBE" => "JESUS",
+                        _ => captions[i].Speaker,
+                    },
+                };
+            }
+        }
+
         return new AnimationFile(
             name, Math.Max(0, frames), actions, sounds, captions, mouths, faces,
             visibility, steps, textures, sceneTextures, sceneVisibility, rate)

@@ -9,6 +9,28 @@ namespace GK3Reborn.Tests.Content;
 /// </summary>
 public sealed class MovieSubtitleTests
 {
+    [Theory]
+    [InlineData("DAY3-6", "ROMAN_SOLDIER", "JESUS")]
+    [InlineData("day3-6.yak", "ROMAN_SOLDIER", "JESUS")]
+    [InlineData("207AEND.YAK", "GABRIEL", "ABBE")]
+    public void Crucifixion_speakers_are_the_roles_in_that_film_only(string name, string soldier, string jesus)
+    {
+        const string text = """
+            [HEADER]
+            300
+            [GK3]
+            3
+            30,SpeakerCaption,90,GABRIEL,A localized line.
+            90,SpeakerCaption,210,ABBE,Another line.
+            210,SpeakerCaption,300,EMILIO,Narration.
+            """;
+        AnimationFile film = AnimationFile.Parse(text, name, new DiagnosticBag());
+
+        Assert.Equal(new AnimationCaption(30, 90, soldier, "A localized line."), film.Captions[0]);
+        Assert.Equal(new AnimationCaption(90, 210, jesus, "Another line."), film.Captions[1]);
+        Assert.Equal("EMILIO", film.Captions[2].Speaker);
+    }
+
     /// <summary>A cutscene YAK, in the shape the shipped ones are in.</summary>
     private const string Film = """
         [HEADER]
